@@ -127,7 +127,8 @@ export class OpencodeHarness implements AgentHarness {
     writeFileSync(path.join(configDir, 'opencode.json'), `${JSON.stringify(config, null, 2)}\n`);
 
     // --standalone keeps each turn's server private so OPENCODE_CONFIG_DIR applies.
-    const args = ['run', '--format', 'json', '--auto', '--standalone'];
+    // --archived keeps scripted brain sessions out of the user's session list.
+    const args = ['run', '--format', 'json', '--auto', '--standalone', '--archived'];
     if (session.model) args.push('--model', session.model);
 
     return {

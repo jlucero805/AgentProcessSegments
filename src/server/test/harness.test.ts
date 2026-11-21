@@ -147,6 +147,7 @@ describe('OpencodeHarness', () => {
       'json',
       '--auto',
       '--standalone',
+      '--archived',
       '--model',
       'opencode-go/deepseek-v4.1-flash',
     ]);

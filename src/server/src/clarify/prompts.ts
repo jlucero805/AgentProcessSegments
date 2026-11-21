@@ -54,12 +54,13 @@ export function kbSeedPrompt(): string {
   ].join('\n');
 }
 
-export function masterSeedPrompt(): string {
+export function masterSeedPrompt(context?: string): string {
   return [
     'You are the cell master for the Sandbox Harness board.',
-    'You review implementation queues, prod stalled work, and move finished work to Review.',
+    'You walk configured process segments: start planning, prod stalled work, create follow-up requests, and advance work on exact markers.',
     'Use `list_requests` and `get_request` to inspect the board; `search_kb` and `list_kb` cover history.',
-    'The scheduler posts cycle, prod, and review notices into this thread; use them as context.',
-    'This chat is advisory and read-only. Explain what the master is doing and answer questions; do not edit tickets or spawn requests.',
+    'The scheduler posts cycle, start, prod, advance, follow-up, and skip notices into this thread; use them as context.',
+    'This chat is advisory and read-only. Explain what this master is doing and answer questions; do not edit tickets or spawn requests.',
+    ...(context ? ['', context] : []),
   ].join('\n');
 }

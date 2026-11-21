@@ -7,6 +7,7 @@ interface CellRow {
   id: string;
   name: string;
   master_enabled: number;
+  master_interval_minutes: number | null;
   process_json: string | null;
   created_at: number;
 }
@@ -33,6 +34,7 @@ function toCell(row: CellRow): CellDetail {
     id: row.id,
     name: row.name,
     masterEnabled: row.master_enabled === 1,
+    masterIntervalMinutes: row.master_interval_minutes,
     process: parseProcess(row.process_json),
     createdAt: row.created_at,
   };
@@ -57,13 +59,25 @@ export class CellRepository {
     return cell;
   }
 
-  create(name: string, process: ProcessConfig | null = null): CellDetail {
+  create(
+    name: string,
+    process: ProcessConfig | null = null,
+    masterIntervalMinutes: number | null = null,
+  ): CellDetail {
     const id = randomUUID();
     this.db
       .prepare(
-        'INSERT INTO cells (id, name, master_enabled, process_json, created_at) VALUES (?, ?, 1, ?, ?)',
+        `INSERT INTO cells
+           (id, name, master_enabled, master_interval_minutes, process_json, created_at)
+         VALUES (?, ?, 1, ?, ?, ?)`,
       )
-      .run(id, name, process ? JSON.stringify(process) : null, Date.now());
+      .run(
+        id,
+        name,
+        masterIntervalMinutes,
+        process ? JSON.stringify(process) : null,
+        Date.now(),
+      );
     return this.require(id);
   }
 
@@ -71,6 +85,14 @@ export class CellRepository {
     const result = this.db
       .prepare('UPDATE cells SET process_json = ? WHERE id = ?')
       .run(process ? JSON.stringify(process) : null, id);
+    if (result.changes === 0) throw new CellNotFoundError(id);
+    return this.require(id);
+  }
+
+  setMasterInterval(id: string, minutes: number | null): CellDetail {
+    const result = this.db
+      .prepare('UPDATE cells SET master_interval_minutes = ? WHERE id = ?')
+      .run(minutes, id);
     if (result.changes === 0) throw new CellNotFoundError(id);
     return this.require(id);
   }

@@ -52,13 +52,15 @@ describe('cells', () => {
     const process = defaultProcess(DEFAULT_SETTINGS.master);
     process.segments[0]!.enabled = true;
 
-    const cell = cells.create('Strict repo', process);
+    const cell = cells.create('Strict repo', process, 3);
     expect(cells.get(cell.id)?.process?.segments[0]?.enabled).toBe(true);
+    expect(cells.get(cell.id)?.masterIntervalMinutes).toBe(3);
     expect(cells.getProcess(cell.id)?.segments[0]?.enabled).toBe(true);
 
     const cleared = cells.setProcess(cell.id, null);
     expect(cleared.process).toBeNull();
     expect(cells.getProcess(cell.id)).toBeNull();
+    expect(cells.setMasterInterval(cell.id, null).masterIntervalMinutes).toBeNull();
   });
 });
 

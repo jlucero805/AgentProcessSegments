@@ -1,14 +1,11 @@
 import type { Engine, LiveTurn } from '../clarify/engine.js';
-import { MASTER_SESSION_ID } from '../clarify/engine.js';
+import { masterSessionId } from '../clarify/engine.js';
 import type { CellRepository } from '../cells/repository.js';
 import { canTransition, isTerminal, type Request, type State } from '../domain/request.js';
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
 import { SEGMENT_STATES, type ProcessConfig, type SegmentConfig } from '../process/definition.js';
-import {
-  DEFAULT_SEGMENT_PROMPTS,
-  defaultProcess,
-} from '../process/defaults.js';
+import { DEFAULT_SEGMENT_PROMPTS, defaultProcess } from '../process/defaults.js';
 import { parseFollowUps } from '../process/follow-ups.js';
 import type { ProcessStore } from '../process/store.js';
 import type { RequestRepository } from '../requests/repository.js';
@@ -30,18 +27,52 @@ export interface MasterServiceDeps {
   process?: ProcessStore | undefined;
 }
 
+function bucketKey(cellId: string | null): string {
+  return cellId ?? '';
+}
+
+function emptyResult(now: number): MasterResult {
+  return {
+    ranAt: now,
+    cells: 0,
+    dispatch: 0,
+    started: 0,
+    prodded: 0,
+    reviewed: 0,
+    advanced: 0,
+    followUps: 0,
+    skipped: 0,
+  };
+}
+
+function addResult(total: MasterResult, next: MasterResult): void {
+  total.cells += next.cells;
+  total.dispatch += next.dispatch;
+  total.started += next.started;
+  total.prodded += next.prodded;
+  total.reviewed += next.reviewed;
+  total.advanced += next.advanced;
+  total.followUps += next.followUps;
+  total.skipped += next.skipped;
+}
+
 /**
  * Deterministic process automation: walks the configured segments, starts or prods
  * due requests, records follow-up requests, and advances on exact markers.
+ *
+ * Every cell runs its own bucket with its own policy and its own master chat; the
+ * unassigned bucket uses the global template and global master chat.
  */
 export class MasterService {
   lastRunAt: number | null = null;
   lastResult: MasterResult | null = null;
 
+  private readonly lastByCell = new Map<string, { at: number; result: MasterResult }>();
+
   constructor(private readonly deps: MasterServiceDeps) {}
 
-  private note(text: string): void {
-    this.deps.engine.note(MASTER_SESSION_ID, text);
+  private note(cellId: string | null, text: string): void {
+    this.deps.engine.note(masterSessionId(cellId), text);
   }
 
   private record(event: MasterEventInput): void {
@@ -94,7 +125,12 @@ export class MasterService {
     return this.deps.engine.send(request.id, this.promptFor(segment));
   }
 
-  private createFollowUps(source: Request, text: string, segment: SegmentConfig): number {
+  private createFollowUps(
+    source: Request,
+    text: string,
+    segment: SegmentConfig,
+    cellId: string | null,
+  ): number {
     if (!segment.followUps.enabled) return 0;
     const titles = parseFollowUps(text, segment.followUps.marker);
     let created = 0;
@@ -105,13 +141,8 @@ export class MasterService {
         body: `Follow-up from "${source.title}" (${source.id}).\n\nCreated by the ${segment.label} segment.`,
         cellId: source.cellId,
       });
-      this.record({
-        cellId: source.cellId,
-        requestId: source.id,
-        action: 'followup',
-        detail: title,
-      });
-      this.note(`Created follow-up "${title}" from "${source.title}".`);
+      this.record({ cellId: source.cellId, requestId: source.id, action: 'followup', detail: title });
+      this.note(cellId, `Created follow-up "${title}" from "${source.title}".`);
       created += 1;
     }
     return created;
@@ -121,6 +152,7 @@ export class MasterService {
     request: Request,
     segment: SegmentConfig,
     text: string,
+    cellId: string | null,
   ): Promise<State | null> {
     const target = segment.advanceTo;
     if (!target || !segment.readyMarker || !text.includes(segment.readyMarker)) return null;
@@ -138,146 +170,147 @@ export class MasterService {
       detail: `agent reported ${segment.readyMarker}`,
     });
     this.note(
+      cellId,
       `Moved "${request.title}" from ${segment.label} to ${target}: agent reported ${segment.readyMarker}.`,
     );
     return target;
   }
 
+  private bucketForCell(cellId: string): Bucket {
+    const cell = this.deps.cells.require(cellId);
+    return { cellId, label: cell.name };
+  }
+
+  private async runBucket(bucket: Bucket): Promise<MasterResult> {
+    const now = Date.now();
+    const globalProcess = this.process();
+    const process =
+      bucket.cellId === null
+        ? globalProcess
+        : (this.deps.cells.getProcess(bucket.cellId) ?? globalProcess);
+    const result = emptyResult(now);
+    result.cells = 1;
+
+    for (const segment of process.segments) {
+      if (!segment.enabled) continue;
+      const queue = this.segmentQueue(segment, bucket.cellId);
+      result.dispatch += queue.length;
+
+      let handled = 0;
+      for (const request of queue) {
+        if (handled >= segment.maxPerCycle) break;
+        if (this.shouldSkip(request, now, segment)) {
+          result.skipped += 1;
+          continue;
+        }
+        handled += 1;
+
+        try {
+          const turn = await this.runTurn(segment, request);
+          const starting = segment.id === 'intake';
+          this.record({
+            cellId: bucket.cellId,
+            requestId: request.id,
+            action: starting ? 'start' : 'prod',
+            detail: request.title,
+          });
+          this.note(
+            bucket.cellId,
+            `${starting ? 'Started' : 'Prodded'} "${request.title}" in ${segment.label}.`,
+          );
+          if (starting) result.started += 1;
+          else result.prodded += 1;
+
+          await turn.promise;
+          // finishTurn persists the transcript in its finally block, one tick
+          // after the promise settles.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+
+          const text = this.lastAgentText(request.id);
+          result.followUps += this.createFollowUps(request, text, segment, bucket.cellId);
+          const target = await this.advanceIfReady(request, segment, text, bucket.cellId);
+          if (target) {
+            result.advanced += 1;
+            if (target === 'review') result.reviewed += 1;
+          }
+        } catch (error) {
+          result.skipped += 1;
+          const message = errorMessage(error);
+          this.record({
+            cellId: bucket.cellId,
+            requestId: request.id,
+            action: 'skip',
+            detail: message,
+          });
+          this.note(bucket.cellId, `Could not run "${request.title}" in ${segment.label}: ${message}`);
+        }
+      }
+    }
+
+    if (bucket.cellId !== null || result.dispatch > 0) {
+      this.record({
+        cellId: bucket.cellId,
+        requestId: null,
+        action: 'cycle',
+        detail: JSON.stringify({
+          cell: bucket.label,
+          dispatch: result.dispatch,
+          started: result.started,
+          prodded: result.prodded,
+          advanced: result.advanced,
+          followUps: result.followUps,
+          skipped: result.skipped,
+        }),
+      });
+    }
+
+    if (
+      result.dispatch > 0 ||
+      result.started > 0 ||
+      result.prodded > 0 ||
+      result.advanced > 0 ||
+      result.followUps > 0 ||
+      result.skipped > 0
+    ) {
+      this.note(
+        bucket.cellId,
+        `Master cycle: ${result.dispatch} queued, ${result.started} started, ${result.prodded} prodded, ${result.advanced} advanced, ${result.followUps} follow-ups, ${result.skipped} skipped.`,
+      );
+    }
+
+    this.lastByCell.set(bucketKey(bucket.cellId), { at: now, result });
+    this.lastRunAt = now;
+    this.lastResult = result;
+    return result;
+  }
+
+  async runCell(cellId: string): Promise<MasterResult> {
+    return this.runBucket(this.bucketForCell(cellId));
+  }
+
+  async runUnassigned(): Promise<MasterResult> {
+    return this.runBucket({ cellId: null, label: 'Unassigned' });
+  }
+
   async runOnce(): Promise<MasterResult> {
     const master = this.deps.settings.get().master;
-    const globalProcess = this.process();
-    const now = Date.now();
-
     const buckets: Bucket[] = this.deps.cells
       .list()
       .filter((cell) => cell.masterEnabled)
       .map((cell) => ({ cellId: cell.id, label: cell.name }));
     if (master.includeUnassigned) buckets.push({ cellId: null, label: 'Unassigned' });
 
-    let dispatch = 0;
-    let started = 0;
-    let prodded = 0;
-    let reviewed = 0;
-    let advanced = 0;
-    let followUps = 0;
-    let skipped = 0;
-
+    const now = Date.now();
+    const total = emptyResult(now);
     for (const bucket of buckets) {
-      // A cell can own its policy; without one it inherits the global template.
-      const process =
-        bucket.cellId === null
-          ? globalProcess
-          : (this.deps.cells.getProcess(bucket.cellId) ?? globalProcess);
-      let bucketDispatch = 0;
-      let bucketStarted = 0;
-      let bucketProdded = 0;
-      let bucketAdvanced = 0;
-      let bucketFollowUps = 0;
-      let bucketSkipped = 0;
-
-      for (const segment of process.segments) {
-        if (!segment.enabled) continue;
-        const queue = this.segmentQueue(segment, bucket.cellId);
-        bucketDispatch += queue.length;
-        dispatch += queue.length;
-
-        let handled = 0;
-        for (const request of queue) {
-          if (handled >= segment.maxPerCycle) break;
-          if (this.shouldSkip(request, now, segment)) {
-            bucketSkipped += 1;
-            skipped += 1;
-            continue;
-          }
-          handled += 1;
-
-          try {
-            const turn = await this.runTurn(segment, request);
-            const starting = segment.id === 'intake';
-            this.record({
-              cellId: bucket.cellId,
-              requestId: request.id,
-              action: starting ? 'start' : 'prod',
-              detail: request.title,
-            });
-            this.note(
-              `${starting ? 'Started' : 'Prodded'} "${request.title}" in ${segment.label}.`,
-            );
-            if (starting) {
-              bucketStarted += 1;
-              started += 1;
-            } else {
-              bucketProdded += 1;
-              prodded += 1;
-            }
-
-            await turn.promise;
-            // finishTurn persists the transcript in its finally block, one tick
-            // after the promise settles.
-            await new Promise<void>((resolve) => setImmediate(resolve));
-
-            const text = this.lastAgentText(request.id);
-            const created = this.createFollowUps(request, text, segment);
-            bucketFollowUps += created;
-            followUps += created;
-
-            const target = await this.advanceIfReady(request, segment, text);
-            if (target) {
-              bucketAdvanced += 1;
-              advanced += 1;
-              if (target === 'review') reviewed += 1;
-            }
-          } catch (error) {
-            bucketSkipped += 1;
-            skipped += 1;
-            const message = errorMessage(error);
-            this.record({
-              cellId: bucket.cellId,
-              requestId: request.id,
-              action: 'skip',
-              detail: message,
-            });
-            this.note(`Could not run "${request.title}" in ${segment.label}: ${message}`);
-          }
-        }
-      }
-
-      if (bucket.cellId !== null || bucketDispatch > 0) {
-        this.record({
-          cellId: bucket.cellId,
-          requestId: null,
-          action: 'cycle',
-          detail: JSON.stringify({
-            cell: bucket.label,
-            dispatch: bucketDispatch,
-            started: bucketStarted,
-            prodded: bucketProdded,
-            advanced: bucketAdvanced,
-            followUps: bucketFollowUps,
-            skipped: bucketSkipped,
-          }),
-        });
-      }
-    }
-
-    const result: MasterResult = {
-      ranAt: now,
-      cells: buckets.length,
-      dispatch,
-      started,
-      prodded,
-      reviewed,
-      advanced,
-      followUps,
-      skipped,
-    };
-    if (dispatch > 0 || started > 0 || prodded > 0 || advanced > 0 || followUps > 0 || skipped > 0) {
-      this.note(
-        `Master cycle: ${dispatch} queued, ${started} started, ${prodded} prodded, ${advanced} advanced, ${followUps} follow-ups, ${skipped} skipped.`,
-      );
+      addResult(total, await this.runBucket(bucket));
     }
     this.lastRunAt = now;
-    this.lastResult = result;
-    return result;
+    this.lastResult = total;
+    return total;
+  }
+
+  lastFor(cellId: string | null): { at: number; result: MasterResult } | null {
+    return this.lastByCell.get(bucketKey(cellId)) ?? null;
   }
 }

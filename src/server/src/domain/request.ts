@@ -55,6 +55,8 @@ export interface Cell {
   id: string;
   name: string;
   masterEnabled: boolean;
+  /** Null means inherit the scheduler's global interval. */
+  masterIntervalMinutes: number | null;
   createdAt: number;
 }
 

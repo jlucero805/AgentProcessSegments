@@ -5,7 +5,8 @@ import { existsSync } from 'node:fs';
 import { ZodError, z } from 'zod';
 import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
-import { KB_SESSION_ID, MASTER_SESSION_ID } from '../clarify/engine.js';
+import { KB_SESSION_ID, masterCellId, isMasterSession } from '../clarify/engine.js';
+import { isVirtualSessionId } from '../clarify/engine.js';
 import type { ModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import {
@@ -92,24 +93,28 @@ const pluginSchema = z.object({
 const cellSchema = z.object({
   name: z.string().min(1),
   process: processSchema.optional(),
+  masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
 });
 const cellPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
     masterEnabled: z.boolean().optional(),
+    masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
     (value) =>
       value.name !== undefined ||
       value.masterEnabled !== undefined ||
+      value.masterIntervalMinutes !== undefined ||
       value.process !== undefined,
-    { message: 'name, masterEnabled, or process is required' },
+    { message: 'name, masterEnabled, masterIntervalMinutes, or process is required' },
   );
 const masterEventsQuerySchema = z.object({
   cellId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
+const masterQuerySchema = z.object({ cellId: z.string().optional() });
 
 interface Stream {
   emit: (event: ClarifyEvent) => void;
@@ -184,13 +189,30 @@ async function respondTurn(
 }
 
 function isVirtualSession(id: string): boolean {
-  return id === KB_SESSION_ID || id === MASTER_SESSION_ID;
+  return isVirtualSessionId(id);
+}
+
+function masterChatContext(cells: CellRepository, id: string): string | undefined {
+  const cellId = masterCellId(id);
+  if (!cellId) return 'Scope: unassigned work and the global process template.';
+  const cell = cells.get(cellId);
+  if (!cell) return 'Scope: a cell that no longer exists.';
+  const interval = cell.masterIntervalMinutes
+    ? `${cell.masterIntervalMinutes} minutes`
+    : 'the global interval';
+  const policy = cell.process ? 'this cell’s own process snapshot' : 'the global process template';
+  return `Scope: cell "${cell.name}". Master interval: ${interval}. Policy: ${policy}.`;
 }
 
 /** Start or continue a turn, routing the reserved sessions to their own entry points. */
-function sessionTurn(engine: Engine, id: string, text?: string): Promise<LiveTurn> {
+function sessionTurn(
+  engine: Engine,
+  id: string,
+  text?: string,
+  context?: string,
+): Promise<LiveTurn> {
   if (id === KB_SESSION_ID) return engine.startKb(text ?? '');
-  if (id === MASTER_SESSION_ID) return engine.startMaster(text ?? '');
+  if (isMasterSession(id)) return engine.startMaster(text ?? '', id, context);
   return text === undefined ? engine.start(id) : engine.send(id, text);
 }
 
@@ -296,7 +318,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       reply,
       engine,
       id,
-      sessionTurn(engine, id),
+      sessionTurn(engine, id, undefined, masterChatContext(cells, id)),
       () => (isVirtualSession(id) ? null : repo.get(id)),
       wantsDetach(request.query),
     );
@@ -309,7 +331,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       reply,
       engine,
       id,
-      sessionTurn(engine, id, text),
+      sessionTurn(engine, id, text, masterChatContext(cells, id)),
       () => (isVirtualSession(id) ? null : repo.get(id)),
       wantsDetach(request.query),
     );
@@ -423,7 +445,12 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.post('/api/cells', async (request, reply) => {
     const input = cellSchema.parse(request.body);
-    const created = cells.create(input.name, input.process ?? processStore.get());
+    const created = cells.create(
+      input.name,
+      input.process ?? processStore.get(),
+      input.masterIntervalMinutes ?? null,
+    );
+    master.refresh();
     return reply.code(201).send(created);
   });
 
@@ -432,13 +459,18 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const body = cellPatchSchema.parse(request.body);
     if (body.name !== undefined) cells.rename(id, body.name);
     if (body.masterEnabled !== undefined) cells.setMasterEnabled(id, body.masterEnabled);
+    if (body.masterIntervalMinutes !== undefined) {
+      cells.setMasterInterval(id, body.masterIntervalMinutes);
+    }
     if (body.process !== undefined) cells.setProcess(id, body.process);
+    master.refresh();
     return cells.require(id);
   });
 
   app.delete('/api/cells/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     cells.remove(id);
+    master.refresh();
     return reply.code(204).send();
   });
 
@@ -469,8 +501,14 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     path: processStore.path,
   }));
 
-  app.get('/api/master/status', async () => master.status());
-  app.post('/api/master/run', async () => master.runNow());
+  app.get('/api/master/status', async (request) => {
+    const query = masterQuerySchema.parse(request.query);
+    return query.cellId ? master.statusFor(query.cellId) : master.status();
+  });
+  app.post('/api/master/run', async (request) => {
+    const query = masterQuerySchema.parse(request.query);
+    return query.cellId ? master.runNow(query.cellId) : master.runNow();
+  });
   app.get('/api/master/events', async (request) => {
     const query = masterEventsQuerySchema.parse(request.query);
     return masterEvents.list(query);

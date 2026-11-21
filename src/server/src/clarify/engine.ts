@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Request, TranscriptMsg } from '../domain/request.js';
+import { KB_SESSION_ID, MASTER_SESSION_ID } from '../domain/sessions.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
@@ -10,8 +11,14 @@ import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPro
 import type { AgentProcess } from './transport.js';
 import { ensureWorktree, removeWorktree } from './worktree.js';
 
-export const KB_SESSION_ID = '__kb__';
-export const MASTER_SESSION_ID = '__master__';
+export {
+  KB_SESSION_ID,
+  MASTER_SESSION_ID,
+  isMasterSession,
+  isVirtualSessionId,
+  masterCellId,
+  masterSessionId,
+} from '../domain/sessions.js';
 
 export interface LiveTurn {
   readonly events: ClarifyEvent[];
@@ -131,16 +138,20 @@ export class Engine {
     return this.beginTurn(KB_SESSION_ID, message, null);
   }
 
-  /** Chat with the cell master. Advisory and read-only; the scheduler notes into it. */
-  async startMaster(text: string): Promise<LiveTurn> {
-    const existing = this.turns.get(MASTER_SESSION_ID);
+  /** Chat with a cell master. Advisory and read-only; the scheduler notes into it. */
+  async startMaster(
+    text: string,
+    sessionId: string = MASTER_SESSION_ID,
+    context?: string,
+  ): Promise<LiveTurn> {
+    const existing = this.turns.get(sessionId);
     if (existing) return existing;
-    const message = this.readSession(MASTER_SESSION_ID)
+    const message = this.readSession(sessionId)
       ? text.trim() === ''
-        ? 'Report the current board state and what the master has been doing.'
+        ? 'Report the current board state and what this cell master has been doing.'
         : text
-      : `${masterSeedPrompt()}\n\n---\n\n${text}`;
-    return this.beginTurn(MASTER_SESSION_ID, message, null);
+      : `${masterSeedPrompt(context)}\n\n---\n\n${text}`;
+    return this.beginTurn(sessionId, message, null);
   }
 
   /** Append a master log line to its chat without starting a model turn. */

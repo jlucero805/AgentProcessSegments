@@ -38,7 +38,7 @@ export async function main(): Promise<void> {
   const models = new ModelCatalog(harness);
   const masterEvents = new MasterEventRepository(db);
   const masterService = new MasterService({ repo, cells, engine, settings, events: masterEvents, process: processStore });
-  const master = new MasterScheduler(masterService, settings);
+  const master = new MasterScheduler(masterService, settings, cells);
 
   const app = await buildServer({
     repo,

@@ -126,6 +126,26 @@ describe('turn engine', () => {
     ).toBe(true);
   });
 
+  it('runs a separate master chat per cell session', async () => {
+    const h = fresh(() => defaultScript());
+    const session = '__master__:cell-1';
+
+    const turn = await h.engine.startMaster('what is this cell doing?', session);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions[0]).toMatchObject({ scope: 'master', requestId: '' });
+    expect(h.engine.transcript(session).some((message) => message.text.includes('cell master'))).toBe(
+      true,
+    );
+    expect(h.engine.transcript(MASTER_SESSION_ID)).toHaveLength(0);
+
+    h.engine.note(session, 'Cell cycle: 1 prodded');
+    expect(
+      h.engine.transcript(session).some((message) => message.text.includes('Cell cycle')),
+    ).toBe(true);
+  });
+
   it('marks a request started when its first message is sent', async () => {
     const h = fresh(() => defaultScript());
     const request = h.repo.create({ title: 'Send first' });

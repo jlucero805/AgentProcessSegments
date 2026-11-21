@@ -55,6 +55,7 @@ describe('db migrations', () => {
     expect(columns(db, 'requests')).toContain('cell_id');
     expect(columns(db, 'cells')).toContain('master_enabled');
     expect(columns(db, 'cells')).toContain('process_json');
+    expect(columns(db, 'cells')).toContain('master_interval_minutes');
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );

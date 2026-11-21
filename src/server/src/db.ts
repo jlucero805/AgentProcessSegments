@@ -6,11 +6,12 @@ export type Db = Database.Database;
 
 const BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cells (
-  id             TEXT PRIMARY KEY,
-  name           TEXT NOT NULL,
-  master_enabled INTEGER NOT NULL DEFAULT 1,
-  process_json   TEXT,
-  created_at     INTEGER NOT NULL
+  id                       TEXT PRIMARY KEY,
+  name                     TEXT NOT NULL,
+  master_enabled           INTEGER NOT NULL DEFAULT 1,
+  master_interval_minutes  INTEGER,
+  process_json             TEXT,
+  created_at               INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS requests (
@@ -80,6 +81,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['requests', 'cr_url', 'TEXT'],
   ['requests', 'cell_id', 'TEXT'],
   ['cells', 'master_enabled', 'INTEGER NOT NULL DEFAULT 1'],
+  ['cells', 'master_interval_minutes', 'INTEGER'],
   ['cells', 'process_json', 'TEXT'],
 ];
 

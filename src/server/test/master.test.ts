@@ -259,6 +259,9 @@ describe('MasterService', () => {
     expect(fixture.started).toEqual([intakeRequest.id]);
     expect(result.prodded).toBe(0);
     expect(fixture.repo.require(dispatch.id).state).toBe('dispatch');
+    const notes = (fixture.engine.note as ReturnType<typeof vi.fn>).mock.calls;
+    expect(notes.some(([session]) => session === `__master__:${cell.id}`)).toBe(true);
+    expect(notes.every(([session]) => session !== '__master__')).toBe(true);
   });
 
   it('creates follow-up requests once per unique callout', async () => {
@@ -300,42 +303,57 @@ describe('MasterService', () => {
 });
 
 describe('MasterScheduler', () => {
-  it('runs on the configured cadence and stops when disabled', async () => {
+  function emptyResult() {
+    return {
+      ranAt: Date.now(),
+      cells: 0,
+      dispatch: 0,
+      started: 0,
+      prodded: 0,
+      reviewed: 0,
+      advanced: 0,
+      followUps: 0,
+      skipped: 0,
+    };
+  }
+
+  it('runs a cell on its own interval and stops when disabled', async () => {
     vi.useFakeTimers();
     try {
-      const settings = new SettingsStore(path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'));
-      const runOnce = vi.fn(async () => ({
-        ranAt: Date.now(),
-        cells: 0,
-        dispatch: 0,
-        prodded: 0,
-        reviewed: 0,
-        skipped: 0,
-      }));
+      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const settings = new SettingsStore(path.join(base, 'config.json'));
+      settings.patch({ master: { includeUnassigned: false } });
+      const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+      const cell = cells.create('Alpha', null, 2);
+      const runCell = vi.fn(async () => emptyResult());
       const service = {
-        runOnce,
+        runOnce: vi.fn(async () => emptyResult()),
+        runCell,
+        runUnassigned: vi.fn(async () => emptyResult()),
         lastRunAt: null,
         lastResult: null,
+        lastFor: vi.fn(() => null),
       } as unknown as MasterService;
-      const scheduler = new MasterScheduler(service, settings);
+      const scheduler = new MasterScheduler(service, settings, cells);
       scheduler.start();
 
-      expect(scheduler.status()).toMatchObject({
+      expect(scheduler.statusFor(cell.id)).toMatchObject({
         enabled: true,
-        intervalMinutes: 5,
+        intervalMinutes: 2,
         running: false,
       });
-      expect(scheduler.status().nextRunAt).not.toBeNull();
+      expect(scheduler.statusFor(cell.id).nextRunAt).not.toBeNull();
 
-      await vi.advanceTimersByTimeAsync(5 * 60_000);
-      expect(runOnce).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledWith(cell.id);
 
       settings.patch({ master: { enabled: false } });
-      expect(scheduler.status().nextRunAt).toBeNull();
-      await vi.advanceTimersByTimeAsync(5 * 60_000);
-      expect(runOnce).toHaveBeenCalledTimes(1);
+      expect(scheduler.statusFor(cell.id).nextRunAt).toBeNull();
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
 
       scheduler.stop();
+      cells.list();
     } finally {
       vi.useRealTimers();
     }
@@ -344,15 +362,23 @@ describe('MasterScheduler', () => {
   it('coalesces concurrent run-now calls', async () => {
     const settings = new SettingsStore(path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'));
     let release!: (value: unknown) => void;
-    const result = { ranAt: 1, cells: 0, dispatch: 0, prodded: 0, reviewed: 0, skipped: 0 };
+    const result = emptyResult();
     const runOnce = vi.fn(
       () => new Promise((resolve) => {
         release = resolve;
       }),
     );
     const scheduler = new MasterScheduler(
-      { runOnce, lastRunAt: null, lastResult: null } as unknown as MasterService,
+      {
+        runOnce,
+        runCell: vi.fn(),
+        runUnassigned: vi.fn(),
+        lastRunAt: null,
+        lastResult: null,
+        lastFor: vi.fn(() => null),
+      } as unknown as MasterService,
       settings,
+      new CellRepository(openDb(':memory:')),
     );
 
     const first = scheduler.runNow();

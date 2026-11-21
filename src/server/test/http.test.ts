@@ -33,6 +33,7 @@ async function makeApp(
   const master = new MasterScheduler(
     new MasterService({ repo: h.repo, cells: h.cells, engine: h.engine, settings, events: masterEvents, process }),
     settings,
+    h.cells,
   );
   const app = await buildServer({
     repo: h.repo,
@@ -269,8 +270,10 @@ describe('http api', () => {
     const created = await call('POST', '/api/cells', {
       name: 'Strict repo',
       process: { version: 1, segments: configured },
+      masterIntervalMinutes: 3,
     });
     expect(created.status).toBe(201);
+    expect(created.json().masterIntervalMinutes).toBe(3);
     expect(
       created
         .json()
@@ -458,6 +461,31 @@ describe('http api', () => {
     expect(sent.status).toBe(200);
     expect(sent.text).toContain('"t":"done"');
     expect(h.harness.sessions[0]).toMatchObject({ scope: 'master', requestId: '' });
+  });
+
+  it('serves a separate master chat and status per cell', async () => {
+    const { h } = await makeApp();
+    const cell = h.cells.create('Alpha', null, 3);
+    const session = `__master__:${cell.id}`;
+    h.engine.note(session, 'Cell cycle: 1 prodded');
+
+    const snapshot = await call('GET', `/api/requests/${session}/clarify`);
+    expect(snapshot.status).toBe(200);
+    expect(
+      snapshot.json().transcript.some((message: { text: string }) =>
+        message.text.includes('Cell cycle'),
+      ),
+    ).toBe(true);
+
+    const sent = await call('POST', `/api/requests/${session}/clarify/send`, {
+      text: 'what is this cell doing?',
+    });
+    expect(sent.status).toBe(200);
+    expect(sent.text).toContain('"t":"done"');
+    expect(h.harness.sessions[0]).toMatchObject({ scope: 'master', requestId: '' });
+
+    const status = await call('GET', `/api/master/status?cellId=${cell.id}`);
+    expect(status.json()).toMatchObject({ enabled: true, intervalMinutes: 3 });
   });
 
   it('stops a live turn over HTTP', async () => {

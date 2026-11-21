@@ -25,17 +25,20 @@ versions.
 **Cost.** Route code is written against v5 types. A v4 deployment would need the error
 handler and websocket registration revisited.
 
-## D3. An `AgentTransport` seam instead of calling `spawn` from the engine
+## D3. An `AgentHarness` seam instead of calling `spawn` from the engine
 
-**Context.** No `claude` binary exists on this machine, so an engine that spawns
-directly cannot be tested at all.
+**Context.** No `claude` binary existed on the rebuild machine, and the operator wants
+the agent substrate swappable (OpenCode today, others later), so an engine that spawns
+one CLI directly is both untestable and closed.
 
-**Decision.** The engine takes an `AgentTransport`. Production uses
-`ClaudeCliTransport`; tests use `FakeTransport`, which records spawn options and lets a
-test emit stream-json lines and exits by hand.
+**Decision.** The engine takes an `AgentHarness`: prepare a session config, spawn a
+process, create its parser, and probe its models. Production registers `claude`
+(default) and `opencode`; tests use `FakeHarness`, which records session prep and lets a
+test emit lines and exits by hand.
 
-**Cost.** One extra indirection. In exchange the turn lifecycle, idempotency, status
-transitions, resume, and error paths are all covered without the CLI.
+**Cost.** One indirection and a harness-specific parser. In exchange the turn lifecycle,
+idempotency, status transitions, resume, and error paths are covered without a real CLI,
+and a new substrate is a single adapter.
 
 ## D4. The stream parser is pure
 
@@ -116,18 +119,22 @@ transitions state.
 **Cost.** The agent cannot finish its own request. That is the conservative reading of
 the workflow, where "Index and finalize" belongs to the human.
 
-## D11. User MCP servers are not merged into the generated config yet
+## D11. User MCP servers are merged into the generated session config
 
-**Context.** The spec says request sessions get the user's MCP servers and also passes
-`--strict-mcp-config` with a generated file containing only `harness`. Those two claims
-conflict, and the exact CLI contract for reading a user's server definitions cannot be
-verified without the CLI installed.
+**Context.** The spec says request sessions get the user's MCP servers, but the engine
+passes `--strict-mcp-config` with a generated file. The merge was deferred until the CLI
+contract could be read.
 
-**Decision.** Ship the allowlist side only (`parseMcpListServers` is implemented and
-unused) and leave the merge for when a real binary is available.
+**Decision.** Merge definitions into every request session, never the read-only KB
+session. Claude reads user and local scopes from `~/.claude.json` plus project
+`<cwd>/.mcp.json`, adds them to `mcp-config.json`, and allows each server with
+`mcp__<server>__*` (the CLI's wildcard rule). OpenCode merges `mcp` entries from its
+config into the generated `OPENCODE_CONFIG_DIR/opencode.json`; `--auto` makes them
+callable.
 
-**Cost.** A request session cannot call the user's own MCP tools. Documented in
-`docs/02-status.md`. This is the next unit.
+**Cost.** Claude's definition files are private storage, not a documented API, so a CLI
+change can break the read. The wildcard rules are verified from the CLI's own strings
+but not yet from a live Claude turn; OpenCode's path is verified end to end.
 
 ## D12. Infrastructure names generalized before publishing
 
@@ -183,3 +190,18 @@ documented for multi-user hosts.
 **Cost.** A fresh machine needs the linger step and a reachable user manager; a host
 without systemd (a plain container) runs the foreground command instead. The unit binds
 loopback only, so remote access still needs the tunnel.
+
+## D16. The OpenCode adapter is one-shot per turn
+
+**Context.** `claude -p` accepts a stream-json conversation on stdin, but
+`opencode run` takes one message per invocation.
+
+**Decision.** Spawn `opencode run --format json --auto --standalone` per turn. Parse
+`text`, `tool_use`, `step_finish`, and `error`; capture the `ses_…` id and pass
+`--session` next turn. `--standalone` gives each turn a private server so
+`OPENCODE_CONFIG_DIR` (the generated per-request config) applies. KB sessions get
+explicit deny permissions instead of a tool allowlist.
+
+**Cost.** A server start per turn (roughly a second) and no long-lived child. Session
+continuity still survives a brain restart because the session id lives in `session.json`
+and on OpenCode's disk.

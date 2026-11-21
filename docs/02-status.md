@@ -33,6 +33,19 @@ built and vended by the brain; real-CLI verification is still pending.
   to the loopback API. Request sessions get `update_request`, `get_request`,
   `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and
   `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool.
+- Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
+  probe behind one interface. `claude` is the default; `SBOX_HARNESS=opencode` selects
+  the OpenCode adapter, which runs `opencode run --format json --auto --standalone` per
+  turn, injects config through `OPENCODE_CONFIG_DIR`, resumes with `--session`, and
+  probes `opencode models`.
+- User MCP servers are merged into request sessions: Claude reads user/local/project
+  definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
+  `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
+  with `--auto`. Read-only KB sessions exclude user servers and plugins.
+- OpenCode verified end to end on this host: 44 probed models, a 50 s clarify turn with
+  tool cards and `tools.harness.*` MCP calls, a 20-message persisted transcript, session
+  resume after a brain restart with correct recall, and a KB turn with read-only
+  permissions.
 - Plugin manager: shallow clone, optional monorepo subdir, manifest verification,
   hook and MCP stripping, replace-on-reinstall, slug-guarded removal, and slash-command
   discovery from `commands/**/*.md` and `skills/*/SKILL.md`. Local directory sources are
@@ -44,7 +57,7 @@ built and vended by the brain; real-CLI verification is still pending.
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served.
-- 95 vitest cases, all passing: 61 server across 10 files and 34 web across 8 files,
+- 109 vitest cases, all passing: 75 server across 12 files and 34 web across 8 files,
   plus `scripts/smoke.sh` (built brain) and `scripts/mcp-smoke.mjs` (built brain plus
   built MCP server over real stdio).
 - Deployment: a systemd user unit in `deploy/sandbox-harness.service` and a VPS runbook
@@ -55,10 +68,9 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Deviations from the spec
 
-- `better-sqlite3` is v11, not the spec's v9 pin. That pin existed because v11 needed
-  Node 22 on the original machine; this machine runs Node 22.7, where v9 has no
-  prebuilt binary. v11 loads from a prebuild and was verified before any code was
-  written.
+- `better-sqlite3` is v11, not the spec's v9 pin. The rebuild targeted Node 22.7, where
+  v9 has no prebuilt binary; this host runs Node 24, where v11 compiles from source and
+  needs `make`, `g++`, and `python3`.
 - `@fastify/static` v8, `@fastify/websocket` v11, Fastify v5. The spec named the
   plugins, not versions.
 - HTTP tests use a real listening socket instead of `app.inject()`. On Node 22.7,
@@ -68,13 +80,18 @@ built and vended by the brain; real-CLI verification is still pending.
   React 18, as the spec names. The registry now ships 0.15, which moved the primitives.
   Tailwind stays v3, with PostCSS and autoprefixer wired through `postcss.config.js`.
   Vite 8 and Vitest 5 run in the web workspace; the server keeps Vitest 2.
+- The OpenCode adapter runs one process per turn instead of one long-lived child: the
+  CLI is one-shot per message. `--session` carries continuity, `--standalone` isolates
+  each turn's config, and `--auto` is the request-session permission posture (the KB
+  session gets explicit deny rules).
+- `SBOX_HARNESS` selects the substrate; `SBOX_HARNESS_BIN` overrides the binary.
+  `SBOX_CLAUDE_BIN` remains the Claude-specific override.
 
 ## Not built yet
 
-- The model probe is implemented but unverified, because `claude` is not installed
-  here. `GET /api/models` returns `source: "fallback"` in this environment.
-- User MCP servers are not merged into the generated `mcp-config.json` and
-  `parseMcpListServers` is not wired in.
+- Claude real-CLI verification: no `claude` binary is installed here, so Claude turns,
+  its model probe (`source: "probe"`), the merged-MCP allowlist, and `--resume` are
+  unverified against the real CLI. OpenCode covers the live end-to-end path.
 - No CI/pipeline integration, no embeddings over the KB.
 
 ## Route list

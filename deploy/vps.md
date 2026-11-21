@@ -10,9 +10,38 @@ This runbook assumes a single-user VPS with:
 - `git`.
 - Build tools (`make`, `g++`, `python3`) when `better-sqlite3` v11 has no prebuild for the
   Node version; on Node 24 it compiles from source.
-- the `claude` CLI on the service `PATH` for real agent turns.
-- `herdr-core` installed if you use interactive terminals. The brain drives `claude`
+- an agent CLI on the service `PATH`: `claude` (default) or `opencode`.
+- `herdr-core` installed if you use interactive terminals. The brain drives the agent CLI
   directly and does not import herdr.
+
+## Agent harness
+
+`SBOX_HARNESS` selects the substrate: `claude` (default) or `opencode`.
+`SBOX_HARNESS_BIN` overrides the binary; `SBOX_CLAUDE_BIN` still works for the Claude
+case.
+
+With `opencode`, the brain probes `opencode models`, writes a per-request
+`OPENCODE_CONFIG_DIR` containing the harness MCP server plus the user's MCP servers, and
+runs `opencode run --format json --auto --standalone` once per turn, resuming with
+`--session`. User MCP servers are read from the user's OpenCode config. The knowledge
+base session is forced read-only.
+
+```bash
+# either select it in the unit …
+#   Environment=SBOX_HARNESS=opencode
+# … or in a drop-in:
+mkdir -p ~/.config/systemd/user/sandbox-harness.service.d
+cat > ~/.config/systemd/user/sandbox-harness.service.d/harness.conf <<'EOF'
+[Service]
+Environment=SBOX_HARNESS=opencode
+Environment=SBOX_HARNESS_BIN=%h/.opencode/bin/opencode
+EOF
+systemctl --user daemon-reload
+systemctl --user restart sandbox-harness
+```
+
+The unit's `PATH` includes `%h/.opencode/bin`, so an install there resolves without the
+binary override.
 
 ## Install as a systemd user unit
 
@@ -100,7 +129,8 @@ Environment=SBOX_PORT=7391
 Environment=SBOX_DB=/srv/sandbox-harness/sandbox-harness.sqlite
 Environment=SBOX_WEB_DIR=/srv/sandbox-harness/src/web/dist
 Environment=SBOX_DATA_DIR=/home/sandbox/.sandbox-harness
-Environment=PATH=/home/sandbox/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/sandbox/.local/bin:/home/sandbox/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+# Optional: Environment=SBOX_HARNESS=opencode
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10
@@ -120,15 +150,18 @@ sudo systemctl status sandbox-harness --no-pager
 
 `herdr-core` keeps interactive terminals alive; the brain is a separate process. Run
 herdr under its own unit or session so restarting the brain cannot take its panes with
-it, and do not start the brain inside a herdr-spawned terminal. The brain spawns
-headless `claude -p` children per request; it does not attach to herdr panes.
+it, and do not start the brain inside a herdr-spawned terminal. The brain spawns headless agent CLI children per request; it does not attach to herdr
+panes.
 
 ## Troubleshooting
 
 - `better-sqlite3` install fails with `not found: make`: install the toolchain
   (`sudo apt-get install -y make g++ python3`), then run `npm ci` again.
-- `GET /api/models` returns `source: "fallback"`: `claude` is not on the service `PATH`.
-  Add its directory to `Environment=PATH=...` in the unit and restart.
+- `GET /api/models` returns `source: "fallback"`: the selected agent binary is not on the
+  service `PATH`. Install `claude`/`opencode`, add its directory to
+  `Environment=PATH=...`, and restart.
+- `SBOX_HARNESS=opencode` but turns fail with no session: confirm `opencode run --help`
+  works as the service user and that `opencode auth list` shows a stored provider.
 - Port already in use: another brain or a stale process owns 7391. Check with
   `ss -tlnp | grep 7391`.
 - SPA 404: `src/web/dist` was never built, or `SBOX_WEB_DIR` points elsewhere. Run

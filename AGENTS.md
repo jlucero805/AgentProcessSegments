@@ -6,10 +6,12 @@ the spec, say so rather than silently following either.
 
 ## What this is
 
-A local Node/TS service that drives headless Claude Code sessions through
-Intake → Plan → Implement → Review → Finalize. One port serves `/api`, `/ws`, and
-the built SPA. Requests live in SQLite, one persistent agent session per request,
-one git worktree per request, and a knowledge base fed by human-approved digests.
+A local Node/TS service that drives headless agent sessions through
+Intake → Plan → Implement → Review → Finalize. The agent substrate is swappable
+(`SBOX_HARNESS=claude` is the default; `opencode` is supported). One port serves
+`/api`, `/ws`, and the built SPA. Requests live in SQLite, one persistent agent session
+per request, one git worktree per request, and a knowledge base fed by human-approved
+digests.
 
 ## Ground truth
 
@@ -22,23 +24,27 @@ one git worktree per request, and a knowledge base fed by human-approved digests
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 95 vitest cases: 61 server across 10 files and 34 web across 8 files, all green.
+- 109 vitest cases: 75 server across 12 files and 34 web across 8 files, all green.
 - Two proof scripts: `scripts/smoke.sh` (built brain over a socket) and
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
-  NDJSON streams, engine with reattach and resume, stream parser, worktrees, MCP server,
+  NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
-  knowledge base), and a systemd user unit for a VPS.
-- Not built: user MCP server merge, real-CLI verification.
+  knowledge base), a systemd user unit for a VPS, and a harness seam with `claude` and
+  `opencode` adapters. User MCP servers are merged into request sessions for both.
+  OpenCode is verified end to end: a real turn, MCP tools, resume across a brain
+  restart, and a read-only KB session.
+- Not built: Claude real-CLI verification, CI/pipeline integration, KB embeddings.
 
 ## Commands
 
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 61 server + 34 web
+npm test                       # 75 server + 34 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
+SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 # on a VPS, the brain runs as a systemd user unit:
@@ -48,9 +54,18 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 
 ## Environment facts that will bite
 
-- **No `claude` binary here.** Real turns, `--resume` behavior, the model probe, and
-  partial-message parsing are unverified against the actual CLI. Do not claim otherwise.
-  `GET /api/models` reports `source: "fallback"`.
+- **No `claude` binary here; `opencode` v2.3.2 is installed and authenticated.** Claude
+  turns, the model probe, and the merged-MCP allowlist stay unverified against the real
+  CLI. OpenCode is verified end to end: `opencode models` feeds the catalog, config is
+  injected through `OPENCODE_CONFIG_DIR`, and `--session` resumes after a brain restart.
+- **OpenCode is one-shot per message.** The adapter starts
+  `opencode run --format json --auto --standalone` per turn, carries the `ses_…` session
+  id, and maps `text`, `tool_use`, `step_finish`, and `error` events. MCP tools surface
+  as `execute` code calling `tools.<server>.<tool>()`. Do not add a persistent-child
+  assumption to this harness.
+- **Claude allow rules support MCP wildcards.** User servers merged from
+  `~/.claude.json` and `<cwd>/.mcp.json` are allowed with `mcp__<server>__*`, alongside
+  the explicit harness tools.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.
@@ -73,9 +88,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
    state elsewhere without going through `canTransition`.
 2. **`__kb__` is a sentinel request id with no row.** Routes special-case it before
    touching the request repository. Its session is read-only.
-3. **MCP tool names must match the engine allowlist.** Registering a tool does not grant
-   it. Add it to `REQUEST_TOOLS` or `KB_TOOLS` in `clarify/engine.ts` or the agent
-   cannot call it under auto-approve.
+3. **MCP tool names must match the harness allowlist.** Registering a tool does not
+   grant it. Add it to `REQUEST_TOOLS` or `KB_TOOLS` in `clarify/harness.ts` or the
+   Claude agent cannot call it under auto-approve. OpenCode request sessions use
+   `--auto`; its KB session uses explicit deny permissions.
 4. **One turn at a time per id.** `start`/`send`/`dispatch`/`finalize` return the
    existing `LiveTurn` while one is in flight. Do not start a second.
 5. **A finished turn is dropped.** `attach()` returns false after completion; clients
@@ -104,19 +120,22 @@ annotation, add the `mcp__harness__<name>` string to the engine allowlist, then 
 the migrations. Add a legacy-database test in `test/db.test.ts`, because that ordering is
 where it broke before.
 
-**Change the agent contract.** Extend `TurnParser` first with a fixture test, then route
-the new event through `Engine.broadcast`. Nothing in the parser may touch a process or
-disk.
+**Change the agent contract.** Extend each harness parser with a fixture test, then
+route the new event through `Engine.broadcast`. Nothing in a parser may touch a process
+or disk.
+
+**Add a harness.** Implement `AgentHarness` in `clarify/harnesses/<id>.ts` (`prepare`,
+`spawn`, `createParser`, `probeModels`, `fallbackModels`), register it in
+`clarify/harnesses/index.ts` behind `SBOX_HARNESS`, and add prepare plus parser tests in
+`test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`.
 
 ## Next units, in order
 
-1. **Merge user MCP servers into `mcp-config.json`** (D11). Verify `claude mcp list` and
-   whatever command exposes server definitions on the installed CLI version. Add the
-   names to the allowlist and the definitions to the generated config. Acceptance: a
-   fake transport test shows both `harness` and a user server in the written config.
-2. **Real-CLI verification.** Install `claude`, run one request end to end, confirm
-   `--resume` across a brain restart, confirm the model probe returns `source: "probe"`,
-   and confirm tool cards survive. Update `docs/02-status.md` with what you saw.
+1. **Claude real-CLI verification.** Install `claude`, run one request end to end,
+   confirm the merged MCP config and `mcp__<server>__*` allow rules, confirm `--resume`
+   across a brain restart, and confirm the model probe returns `source: "probe"`.
+   Update `docs/02-status.md` with what you saw.
+2. **CI/pipeline integration and KB embeddings** remain design work; neither is built.
 
 ## Conventions
 

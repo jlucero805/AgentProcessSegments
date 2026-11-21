@@ -11,8 +11,9 @@ same data model, state machine, HTTP surface, and wire contracts.
 
 - Node 20 or newer
 - `git` for per-request worktrees
-- `claude` on `PATH` to run real agent turns. The core (database, workflows, HTTP,
-  stream parsing) runs and is tested without it.
+- `claude` (default) or `opencode` on `PATH` to run real agent turns; choose with
+  `SBOX_HARNESS`. The core (database, workflows, HTTP, stream parsing) runs and is
+  tested without an agent CLI.
 
 ## Quick start
 
@@ -25,6 +26,9 @@ SBOX_DB=$PWD/sandbox-harness.sqlite node src/server/dist/app.js
 
 The brain binds `127.0.0.1:7391` unless `SBOX_HOST` / `SBOX_PORT` say otherwise. Do not
 widen the bind. A tunnel is the audience gate, not the process.
+
+`SBOX_HARNESS=opencode` swaps the agent substrate; `SBOX_HARNESS_BIN` overrides the
+binary. The default is `claude`.
 
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
@@ -49,12 +53,15 @@ src/server/src
   cells/              CellRepository: delete detaches requests, never deletes them
   kb/                 KbRepository: one entry per request, literal LIKE search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
-  clarify/engine.ts   one persistent session per request, buffered live turns
-  clarify/stream.ts   pure stream-json parser (no process, no disk)
-  clarify/transport.ts Claude CLI transport + scripted fake for tests
+  clarify/engine.ts   one persistent agent session per request, buffered live turns
+  clarify/harness.ts  harness seam: session prep, spawn, parser, model probe
+  clarify/harnesses/claude.ts    claude CLI, merged MCP config, allowlist
+  clarify/harnesses/opencode.ts  opencode CLI, per-turn runs, session resume
+  clarify/stream.ts   pure claude stream-json parser (no process, no disk)
+  clarify/transport.ts  the AgentProcess interface harnesses implement
   clarify/prompts.ts  seed, dispatch, finalize, and KB briefs
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
-  clarify/models.ts   CLI probe with cached fallback list
+  clarify/models.ts   model catalog with a cached probe and harness fallback
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
@@ -80,12 +87,13 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 95 vitest cases: 61 server cases (state machine, migrations including
-the index ordering fix on a legacy database, repositories, stream parser, engine turns
-over a fake transport, worktree isolation against a real git repo, the MCP tool surface,
-the plugin manager against real git clones, and the HTTP API over a real socket) and 34
-web cases (domain mirror, NDJSON client, chat folding, board, create modal, composer,
-cell bar, and the app shell with the drawer and chat mounted under jsdom).
+`npm test` runs 109 vitest cases: 75 server cases (state machine, migrations including
+the index ordering fix on a legacy database, repositories, both stream parsers, engine
+turns over a fake harness, worktree isolation against a real git repo, the MCP tool
+surface, harness config/MCP merge, model probing, the plugin manager against real git
+clones, and the HTTP API over a real socket) and 34 web cases (domain mirror, NDJSON
+client, chat folding, board, create modal, composer, cell bar, and the app shell with
+the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

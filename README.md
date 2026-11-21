@@ -7,6 +7,93 @@ single port is all a tunnel needs.
 This repository is a rebuild from the system spec at commit `f849fed`. It targets the
 same data model, state machine, HTTP surface, and wire contracts.
 
+## Intended deployment and user flow
+
+The intended setup is one always-on Linux VPS running the headless brain and agent
+processes, with the SPA exposed only through a Tailscale tailnet. A phone or laptop joins
+the tailnet, opens the SPA, and sends manual prompts while the VPS keeps working. The
+brain binds loopback; Tailscale Serve is the audience gate. On the VPS,
+`sudo tailscale serve --bg 7391` publishes the loopback port to the tailnet; only devices
+on that tailnet can reach it.
+
+```mermaid
+flowchart TB
+  subgraph Devices["Operator devices on the tailnet"]
+    Phone["Phone<br/>manual prompts, queue + stop"]
+    Laptop["Laptop<br/>board, drawers, terminal"]
+  end
+
+  subgraph Tailnet["Tailscale tailnet"]
+    Serve["Tailscale Serve<br/>HTTPS on the tailnet"]
+  end
+
+  subgraph VPS["Always-on Linux VPS"]
+    Unit["systemd user unit<br/>sandbox-harness + linger"]
+    subgraph Brain["Brain process"]
+      HTTP["Fastify<br/>SPA + REST + NDJSON + WebSocket"]
+      Masters["Cell masters<br/>one ticker per cell"]
+      Engine["Engine<br/>persistent agent sessions"]
+    end
+    DB[("SQLite<br/>requests, cells, KB, events")]
+    Work["Git worktrees<br/>transcripts + sessions"]
+    Agents["Headless claude / opencode<br/>child processes"]
+  end
+
+  Phone -->|Tailscale VPN| Serve
+  Laptop -->|Tailscale VPN| Serve
+  Serve -->|loopback 127.0.0.1:7391| HTTP
+  Unit --> HTTP
+  HTTP --> DB
+  HTTP --> Masters
+  Masters --> Engine
+  Engine --> Agents
+  Engine --> Work
+```
+
+Typical session flow:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User as Phone or laptop
+  participant TS as Tailscale Serve
+  participant API as Brain HTTP/WS
+  participant Cron as Per-cell master
+  participant Agent as Headless agent session
+  participant Store as SQLite + disk
+
+  User->>TS: Open the SPA over the tailnet
+  TS->>API: Proxy to 127.0.0.1:7391
+  API-->>User: Board, chat, and current state
+  User->>API: Manual prompt, queue another, or Stop
+  API->>Agent: Start or resume the request session
+  Agent-->>API: NDJSON text and tool events
+  API-->>User: Live stream
+  Cron->>Store: Read cell policy and due work
+  Cron->>Agent: Start, prod, or advance a process segment
+  Agent-->>Cron: Final text with the ready marker
+  Cron->>Store: Transition, event, and per-cell master note
+  User->>API: Return after sleep or reload
+  API-->>User: Rehydrate snapshot; reattach if a turn is live
+```
+
+The phone is a controller, not the worker. It can disconnect, reload, or queue a prompt;
+the VPS keeps the session and the per-cell masters keep running. A request moves through:
+
+```mermaid
+flowchart LR
+  Intake["Requests<br/>intake"] --> Plan["Plan"]
+  Plan --> Implement["Implement"]
+  Implement --> Review["Review"]
+  Review --> Finalize["Finalize"]
+  Finalize --> Done["Done"]
+  Review -.->|needs changes| Implement
+  Plan -.->|needs rework| Intake
+```
+
+The deployment runbook is in [`deploy/vps.md`](deploy/vps.md); the operator workflow is
+in [`docs/08-user-workflows.md`](docs/08-user-workflows.md).
+
 ## Requirements
 
 - Node 20 or newer

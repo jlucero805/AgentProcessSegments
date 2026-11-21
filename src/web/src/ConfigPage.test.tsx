@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigPage } from './ConfigPage';
 import { jsonResponse } from './test/fixtures';
-import type { MasterConfig } from './types';
+import type { Cell, MasterConfig, MasterEvent, MasterStatus } from './types';
 
 const master: MasterConfig = {
   enabled: true,
@@ -13,20 +13,73 @@ const master: MasterConfig = {
   prompt: 'prod prompt',
 };
 
+const status: MasterStatus = {
+  enabled: true,
+  intervalMinutes: 5,
+  running: false,
+  nextRunAt: Date.now() + 300_000,
+  lastRunAt: Date.now() - 60_000,
+  lastResult: null,
+};
+
+const cell: Cell = { id: 'c1', name: 'Alpha', masterEnabled: true, createdAt: 1 };
+
+const event: MasterEvent = {
+  id: 'e1',
+  cellId: 'c1',
+  requestId: 'r1',
+  action: 'prod',
+  detail: 'Build it',
+  createdAt: Date.now() - 30_000,
+};
+
+interface Captured {
+  config?: { master?: Partial<MasterConfig> };
+  cell?: { masterEnabled?: boolean };
+  ran?: boolean;
+}
+
+function installFetch(): Captured {
+  const captured: Captured = {};
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === '/api/config' && init?.method === 'PATCH') {
+      captured.config = JSON.parse(String(init.body)) as Captured['config'];
+      return jsonResponse({
+        master: { ...master, ...captured.config?.master },
+        path: '/tmp/sandbox-harness/config.json',
+      });
+    }
+    if (url === '/api/config') {
+      return jsonResponse({ master, path: '/tmp/sandbox-harness/config.json' });
+    }
+    if (url === '/api/master/status') return jsonResponse(status);
+    if (url.startsWith('/api/master/events')) return jsonResponse([event]);
+    if (url === '/api/cells/c1' && init?.method === 'PATCH') {
+      captured.cell = JSON.parse(String(init.body)) as Captured['cell'];
+      return jsonResponse({ ...cell, ...captured.cell });
+    }
+    if (url === '/api/cells') return jsonResponse([cell]);
+    if (url === '/api/master/run') {
+      captured.ran = true;
+      return jsonResponse({
+        ranAt: Date.now(),
+        cells: 1,
+        dispatch: 0,
+        prodded: 0,
+        reviewed: 0,
+        skipped: 0,
+      });
+    }
+    return jsonResponse([]);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return captured;
+}
+
 describe('ConfigPage', () => {
   it('loads settings, saves a patch, and shows the path', async () => {
-    const captured: { body: { master?: Partial<MasterConfig> } | null } = { body: null };
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === 'PATCH') {
-        captured.body = JSON.parse(String(init.body)) as { master: Partial<MasterConfig> };
-        return jsonResponse({
-          master: { ...master, ...captured.body?.master },
-          path: '/tmp/sandbox-harness/config.json',
-        });
-      }
-      return jsonResponse({ master, path: '/tmp/sandbox-harness/config.json' });
-    });
-    vi.stubGlobal('fetch', fetchMock);
+    const captured = installFetch();
 
     render(<ConfigPage onError={() => {}} />);
 
@@ -38,32 +91,41 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 
     expect(await screen.findByText('Saved')).toBeInTheDocument();
-    await waitFor(() => expect(captured.body).not.toBeNull());
-    expect(captured.body?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
+    await waitFor(() => expect(captured.config).toBeDefined());
+    expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
   });
 
   it('toggles the master switch', async () => {
-    const captured: { body: { master?: Partial<MasterConfig> } | null } = { body: null };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        if (init?.method === 'PATCH') {
-          captured.body = JSON.parse(String(init.body)) as { master: Partial<MasterConfig> };
-          return jsonResponse({
-            master: { ...master, ...captured.body?.master },
-            path: '/tmp/config.json',
-          });
-        }
-        return jsonResponse({ master, path: '/tmp/config.json' });
-      }),
-    );
+    const captured = installFetch();
 
     render(<ConfigPage onError={() => {}} />);
     const toggle = await screen.findByRole('checkbox', { name: 'Master enabled' });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 
-    await waitFor(() => expect(captured.body).not.toBeNull());
-    expect(captured.body?.master).toMatchObject({ enabled: false });
+    await waitFor(() => expect(captured.config).toBeDefined());
+    expect(captured.config?.master).toMatchObject({ enabled: false });
+  });
+
+  it('runs the master and toggles a cell', async () => {
+    const captured = installFetch();
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const cellToggle = await screen.findByRole('checkbox', { name: 'Alpha master' });
+    expect(cellToggle).toBeChecked();
+    fireEvent.click(cellToggle);
+    await waitFor(() => expect(captured.cell).toEqual({ masterEnabled: false }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run master now' }));
+    expect(await screen.findByText(/Last cycle: 0 prodded/)).toBeInTheDocument();
+    expect(captured.ran).toBe(true);
+  });
+
+  it('shows recent activity', async () => {
+    installFetch();
+    render(<ConfigPage onError={() => {}} />);
+    expect(await screen.findByText('Build it')).toBeInTheDocument();
+    expect(screen.getByText('prod')).toBeInTheDocument();
   });
 });

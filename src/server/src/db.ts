@@ -6,9 +6,10 @@ export type Db = Database.Database;
 
 const BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cells (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  master_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at     INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS requests (
@@ -43,6 +44,15 @@ CREATE TABLE IF NOT EXISTS kb_entries (
   content    TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS master_events (
+  id         TEXT PRIMARY KEY,
+  cell_id    TEXT,
+  request_id TEXT,
+  action     TEXT NOT NULL,
+  detail     TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
 `;
 
 /**
@@ -68,6 +78,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['requests', 'branch', 'TEXT'],
   ['requests', 'cr_url', 'TEXT'],
   ['requests', 'cell_id', 'TEXT'],
+  ['cells', 'master_enabled', 'INTEGER NOT NULL DEFAULT 1'],
 ];
 
 function addColumn(db: Db, table: string, column: string, ddl: string): void {
@@ -85,6 +96,8 @@ export function migrate(db: Db): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_requests_state ON requests(state)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_requests_cell ON requests(cell_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_kb_entries_request ON kb_entries(request_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_created ON master_events(created_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_request ON master_events(request_id)');
 }
 
 /** A persisted `working` cannot survive a restart, because no child does. */

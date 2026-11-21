@@ -33,6 +33,17 @@ function installFetch(request: Request, transcript: unknown[] = []) {
         path: '/tmp/config.json',
       });
     }
+    if (url === '/api/master/status') {
+      return jsonResponse({
+        enabled: true,
+        intervalMinutes: 5,
+        running: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        lastResult: null,
+      });
+    }
+    if (url.startsWith('/api/master/events')) return jsonResponse([]);
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);
     if (url === `/api/requests/${request.id}/clarify`) {
       return jsonResponse({ started: request.clarifyStarted, transcript });

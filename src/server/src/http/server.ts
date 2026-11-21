@@ -16,6 +16,8 @@ import {
   type Request,
 } from '../domain/request.js';
 import type { KbRepository } from '../kb/repository.js';
+import type { MasterEventRepository } from '../master/events.js';
+import type { MasterScheduler } from '../master/scheduler.js';
 import { PluginError, type PluginManager } from '../plugins/manager.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
@@ -29,6 +31,8 @@ export interface ServerDeps {
   models: ModelCatalog;
   plugins: PluginManager;
   settings: SettingsStore;
+  master: MasterScheduler;
+  masterEvents: MasterEventRepository;
   config: Config;
   logger?: boolean;
 }
@@ -82,6 +86,18 @@ const pluginSchema = z.object({
   name: z.string().optional(),
 });
 const cellSchema = z.object({ name: z.string().min(1) });
+const cellPatchSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    masterEnabled: z.boolean().optional(),
+  })
+  .refine((value) => value.name !== undefined || value.masterEnabled !== undefined, {
+    message: 'name or masterEnabled is required',
+  });
+const masterEventsQuerySchema = z.object({
+  cellId: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
 
 interface Stream {
   emit: (event: ClarifyEvent) => void;
@@ -143,7 +159,8 @@ async function streamTurn(
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const { repo, cells, kb, engine, models, plugins, settings, config } = deps;
+  const { repo, cells, kb, engine, models, plugins, settings, master, masterEvents, config } =
+    deps;
   const app = Fastify({ logger: deps.logger ?? false });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -320,8 +337,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.patch('/api/cells/:id', async (request) => {
     const { id } = request.params as { id: string };
-    const { name } = cellSchema.parse(request.body);
-    return cells.rename(id, name);
+    const body = cellPatchSchema.parse(request.body);
+    if (body.name !== undefined) cells.rename(id, body.name);
+    if (body.masterEnabled !== undefined) cells.setMasterEnabled(id, body.masterEnabled);
+    return cells.require(id);
   });
 
   app.delete('/api/cells/:id', async (request, reply) => {
@@ -350,6 +369,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     ...settings.patch(request.body),
     path: settings.path,
   }));
+
+  app.get('/api/master/status', async () => master.status());
+  app.post('/api/master/run', async () => master.runNow());
+  app.get('/api/master/events', async (request) => {
+    const query = masterEventsQuerySchema.parse(request.query);
+    return masterEvents.list(query);
+  });
 
   await app.register(fastifyWebsocket);
   app.get('/ws', { websocket: true }, (socket) => {

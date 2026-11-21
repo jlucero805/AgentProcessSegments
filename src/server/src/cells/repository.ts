@@ -5,6 +5,7 @@ import type { Cell } from '../domain/request.js';
 interface CellRow {
   id: string;
   name: string;
+  master_enabled: number;
   created_at: number;
 }
 
@@ -16,7 +17,12 @@ export class CellNotFoundError extends Error {
 }
 
 function toCell(row: CellRow): Cell {
-  return { id: row.id, name: row.name, createdAt: row.created_at };
+  return {
+    id: row.id,
+    name: row.name,
+    masterEnabled: row.master_enabled === 1,
+    createdAt: row.created_at,
+  };
 }
 
 export class CellRepository {
@@ -32,14 +38,28 @@ export class CellRepository {
     return row ? toCell(row) : null;
   }
 
+  require(id: string): Cell {
+    const cell = this.get(id);
+    if (!cell) throw new CellNotFoundError(id);
+    return cell;
+  }
+
   create(name: string): Cell {
     const id = randomUUID();
     this.db
-      .prepare('INSERT INTO cells (id, name, created_at) VALUES (?, ?, ?)')
+      .prepare('INSERT INTO cells (id, name, master_enabled, created_at) VALUES (?, ?, 1, ?)')
       .run(id, name, Date.now());
     const cell = this.get(id);
     if (!cell) throw new Error('cell insert did not persist');
     return cell;
+  }
+
+  setMasterEnabled(id: string, enabled: boolean): Cell {
+    const result = this.db
+      .prepare('UPDATE cells SET master_enabled = ? WHERE id = ?')
+      .run(enabled ? 1 : 0, id);
+    if (result.changes === 0) throw new CellNotFoundError(id);
+    return this.require(id);
   }
 
   rename(id: string, name: string): Cell {

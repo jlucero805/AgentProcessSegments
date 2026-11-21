@@ -5,6 +5,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { buildServer } from '../src/http/server.js';
+import { MasterEventRepository } from '../src/master/events.js';
+import { MasterScheduler } from '../src/master/scheduler.js';
+import { MasterService } from '../src/master/service.js';
 import { SettingsStore } from '../src/settings.js';
 import { createHarness, resultLine, settle, type Harness } from './helpers.js';
 
@@ -21,6 +24,12 @@ async function makeApp(
   script?: (text: string) => string[],
 ): Promise<Open> {
   const h = createHarness(script);
+  const settings = new SettingsStore(h.config.configPath);
+  const masterEvents = new MasterEventRepository(h.db);
+  const master = new MasterScheduler(
+    new MasterService({ repo: h.repo, cells: h.cells, engine: h.engine, settings, events: masterEvents }),
+    settings,
+  );
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
@@ -28,7 +37,9 @@ async function makeApp(
     engine: h.engine,
     models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
     plugins: h.plugins,
-    settings: new SettingsStore(h.config.configPath),
+    settings,
+    master,
+    masterEvents,
     config: { ...h.config, ...config },
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
@@ -151,6 +162,36 @@ describe('http api', () => {
 
     const bad = await call('PATCH', '/api/config', { master: { intervalMinutes: 0 } });
     expect(bad.status).toBe(400);
+  });
+
+  it('reports master status, runs a cycle, and lists events', async () => {
+    await makeApp();
+    const status = await call('GET', '/api/master/status');
+    expect(status.status).toBe(200);
+    expect(status.json()).toMatchObject({ enabled: true, running: false, intervalMinutes: 5 });
+
+    const run = await call('POST', '/api/master/run');
+    expect(run.status).toBe(200);
+    expect(run.json()).toMatchObject({ prodded: 0, reviewed: 0, dispatch: 0 });
+
+    const events = await call('GET', '/api/master/events?limit=10');
+    expect(events.status).toBe(200);
+    expect(Array.isArray(events.json())).toBe(true);
+  });
+
+  it('toggles a cell master through the cells patch', async () => {
+    await makeApp();
+    const created = await call('POST', '/api/cells', { name: 'Mastered' });
+    expect(created.json().masterEnabled).toBe(true);
+
+    const patched = await call('PATCH', `/api/cells/${created.json().id}`, {
+      masterEnabled: false,
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().masterEnabled).toBe(false);
+
+    const listed = await call('GET', '/api/cells');
+    expect(listed.json()[0].masterEnabled).toBe(false);
   });
 
   it('serves the clarify snapshot and reports an idle stream', async () => {

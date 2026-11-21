@@ -26,7 +26,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 133 vitest cases: 90 server across 13 files and 43 web across 10 files, all green.
+- 145 vitest cases: 100 server across 14 files and 45 web across 10 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -34,10 +34,11 @@ digests.
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
   knowledge base), a mobile shell, durable chat with URL route restore, a Config page
-  with an XDG settings file, a systemd user unit for a VPS, a harness seam with `claude`
-  and `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a
-  GitHub Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are
-  merged into request sessions for both.
+  with an XDG settings file, cell masters with a scheduled prod loop and event log, a
+  systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters,
+  OpenCode plugin parity (skills and slash commands), and a GitHub Actions CI workflow
+  template in `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions
+  for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: pipeline/review automation, KB embeddings.
@@ -124,6 +125,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
    `mcpServers`, `hooks/`, and `.mcp.json`. Never re-add them.
 9. **Guards at the boundary.** zod validates HTTP and MCP input. Repositories trust
    their arguments. No route reads `request.body` without a schema.
+10. **Master prods are ordinary turns.** The scheduler sends one prod through
+    `engine.send`, waits for it, and only transitions `dispatch → review` when the final
+    agent text contains `READY FOR REVIEW`. Disabled cells and the disabled master are
+    skipped; terminal transitions still dispose the session.
 
 ## Extension recipes
 

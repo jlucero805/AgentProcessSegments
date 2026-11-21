@@ -50,6 +50,7 @@ export interface Request {
 export interface Cell {
   id: string;
   name: string;
+  masterEnabled: boolean;
   createdAt: number;
 }
 

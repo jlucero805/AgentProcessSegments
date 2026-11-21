@@ -49,7 +49,8 @@ Master policy lives in `$XDG_CONFIG_HOME/sandbox-harness/config.json` (usually
 `~/.config/sandbox-harness/config.json`); set `SBOX_CONFIG` to move it. Edit it from the
 Config page or `PATCH /api/config`. The file is created on the first save; an invalid
 file falls back to defaults until a valid one is written. It is intentionally outside the
-repo and outside the systemd unit.
+repo and outside the systemd unit. The master scheduler runs inside the brain; its
+cadence, thresholds, and prod prompt come from this file, not from the unit.
 
 ## Install as a systemd user unit
 

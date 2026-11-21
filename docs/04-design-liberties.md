@@ -101,6 +101,21 @@ for the web workspace, Vitest 2 on the server.
 **Why.** The spec names the external-store API and React 18; the 0.10 line matches it.
 **Review note.** Upgrading assistant-ui later is a primitives migration.
 
+## 9. Cell masters are deterministic and marker-based
+
+**Chosen.** A server-side scheduler runs every configured interval, prods idle `dispatch`
+requests in enabled cells (and optionally unassigned work) through the normal agent
+session, and moves `dispatch → review` only when the reply contains `READY FOR REVIEW`.
+Policy and per-cell switches live in the XDG settings file; prod/review/cycle/skip events
+are stored.
+
+**Alternatives.** A dedicated master LLM session per cell; automatic review based on
+transcript heuristics; a per-cell cadence in this pass.
+
+**Why.** The scheduler is cheap, observable, and cannot invent state transitions without
+the marker. Cost: prods are sequential, a hung turn blocks the cycle, and cadence is
+global. Per-cell cadence and an LLM judge are natural next steps.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

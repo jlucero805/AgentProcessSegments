@@ -275,3 +275,21 @@ created on the first save.
 
 **Cost.** A second configuration surface. Invalid files silently use defaults until an
 operator saves a valid patch; the path is shown on the page so it is discoverable.
+
+## D22. Cell masters are a deterministic, marker-based scheduler
+
+**Context.** The operator wants each cell reviewed on a cadence, with stalled
+implementation sessions prodded to record decisions and keep moving, and completed work
+moved to Review.
+
+**Decision.** A server-side scheduler runs a master cycle (default every 5 minutes).
+Each enabled cell's `dispatch` queue, plus unassigned work when configured, is filtered
+to idle requests older than the idle threshold and not prodded within the interval. The
+prod is an ordinary `engine.send` turn using the configured prompt. If the reply contains
+`READY FOR REVIEW` and auto-review is on, the request moves `dispatch → review`. Every
+prod/review/cycle/skip is stored in `master_events`; status, history, and a manual run are
+exposed, and the Config page owns the policy and per-cell switches.
+
+**Cost.** One prod at a time, sequentially; a hung turn delays the rest of the cycle. The
+cadence is global (per-cell cadence is future work), and the review move relies on the
+marker rather than an LLM judgment. Prods are ordinary agent turns, so they cost tokens.

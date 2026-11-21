@@ -6,6 +6,9 @@ import type {
   ConfigResponse,
   KbEntry,
   MasterConfig,
+  MasterEvent,
+  MasterResult,
+  MasterStatus,
   ModelsResult,
   PluginInfo,
   Request,
@@ -184,6 +187,12 @@ export const api = {
       body: JSON.stringify({ name }),
     });
   },
+  patchCell(id: string, fields: { name?: string; masterEnabled?: boolean }): Promise<Cell> {
+    return request(`/api/cells/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(fields),
+    });
+  },
   deleteCell(id: string): Promise<void> {
     return request(`/api/cells/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
@@ -204,5 +213,14 @@ export const api = {
   },
   patchConfig(master: Partial<MasterConfig>): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify({ master }) });
+  },
+  getMasterStatus(): Promise<MasterStatus> {
+    return request('/api/master/status');
+  },
+  runMaster(): Promise<MasterResult> {
+    return request('/api/master/run', { method: 'POST' });
+  },
+  getMasterEvents(options: { cellId?: string; limit?: number } = {}): Promise<MasterEvent[]> {
+    return request(withQuery('/api/master/events', options));
   },
 };

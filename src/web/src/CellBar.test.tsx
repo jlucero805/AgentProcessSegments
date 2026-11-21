@@ -4,7 +4,7 @@ import { CellBar } from './CellBar';
 import { jsonResponse } from './test/fixtures';
 import type { Cell } from './types';
 
-const cells: Cell[] = [{ id: 'c1', name: 'Alpha', createdAt: 1 }];
+const cells: Cell[] = [{ id: 'c1', name: 'Alpha', masterEnabled: true, createdAt: 1 }];
 
 describe('CellBar', () => {
   it('switches between all cells and a specific cell', () => {

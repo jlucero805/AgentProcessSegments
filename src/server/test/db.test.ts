@@ -18,6 +18,13 @@ describe('db migrations', () => {
     migrate(db);
     expect(columns(db, 'requests')).toContain('cell_id');
     expect(columns(db, 'requests')).toContain('agent_status');
+    expect(columns(db, 'cells')).toContain('master_enabled');
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string;
+      }>
+    ).map((row) => row.name);
+    expect(tables).toContain('master_events');
     db.close();
   });
 
@@ -33,6 +40,11 @@ describe('db migrations', () => {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`);
+    legacy.exec(`CREATE TABLE cells (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`);
     legacy
       .prepare("INSERT INTO requests (id, title, state, created_at, updated_at) VALUES ('r1', 'old', 'clarify', 1, 1)")
       .run();
@@ -41,6 +53,7 @@ describe('db migrations', () => {
     // The index on cell_id must be created after the column exists, or this throws.
     const db = openDb(file);
     expect(columns(db, 'requests')).toContain('cell_id');
+    expect(columns(db, 'cells')).toContain('master_enabled');
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );

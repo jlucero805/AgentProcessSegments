@@ -7,6 +7,9 @@ import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
+import { MasterEventRepository } from './master/events.js';
+import { MasterScheduler } from './master/scheduler.js';
+import { MasterService } from './master/service.js';
 import { PluginManager } from './plugins/manager.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
@@ -28,11 +31,27 @@ export async function main(): Promise<void> {
     pluginDirs: () => plugins.installedPluginDirs(),
   });
   const models = new ModelCatalog(harness);
+  const masterEvents = new MasterEventRepository(db);
+  const masterService = new MasterService({ repo, cells, engine, settings, events: masterEvents });
+  const master = new MasterScheduler(masterService, settings);
 
-  const app = await buildServer({ repo, cells, kb, engine, models, plugins, settings, config });
+  const app = await buildServer({
+    repo,
+    cells,
+    kb,
+    engine,
+    models,
+    plugins,
+    settings,
+    master,
+    masterEvents,
+    config,
+  });
+  master.start();
   await app.listen({ host: config.host, port: config.port });
 
   const shutdown = async () => {
+    master.stop();
     // Keep-alive sockets from a closed client can hold `close()` open forever.
     const force = setTimeout(() => process.exit(0), 3000);
     force.unref();

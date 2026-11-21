@@ -14,7 +14,16 @@ built and vended by the brain; real-CLI verification is still pending.
   boolean/array encoding, guarded transitions (`ILLEGAL_TRANSITION`, `NOT_FOUND`),
   run ids, agent status, unchecked, branch.
 - `CellRepository`: list, get, create, rename, delete in a transaction that detaches
-  requests instead of deleting them.
+  requests instead of deleting them, plus the per-cell `master_enabled` switch.
+- Cell masters: a scheduler ticks on the configured interval (default 5 minutes) and
+  reviews each enabled cell's `dispatch` queue plus unassigned work when configured. It
+  prods requests idle beyond the threshold with the configured prompt, records
+  `prod`/`review`/`cycle`/`skip` events, and moves `dispatch → review` when the prod
+  reply ends with `READY FOR REVIEW`. Manual run, status, and event history are exposed;
+  the Config page has the policy, cell toggles, activity, and a run button.
+- Live master verification: a stalled dispatch request was prodded by the real OpenCode
+  agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
+  prod, review, and cycle events.
 - `KbRepository`: one entry per request (store replaces), list, get by request, and a
   multi-term literal LIKE search (`%` and `_` escaped) ranked by title/body term hits
   and recency.
@@ -76,9 +85,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated
   with zod and written atomically. `GET/PATCH /api/config` expose the master policy, and
   the Config page edits it (enabled, interval, idle threshold, auto-review, unassigned
-  requests, prompt). The file on this host is
-  `/root/.config/sandbox-harness/config.json`.
-- 133 vitest cases, all passing: 90 server across 13 files and 43 web across 10 files,
+  requests, prompt) plus cell toggles, activity, and a manual run. The file on this host
+  is `/root/.config/sandbox-harness/config.json`.
+- 145 vitest cases, all passing: 100 server across 14 files and 45 web across 10 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -158,11 +167,16 @@ GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells
 POST   /api/cells                         {name}
-PATCH  /api/cells/:id                     {name}
+PATCH  /api/cells/:id                     {name?, masterEnabled?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
 DELETE /api/plugins/:name
 GET    /api/commands
+GET    /api/config
+PATCH  /api/config                        {master:{…}}
+GET    /api/master/status
+POST   /api/master/run
+GET    /api/master/events?cellId=…&limit=…
 GET    /ws
 ```

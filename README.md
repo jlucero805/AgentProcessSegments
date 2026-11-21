@@ -66,6 +66,9 @@ src/server/src
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   model catalog with a cached probe and harness fallback
   settings.ts         XDG app settings: master policy, zod validation, atomic write
+  master/events.ts    master event log (prod, review, cycle, skip)
+  master/service.ts   one master cycle: prod stalled dispatch work, marker review
+  master/scheduler.ts cadence, config reload, manual run, coalesced cycles
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
@@ -93,7 +96,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 133 vitest cases: 90 server cases (state machine, migrations including
+`npm test` runs 145 vitest cases: 100 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against

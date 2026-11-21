@@ -24,7 +24,7 @@ prompt libraries, and semantic KB retrieval.
   reattach to a live turn with a running state; keep streaming text.
 - [x] **3. Config store** — `$XDG_CONFIG_HOME/sandbox-harness/config.json` (override
   `SBOX_CONFIG`), zod-validated defaults, `GET/PATCH /api/config`, and a Config page.
-- [ ] **4. Cell masters** — scheduler with configurable interval (default 5 min),
+- [x] **4. Cell masters** — scheduler with configurable interval (default 5 min),
   idle threshold, prod prompt, auto-review marker, per-cell enable toggles, event log,
   manual "run now", and a Master page section.
 - [ ] **5. Tests and docs** — unit/HTTP/web coverage, browser smoke on mobile viewport,
@@ -99,9 +99,9 @@ Every interval (default 5 minutes), for each enabled cell:
 4. If `autoReview` is on and the prod turn's final agent text contains
    `READY FOR REVIEW`, transition `dispatch → review`.
 
-Cells get `master_enabled` (default 1) and an optional `master_interval_minutes` (null
-uses the global interval). Unassigned dispatch requests are handled by the global master
-when `includeUnassigned` is on.
+Cells get `master_enabled` (default 1). Unassigned dispatch requests are handled by the
+global master when `includeUnassigned` is on. A per-cell cadence override is future work;
+the cadence is global for now.
 
 Endpoints: `GET /api/master/status` (last run, next run, counts),
 `POST /api/master/run` (one cycle now), `GET /api/master/events?cellId=…&limit=…`.

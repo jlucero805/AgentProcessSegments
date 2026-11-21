@@ -4,7 +4,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import { ClaudeHarness } from '../src/clarify/harnesses/claude.js';
-import { OpencodeHarness, probeOpencodeModels } from '../src/clarify/harnesses/opencode.js';
+import {
+  OpencodeHarness,
+  OpencodeProcess,
+  probeOpencodeModels,
+} from '../src/clarify/harnesses/opencode.js';
 import { HARDCODED_MODELS, ModelCatalog } from '../src/clarify/models.js';
 
 function workspace() {
@@ -189,6 +193,102 @@ describe('OpencodeHarness', () => {
     });
     expect(config.mcp.harness.environment.SBOX_REQUEST_ID).toBe('');
     expect(config.mcp.user).toBeUndefined();
+  });
+
+  it('maps installed plugin skills and commands into the OpenCode config', async () => {
+    const { base, home, cwd, dir } = workspace();
+    const plugin = path.join(base, 'plugins', 'demo');
+    mkdirSync(path.join(plugin, 'commands', 'ns'), { recursive: true });
+    mkdirSync(path.join(plugin, 'skills', 'greeter'), { recursive: true });
+    writeFileSync(
+      path.join(plugin, 'commands', 'hello.md'),
+      '---\ndescription: Say hello\n---\nReply with exactly PLUGINOK.\n',
+    );
+    writeFileSync(path.join(plugin, 'commands', 'ns', 'deep.md'), 'Deep template.\n');
+    writeFileSync(
+      path.join(plugin, 'skills', 'greeter', 'SKILL.md'),
+      '---\nname: greeter\ndescription: Greets people.\n---\nBe nice.\n',
+    );
+    mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({
+        commands: { 'user-cmd': { template: 'User template', description: 'User' } },
+        skills: { paths: ['/user/skill'], urls: ['https://example.test/skills'] },
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare({
+      requestId: 'req-3',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [plugin],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.commands['demo:hello']).toEqual({
+      template: 'Reply with exactly PLUGINOK.',
+      description: 'Say hello',
+    });
+    expect(config.commands['demo:ns:deep']).toEqual({ template: 'Deep template.' });
+    expect(config.commands['demo:greeter'].template).toContain('greeter skill');
+    expect(config.commands['demo:greeter'].description).toBe('Greets people.');
+    expect(config.commands['user-cmd'].template).toBe('User template');
+    expect(config.skills.paths).toEqual(
+      expect.arrayContaining(['/user/skill', path.join(plugin, 'skills', 'greeter')]),
+    );
+    expect(config.skills.urls).toEqual(['https://example.test/skills']);
+  });
+
+  it('does not add plugin assets to the KB session', async () => {
+    const { base, home, cwd, dir } = workspace();
+    const plugin = path.join(base, 'plugins', 'demo');
+    mkdirSync(path.join(plugin, 'commands'), { recursive: true });
+    writeFileSync(path.join(plugin, 'commands', 'hello.md'), 'Reply with PLUGINOK.\n');
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare({
+      requestId: '',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [plugin],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.commands?.['demo:hello']).toBeUndefined();
+    expect(config.skills).toBeUndefined();
+  });
+
+  it('pins the child PWD to the session cwd', async () => {
+    const { base, cwd } = workspace();
+    const script = path.join(base, 'probe.mjs');
+    writeFileSync(
+      script,
+      "console.log(JSON.stringify({ type: 'text', part: { text: JSON.stringify({ cwd: process.cwd(), pwd: process.env.PWD }) } }));\n",
+    );
+
+    const proc = new OpencodeProcess({
+      cmd: process.execPath,
+      args: [script],
+      env: {},
+      cwd,
+      sessionId: null,
+    });
+    const lines: Array<Record<string, unknown>> = [];
+    proc.onLine((line) => lines.push(JSON.parse(line) as Record<string, unknown>));
+    const exited = new Promise<void>((resolve) => proc.onExit(() => resolve()));
+    proc.writeUserMessage('hello');
+    await exited;
+
+    const part = lines[0]?.part as { text?: string } | undefined;
+    expect(JSON.parse(part?.text ?? '{}')).toEqual({ cwd, pwd: cwd });
   });
 
   it('probes models from the CLI output', async () => {

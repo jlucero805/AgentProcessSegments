@@ -24,7 +24,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 109 vitest cases: 75 server across 12 files and 34 web across 8 files, all green.
+- 112 vitest cases: 78 server across 12 files and 34 web across 8 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -32,11 +32,12 @@ digests.
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
   knowledge base), a systemd user unit for a VPS, a harness seam with `claude` and
-  `opencode` adapters, and a GitHub Actions CI workflow template in
-  `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
+  `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a GitHub
+  Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged
+  into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: pipeline/review automation, OpenCode plugin mapping, KB embeddings.
+- Not built: pipeline/review automation, KB embeddings.
   The CI workflow is not published yet; it needs the `workflow` token scope.
 
 ## Commands
@@ -71,6 +72,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 - **Claude allow rules support MCP wildcards.** User servers merged from
   `~/.claude.json` and `<cwd>/.mcp.json` are allowed with `mcp__<server>__*`, alongside
   the explicit harness tools.
+- **Pin a child's `PWD` to its cwd.** OpenCode resolves its project root from `PWD`; an
+  inherited value points it at the brain's directory and breaks per-request config and
+  commands. Both harness adapters set it on spawn.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.
@@ -138,12 +142,9 @@ or disk.
 
 1. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
    it with a token that has the `workflow` scope.
-2. **OpenCode plugin mapping.** Installed plugins currently contribute `--plugin-dir`
-   only for Claude. Map their skills and slash commands into the OpenCode config so the
-   Skills page has the same effect on both harnesses.
-3. **Review/pipeline automation.** The review step is human-driven by design; agents are
+2. **Review/pipeline automation.** The review step is human-driven by design; agents are
    told not to push or open change requests. Nothing in the repo automates it.
-4. **KB embeddings.** The KB is still a literal LIKE store (`GET /api/kb?q=`).
+3. **KB embeddings.** The KB is still a literal LIKE store (`GET /api/kb?q=`).
 
 ## Conventions
 

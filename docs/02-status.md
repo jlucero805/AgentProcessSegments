@@ -42,10 +42,14 @@ built and vended by the brain; real-CLI verification is still pending.
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
   with `--auto`. Read-only KB sessions exclude user servers and plugins.
+- Installed plugins reach OpenCode too: `commands/**/*.md` become `commands` templates
+  and `skills/*/SKILL.md` become skill paths in the generated config, with plugin-prefixed
+  names that match `/api/commands`. Verified end to end (`/demo-plugin:hello` →
+  PLUGINOK, skill invocation → GREETOK).
 - OpenCode verified end to end on this host: 44 probed models, a 50 s clarify turn with
   tool cards and `tools.harness.*` MCP calls, a 20-message persisted transcript, session
-  resume after a brain restart with correct recall, and a KB turn with read-only
-  permissions.
+  resume after a brain restart with correct recall, a KB turn with read-only
+  permissions, and plugin command/skill mapping.
 - Plugin manager: shallow clone, optional monorepo subdir, manifest verification,
   hook and MCP stripping, replace-on-reinstall, slug-guarded removal, and slash-command
   discovery from `commands/**/*.md` and `skills/*/SKILL.md`. Local directory sources are
@@ -57,7 +61,7 @@ built and vended by the brain; real-CLI verification is still pending.
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served.
-- 109 vitest cases, all passing: 75 server across 12 files and 34 web across 8 files,
+- 112 vitest cases, all passing: 78 server across 12 files and 34 web across 8 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -101,9 +105,8 @@ built and vended by the brain; real-CLI verification is still pending.
 
 - Pipeline/review automation: the review step is human-driven by design; agents are told
   not to push or open change requests.
-- OpenCode plugin mapping: installed skills/commands reach Claude through `--plugin-dir`;
-  the OpenCode adapter currently ignores `pluginDirs`.
 - No embeddings over the KB (literal LIKE search only).
+- The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
 

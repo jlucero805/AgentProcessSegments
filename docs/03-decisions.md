@@ -199,9 +199,25 @@ loopback only, so remote access still needs the tunnel.
 **Decision.** Spawn `opencode run --format json --auto --standalone` per turn. Parse
 `text`, `tool_use`, `step_finish`, and `error`; capture the `ses_…` id and pass
 `--session` next turn. `--standalone` gives each turn a private server so
-`OPENCODE_CONFIG_DIR` (the generated per-request config) applies. KB sessions get
-explicit deny permissions instead of a tool allowlist.
+`OPENCODE_CONFIG_DIR` (the generated per-request config) applies. `PWD` is pinned to the
+session cwd because OpenCode resolves the project root from it. KB sessions get explicit
+deny permissions instead of a tool allowlist.
 
 **Cost.** A server start per turn (roughly a second) and no long-lived child. Session
 continuity still survives a brain restart because the session id lives in `session.json`
 and on OpenCode's disk.
+
+## D17. Plugin assets are mapped into OpenCode's config
+
+**Context.** Plugins install Claude-style `commands/**/*.md` and `skills/*/SKILL.md`.
+Claude consumes them with `--plugin-dir`; OpenCode has no equivalent flag but does have
+`commands` templates and `skills` paths in its config.
+
+**Decision.** On request sessions, read installed plugin dirs and add each command body
+as an OpenCode `commands` template (plugin-prefixed name) and each skill folder to
+`skills`. Skills also get a thin command template so the SPA slash menu works. KB
+sessions exclude plugins.
+
+**Cost.** Plugin content is copied into the generated config on every session (small, and
+it keeps a request reproducible), and a malformed command markdown is skipped rather than
+reported. Command keys keep `plugin:name`, matching `/api/commands`.

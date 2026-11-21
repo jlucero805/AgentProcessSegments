@@ -16,6 +16,7 @@ import {
 } from '../harness.js';
 import type { ModelOption } from '../models.js';
 import type { AgentProcess } from '../transport.js';
+import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
 
 const exec = promisify(execFile);
 
@@ -107,6 +108,20 @@ export class OpencodeHarness implements AgentHarness {
       config.permission = { ...current, ...READ_ONLY_PERMISSIONS };
     }
 
+    if (session.requestId !== '') {
+      const assets = readPluginAssets(session.pluginDirs);
+      if (Object.keys(assets.commands).length > 0) {
+        const userCommands = {
+          ...(isRecord(user.command) ? user.command : {}),
+          ...(isRecord(user.commands) ? user.commands : {}),
+        };
+        config.commands = { ...userCommands, ...assets.commands };
+      }
+      if (assets.skills.length > 0) {
+        config.skills = mergeSkillPaths(user.skills, assets.skills);
+      }
+    }
+
     const configDir = path.join(session.dir, 'opencode');
     mkdirSync(configDir, { recursive: true });
     writeFileSync(path.join(configDir, 'opencode.json'), `${JSON.stringify(config, null, 2)}\n`);
@@ -159,7 +174,9 @@ export class OpencodeProcess implements AgentProcess {
 
     const child = spawn(this.command.cmd, args, {
       cwd: this.command.cwd,
-      env: { ...process.env, ...this.command.env },
+      // OpenCode resolves its project root from PWD; inheriting the brain's PWD
+      // would make it ignore the per-request config/cwd.
+      env: { ...process.env, ...this.command.env, PWD: this.command.cwd },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;

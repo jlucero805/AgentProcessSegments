@@ -210,7 +210,9 @@ class ClaudeProcess implements AgentProcess {
   constructor(command: HarnessCommand) {
     this.child = spawn(command.cmd, command.args, {
       cwd: command.cwd,
-      env: { ...process.env, ...command.env },
+      // Pin PWD: OpenCode resolves the project root from it, and an inherited
+      // value would point the child at the brain's own cwd.
+      env: { ...process.env, ...command.env, PWD: command.cwd },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

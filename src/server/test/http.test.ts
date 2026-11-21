@@ -278,9 +278,15 @@ describe('http api', () => {
       name: 'Strict repo',
       process: { version: 1, segments: configured },
       masterIntervalMinutes: 3,
+      maxConcurrent: 2,
+      model: 'cell-model',
+      effort: 'high',
     });
     expect(created.status).toBe(201);
     expect(created.json().masterIntervalMinutes).toBe(3);
+    expect(created.json().maxConcurrent).toBe(2);
+    expect(created.json().model).toBe('cell-model');
+    expect(created.json().effort).toBe('high');
     expect(
       created
         .json()

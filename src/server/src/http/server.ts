@@ -95,12 +95,18 @@ const cellSchema = z.object({
   name: z.string().min(1),
   process: processSchema.optional(),
   masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
+  maxConcurrent: z.number().int().min(1).max(50).optional(),
+  model: z.string().nullable().optional(),
+  effort: z.enum(EFFORT_LEVELS).nullable().optional(),
 });
 const cellPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
     masterEnabled: z.boolean().optional(),
     masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
+    maxConcurrent: z.number().int().min(1).max(50).optional(),
+    model: z.string().nullable().optional(),
+    effort: z.enum(EFFORT_LEVELS).nullable().optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
@@ -108,8 +114,14 @@ const cellPatchSchema = z
       value.name !== undefined ||
       value.masterEnabled !== undefined ||
       value.masterIntervalMinutes !== undefined ||
+      value.maxConcurrent !== undefined ||
+      value.model !== undefined ||
+      value.effort !== undefined ||
       value.process !== undefined,
-    { message: 'name, masterEnabled, masterIntervalMinutes, or process is required' },
+    {
+      message:
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, or process is required',
+    },
   );
 const masterEventsQuerySchema = z.object({
   cellId: z.string().optional(),
@@ -452,6 +464,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       input.name,
       input.process ?? processStore.get(),
       input.masterIntervalMinutes ?? null,
+      {
+        maxConcurrent: input.maxConcurrent,
+        model: input.model,
+        effort: input.effort,
+      },
     );
     master.refresh();
     return reply.code(201).send(created);
@@ -464,6 +481,15 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     if (body.masterEnabled !== undefined) cells.setMasterEnabled(id, body.masterEnabled);
     if (body.masterIntervalMinutes !== undefined) {
       cells.setMasterInterval(id, body.masterIntervalMinutes);
+    }
+    if (body.maxConcurrent !== undefined) cells.setMaxConcurrent(id, body.maxConcurrent);
+    if (body.model !== undefined || body.effort !== undefined) {
+      const current = cells.require(id);
+      cells.setAgentDefaults(
+        id,
+        body.model !== undefined ? body.model : current.model,
+        body.effort !== undefined ? body.effort : current.effort,
+      );
     }
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();

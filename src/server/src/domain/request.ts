@@ -26,6 +26,9 @@ export type AgentStatus = (typeof AGENT_STATUSES)[number];
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORT_LEVELS)[number];
 
+/** Default cap when a cell has no explicit concurrency limit. */
+export const DEFAULT_MAX_CONCURRENT = 3;
+
 export interface Request {
   id: string;
   title: string;
@@ -57,6 +60,11 @@ export interface Cell {
   masterEnabled: boolean;
   /** Null means inherit the scheduler's global interval. */
   masterIntervalMinutes: number | null;
+  /** Cap on requests currently working in this cell. */
+  maxConcurrent: number;
+  /** Cell-level defaults; a request's own model/effort wins. */
+  model: string | null;
+  effort: Effort | null;
   createdAt: number;
 }
 

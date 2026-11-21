@@ -264,6 +264,26 @@ describe('MasterService', () => {
     expect(notes.every(([session]) => session !== '__master__')).toBe(true);
   });
 
+  it('respects a cell concurrency cap before prodding more work', async () => {
+    const fixture = setup();
+    const cell = fixture.cells.create('Limited', null, null, { maxConcurrent: 1 });
+    const working = fixture.repo.create({ title: 'Already working', cellId: cell.id });
+    fixture.repo.setAgentStatus(working.id, 'working');
+    const request = dispatchRequest(fixture, 'Wait', cell.id);
+
+    const blocked = await fixture.service.runOnce();
+    expect(blocked.prodded).toBe(0);
+    expect(
+      fixture.events.list().some((event) => event.detail.includes('concurrency limit')),
+    ).toBe(true);
+    expect(fixture.repo.require(request.id).state).toBe('dispatch');
+
+    fixture.repo.setAgentStatus(working.id, 'idle');
+    age(fixture, request.id, 2 * 60_000);
+    const allowed = await fixture.service.runOnce();
+    expect(allowed.prodded).toBe(1);
+  });
+
   it('creates follow-up requests once per unique callout', async () => {
     const process = processFor((config) => {
       const implement = segment(config, 'implement');

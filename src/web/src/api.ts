@@ -195,14 +195,17 @@ export const api = {
   getCell(id: string): Promise<CellDetail> {
     return request(`/api/cells/${encodeURIComponent(id)}`);
   },
-  createCell(
-    name: string,
-    process?: ProcessConfig,
-    masterIntervalMinutes?: number | null,
-  ): Promise<CellDetail> {
+  createCell(input: {
+    name: string;
+    process?: ProcessConfig;
+    masterIntervalMinutes?: number | null;
+    maxConcurrent?: number;
+    model?: string | null;
+    effort?: string | null;
+  }): Promise<CellDetail> {
     return request('/api/cells', {
       method: 'POST',
-      body: JSON.stringify({ name, process, masterIntervalMinutes }),
+      body: JSON.stringify(input),
     });
   },
   patchCell(
@@ -211,6 +214,9 @@ export const api = {
       name?: string;
       masterEnabled?: boolean;
       masterIntervalMinutes?: number | null;
+      maxConcurrent?: number;
+      model?: string | null;
+      effort?: string | null;
       process?: ProcessConfig | null;
     },
   ): Promise<CellDetail> {

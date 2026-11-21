@@ -245,6 +245,24 @@ export class RequestRepository {
     this.write(id, [['agent_status', status]]);
   }
 
+  /** Requests currently working in a cell (or unassigned when cellId is null). */
+  countWorking(cellId: string | null): number {
+    const row = (
+      cellId === null
+        ? this.db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM requests WHERE agent_status = 'working' AND cell_id IS NULL",
+            )
+            .get()
+        : this.db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM requests WHERE agent_status = 'working' AND cell_id = ?",
+            )
+            .get(cellId)
+    ) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
   setUnchecked(id: string, unchecked: boolean): void {
     this.write(id, [['unchecked', unchecked]]);
   }

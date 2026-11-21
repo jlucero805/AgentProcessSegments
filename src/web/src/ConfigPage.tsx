@@ -291,7 +291,8 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
                 <span className="truncate text-sm text-zinc-300">{cell.name}</span>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-zinc-600">
-                    {cell.masterIntervalMinutes ? `${cell.masterIntervalMinutes}m` : 'global'}
+                    {cell.masterIntervalMinutes ? `${cell.masterIntervalMinutes}m` : 'global'} ·{' '}
+                    {cell.maxConcurrent}×
                   </span>
                   {onEditCell ? (
                     <Button

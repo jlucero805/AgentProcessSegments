@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api, describeError } from './api';
 import { ProcessEditor } from './ProcessEditor';
-import type { CellDetail, ProcessConfig, SegmentConfig } from './types';
-import { Button, Field, Input, Modal, Spinner } from './ui';
+import {
+  EFFORT_LEVELS,
+  type CellDetail,
+  type ModelOption,
+  type ProcessConfig,
+  type SegmentConfig,
+} from './types';
+import { Button, Field, Input, Modal, Select, Spinner } from './ui';
 
 interface CellModalProps {
   open: boolean;
@@ -21,6 +27,12 @@ interface CellModalProps {
 export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalProps) {
   const [name, setName] = useState('');
   const [interval, setInterval] = useState('');
+  const [maxConcurrent, setMaxConcurrent] = useState('3');
+  const [model, setModel] = useState('');
+  const [effort, setEffort] = useState('');
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
+  const [supportsEffort, setSupportsEffort] = useState(true);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -32,9 +44,28 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
     let cancelled = false;
     setName(cell?.name ?? '');
     setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
+    setMaxConcurrent(String(cell?.maxConcurrent ?? 3));
+    setModel(cell?.model ?? '');
+    setEffort(cell?.effort ?? '');
     setProcess(cell?.process ?? null);
     setLoading(cell?.process == null);
     setSaving(false);
+
+    api
+      .getModels()
+      .then((result) => {
+        if (cancelled) return;
+        setModels(Array.isArray(result.models) ? result.models : []);
+        setEfforts(
+          Array.isArray(result.effortLevels) && result.effortLevels.length > 0
+            ? result.effortLevels
+            : EFFORT_LEVELS,
+        );
+        setSupportsEffort(result.supportsEffort !== false);
+      })
+      .catch(() => {
+        // Model discovery is optional; the CLI default remains usable.
+      });
 
     if (cell?.process == null) {
       api
@@ -118,15 +149,24 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
       onError('The master interval must be a whole number from 1 to 1440, or empty to inherit.');
       return;
     }
+    const concurrency = Number(maxConcurrent);
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 50) {
+      onError('Max concurrent requests must be a whole number from 1 to 50.');
+      return;
+    }
     setSaving(true);
     try {
+      const fields = {
+        name: trimmed,
+        process,
+        masterIntervalMinutes: minutes,
+        maxConcurrent: concurrency,
+        model: model || null,
+        effort: effort || null,
+      };
       const saved = cell
-        ? await api.patchCell(cell.id, {
-            name: trimmed,
-            process,
-            masterIntervalMinutes: minutes,
-          })
-        : await api.createCell(trimmed, process, minutes);
+        ? await api.patchCell(cell.id, fields)
+        : await api.createCell(fields);
       onSaved(saved);
     } catch (error) {
       onError(describeError(error));
@@ -161,6 +201,46 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
             onChange={(event) => setInterval(event.target.value)}
             placeholder="global default"
           />
+        </Field>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Max concurrent requests" hint="working processes in this cell">
+            <Input
+              type="number"
+              min={1}
+              max={50}
+              value={maxConcurrent}
+              onChange={(event) => setMaxConcurrent(event.target.value)}
+            />
+          </Field>
+          <Field label="Default model" hint="request override wins">
+            <Select value={model} onChange={(event) => setModel(event.target.value)}>
+              <option value="">CLI default</option>
+              {models.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <Field
+          label="Default difficulty"
+          hint={supportsEffort ? 'request override wins' : 'not used by this harness'}
+        >
+          {supportsEffort ? (
+            <Select value={effort} onChange={(event) => setEffort(event.target.value)}>
+              <option value="">CLI default</option>
+              {efforts.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input value="—" disabled readOnly />
+          )}
         </Field>
 
         <div className="flex flex-wrap items-center justify-between gap-2">

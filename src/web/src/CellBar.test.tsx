@@ -4,7 +4,16 @@ import { CellBar } from './CellBar';
 import type { Cell } from './types';
 
 const cells: Cell[] = [
-  { id: 'c1', name: 'Alpha', masterEnabled: true, masterIntervalMinutes: null, createdAt: 1 },
+  {
+    id: 'c1',
+    name: 'Alpha',
+    masterEnabled: true,
+    masterIntervalMinutes: null,
+    maxConcurrent: 3,
+    model: null,
+    effort: null,
+    createdAt: 1,
+  },
 ];
 
 describe('CellBar', () => {

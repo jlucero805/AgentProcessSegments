@@ -191,6 +191,31 @@ describe('turn engine', () => {
     expect(h.harness.sessions[1]?.sessionId).toBe('sess-persist');
   });
 
+  it('uses cell model and effort defaults, with request overrides winning', async () => {
+    const h = createHarness(defaultScript, () => ({
+      model: 'cell-model',
+      effort: 'high',
+    }));
+    harness = h;
+    const cell = h.cells.create('Cell', null, null, {
+      maxConcurrent: 2,
+      model: 'cell-model',
+      effort: 'high',
+    });
+    const inherited = h.repo.create({ title: 'Inherit', cellId: cell.id });
+    const turn = await h.engine.start(inherited.id);
+    await turn.promise;
+    await settle();
+    expect(h.harness.sessions[0]).toMatchObject({ model: 'cell-model', effort: 'high' });
+
+    const overridden = h.repo.create({ title: 'Override', cellId: cell.id });
+    h.repo.edit(overridden.id, { model: 'request-model', effort: 'low' });
+    const second = await h.engine.send(overridden.id, 'continue');
+    await second.promise;
+    await settle();
+    expect(h.harness.sessions[1]).toMatchObject({ model: 'request-model', effort: 'low' });
+  });
+
   it('transitions on the dispatch kickoff and tells the agent not to push', async () => {
     const h = fresh(() => defaultScript());
     const request = h.repo.create({ title: 'Build it' });

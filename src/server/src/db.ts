@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS cells (
   name                     TEXT NOT NULL,
   master_enabled           INTEGER NOT NULL DEFAULT 1,
   master_interval_minutes  INTEGER,
+  max_concurrent           INTEGER NOT NULL DEFAULT 3,
+  model                    TEXT,
+  effort                   TEXT,
   process_json             TEXT,
   created_at               INTEGER NOT NULL
 );
@@ -82,6 +85,9 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['requests', 'cell_id', 'TEXT'],
   ['cells', 'master_enabled', 'INTEGER NOT NULL DEFAULT 1'],
   ['cells', 'master_interval_minutes', 'INTEGER'],
+  ['cells', 'max_concurrent', 'INTEGER NOT NULL DEFAULT 3'],
+  ['cells', 'model', 'TEXT'],
+  ['cells', 'effort', 'TEXT'],
   ['cells', 'process_json', 'TEXT'],
 ];
 

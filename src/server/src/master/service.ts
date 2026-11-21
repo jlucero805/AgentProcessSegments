@@ -1,7 +1,7 @@
 import type { Engine, LiveTurn } from '../clarify/engine.js';
 import { masterSessionId } from '../clarify/engine.js';
 import type { CellRepository } from '../cells/repository.js';
-import { canTransition, isTerminal, type Request, type State } from '../domain/request.js';
+import { canTransition, DEFAULT_MAX_CONCURRENT, isTerminal, type Request, type State } from '../domain/request.js';
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
 import { SEGMENT_STATES, type ProcessConfig, type SegmentConfig } from '../process/definition.js';
@@ -15,6 +15,7 @@ import { errorMessage } from '../util/errors.js';
 interface Bucket {
   cellId: string | null;
   label: string;
+  maxConcurrent: number;
 }
 
 export interface MasterServiceDeps {
@@ -178,7 +179,7 @@ export class MasterService {
 
   private bucketForCell(cellId: string): Bucket {
     const cell = this.deps.cells.require(cellId);
-    return { cellId, label: cell.name };
+    return { cellId, label: cell.name, maxConcurrent: cell.maxConcurrent };
   }
 
   private async runBucket(bucket: Bucket): Promise<MasterResult> {
@@ -190,6 +191,7 @@ export class MasterService {
         : (this.deps.cells.getProcess(bucket.cellId) ?? globalProcess);
     const result = emptyResult(now);
     result.cells = 1;
+    let blockedAtCapacity = false;
 
     for (const segment of process.segments) {
       if (!segment.enabled) continue;
@@ -199,6 +201,10 @@ export class MasterService {
       let handled = 0;
       for (const request of queue) {
         if (handled >= segment.maxPerCycle) break;
+        if (this.deps.repo.countWorking(bucket.cellId) >= bucket.maxConcurrent) {
+          blockedAtCapacity = true;
+          break;
+        }
         if (this.shouldSkip(request, now, segment)) {
           result.skipped += 1;
           continue;
@@ -245,6 +251,21 @@ export class MasterService {
           this.note(bucket.cellId, `Could not run "${request.title}" in ${segment.label}: ${message}`);
         }
       }
+      if (blockedAtCapacity) break;
+    }
+
+    if (blockedAtCapacity) {
+      result.skipped += 1;
+      this.record({
+        cellId: bucket.cellId,
+        requestId: null,
+        action: 'skip',
+        detail: `concurrency limit reached (${bucket.maxConcurrent})`,
+      });
+      this.note(
+        bucket.cellId,
+        `Skipped new work: this cell is at its concurrency limit (${bucket.maxConcurrent}).`,
+      );
     }
 
     if (bucket.cellId !== null || result.dispatch > 0) {
@@ -289,7 +310,11 @@ export class MasterService {
   }
 
   async runUnassigned(): Promise<MasterResult> {
-    return this.runBucket({ cellId: null, label: 'Unassigned' });
+    return this.runBucket({
+      cellId: null,
+      label: 'Unassigned',
+      maxConcurrent: DEFAULT_MAX_CONCURRENT,
+    });
   }
 
   async runOnce(): Promise<MasterResult> {
@@ -297,8 +322,18 @@ export class MasterService {
     const buckets: Bucket[] = this.deps.cells
       .list()
       .filter((cell) => cell.masterEnabled)
-      .map((cell) => ({ cellId: cell.id, label: cell.name }));
-    if (master.includeUnassigned) buckets.push({ cellId: null, label: 'Unassigned' });
+      .map((cell) => ({
+        cellId: cell.id,
+        label: cell.name,
+        maxConcurrent: cell.maxConcurrent,
+      }));
+    if (master.includeUnassigned) {
+      buckets.push({
+        cellId: null,
+        label: 'Unassigned',
+        maxConcurrent: DEFAULT_MAX_CONCURRENT,
+      });
+    }
 
     const now = Date.now();
     const total = emptyResult(now);

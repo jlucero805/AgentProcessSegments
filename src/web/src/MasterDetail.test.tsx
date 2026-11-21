@@ -101,6 +101,9 @@ describe('MasterDetail', () => {
       name: 'Alpha',
       masterEnabled: true,
       masterIntervalMinutes: 3,
+      maxConcurrent: 3,
+      model: null,
+      effort: null,
       process: { version: process.version, segments: process.segments },
       createdAt: 1,
     };

@@ -158,7 +158,9 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
               <p className="text-[11px] text-zinc-600">
                 {cell
                   ? `${cell.process ? 'Cell policy' : 'Global default (cell has no policy yet)'} · ${
-                      master.includeUnassigned ? 'includes unassigned work' : 'cell-assigned work only'
+                      cell.maxConcurrent
+                    }× concurrency · ${cell.model ?? 'CLI model'} · ${
+                      cell.effort ?? 'default effort'
                     }`
                   : master.includeUnassigned
                     ? 'Global template · includes unassigned requests'

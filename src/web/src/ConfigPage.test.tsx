@@ -27,6 +27,9 @@ const cell: Cell = {
   name: 'Alpha',
   masterEnabled: true,
   masterIntervalMinutes: null,
+  maxConcurrent: 3,
+  model: null,
+  effort: null,
   createdAt: 1,
 };
 

@@ -12,13 +12,28 @@ describe('CellModal', () => {
 
   it('creates a cell with a full process policy', async () => {
     let created:
-      | { name?: string; process?: { segments?: unknown[] }; masterIntervalMinutes?: number | null }
+      | {
+          name?: string;
+          process?: { segments?: unknown[] };
+          masterIntervalMinutes?: number | null;
+          maxConcurrent?: number;
+          model?: string | null;
+          effort?: string | null;
+        }
       | undefined;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url === '/api/process') return jsonResponse(makeProcessResponse());
+        if (url === '/api/models') {
+          return jsonResponse({
+            models: [{ id: 'm1', label: 'Model One' }],
+            source: 'probe',
+            effortLevels: ['low', 'medium', 'high'],
+            supportsEffort: true,
+          });
+        }
         if (url === '/api/cells' && init?.method === 'POST') {
           created = JSON.parse(String(init.body)) as typeof created;
           const cell: CellDetail = {
@@ -26,6 +41,9 @@ describe('CellModal', () => {
             name: created?.name ?? 'Cell',
             masterEnabled: true,
             masterIntervalMinutes: null,
+            maxConcurrent: 3,
+            model: null,
+            effort: null,
             process: baseProcess(),
             createdAt: 2,
           };
@@ -41,17 +59,27 @@ describe('CellModal', () => {
     );
 
     expect(await screen.findByText('Cell process segments')).toBeInTheDocument();
+    expect(await screen.findByText('Model One')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
       target: { value: 'Work repo' },
     });
     fireEvent.change(screen.getByPlaceholderText('global default'), {
       target: { value: '3' },
     });
+    fireEvent.change(screen.getByRole('combobox', { name: /default model/i }), {
+      target: { value: 'm1' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: /default difficulty/i }), {
+      target: { value: 'high' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(created?.name).toBe('Work repo');
     expect(created?.masterIntervalMinutes).toBe(3);
+    expect(created?.maxConcurrent).toBe(3);
+    expect(created?.model).toBe('m1');
+    expect(created?.effort).toBe('high');
     expect(created?.process?.segments).toHaveLength(5);
   });
 
@@ -61,6 +89,9 @@ describe('CellModal', () => {
       name: 'Alpha',
       masterEnabled: true,
       masterIntervalMinutes: 7,
+      maxConcurrent: 3,
+      model: null,
+      effort: null,
       process: baseProcess(),
       createdAt: 1,
     };

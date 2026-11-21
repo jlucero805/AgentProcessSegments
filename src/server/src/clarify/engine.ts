@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
-import type { ClarifyEvent, Request, TranscriptMsg } from '../domain/request.js';
-import { KB_SESSION_ID, MASTER_SESSION_ID } from '../domain/sessions.js';
+import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
+import { KB_SESSION_ID, MASTER_SESSION_ID, masterCellId } from '../domain/sessions.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
@@ -39,6 +39,8 @@ export interface EngineDeps {
   harness: AgentHarness;
   config: Config;
   pluginDirs?: () => string[];
+  /** Cell-level model/effort defaults; a request's own values win. */
+  cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null;
 }
 
 export class Engine {
@@ -293,14 +295,17 @@ export class Engine {
       if (worktree.branch !== request.branch) this.repo.setBranch(id, worktree.branch);
     }
 
+    const cellId = request?.cellId ?? masterCellId(id);
+    const defaults = cellId ? (this.deps.cellDefaults?.(cellId) ?? null) : null;
+
     const command = await this.harness.prepare({
       scope: request ? 'request' : id === KB_SESSION_ID ? 'kb' : 'master',
       requestId: request ? id : '',
       dir,
       cwd,
       sessionId: this.readSession(id),
-      model: request?.model ?? null,
-      effort: request?.effort ?? null,
+      model: request?.model ?? defaults?.model ?? null,
+      effort: request?.effort ?? defaults?.effort ?? null,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });
     const proc = this.harness.spawn(command);

@@ -52,9 +52,16 @@ describe('cells', () => {
     const process = defaultProcess(DEFAULT_SETTINGS.master);
     process.segments[0]!.enabled = true;
 
-    const cell = cells.create('Strict repo', process, 3);
+    const cell = cells.create('Strict repo', process, 3, {
+      maxConcurrent: 2,
+      model: 'cell-model',
+      effort: 'high',
+    });
     expect(cells.get(cell.id)?.process?.segments[0]?.enabled).toBe(true);
     expect(cells.get(cell.id)?.masterIntervalMinutes).toBe(3);
+    expect(cells.get(cell.id)?.maxConcurrent).toBe(2);
+    expect(cells.get(cell.id)?.model).toBe('cell-model');
+    expect(cells.get(cell.id)?.effort).toBe('high');
     expect(cells.getProcess(cell.id)?.segments[0]?.enabled).toBe(true);
 
     const cleared = cells.setProcess(cell.id, null);

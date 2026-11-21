@@ -14,7 +14,7 @@ import { TurnParser } from '../src/clarify/stream.js';
 import type { AgentProcess } from '../src/clarify/transport.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { openDb, type Db } from '../src/db.js';
-import type { TranscriptMsg } from '../src/domain/request.js';
+import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
 import { PluginManager } from '../src/plugins/manager.js';
 import { RequestRepository } from '../src/requests/repository.js';
@@ -144,7 +144,10 @@ export interface Harness {
   engine: Engine;
 }
 
-export function createHarness(script: (text: string) => string[] = defaultScript): Harness {
+export function createHarness(
+  script: (text: string) => string[] = defaultScript,
+  cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null,
+): Harness {
   const config = testConfig();
   const db = openDb(config.dbPath);
   const repo = new RequestRepository(db);
@@ -157,6 +160,7 @@ export function createHarness(script: (text: string) => string[] = defaultScript
     harness: agentHarness,
     config,
     pluginDirs: () => plugins.installedPluginDirs(),
+    ...(cellDefaults ? { cellDefaults } : {}),
   });
   return { config, db, repo, cells, kb, plugins, harness: agentHarness, engine };
 }

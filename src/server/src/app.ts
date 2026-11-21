@@ -34,6 +34,10 @@ export async function main(): Promise<void> {
     harness,
     config,
     pluginDirs: () => plugins.installedPluginDirs(),
+    cellDefaults: (cellId) => {
+      const cell = cells.get(cellId);
+      return cell ? { model: cell.model, effort: cell.effort } : null;
+    },
   });
   const models = new ModelCatalog(harness);
   const masterEvents = new MasterEventRepository(db);

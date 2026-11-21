@@ -29,6 +29,8 @@ export function testConfig(): Config {
     pluginsDir: path.join(base, 'data', 'plugins'),
     configPath: path.join(base, 'config.json'),
     processPath: path.join(base, 'process.json'),
+    errorLogPath: path.join(base, 'errors.log'),
+    errorLogMaxBytes: 4096,
     terminalCwd: base,
   };
 }

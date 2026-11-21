@@ -15,6 +15,8 @@ export interface Config {
   harnessBin: string;
   configPath: string;
   processPath: string;
+  errorLogPath: string;
+  errorLogMaxBytes: number;
   terminalEnabled: boolean;
   terminalCwd: string;
 }
@@ -43,6 +45,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     processPath:
       env.SBOX_PROCESS ??
       path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'sandbox-harness', 'process.json'),
+    errorLogPath:
+      env.SBOX_ERROR_LOG ??
+      path.join(
+        env.XDG_STATE_HOME ?? path.join(home, '.local', 'state'),
+        'sandbox-harness',
+        'errors.log',
+      ),
+    errorLogMaxBytes: (() => {
+      const value = Number(env.SBOX_ERROR_LOG_MAX_BYTES ?? 2 * 1024 * 1024);
+      return Number.isFinite(value) && value > 0 ? value : 2 * 1024 * 1024;
+    })(),
     // The browser terminal is a direct shell, separate from agent sessions.
     // Disable with SBOX_TERMINAL=0 when the brain is exposed beyond loopback.
     terminalEnabled: env.SBOX_TERMINAL !== '0',

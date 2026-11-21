@@ -1,4 +1,5 @@
 import type { CellRepository } from '../cells/repository.js';
+import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import type { MasterService } from './service.js';
 import type { MasterResult, MasterStatus } from './types.js';
@@ -28,6 +29,7 @@ export class MasterScheduler {
     private readonly service: MasterService,
     private readonly settings: SettingsStore,
     private readonly cells: CellRepository,
+    private readonly errors?: ErrorSink,
   ) {}
 
   start(): void {
@@ -87,7 +89,7 @@ export class MasterScheduler {
         const current = this.timers.get(key);
         if (current) current.nextRunAt = Date.now() + intervalMs;
         void this.runKey(key, run).catch((error: unknown) => {
-          console.error(`master cycle failed for ${key || 'unassigned'}:`, error);
+          this.errors?.error('master.cycle', error, { cellId: key || null });
         });
       }, intervalMs);
       timer.unref?.();

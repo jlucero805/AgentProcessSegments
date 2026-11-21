@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import type { ErrorSink } from '../logging/errors.js';
 import type { ProcessConfig } from './definition.js';
 import { processPatchSchema, processSchema } from './defaults.js';
 
@@ -15,6 +16,7 @@ export class ProcessStore {
   constructor(
     readonly path: string,
     private readonly fallback: () => ProcessConfig,
+    private readonly errors?: ErrorSink,
   ) {}
 
   get(): ProcessConfig {
@@ -47,6 +49,7 @@ export class ProcessStore {
       raw = readFileSync(this.path, 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.errors?.error('process.unreadable', error, { path: this.path });
         console.warn(`ignoring unreadable process config at ${this.path}: ${String(error)}`);
       }
       return null;
@@ -55,11 +58,15 @@ export class ProcessStore {
     try {
       const result = processSchema.safeParse(JSON.parse(raw));
       if (!result.success) {
+        this.errors?.error('process.invalid', new Error(result.error.message), {
+          path: this.path,
+        });
         console.warn(`ignoring invalid process config at ${this.path}: ${result.error.message}`);
         return null;
       }
       return result.data;
     } catch (error) {
+      this.errors?.error('process.unreadable', error, { path: this.path });
       console.warn(`ignoring unreadable process config at ${this.path}: ${String(error)}`);
       return null;
     }

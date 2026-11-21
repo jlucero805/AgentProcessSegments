@@ -17,6 +17,7 @@ import {
   type Request,
 } from '../domain/request.js';
 import type { KbRepository } from '../kb/repository.js';
+import type { ErrorSink } from '../logging/errors.js';
 import type { MasterEventRepository } from '../master/events.js';
 import type { MasterScheduler } from '../master/scheduler.js';
 import { PluginError, type PluginManager } from '../plugins/manager.js';
@@ -39,6 +40,7 @@ export interface ServerDeps {
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
   process: ProcessStore;
+  errorLog?: ErrorSink;
   config: Config;
   logger?: boolean;
 }
@@ -251,12 +253,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     master,
     masterEvents,
     process: processStore,
+    errorLog,
     config,
   } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
   const terminal = new TerminalService(config.terminalEnabled, config.terminalCwd);
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: 'invalid', issues: error.issues });
     }
@@ -272,6 +275,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       return reply.code(status).send({ error: error.code.toLowerCase(), message: error.message });
     }
     app.log.error(error);
+    errorLog?.error('http.request', error, {
+      requestId: request.id,
+      method: request.method,
+      url: request.url,
+    });
     return reply.code(500).send({ error: 'internal', message: errorMessage(error) });
   });
 
@@ -577,6 +585,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         cwd: terminalHandle.cwd,
       });
     } catch (error) {
+      errorLog?.error('terminal.open', error);
       send({ t: 'error', message: errorMessage(error) });
       socket.close(1008, errorMessage(error));
       return;

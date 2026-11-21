@@ -4,6 +4,7 @@ import type { CellRepository } from '../cells/repository.js';
 import { canTransition, DEFAULT_MAX_CONCURRENT, isTerminal, type Request, type State } from '../domain/request.js';
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
+import type { ErrorSink } from '../logging/errors.js';
 import { SEGMENT_STATES, type ProcessConfig, type SegmentConfig } from '../process/definition.js';
 import { DEFAULT_SEGMENT_PROMPTS, defaultProcess } from '../process/defaults.js';
 import { parseFollowUps } from '../process/follow-ups.js';
@@ -26,6 +27,7 @@ export interface MasterServiceDeps {
   events: MasterEventRepository;
   /** Optional so tests and old callers keep the legacy derived policy. */
   process?: ProcessStore | undefined;
+  errors?: ErrorSink;
 }
 
 function bucketKey(cellId: string | null): string {
@@ -242,6 +244,11 @@ export class MasterService {
         } catch (error) {
           result.skipped += 1;
           const message = errorMessage(error);
+          this.deps.errors?.error('master.turn', error, {
+            cellId: bucket.cellId,
+            requestId: request.id,
+            segment: segment.id,
+          });
           this.record({
             cellId: bucket.cellId,
             requestId: request.id,

@@ -4,6 +4,7 @@ import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID, masterCellId } from '../domain/sessions.js';
+import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
@@ -41,6 +42,8 @@ export interface EngineDeps {
   pluginDirs?: () => string[];
   /** Cell-level model/effort defaults; a request's own values win. */
   cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null;
+  /** Error-only sink; ordinary transcript/turn logs are not persisted here. */
+  errors?: ErrorSink;
 }
 
 export class Engine {
@@ -221,6 +224,7 @@ export class Engine {
       await turn.promise;
       if (turn.failure && !turn.cancelled) this.broadcast(turn, { t: 'error', message: turn.failure });
     } catch (error) {
+      this.deps.errors?.error('engine.turn', error, { session: id });
       const message = errorMessage(error);
       this.broadcast(turn, { t: 'error', message });
     } finally {
@@ -272,6 +276,7 @@ export class Engine {
     // the turn normally; only an exit before completion is a failure.
     if (!turn || turn.done || turn.cancelled || this.parsers.get(id)?.finished) return;
     turn.failure = `agent process exited with code ${code ?? 'unknown'}`;
+    this.deps.errors?.error('engine.exit', new Error(turn.failure), { session: id, code });
     turn.resolve();
   }
 

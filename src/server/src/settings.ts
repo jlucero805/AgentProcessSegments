@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 
 export const DEFAULT_MASTER_PROMPT = [
@@ -49,7 +50,10 @@ export class SettingsStore {
   private cached: AppSettings | null = null;
   private readonly listeners = new Set<(settings: AppSettings) => void>();
 
-  constructor(readonly path: string) {}
+  constructor(
+    readonly path: string,
+    private readonly errors?: ErrorSink,
+  ) {}
 
   get(): AppSettings {
     if (!this.cached) this.cached = this.load();
@@ -84,11 +88,15 @@ export class SettingsStore {
     try {
       const result = settingsSchema.safeParse(JSON.parse(raw));
       if (!result.success) {
+        this.errors?.error('settings.invalid', new Error(result.error.message), {
+          path: this.path,
+        });
         console.warn(`ignoring invalid settings at ${this.path}: ${result.error.message}`);
         return structuredClone(DEFAULT_SETTINGS);
       }
       return result.data;
     } catch (error) {
+      this.errors?.error('settings.unreadable', error, { path: this.path });
       console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
       return structuredClone(DEFAULT_SETTINGS);
     }

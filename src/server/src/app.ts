@@ -7,6 +7,7 @@ import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
+import { PluginManager } from './plugins/manager.js';
 import { RequestRepository } from './requests/repository.js';
 
 export async function main(): Promise<void> {
@@ -16,18 +17,25 @@ export async function main(): Promise<void> {
   const repo = new RequestRepository(db);
   const cells = new CellRepository(db);
   const kb = new KbRepository(db);
+  const plugins = new PluginManager(config.pluginsDir);
   const engine = new Engine({
     repo,
     transport: new ClaudeCliTransport(config.claudeBin),
     config,
+    pluginDirs: () => plugins.installedPluginDirs(),
   });
   const models = new ModelCatalog(config.claudeBin);
 
-  const app = await buildServer({ repo, cells, kb, engine, models, config });
+  const app = await buildServer({ repo, cells, kb, engine, models, plugins, config });
   await app.listen({ host: config.host, port: config.port });
 
   const shutdown = async () => {
-    await app.close();
+    // Keep-alive sockets from a closed client can hold `close()` open forever.
+    const force = setTimeout(() => process.exit(0), 3000);
+    force.unref();
+    const closing = app.close();
+    app.server.closeAllConnections();
+    await closing.catch(() => {});
     db.close();
     process.exit(0);
   };

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
-PORT=7399
+PORT=$(( 7300 + (RANDOM % 200) ))
 
 SBOX_DB="$WORK/harness.sqlite" \
 SBOX_DATA_DIR="$WORK/data" \
@@ -17,10 +17,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for _ in {1..40}; do
-  if curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then break; fi
+READY=0
+for _ in {1..60}; do
+  if curl -sf "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+    READY=1
+    break
+  fi
   sleep 0.1
 done
+
+if [[ $READY -ne 1 ]]; then
+  echo "server never became healthy on port $PORT" >&2
+  cat "$WORK/server.log" >&2
+  exit 1
+fi
 
 echo "health: $(curl -s "http://127.0.0.1:$PORT/health")"
 echo "create: $(curl -s -X POST "http://127.0.0.1:$PORT/api/requests" -H 'content-type: application/json' -d '{"title":"Boot check","body":"real socket"}')"

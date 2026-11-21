@@ -16,6 +16,7 @@ import {
   type Request,
 } from '../domain/request.js';
 import type { KbRepository } from '../kb/repository.js';
+import { PluginError, type PluginManager } from '../plugins/manager.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 
@@ -25,6 +26,7 @@ export interface ServerDeps {
   kb: KbRepository;
   engine: Engine;
   models: ModelCatalog;
+  plugins: PluginManager;
   config: Config;
   logger?: boolean;
 }
@@ -71,6 +73,11 @@ const kbSchema = z.object({
 const kbQuerySchema = z.object({
   q: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+const pluginSchema = z.object({
+  url: z.string().min(1),
+  subdir: z.string().optional(),
+  name: z.string().optional(),
 });
 const cellSchema = z.object({ name: z.string().min(1) });
 
@@ -131,7 +138,7 @@ async function streamTurn(
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const { repo, cells, kb, engine, models, config } = deps;
+  const { repo, cells, kb, engine, models, plugins, config } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -144,6 +151,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (error instanceof CellNotFoundError) {
       return reply.code(404).send({ error: 'not_found', message: error.message });
+    }
+    if (error instanceof PluginError) {
+      const status = error.code === 'NOT_FOUND' ? 404 : 400;
+      return reply.code(status).send({ error: error.code.toLowerCase(), message: error.message });
     }
     app.log.error(error);
     const message = error instanceof Error ? error.message : String(error);
@@ -298,6 +309,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     cells.remove(id);
     return reply.code(204).send();
   });
+
+  app.get('/api/plugins', async () => plugins.list());
+
+  app.post('/api/plugins', async (request, reply) => {
+    const input = pluginSchema.parse(request.body);
+    return reply.code(201).send(await plugins.install(input));
+  });
+
+  app.delete('/api/plugins/:name', async (request, reply) => {
+    const { name } = request.params as { name: string };
+    plugins.remove(name);
+    return reply.code(204).send();
+  });
+
+  app.get('/api/commands', async () => plugins.listCommands());
 
   await app.register(fastifyWebsocket);
   app.get('/ws', { websocket: true }, (socket) => {

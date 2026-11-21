@@ -2,6 +2,7 @@
 // End-to-end proof: real brain process, real stdio MCP server, real tool calls.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -9,7 +10,20 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const root = path.resolve(import.meta.dirname, '..');
 const work = mkdtempSync(path.join(os.tmpdir(), 'sbox-mcp-'));
-const port = 7401;
+
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+const port = await freePort();
 const brainUrl = `http://127.0.0.1:${port}`;
 
 const brain = spawn(process.execPath, [path.join(root, 'src/server/dist/app.js')], {
@@ -21,6 +35,15 @@ const brain = spawn(process.execPath, [path.join(root, 'src/server/dist/app.js')
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 });
+
+// A failed write must never leave a brain listening on this port.
+process.on('exit', () => brain.kill());
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    brain.kill();
+    process.exit(1);
+  });
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -89,7 +112,16 @@ try {
   console.log('kb entries:', kb.length, kb[0]?.title);
 
   await client.close();
+
+  // A keep-alive socket from a closed client must not pin the process open.
+  brain.kill('SIGTERM');
+  const exited = await Promise.race([
+    new Promise((resolve) => brain.once('exit', () => resolve(true))),
+    sleep(3000).then(() => false),
+  ]);
+  console.log('brain exited on SIGTERM:', exited ? 'yes' : 'NO');
+  if (!exited) throw new Error('brain did not exit on SIGTERM');
 } finally {
-  brain.kill();
+  if (brain.exitCode === null) brain.kill('SIGKILL');
   rmSync(work, { recursive: true, force: true });
 }

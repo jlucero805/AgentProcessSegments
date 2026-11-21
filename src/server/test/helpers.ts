@@ -7,6 +7,7 @@ import { FakeTransport } from '../src/clarify/transport.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { openDb, type Db } from '../src/db.js';
 import { KbRepository } from '../src/kb/repository.js';
+import { PluginManager } from '../src/plugins/manager.js';
 import { RequestRepository } from '../src/requests/repository.js';
 
 export function testConfig(): Config {
@@ -49,6 +50,7 @@ export interface Harness {
   repo: RequestRepository;
   cells: CellRepository;
   kb: KbRepository;
+  plugins: PluginManager;
   transport: FakeTransport;
   engine: Engine;
 }
@@ -59,9 +61,15 @@ export function createHarness(script: (text: string) => string[] = defaultScript
   const repo = new RequestRepository(db);
   const cells = new CellRepository(db);
   const kb = new KbRepository(db);
+  const plugins = new PluginManager(config.pluginsDir);
   const transport = new FakeTransport(script);
-  const engine = new Engine({ repo, transport, config });
-  return { config, db, repo, cells, kb, transport, engine };
+  const engine = new Engine({
+    repo,
+    transport,
+    config,
+    pluginDirs: () => plugins.installedPluginDirs(),
+  });
+  return { config, db, repo, cells, kb, plugins, transport, engine };
 }
 
 /** Let queued microtasks (and the turn's finally block) run. */

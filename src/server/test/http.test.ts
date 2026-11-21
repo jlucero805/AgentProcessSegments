@@ -20,6 +20,7 @@ async function makeApp(): Promise<Open> {
     kb: h.kb,
     engine: h.engine,
     models: new ModelCatalog('/definitely/not/a/claude'),
+    plugins: h.plugins,
     config: h.config,
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
@@ -198,8 +199,22 @@ describe('http api', () => {
     expect(dropped.json().state).toBe('dropped');
   });
 
-  it('falls back to the hardcoded model list when the CLI is absent', async () => {
+  it('lists plugins and commands and maps plugin errors', async () => {
     await makeApp();
+
+    expect((await call('GET', '/api/plugins')).json()).toEqual([]);
+    expect((await call('GET', '/api/commands')).json()).toEqual([]);
+
+    const bad = await call('POST', '/api/plugins', { url: 'javascript:alert(1)' });
+    expect(bad.status).toBe(400);
+    expect(bad.json().error).toBe('bad_source');
+
+    const missing = await call('DELETE', '/api/plugins/ghost');
+    expect(missing.status).toBe(404);
+    expect(missing.json().error).toBe('not_found');
+  });
+
+  it('falls back to the hardcoded model list when the CLI is absent', async () => {    await makeApp();
     const response = await call('GET', '/api/models');
 
     expect(response.status).toBe(200);

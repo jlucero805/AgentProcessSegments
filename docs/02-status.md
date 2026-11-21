@@ -54,7 +54,7 @@ covers everything that runs and can be verified without the `claude` CLI.
   here. `GET /api/models` returns `source: "fallback"` in this environment.
 - User MCP servers are not merged into the generated `mcp-config.json` and
   `parseMcpListServers` is not wired in.
-- No process supervisor, no CRUX/CI integration, no embeddings over the KB.
+- No process supervisor, no CI/pipeline integration, no embeddings over the KB.
 
 ## Route list
 

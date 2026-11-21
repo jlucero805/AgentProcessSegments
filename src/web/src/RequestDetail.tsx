@@ -113,6 +113,8 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   const [cells, setCells] = useState<Cell[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
+  const [harness, setHarness] = useState<string | null>(null);
+  const [supportsEffort, setSupportsEffort] = useState(true);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [transcript, setTranscript] = useState<TranscriptMsg[]>([]);
   const [digest, setDigest] = useState('');
@@ -139,6 +141,8 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       if (modelResult) {
         setModels(modelResult.models);
         setEfforts(modelResult.effortLevels);
+        setHarness(modelResult.harness ?? null);
+        setSupportsEffort(modelResult.supportsEffort !== false);
       }
       setCommands(commandList);
       setCells(cellList);
@@ -369,6 +373,11 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   {request.targetRepo}
                 </span>
               ) : null}
+              {harness ? (
+                <span className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono">
+                  harness: {harness}
+                </span>
+              ) : null}
             </div>
 
             <div className="space-y-3">
@@ -431,15 +440,19 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                     ))}
                   </Select>
                 </Field>
-                <Field label="Effort">
-                  <Select value={form.effort} onChange={(event) => set('effort', event.target.value)}>
-                    <option value="">Default</option>
-                    {efforts.map((effort) => (
-                      <option key={effort} value={effort}>
-                        {effort}
-                      </option>
-                    ))}
-                  </Select>
+                <Field label="Effort" hint={supportsEffort ? undefined : 'not used by this harness'}>
+                  {supportsEffort ? (
+                    <Select value={form.effort} onChange={(event) => set('effort', event.target.value)}>
+                      <option value="">Default</option>
+                      {efforts.map((effort) => (
+                        <option key={effort} value={effort}>
+                          {effort}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Input value="—" disabled readOnly />
+                  )}
                 </Field>
               </div>
               <div className="flex flex-wrap items-center gap-4 pt-1">

@@ -12,7 +12,7 @@ interface Open {
 
 let open: Open | null = null;
 
-async function makeApp(): Promise<Open> {
+async function makeApp(config: Partial<Harness['config']> = {}): Promise<Open> {
   const h = createHarness();
   const app = await buildServer({
     repo: h.repo,
@@ -21,7 +21,7 @@ async function makeApp(): Promise<Open> {
     engine: h.engine,
     models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
     plugins: h.plugins,
-    config: h.config,
+    config: { ...h.config, ...config },
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
@@ -218,10 +218,28 @@ describe('http api', () => {
     const response = await call('GET', '/api/models');
 
     expect(response.status).toBe(200);
-    const body = response.json() as { source: string; effortLevels: string[]; models: unknown[] };
+    const body = response.json() as {
+      source: string;
+      effortLevels: string[];
+      models: unknown[];
+      harness: string;
+      supportsEffort: boolean;
+    };
     expect(body.source).toBe('fallback');
     expect(body.effortLevels).toContain('xhigh');
     expect(body.models.length).toBeGreaterThan(0);
+    expect(body.harness).toBe('claude');
+    expect(body.supportsEffort).toBe(true);
+  });
+
+  it('reports an OpenCode harness without effort support', async () => {
+    await makeApp({ harness: 'opencode', harnessBin: 'opencode' });
+    const response = await call('GET', '/api/models');
+
+    expect(response.status).toBe(200);
+    const body = response.json() as { harness: string; supportsEffort: boolean };
+    expect(body.harness).toBe('opencode');
+    expect(body.supportsEffort).toBe(false);
   });
 
   it('streams a clarify turn as NDJSON over a real socket', async () => {

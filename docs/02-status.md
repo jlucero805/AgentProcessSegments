@@ -61,7 +61,7 @@ built and vended by the brain; real-CLI verification is still pending.
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served.
-- 112 vitest cases, all passing: 78 server across 12 files and 34 web across 8 files,
+- 113 vitest cases, all passing: 79 server across 12 files and 34 web across 8 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -96,10 +96,13 @@ built and vended by the brain; real-CLI verification is still pending.
   Vite 8 and Vitest 5 run in the web workspace; the server keeps Vitest 2.
 - The OpenCode adapter runs one process per turn instead of one long-lived child: the
   CLI is one-shot per message. `--session` carries continuity, `--standalone` isolates
-  each turn's config, and `--auto` is the request-session permission posture (the KB
-  session gets explicit deny rules).
+  each turn's config, `--archived` keeps brain sessions out of the user's list, and
+  `--auto` is the request-session permission posture (the KB session gets explicit deny
+  rules).
 - `SBOX_HARNESS` selects the substrate; `SBOX_HARNESS_BIN` overrides the binary.
   `SBOX_CLAUDE_BIN` remains the Claude-specific override.
+- `GET /api/models` adds `harness` and `supportsEffort` alongside the spec's
+  `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert (OpenCode).
 
 ## Not built yet
 

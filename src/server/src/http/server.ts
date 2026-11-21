@@ -280,7 +280,12 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/models', async (request) => {
     const query = z.object({ refresh: z.string().optional() }).parse(request.query);
-    return models.list(query.refresh === '1');
+    const catalog = await models.list(query.refresh === '1');
+    return {
+      ...catalog,
+      harness: config.harness,
+      supportsEffort: config.harness === 'claude',
+    };
   });
 
   app.get('/api/kb', async (request) => {

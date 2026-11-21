@@ -222,3 +222,14 @@ sessions exclude plugins.
 **Cost.** Plugin content is copied into the generated config on every session (small, and
 it keeps a request reproducible), and a malformed command markdown is skipped rather than
 reported. Command keys keep `plugin:name`, matching `/api/commands`.
+
+## D18. The model endpoint reports harness capabilities
+
+**Context.** Effort is a Claude CLI flag; OpenCode has no equivalent, and the SPA was
+offering a control that did nothing.
+
+**Decision.** Add `harness` and `supportsEffort` to `/api/models` (additive), show the
+harness in the drawer, and render Effort as inert with a hint when unsupported.
+
+**Cost.** Two additive fields beyond the spec DTO; clients that ignore them are
+unchanged.

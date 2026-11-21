@@ -12,7 +12,13 @@ function installFetch(request: Request, transcript: unknown[] = []) {
     if (url === '/api/cells') return jsonResponse([]);
     if (url === '/api/commands') return jsonResponse([]);
     if (url === '/api/models') {
-      return jsonResponse({ models: [], source: 'fallback', effortLevels: EFFORTS });
+      return jsonResponse({
+        models: [],
+        source: 'fallback',
+        effortLevels: EFFORTS,
+        harness: 'opencode',
+        supportsEffort: false,
+      });
     }
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);
     if (url === `/api/requests/${request.id}/clarify`) {
@@ -64,6 +70,8 @@ describe('App', () => {
     expect(await screen.findByText('Finalize digest')).toBeInTheDocument();
     expect(await screen.findByText('hi there')).toBeInTheDocument();
     expect(screen.getByText('Send')).toBeInTheDocument();
+    expect(screen.getByText('harness: opencode')).toBeInTheDocument();
+    expect(screen.getByText('not used by this harness')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close drawer' })).toBeInTheDocument();
   });
 });

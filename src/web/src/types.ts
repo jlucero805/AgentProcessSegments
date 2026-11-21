@@ -70,6 +70,9 @@ export interface ModelsResult {
   models: ModelOption[];
   source: 'probe' | 'fallback';
   effortLevels: readonly string[];
+  /** Additive capability fields from the brain. */
+  harness?: string;
+  supportsEffort?: boolean;
 }
 
 export interface PluginInfo {

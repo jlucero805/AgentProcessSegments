@@ -74,7 +74,7 @@ sequenceDiagram
   Agent-->>Cron: Final text with the ready marker
   Cron->>Store: Transition, event, and per-cell master note
   User->>API: Return after sleep or reload
-  API-->>User: Rehydrate snapshot; reattach if a turn is live
+  API-->>User: Rehydrate snapshot, reattach if a turn is live
 ```
 
 The phone is a controller, not the worker. It can disconnect, reload, or queue a prompt;

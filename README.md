@@ -75,6 +75,7 @@ src/server/src
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
   master/scheduler.ts per-cell timers, unassigned timer, manual run, coalesced cycles
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
+  terminal/service.ts desktop browser terminal: one node-pty shell per socket
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
   vite.config.ts      dev server, proxying /api and /ws to the brain
@@ -90,6 +91,7 @@ src/web
   src/ProcessEditor.tsx structured per-segment controls
   src/CellModal.tsx   cell creation/edit flow with a process snapshot
   src/MasterDetail.tsx first-class master drawer: status, prompts, activity, chat
+  src/TerminalPanel.tsx desktop-only maximizable xterm/PTY drawer
   src/ui.tsx          hand-rolled shadcn-style kit
 deploy
   sandbox-harness.service  systemd user unit for the brain
@@ -104,15 +106,15 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 189 vitest cases: 127 server cases (state machine, migrations including
+`npm test` runs 192 vitest cases: 130 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies and tickers,
-the generic master pipeline, and the HTTP API over a real socket) and 62 web cases
-(shared contract re-exports, NDJSON client, chat folding, request-form mapping, board,
-create modal, composer, cell bar, cell creation, config/process editor, master detail, and
-the app shell with the drawer and chat mounted under jsdom).
+the generic master pipeline, terminal PTY service, and the HTTP API over a real socket)
+and 62 web cases (shared contract re-exports, NDJSON client, chat folding, request-form
+mapping, board, create modal, composer, cell bar, cell creation, config/process editor,
+master detail, and the app shell with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

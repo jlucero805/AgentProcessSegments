@@ -77,6 +77,15 @@ Each cell’s master chat is a separate reserved session, so one cell’s notes 
 conversation do not mix with another’s. The chat is advisory: it can read the board and
 KB but cannot mutate requests.
 
+## 4b. Use the desktop terminal
+
+- On desktop, press **Terminal** in the sidebar. It opens a real shell in the brain’s
+  configured cwd (`SBOX_TERMINAL_CWD`), completely separate from every agent session.
+- Maximize/restore from the panel header. **Reconnect** starts a fresh shell; **Close**
+  ends it.
+- `SBOX_TERMINAL=0` disables it. The action is hidden below `md`, but the endpoint is
+  still a direct shell—protect the brain with loopback or an authenticated tunnel.
+
 ## 5. Review, finalize, and follow-ups
 
 1. Implementation ends with `READY FOR REVIEW` and the request moves to Review when the

@@ -31,7 +31,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 189 vitest cases: 127 server across 15 files and 62 web across 13 files, all green.
+- 192 vitest cases: 130 server across 16 files and 62 web across 13 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -43,10 +43,11 @@ digests.
   settings and a structured process editor, configurable global and per-cell process
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
-  defines the policy up front, a systemd user unit for a VPS, a harness seam with
-  `claude` and `opencode` adapters, OpenCode plugin parity (skills and slash commands),
-  and a GitHub Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers
-  are merged into request sessions for both.
+  defines the policy up front, a desktop-only maximizable PTY terminal independent of
+  agent sessions, a systemd user unit for a VPS, a harness seam with `claude` and
+  `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a GitHub
+  Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged
+  into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: per-cell cadence, KB embeddings. Review/finalize automation is configurable
@@ -58,7 +59,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 127 server + 62 web
+npm test                       # 130 server + 62 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
@@ -95,6 +96,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
   live in `process.json` (`SBOX_PROCESS`). Both are zod-validated and written atomically.
   Invalid files fall back to defaults until saved; env still owns paths, ports, and the
   harness.
+- **The browser terminal is a real PTY.** `SBOX_TERMINAL=0` disables it; `SBOX_TERMINAL_CWD`
+  sets its starting directory. It is desktop-only in the UI, but the WebSocket route is
+  live. Never expose the brain beyond loopback without auth/proxy controls, because the
+  terminal is a direct shell.
 - **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
@@ -164,6 +169,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     explicit indexing path.
 16. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
     request/title; the `followup` event is the dedupe key.
+17. **The terminal is not an agent session.** Each WebSocket owns one `node-pty` shell in
+    `SBOX_TERMINAL_CWD`; it must never reuse an engine process or transcript. Keep the
+    UI desktop-only and the route disableable with `SBOX_TERMINAL=0`.
 
 ## Extension recipes
 

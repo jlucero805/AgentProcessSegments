@@ -173,3 +173,5 @@ states dispose the session as before; disabling the master stops scheduling imme
   sessions and notes, cell-scoped status/run endpoints, and per-cell chat in the drawer.
 - [x] **24. Tests and docs** — scheduler ticker, per-cell chat/status, cell interval, and
   workflow/decision updates.
+- [x] **25. Desktop terminal** — sidebar action, xterm.js panel, node-pty WebSocket,
+  maximize/restore/reconnect, env kill switch, and PTY/HTTP/UI tests.

@@ -156,6 +156,19 @@ and separate per-cell snapshots let a strict repository diverge without changing
 other cell. Cost: two config locations; snapshots do not follow later global edits; each
 cell has its own timer and master chat.
 
+## 13. Browser terminal uses node-pty and xterm.js
+
+**Chosen.** A real PTY per WebSocket, xterm.js in the SPA, desktop-only trigger and panel,
+maximize/restore, `SBOX_TERMINAL=0` kill switch, and a configurable starting cwd.
+
+**Alternatives.** A command runner without a PTY (breaks interactive tools), reusing the
+agent’s child process (violates isolation), or a separate local terminal app.
+
+**Why.** The operator asked for occasional shell work without leaving the harness. The
+PTY is independent of agent sessions and behaves like a normal terminal. Cost: a native
+dependency, a powerful no-auth endpoint, and a desktop-only UI that relies on the
+loopback/trusted-tunnel boundary.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

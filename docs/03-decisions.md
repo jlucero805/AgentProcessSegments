@@ -391,3 +391,18 @@ observability surface.
 **Cost.** The drawer polls status and events every 10 seconds while open. Each cell’s
 chat is separate; unassigned work keeps the global chat. The chat remains
 read-only/advisory.
+
+## D29. The desktop terminal is a direct PTY
+
+**Context.** The operator does not want to switch apps for occasional shell work. The
+browser terminal must not share state, cwd, or the process with a harness agent session.
+
+**Decision.** Add a desktop-only **Terminal** action. Each WebSocket gets its own
+`node-pty` login shell in `SBOX_TERMINAL_CWD` (default: the brain’s cwd), with xterm.js
+in the SPA. The panel can be maximized, restored, reconnected, and closed. Up to four
+shells may run at once. `SBOX_TERMINAL=0` disables both the status route and new shells;
+`SBOX_TERMINAL_CWD` moves the start directory.
+
+**Cost.** A direct shell is more powerful than the agent tools. The route has no auth of
+its own, so the brain must stay loopback-only or behind an authenticated tunnel. The UI
+hides the action below `md`, but that is presentation, not an access control.

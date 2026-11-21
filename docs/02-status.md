@@ -37,6 +37,11 @@ built and vended by the brain; real-CLI verification is still pending.
   or the global interval) plus one for unassigned work. Each cell has its own reserved
   master chat (`__master__:<cellId>`); notes and chat do not mix between cells. The Cell
   master drawer shows the selected cell’s ticker, policy, filtered activity, and chat.
+- Desktop terminal: a sidebar **Terminal** action opens a real PTY (`node-pty`) in
+  `SBOX_TERMINAL_CWD`, independent of every agent session. It can be maximized, restored,
+  reconnected, and closed; only one shell per WebSocket and up to four concurrent shells.
+  `SBOX_TERMINAL=0` disables it. The UI hides the action below `md`, but the WebSocket
+  route is live, so the brain must stay behind a trusted boundary.
 - Live master verification: a stalled dispatch request was prodded by the real OpenCode
   agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
   prod, review, and cycle events.
@@ -130,7 +135,7 @@ built and vended by the brain; real-CLI verification is still pending.
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. The files on this host are
   `/root/.config/sandbox-harness/config.json` and `process.json`.
-- 189 vitest cases, all passing: 127 server across 15 files and 62 web across 13 files,
+- 192 vitest cases, all passing: 130 server across 16 files and 62 web across 13 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -228,6 +233,8 @@ PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]
 POST   /api/master/run[?cellId=…]
 GET    /api/master/events?cellId=…&limit=…
+GET    /api/terminal
+GET    /ws/terminal                       PTY over WebSocket
 GET    /ws
 ```
 

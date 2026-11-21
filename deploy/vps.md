@@ -62,6 +62,15 @@ chat. See `docs/07-process-segments.md` and `docs/08-user-workflows.md`.
 Both files are intentionally outside the repo and outside the systemd unit. The master
 scheduler runs inside the brain.
 
+## Browser terminal
+
+The desktop SPA includes a real PTY shell. It starts in `SBOX_TERMINAL_CWD` (default: the
+brain’s working directory) and is independent of agent sessions. Disable it with
+`SBOX_TERMINAL=0` in the unit. The UI hides the action on phones, but the `/ws/terminal`
+route is a direct shell: keep the brain on loopback or behind an authenticated tunnel.
+The node-pty native module is built during `npm ci`; this host already has `make`, `g++`,
+and `python3`.
+
 ## Install as a systemd user unit
 
 ```bash

@@ -39,3 +39,7 @@ jobs:
 
       - name: MCP stdio smoke
         run: node scripts/mcp-smoke.mjs
+
+      # Exits 0 without a claude binary; verifies the real CLI when one is installed.
+      - name: Claude mock smoke
+        run: node scripts/claude-mock-smoke.mjs

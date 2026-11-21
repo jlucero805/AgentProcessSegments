@@ -50,7 +50,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - OpenCode verified end to end on this host: 44 probed models, a 50 s clarify turn with
   tool cards and `tools.harness.*` MCP calls, a 20-message persisted transcript, session
   resume after a brain restart with correct recall, a KB turn with read-only
-  permissions, and plugin command/skill mapping.
+  permissions, plugin command/skill mapping, a merged user MCP server
+  (`tools.userserver.list_kb`), and a target-repo worktree write that stayed off the
+  main checkout.
 - Plugin manager: shallow clone, optional monorepo subdir, manifest verification,
   hook and MCP stripping, replace-on-reinstall, slug-guarded removal, and slash-command
   discovery from `commands/**/*.md` and `skills/*/SKILL.md`. Local directory sources are

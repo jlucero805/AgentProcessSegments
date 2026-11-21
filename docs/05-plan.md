@@ -181,4 +181,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   `E2E` cell, clarify/dispatch/master/follow-up/chat/concurrency/finalize, no KB index.
 - [x] **28. Error logging** — error-only NDJSON sink, XDG state path, size rotation,
   startup/config/HTTP/engine/master/terminal instrumentation, tests and docs.
-- [ ] **Backlog 29. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **29. Chat skills** — skill discovery (global/project/request repo), merged slash
+  menu, skill badge, prompt-text invocation, API and tests.
+- [ ] **Backlog 30. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

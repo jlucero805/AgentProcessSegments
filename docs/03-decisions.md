@@ -438,3 +438,19 @@ written. The logger swallows its own failures so logging can never break a reque
 **Cost.** Only one rotated backup and a small context schema. Debugging relies on stable
 `source` names (`engine.turn`, `master.cycle`, etc.); adding a new persistent log line
 requires an explicit error path and the documented context rules.
+
+## D32. Slash skills are discovered and invoked as prompt text
+
+**Context.** The chat slash menu only listed installed plugin commands. Operators expect
+`/` to show available agent skills (for example `poteto-mode`), not just plugin commands.
+
+**Decision.** Add `SkillCatalog`, which scans the standard OpenCode/Claude compatibility
+directories plus project ancestors, and per-request target repos/worktrees via
+`GET /api/skills?requestId=…`. The SPA merges skills into `/api/commands` with a `skill`
+badge. Sending a skill label translates to `Use the <name> skill now and follow its
+instructions.` because skills are model-invoked, not CLI commands; plugin commands remain
+raw slash commands.
+
+**Cost.** Discovery is a directory walk on each fetch; no cache yet. A skill that is only
+visible inside a request’s target repo appears in that request’s chat, not the global KB
+or master chat menu.

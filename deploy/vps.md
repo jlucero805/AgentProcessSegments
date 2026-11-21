@@ -71,6 +71,14 @@ The built brain is exercised by `scripts/smoke.sh`, `scripts/mcp-smoke.mjs`, and
 dedicated `E2E` cell; it never indexes into the KB. Run it with `npm run e2e` (builds
 first). The CI template includes it.
 
+## Skills in chat
+
+The chat slash menu shows skills found in `~/.config/opencode/skills`, `~/.claude/skills`,
+`~/.agents/skills`, and project `.opencode`/`.claude`/`.agents` skill directories. A
+request chat also scans its target repo/worktree. Install a global skill at
+`~/.config/opencode/skills/<name>/SKILL.md`; after reloading the SPA, `/name` appears in
+the menu. See `docs/11-skills.md`.
+
 ## Error log
 
 Explicit error paths append NDJSON to

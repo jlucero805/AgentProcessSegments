@@ -29,11 +29,12 @@ digests.
    observation, requests, review, and finalize.
 9. `docs/09-backlog.md` holds scoped but unbuilt work (token/cost tracking).
 10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
+11. `docs/11-skills.md` is slash-command/skill discovery and invocation in chats.
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 197 vitest cases: 135 server across 17 files and 62 web across 13 files, all green.
+- 202 vitest cases: 137 server across 18 files and 65 web across 14 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -50,7 +51,8 @@ digests.
   defines the policy up front, per-cell concurrency caps and model/effort defaults, a
   desktop-only maximizable PTY terminal independent of agent sessions, a systemd user
   unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
-  parity (skills and slash commands), and a GitHub Actions CI workflow template in
+  parity (skills and slash commands), chat slash-menu skill discovery with per-request
+  target-repo skills, and a GitHub Actions CI workflow template in
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
@@ -63,7 +65,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 135 server + 62 web
+npm test                       # 137 server + 65 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -190,6 +192,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     paths; it appends NDJSON to the XDG state log and must never throw. Keep context to
     ids/method/URL, never prompts, bodies, transcripts, tokens, or secrets. Expected 4xx
     responses stay out of the file.
+22. **Skills are prompt instructions, not CLI slashes.** Discover them from the standard
+    OpenCode/Claude directories (`docs/11-skills.md`). The composer may show `/name`, but
+    sending it must translate to `Use the <name> skill now…`; only plugin commands may be
+    sent as raw slash commands.
 
 ## Extension recipes
 

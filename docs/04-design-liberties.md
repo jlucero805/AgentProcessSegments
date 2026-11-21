@@ -194,6 +194,18 @@ open failures, with ids/method/URL only. Size-rotated once; write failures swall
 after the fact. Cost: no normal-operation trace on disk; use `journalctl` or the in-app
 event log/transcripts for those.
 
+## 16. Slash skills become prompt instructions
+
+**Chosen.** Discover skills from the CLIs’ standard directories, show them in the same
+slash menu as plugin commands, and translate a sent skill label into an instruction.
+
+**Alternatives.** Inject every skill as an OpenCode command, require users to type the
+full instruction, or only show plugin skills.
+
+**Why.** Both Claude and OpenCode can load skills, but their slash-command mechanisms
+differ. An instruction is portable and keeps the UI simple. Cost: the menu is not a
+literal CLI command list; a skill that exists only inside a target repo is request-scoped.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

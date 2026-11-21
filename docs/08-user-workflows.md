@@ -58,7 +58,10 @@ The full field reference is in `docs/07-process-segments.md`.
 3. Clarify, dispatch, review, and finalize share one chat thread. Interject at any time;
    messages sent while a turn runs are queued, and **Stop** cuts the turn short so you can
    redirect it.
-4. The drawer’s workflow buttons can move work manually. The master and a human use the
+4. Type `/` at the start of a message to open the slash menu. Skills show a `skill` badge
+   and are sent as instructions such as “Use the poteto-mode skill now…”. Plugin commands
+   are sent as ordinary slash commands. See `docs/11-skills.md`.
+5. The drawer’s workflow buttons can move work manually. The master and a human use the
    same transition table.
 
 ## 4. Watch the master

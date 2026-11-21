@@ -143,7 +143,13 @@ built and vended by the brain; real-CLI verification is still pending.
   process files, unexpected HTTP 5xx, engine turn/exit failures, master turn/cycle
   failures, and PTY open failures. Normal logs and expected 4xx responses are not
   persisted. See `docs/10-error-log.md`.
-- 197 vitest cases, all passing: 135 server across 17 files and 62 web across 13 files,
+- Chat slash menu: combines installed plugin commands/skills with skills discovered from
+  `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, and project
+  `.opencode`/`.claude`/`.agents` skill directories. Request chats also discover skills
+  from the request worktree or target repo. Selecting a skill sends a plain instruction
+  (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
+  send as slash commands. See `docs/11-skills.md`.
+- 202 vitest cases, all passing: 137 server across 18 files and 65 web across 14 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -240,6 +246,7 @@ GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
 DELETE /api/plugins/:name
 GET    /api/commands
+GET    /api/skills[?requestId=…]
 GET    /api/config
 PATCH  /api/config                        {master:{…}}
 GET    /api/process

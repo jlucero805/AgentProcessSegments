@@ -22,7 +22,7 @@ one git worktree per request, and a knowledge base fed by human-approved digests
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 93 vitest cases: 61 server across 10 files and 32 web across 7 files, all green.
+- 95 vitest cases: 61 server across 10 files and 34 web across 8 files, all green.
 - Two proof scripts: `scripts/smoke.sh` (built brain over a socket) and
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
@@ -36,7 +36,7 @@ one git worktree per request, and a knowledge base fed by human-approved digests
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 61 server + 32 web
+npm test                       # 61 server + 34 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket

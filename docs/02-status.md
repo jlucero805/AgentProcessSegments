@@ -44,7 +44,7 @@ built and vended by the brain; real-CLI verification is still pending.
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served.
-- 93 vitest cases, all passing: 61 server across 10 files and 32 web across 7 files,
+- 95 vitest cases, all passing: 61 server across 10 files and 34 web across 8 files,
   plus `scripts/smoke.sh` (built brain) and `scripts/mcp-smoke.mjs` (built brain plus
   built MCP server over real stdio).
 - Deployment: a systemd user unit in `deploy/sandbox-harness.service` and a VPS runbook

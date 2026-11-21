@@ -181,6 +181,19 @@ empty; a request override wins. The master checks `working` count before startin
 override already exists. Cost: a cell cannot run Plan on a cheaper model than Implement
 without a request override; per-segment limits are future work if that becomes common.
 
+## 15. Error-only disk logging
+
+**Chosen.** A single NDJSON error log under XDG state, injected as a narrow `ErrorSink`.
+It records startup, invalid config, unexpected 5xx, engine/master failures, and terminal
+open failures, with ids/method/URL only. Size-rotated once; write failures swallowed.
+
+**Alternatives.** Full structured logging, rotating daily files, or relying on
+`journalctl`/stderr only.
+
+**Why.** Disk space is cheap but not free, and failure context is what usually matters
+after the fact. Cost: no normal-operation trace on disk; use `journalctl` or the in-app
+event log/transcripts for those.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

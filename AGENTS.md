@@ -28,11 +28,12 @@ digests.
 8. `docs/08-user-workflows.md` is the operator workflow: cells, process choices, master
    observation, requests, review, and finalize.
 9. `docs/09-backlog.md` holds scoped but unbuilt work (token/cost tracking).
+10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 194 vitest cases: 132 server across 16 files and 62 web across 13 files, all green.
+- 197 vitest cases: 135 server across 17 files and 62 web across 13 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -62,7 +63,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 132 server + 62 web
+npm test                       # 135 server + 62 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -100,6 +101,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
   live in `process.json` (`SBOX_PROCESS`). Both are zod-validated and written atomically.
   Invalid files fall back to defaults until saved; env still owns paths, ports, and the
   harness.
+- **Errors are the only persisted logs.** `$XDG_STATE_HOME/sandbox-harness/errors.log`
+  (`SBOX_ERROR_LOG`, `SBOX_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
+  written only by explicit error paths. Never add routine logging to it.
 - **The browser terminal is a real PTY.** `SBOX_TERMINAL=0` disables it; `SBOX_TERMINAL_CWD`
   sets its starting directory. It is desktop-only in the UI, but the WebSocket route is
   live. Never expose the brain beyond loopback without auth/proxy controls, because the
@@ -182,6 +186,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     then the cell defaults; persist cell changes on the cell, not in memory.
 20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage
     writes; follow `docs/09-backlog.md` when it is built.
+21. **Errors go through the error sink.** Use the injected `ErrorSink` on genuine failure
+    paths; it appends NDJSON to the XDG state log and must never throw. Keep context to
+    ids/method/URL, never prompts, bodies, transcripts, tokens, or secrets. Expected 4xx
+    responses stay out of the file.
 
 ## Extension recipes
 

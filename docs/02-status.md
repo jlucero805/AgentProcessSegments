@@ -137,7 +137,13 @@ built and vended by the brain; real-CLI verification is still pending.
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. The files on this host are
   `/root/.config/sandbox-harness/config.json` and `process.json`.
-- 194 vitest cases, all passing: 132 server across 16 files and 62 web across 13 files,
+- Error log: explicit failure paths append NDJSON to
+  `$XDG_STATE_HOME/sandbox-harness/errors.log` (`SBOX_ERROR_LOG`,
+  `SBOX_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
+  process files, unexpected HTTP 5xx, engine turn/exit failures, master turn/cycle
+  failures, and PTY open failures. Normal logs and expected 4xx responses are not
+  persisted. See `docs/10-error-log.md`.
+- 197 vitest cases, all passing: 135 server across 17 files and 62 web across 13 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

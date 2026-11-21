@@ -45,6 +45,7 @@ main routes over a real socket.
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
 - `docs/09-backlog.md` scoped but unbuilt work (token/cost tracking)
+- `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
@@ -78,6 +79,7 @@ src/server/src
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
   master/scheduler.ts per-cell timers, unassigned timer, manual run, coalesced cycles
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
+  logging/errors.ts   structured error-only NDJSON log with size rotation
   terminal/service.ts desktop browser terminal: one node-pty shell per socket
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
@@ -109,15 +111,16 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 194 vitest cases: 132 server cases (state machine, migrations including
+`npm test` runs 197 vitest cases: 135 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
-the generic master pipeline, terminal PTY service, and the HTTP API over a real socket)
-and 62 web cases (shared contract re-exports, NDJSON client, chat folding, request-form
-mapping, board, create modal, composer, cell bar, cell creation, config/process editor,
-master detail, and the app shell with the drawer and chat mounted under jsdom).
+the generic master pipeline, error-log format/rotation, terminal PTY service, and the
+HTTP API over a real socket) and 62 web cases (shared contract re-exports, NDJSON client,
+chat folding, request-form mapping, board, create modal, composer, cell bar, cell
+creation, config/process editor, master detail, and the app shell with the drawer and
+chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

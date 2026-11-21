@@ -71,6 +71,15 @@ The built brain is exercised by `scripts/smoke.sh`, `scripts/mcp-smoke.mjs`, and
 dedicated `E2E` cell; it never indexes into the KB. Run it with `npm run e2e` (builds
 first). The CI template includes it.
 
+## Error log
+
+Explicit error paths append NDJSON to
+`$XDG_STATE_HOME/sandbox-harness/errors.log` (usually
+`~/.local/state/sandbox-harness/errors.log`). Override with `SBOX_ERROR_LOG`; cap with
+`SBOX_ERROR_LOG_MAX_BYTES` (default 2 MiB, rotated once to `.1`). Read it with
+`tail`/`jq`. See `docs/10-error-log.md` for sources and format. Normal logs remain in
+`journalctl --user -u sandbox-harness`.
+
 ## Browser terminal
 
 The desktop SPA includes a real PTY shell. It starts in `SBOX_TERMINAL_CWD` (default: the

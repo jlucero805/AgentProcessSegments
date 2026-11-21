@@ -179,4 +179,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   persistent default model/effort, engine fallback, master capacity guard, UI fields.
 - [x] **27. E2E workflow** — isolated real brain, deterministic mock Claude, dedicated
   `E2E` cell, clarify/dispatch/master/follow-up/chat/concurrency/finalize, no KB index.
-- [ ] **Backlog 28. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **28. Error logging** — error-only NDJSON sink, XDG state path, size rotation,
+  startup/config/HTTP/engine/master/terminal instrumentation, tests and docs.
+- [ ] **Backlog 29. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

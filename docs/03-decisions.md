@@ -422,3 +422,19 @@ chat also inherits the cell defaults.
 **Cost.** Concurrency is per cell; unassigned work uses the default cap of 3 until a cell
 is attached. Changing a cell model affects the next spawned turn, not a child that is
 already running. Token/cost tracking is backlogged in `docs/09-backlog.md`.
+
+## D31. Persist only errors, through one sink
+
+**Context.** Debugging needs durable failure context, but retaining every log/transcript
+wastes space and can capture sensitive content.
+
+**Decision.** Add an error-only `ErrorLogger` that appends one JSON record per explicit
+failure to `$XDG_STATE_HOME/sandbox-harness/errors.log` (`SBOX_ERROR_LOG`,
+`SBOX_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Inject it as `ErrorSink` into startup,
+stores, engine, master service/scheduler, HTTP 5xx handling, and terminal open. Expected
+4xx responses, normal lifecycle logs, prompts, transcripts, bodies, and tokens are not
+written. The logger swallows its own failures so logging can never break a request.
+
+**Cost.** Only one rotated backup and a small context schema. Debugging relies on stable
+`source` names (`engine.turn`, `master.cycle`, etc.); adding a new persistent log line
+requires an explicit error path and the documented context rules.

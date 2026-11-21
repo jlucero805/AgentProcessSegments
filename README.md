@@ -105,6 +105,12 @@ SQLite.
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
 probed model catalog. It skips when no `claude` binary is available.
 
+`node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
+(`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point
+`UI_BASE` at a running brain, then run it. It creates and drops a request, opens the
+drawer/chat, visits the KB page, and fails on page errors. It skips when Puppeteer is
+absent.
+
 CI (`deploy/ci-workflow.yml`) runs typecheck, the full test suite, the build, and the
 HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
 `.github/workflows/ci.yml` with a credential that has the `workflow` scope to activate

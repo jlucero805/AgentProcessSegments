@@ -52,6 +52,7 @@ SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 node scripts/claude-mock-smoke.mjs  # real claude binary + mock Anthropic API
+node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart sandbox-harness
 journalctl --user -u sandbox-harness -n 50 --no-pager
@@ -75,6 +76,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 - **Pin a child's `PWD` to its cwd.** OpenCode resolves its project root from `PWD`; an
   inherited value points it at the brain's directory and breaks per-request config and
   commands. Both harness adapters set it on spawn.
+- **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it.
+  A headless Chromium on this host needs the usual shared libraries (`libnss3`,
+  `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.

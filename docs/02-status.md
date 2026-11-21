@@ -63,7 +63,9 @@ built and vended by the brain; real-CLI verification is still pending.
   chat with markdown and tool cards, slash-command autocomplete from `/api/commands`,
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
-  `/api` still returns JSON, and hashed assets are served.
+  `/api` still returns JSON, and hashed assets are served. A headless Chromium run
+  (`scripts/ui-smoke.mjs`, optional Puppeteer) also created a request, opened the
+  drawer and chat, visited the KB page, and found no page or console errors.
 - 115 vitest cases, all passing: 81 server across 12 files and 34 web across 8 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code

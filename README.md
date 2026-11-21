@@ -20,6 +20,7 @@ same data model, state machine, HTTP surface, and wire contracts.
 ```bash
 npm install
 npm test
+npm run e2e
 npm run build
 SBOX_DB=$PWD/sandbox-harness.sqlite node src/server/dist/app.js
 ```
@@ -126,6 +127,12 @@ SQLite.
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
 probed model catalog. It skips when no `claude` binary is available.
 
+`npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
+creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →
+follow-up creation → per-cell master chat → concurrency cap → finalize. It never indexes
+into the KB; the suite asserts the KB stays empty. It uses no live data and cleans up the
+temp directory.
+
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point
 `UI_BASE` at a running brain, then run it. It creates and drops a request, opens the
@@ -133,7 +140,7 @@ drawer/chat, visits the KB and Config pages, and fails on page errors. `UI_MOBIL
 runs the same flow at 390×844 with the off-canvas menu checks. It skips when Puppeteer
 is absent.
 
-CI (`deploy/ci-workflow.yml`) runs typecheck, the full test suite, the build, and the
-HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
+CI (`deploy/ci-workflow.yml`) runs typecheck, the full test suite, the build, the E2E
+API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
 `.github/workflows/ci.yml` with a credential that has the `workflow` scope to activate
 it.

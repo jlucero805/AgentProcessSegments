@@ -102,7 +102,15 @@ KB but cannot mutate requests.
 5. Out-of-scope findings can become intake requests automatically (follow-up markers) or
    through the agent’s `spawn_request` tool.
 
-## 6. Where things live
+## 7. Run the end-to-end suite
+
+`npm run e2e` builds the brain, boots it on a throwaway database/data dir, and drives the
+workflow through a deterministic mock Claude CLI. Everything happens inside a dedicated
+`E2E` cell: clarify, dispatch, master prod/review, follow-up creation in the same cell,
+per-cell master chat, finalize, and the concurrency cap. It **never indexes into the KB**
+and asserts the knowledge base stays empty. No live data is touched.
+
+## 8. Where things live
 
 | Thing | Location |
 | --- | --- |

@@ -139,8 +139,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `/root/.config/sandbox-harness/config.json` and `process.json`.
 - 194 vitest cases, all passing: 132 server across 16 files and 62 web across 13 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
-  MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
-  binary against a local mock Anthropic API).
+  MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
+  against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
+  mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
   streamed turn with an `mcp__harness__*` tool call, merged harness plus user MCP config,
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
@@ -151,10 +152,15 @@ built and vended by the brain; real-CLI verification is still pending.
   `127.0.0.1:7391`, SPA and API served with `/api` winning over the SPA fallback, a
   `kill -9` of the main process triggered `Restart=on-failure`, and a clean restart kept
   serving. `loginctl enable-linger` is set so the user manager starts at boot.
+- E2E API workflow: `npm run e2e` boots the built brain with a temp DB and deterministic
+  mock Claude CLI, creates a dedicated `E2E` cell, and covers clarify, dispatch,
+  master prod/review, follow-up creation, per-cell master chat, finalize, and the
+  concurrency cap. It never indexes into the KB and asserts the KB stays empty.
 - CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, typecheck, the full
-  test suite, the build, `scripts/smoke.sh`, and `scripts/mcp-smoke.mjs` on pushes and
-  pull requests. It is not active on the remote: publishing a workflow needs a credential
-  with the `workflow` scope. Copy it to `.github/workflows/ci.yml` once that is available.
+  test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
+  `scripts/mcp-smoke.mjs` on pushes and pull requests. It is not active on the remote:
+  publishing a workflow needs a credential with the `workflow` scope. Copy it to
+  `.github/workflows/ci.yml` once that is available.
 
 ## Deviations from the spec
 

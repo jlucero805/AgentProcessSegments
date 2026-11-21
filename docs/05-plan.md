@@ -177,4 +177,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   maximize/restore/reconnect, env kill switch, and PTY/HTTP/UI tests.
 - [x] **26. Per-cell limits/defaults** — max concurrent working requests (default 3),
   persistent default model/effort, engine fallback, master capacity guard, UI fields.
-- [ ] **Backlog 27. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **27. E2E workflow** — isolated real brain, deterministic mock Claude, dedicated
+  `E2E` cell, clarify/dispatch/master/follow-up/chat/concurrency/finalize, no KB index.
+- [ ] **Backlog 28. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

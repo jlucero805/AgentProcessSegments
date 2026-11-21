@@ -33,9 +33,11 @@ digests.
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
 - 194 vitest cases: 132 server across 16 files and 62 web across 13 files, all green.
-- Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
-  `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
-  `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
+- Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
+  `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
+  `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
+  `scripts/e2e.mjs` (built brain + deterministic mock Claude, isolated DB, dedicated E2E
+  cell, no KB indexing).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
@@ -61,6 +63,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm test                       # 132 server + 62 web
+npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js

@@ -64,6 +64,13 @@ backlogged in `docs/09-backlog.md`.
 Both files are intentionally outside the repo and outside the systemd unit. The master
 scheduler runs inside the brain.
 
+## Verification
+
+The built brain is exercised by `scripts/smoke.sh`, `scripts/mcp-smoke.mjs`, and
+`scripts/e2e.mjs`. The E2E suite uses a temp DB, a deterministic mock Claude CLI, and a
+dedicated `E2E` cell; it never indexes into the KB. Run it with `npm run e2e` (builds
+first). The CI template includes it.
+
 ## Browser terminal
 
 The desktop SPA includes a real PTY shell. It starts in `SBOX_TERMINAL_CWD` (default: the

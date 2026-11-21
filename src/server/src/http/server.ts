@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { ZodError, z } from 'zod';
 import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
-import { KB_SESSION_ID } from '../clarify/engine.js';
+import { KB_SESSION_ID, MASTER_SESSION_ID } from '../clarify/engine.js';
 import type { ModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import {
@@ -235,16 +235,30 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.post('/api/requests/:id/clarify/start', async (request, reply) => {
     const { id } = request.params as { id: string };
     const isKb = id === KB_SESSION_ID;
-    const turn = isKb ? engine.startKb('') : engine.start(id);
-    return streamTurn(reply, engine, id, turn, () => (isKb ? null : repo.get(id)));
+    const isMaster = id === MASTER_SESSION_ID;
+    const turn = isKb
+      ? engine.startKb('')
+      : isMaster
+        ? engine.startMaster('')
+        : engine.start(id);
+    return streamTurn(reply, engine, id, turn, () =>
+      isKb || isMaster ? null : repo.get(id),
+    );
   });
 
   app.post('/api/requests/:id/clarify/send', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { text } = sendSchema.parse(request.body);
     const isKb = id === KB_SESSION_ID;
-    const turn = isKb ? engine.startKb(text) : engine.send(id, text);
-    return streamTurn(reply, engine, id, turn, () => (isKb ? null : repo.get(id)));
+    const isMaster = id === MASTER_SESSION_ID;
+    const turn = isKb
+      ? engine.startKb(text)
+      : isMaster
+        ? engine.startMaster(text)
+        : engine.send(id, text);
+    return streamTurn(reply, engine, id, turn, () =>
+      isKb || isMaster ? null : repo.get(id),
+    );
   });
 
   app.post('/api/requests/:id/clarify/stop', async (request) => {
@@ -268,7 +282,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/requests/:id/clarify', async (request) => {
     const { id } = request.params as { id: string };
-    if (id === KB_SESSION_ID) {
+    if (id === KB_SESSION_ID || id === MASTER_SESSION_ID) {
       return {
         started: true,
         transcript: engine.transcript(id),

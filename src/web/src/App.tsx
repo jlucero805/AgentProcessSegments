@@ -228,7 +228,7 @@ export function App() {
           ) : null}
           {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
-          {page === 'config' ? <ConfigPage onError={setError} /> : null}
+          {page === 'config' ? <ConfigPage commands={commands} onError={setError} /> : null}
         </div>
       </main>
 

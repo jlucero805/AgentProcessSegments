@@ -50,6 +50,7 @@ function setup(overrides: Record<string, unknown> = {}): Fixture {
     transcript: vi.fn(() => [
       { role: 'agent' as const, kind: 'text' as const, text: 'finished. READY FOR REVIEW', ts: 1 },
     ]),
+    note: vi.fn(),
   } as unknown as Engine;
 
   const service = new MasterService({ repo, cells, engine, settings, events });
@@ -84,6 +85,12 @@ describe('MasterService', () => {
 
     const actions = fixture.events.list().map((event) => event.action);
     expect(actions).toEqual(expect.arrayContaining(['prod', 'review', 'cycle']));
+    const notes = (fixture.engine.note as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([, text]) => String(text),
+    );
+    expect(notes.some((text) => text.includes('Prodded'))).toBe(true);
+    expect(notes.some((text) => text.includes('Moved'))).toBe(true);
+    expect(notes.some((text) => text.includes('Master cycle'))).toBe(true);
   });
 
   it('skips fresh, live, and disabled-cell queues', async () => {

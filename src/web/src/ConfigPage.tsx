@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
-import { timeAgo, type Cell, type MasterConfig, type MasterEvent, type MasterResult, type MasterStatus } from './types';
+import { ClarifyChat } from './ClarifyChat';
+import {
+  MASTER_SESSION_ID,
+  timeAgo,
+  type Cell,
+  type CommandInfo,
+  type MasterConfig,
+  type MasterEvent,
+  type MasterResult,
+  type MasterStatus,
+} from './types';
 import {
   Badge,
   Button,
@@ -15,6 +25,7 @@ import {
 
 interface ConfigPageProps {
   onError: (message: string) => void;
+  commands: CommandInfo[];
 }
 
 const ACTION_TONES = {
@@ -43,7 +54,7 @@ function eventDetail(event: MasterEvent): string {
 }
 
 /** Edits the persisted master policy and shows its live status and activity. */
-export function ConfigPage({ onError }: ConfigPageProps) {
+export function ConfigPage({ onError, commands }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [path, setPath] = useState('');
   const [status, setStatus] = useState<MasterStatus | null>(null);
@@ -277,6 +288,25 @@ export function ConfigPage({ onError }: ConfigPageProps) {
             ))}
           </ul>
         )}
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <div className="border-b border-zinc-800 px-4 py-3">
+          <SectionTitle>Master chat</SectionTitle>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            The scheduler posts cycle, prod, and review notes here. Ask the master what it is
+            doing; it can read the board and the knowledge base.
+          </p>
+        </div>
+        <div className="h-96">
+          <ClarifyChat
+            requestId={MASTER_SESSION_ID}
+            started
+            commands={commands}
+            onError={onError}
+            placeholder="Ask the master what it is doing…"
+          />
+        </div>
       </Card>
     </div>
   );

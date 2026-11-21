@@ -1,5 +1,7 @@
 /** Sentinel session for the knowledge-base chat; it has no request row. */
 export const KB_SESSION_ID = '__kb__';
+/** Sentinel session for the cell-master chat; it has no request row. */
+export const MASTER_SESSION_ID = '__master__';
 
 export type State = 'clarify' | 'dispatch' | 'review' | 'finalize' | 'done' | 'dropped';
 export type AgentStatus = 'none' | 'idle' | 'working' | 'blocked' | 'error';

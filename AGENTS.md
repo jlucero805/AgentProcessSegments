@@ -26,19 +26,20 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 149 vitest cases: 102 server across 14 files and 47 web across 10 files, all green.
+- 155 vitest cases: 107 server across 14 files and 48 web across 10 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
-  knowledge base), a mobile shell, durable chat with URL route restore, a Config page
-  with an XDG settings file, cell masters with a scheduled prod loop and event log, a
-  systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters,
-  OpenCode plugin parity (skills and slash commands), and a GitHub Actions CI workflow
-  template in `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions
-  for both.
+  knowledge base), a mobile shell, durable chat with URL route restore, queued messages
+  and stop/interject, one thread across workflow segments, a Config page with an XDG
+  settings file, cell masters with a scheduled prod loop, event log, and an embedded
+  master chat, a systemd user unit for a VPS, a harness seam with `claude` and `opencode`
+  adapters, OpenCode plugin parity (skills and slash commands), and a GitHub Actions CI
+  workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged into request
+  sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: pipeline/review automation, KB embeddings.
@@ -108,12 +109,14 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 
 1. **Transition table is data.** Add states in `domain/request.ts`; never branch on
    state elsewhere without going through `canTransition`.
-2. **`__kb__` is a sentinel request id with no row.** Routes special-case it before
-   touching the request repository. Its session is read-only.
+2. **`__kb__` and `__master__` are sentinel session ids with no rows.** Routes
+   special-case them before touching the request repository. Both sessions are read-only;
+   the master scope gets board read tools in addition to the KB tools.
 3. **MCP tool names must match the harness allowlist.** Registering a tool does not
-   grant it. Add it to `REQUEST_TOOLS` or `KB_TOOLS` in `clarify/harness.ts` or the
-   Claude agent cannot call it under auto-approve. OpenCode request sessions use
-   `--auto`; its KB session uses explicit deny permissions.
+   grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, or `MASTER_TOOLS` in
+   `clarify/harness.ts` or the Claude agent cannot call it under auto-approve. OpenCode
+   request sessions use `--auto`; its KB and master sessions use explicit deny
+   permissions.
 4. **One turn at a time per id.** `start`/`send`/`dispatch`/`finalize` return the
    existing `LiveTurn` while one is in flight. Do not start a second.
 5. **A finished turn is dropped.** `attach()` returns false after completion; clients
@@ -130,6 +133,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     `engine.send`, waits for it, and only transitions `dispatch → review` when the final
     agent text contains `READY FOR REVIEW`. Disabled cells and the disabled master are
     skipped; terminal transitions still dispose the session.
+11. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
+    finishes with the partial transcript; it does not clear `session.json`, so the next
+    message resumes. Stop clears the client queue; normal completion drains it in order.
 
 ## Extension recipes
 

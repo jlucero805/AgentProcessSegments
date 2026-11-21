@@ -286,6 +286,8 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     }
   }
 
+  const terminal = request?.state === 'done' || request?.state === 'dropped';
+
   const actions = useMemo(() => {
     if (!request) return null;
     const states: { key: string; label: string; run: () => Promise<void>; tone?: 'danger' }[] = [];
@@ -513,25 +515,29 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               ) : null}
             </Card>
 
-            {request.state === 'clarify' ? (
-              <Card className="h-[26rem] overflow-hidden">
-                <ClarifyChat
-                  requestId={id}
-                  started={request.clarifyStarted}
-                  commands={commands}
-                  onError={onError}
-                  onRequest={(updated) => {
-                    setRequest(updated);
-                    setForm(fromRequest(updated));
-                  }}
-                />
-              </Card>
-            ) : (
-              <div className="space-y-2">
-                <SectionTitle>Transcript</SectionTitle>
-                <TranscriptList transcript={transcript} />
-              </div>
-            )}
+      {!terminal ? (
+        <div className="space-y-2">
+          <SectionTitle>Thread</SectionTitle>
+          <Card className="h-[26rem] overflow-hidden">
+            <ClarifyChat
+              requestId={id}
+              started={request.state !== 'clarify' || request.clarifyStarted}
+              commands={commands}
+              onError={onError}
+              onRequest={(updated) => {
+                setRequest(updated);
+                setForm(fromRequest(updated));
+              }}
+              placeholder="Message this thread…"
+            />
+          </Card>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <SectionTitle>Transcript</SectionTitle>
+          <TranscriptList transcript={transcript} />
+        </div>
+      )}
 
             <Card className="space-y-2 p-3">
               <SectionTitle>Finalize digest</SectionTitle>

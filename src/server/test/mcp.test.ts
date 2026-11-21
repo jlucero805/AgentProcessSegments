@@ -51,13 +51,16 @@ function makeBrain(): { calls: Recorded[]; fetchImpl: FetchLike } {
 
 let close: (() => Promise<void>) | null = null;
 
-async function connect(requestId: string): Promise<{
+async function connect(
+  requestId: string,
+  scope?: 'request' | 'kb' | 'master',
+): Promise<{
   client: Client;
   calls: Recorded[];
   call: (name: string, args?: Record<string, unknown>) => Promise<CallToolResult>;
 }> {
   const { calls, fetchImpl } = makeBrain();
-  const server = buildMcpServer({ brainUrl: 'http://brain.test', requestId, fetchImpl });
+  const server = buildMcpServer({ brainUrl: 'http://brain.test', requestId, scope, fetchImpl });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
 
@@ -104,6 +107,22 @@ describe('harness mcp server', () => {
     const { tools } = await client.listTools();
 
     expect(tools.map((tool) => tool.name).sort()).toEqual(['list_kb', 'search_kb']);
+  });
+
+  it('gives the master chat read-only board and KB tools', async () => {
+    const { client, call, calls } = await connect('', 'master');
+    const { tools } = await client.listTools();
+
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'get_request',
+      'list_kb',
+      'list_requests',
+      'search_kb',
+    ]);
+
+    const result = await call('get_request', { id: 'req-1' });
+    expect(textOf(result)).toContain('Scoped');
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/requests/req-1' });
   });
 
   it('defaults get_request to the scoped request', async () => {

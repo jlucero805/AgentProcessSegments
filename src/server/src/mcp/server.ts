@@ -66,10 +66,14 @@ function defined<T extends Record<string, unknown>>(fields: T): Record<string, u
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
 }
 
+export type SessionScope = 'request' | 'kb' | 'master';
+
 export interface McpOptions {
   brainUrl: string;
-  /** Empty string for the knowledge-base session, which has no request scope. */
+  /** Empty string for the knowledge-base/master sessions, which have no request scope. */
   requestId: string;
+  /** Defaults to `kb` when requestId is empty, otherwise `request`. */
+  scope?: SessionScope;
   fetchImpl?: FetchLike;
 }
 
@@ -77,8 +81,9 @@ export function buildMcpServer(options: McpOptions): McpServer {
   const api = new BrainApi(options.brainUrl, options.fetchImpl);
   const server = new McpServer({ name: 'harness', version: '0.1.0' });
   const requestId = options.requestId;
+  const scope = options.scope ?? (requestId === '' ? 'kb' : 'request');
 
-  if (requestId === '') {
+  if (scope !== 'request') {
     server.registerTool(
       'search_kb',
       {
@@ -105,6 +110,45 @@ export function buildMcpServer(options: McpOptions): McpServer {
         annotations: { readOnlyHint: true },
       },
       async () => respond(api.call('GET', '/api/kb')),
+    );
+
+    if (scope === 'kb') return server;
+
+    // Master chat: read the board and the KB, but never mutate them.
+    server.registerTool(
+      'list_requests',
+      {
+        title: 'List requests',
+        description: 'List requests, optionally filtered by state, intake view, or cell.',
+        inputSchema: {
+          state: z
+            .enum(['clarify', 'dispatch', 'review', 'finalize', 'done', 'dropped'])
+            .optional(),
+          view: z.literal('intake').optional(),
+          cellId: z.string().optional(),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async (filter) => {
+        const params = new URLSearchParams();
+        if (filter.state) params.set('state', filter.state);
+        if (filter.view) params.set('view', filter.view);
+        if (filter.cellId) params.set('cellId', filter.cellId);
+        const query = params.toString();
+        return respond(api.call('GET', `/api/requests${query ? `?${query}` : ''}`));
+      },
+    );
+
+    server.registerTool(
+      'get_request',
+      {
+        title: 'Read a request',
+        description: 'Read any request by id.',
+        inputSchema: { id: z.string().min(1) },
+        annotations: { readOnlyHint: true },
+      },
+      async ({ id }) =>
+        respond(api.call('GET', `/api/requests/${encodeURIComponent(id)}`)),
     );
 
     return server;
@@ -225,7 +269,10 @@ export function buildMcpServer(options: McpOptions): McpServer {
 async function main(): Promise<void> {
   const brainUrl = process.env.SBOX_BRAIN_URL ?? 'http://127.0.0.1:7391';
   const requestId = process.env.SBOX_REQUEST_ID ?? '';
-  const server = buildMcpServer({ brainUrl, requestId });
+  const rawScope = process.env.SBOX_SESSION_SCOPE;
+  const scope =
+    rawScope === 'request' || rawScope === 'kb' || rawScope === 'master' ? rawScope : undefined;
+  const server = buildMcpServer({ brainUrl, requestId, scope });
   await server.connect(new StdioServerTransport());
 }
 

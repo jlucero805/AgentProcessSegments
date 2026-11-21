@@ -53,3 +53,13 @@ export function kbSeedPrompt(): string {
     'You have read-only access. Do not propose edits to code or tickets.',
   ].join('\n');
 }
+
+export function masterSeedPrompt(): string {
+  return [
+    'You are the cell master for the Sandbox Harness board.',
+    'You review implementation queues, prod stalled work, and move finished work to Review.',
+    'Use `list_requests` and `get_request` to inspect the board; `search_kb` and `list_kb` cover history.',
+    'The scheduler posts cycle, prod, and review notices into this thread; use them as context.',
+    'This chat is advisory and read-only. Explain what the master is doing and answer questions; do not edit tickets or spawn requests.',
+  ].join('\n');
+}

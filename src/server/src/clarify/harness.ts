@@ -5,6 +5,8 @@ import type { AgentProcess } from './transport.js';
 
 export const KB_REQUEST_ID = '';
 
+export type SessionScope = 'request' | 'kb' | 'master';
+
 /** Tools the harness MCP server exposes. Keep in sync with `mcp/server.ts`. */
 export const HARNESS_TOOLS = [
   'mcp__harness__update_request',
@@ -16,6 +18,14 @@ export const HARNESS_TOOLS = [
 
 export const REQUEST_TOOLS = ['Write', 'Read', 'Edit', 'Bash', 'Skill', 'Glob', 'Grep', ...HARNESS_TOOLS];
 export const KB_TOOLS = ['Read', 'mcp__harness__search_kb', 'mcp__harness__list_kb'];
+/** The master chat is advisory: read the board and the KB, change nothing. */
+export const MASTER_TOOLS = [
+  'Read',
+  'mcp__harness__list_requests',
+  'mcp__harness__get_request',
+  'mcp__harness__list_kb',
+  'mcp__harness__search_kb',
+];
 
 /** The built stdio MCP server the engine hands to every harness session. */
 export const HARNESS_MCP_SERVER = fileURLToPath(new URL('../mcp/server.js', import.meta.url));
@@ -23,7 +33,8 @@ export const HARNESS_MCP_SERVER = fileURLToPath(new URL('../mcp/server.js', impo
 export type McpServerMap = Record<string, Record<string, unknown>>;
 
 export interface HarnessSession {
-  /** The request id, or an empty string for the knowledge-base session. */
+  scope: SessionScope;
+  /** The request id, or an empty string for the knowledge-base/master sessions. */
   requestId: string;
   /** Scratch directory for harness files (config, transcripts live here). */
   dir: string;

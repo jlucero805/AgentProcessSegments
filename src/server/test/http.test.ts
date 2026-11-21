@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
+import { MASTER_SESSION_ID } from '../src/clarify/engine.js';
 import { buildServer } from '../src/http/server.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
@@ -332,6 +333,27 @@ describe('http api', () => {
 
     const after = await call('GET', `/api/requests/${request.id}/clarify`);
     expect(after.json().active).toBe(false);
+  });
+
+  it('serves the master chat and scheduler notes', async () => {
+    const { h } = await makeApp();
+    h.engine.note(MASTER_SESSION_ID, 'Master cycle: 1 queued, 1 prodded');
+
+    const snapshot = await call('GET', `/api/requests/${MASTER_SESSION_ID}/clarify`);
+    expect(snapshot.status).toBe(200);
+    expect(snapshot.json()).toMatchObject({ started: true, active: false });
+    expect(
+      snapshot.json().transcript.some((message: { text: string }) =>
+        message.text.includes('Master cycle'),
+      ),
+    ).toBe(true);
+
+    const sent = await call('POST', `/api/requests/${MASTER_SESSION_ID}/clarify/send`, {
+      text: 'what are you doing?',
+    });
+    expect(sent.status).toBe(200);
+    expect(sent.text).toContain('"t":"done"');
+    expect(h.harness.sessions[0]).toMatchObject({ scope: 'master', requestId: '' });
   });
 
   it('stops a live turn over HTTP', async () => {

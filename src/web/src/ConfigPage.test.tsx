@@ -53,6 +53,13 @@ function installFetch(): Captured {
     if (url === '/api/config') {
       return jsonResponse({ master, path: '/tmp/sandbox-harness/config.json' });
     }
+    if (url === '/api/requests/__master__/clarify') {
+      return jsonResponse({
+        started: true,
+        active: false,
+        transcript: [{ role: 'agent', kind: 'text', text: 'Master cycle: 1 prodded', ts: 1 }],
+      });
+    }
     if (url === '/api/master/status') return jsonResponse(status);
     if (url.startsWith('/api/master/events')) return jsonResponse([event]);
     if (url === '/api/cells/c1' && init?.method === 'PATCH') {
@@ -81,7 +88,7 @@ describe('ConfigPage', () => {
   it('loads settings, saves a patch, and shows the path', async () => {
     const captured = installFetch();
 
-    render(<ConfigPage onError={() => {}} />);
+    render(<ConfigPage commands={[]} onError={() => {}} />);
 
     const interval = await screen.findByRole('spinbutton', { name: /interval/i });
     expect(interval).toHaveValue(5);
@@ -98,7 +105,7 @@ describe('ConfigPage', () => {
   it('toggles the master switch', async () => {
     const captured = installFetch();
 
-    render(<ConfigPage onError={() => {}} />);
+    render(<ConfigPage commands={[]} onError={() => {}} />);
     const toggle = await screen.findByRole('checkbox', { name: 'Master enabled' });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
@@ -110,7 +117,7 @@ describe('ConfigPage', () => {
   it('runs the master and toggles a cell', async () => {
     const captured = installFetch();
 
-    render(<ConfigPage onError={() => {}} />);
+    render(<ConfigPage commands={[]} onError={() => {}} />);
 
     const cellToggle = await screen.findByRole('checkbox', { name: 'Alpha master' });
     expect(cellToggle).toBeChecked();
@@ -122,10 +129,11 @@ describe('ConfigPage', () => {
     expect(captured.ran).toBe(true);
   });
 
-  it('shows recent activity', async () => {
+  it('shows recent activity and the master chat notes', async () => {
     installFetch();
-    render(<ConfigPage onError={() => {}} />);
+    render(<ConfigPage commands={[]} onError={() => {}} />);
     expect(await screen.findByText('Build it')).toBeInTheDocument();
     expect(screen.getByText('prod')).toBeInTheDocument();
+    expect(await screen.findByText('Master cycle: 1 prodded')).toBeInTheDocument();
   });
 });

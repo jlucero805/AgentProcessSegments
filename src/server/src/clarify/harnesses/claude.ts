@@ -8,6 +8,7 @@ import type { TranscriptMsg } from '../../domain/request.js';
 import {
   HARNESS_MCP_SERVER,
   KB_TOOLS,
+  MASTER_TOOLS,
   REQUEST_TOOLS,
   isRecord,
   type AgentHarness,
@@ -139,9 +140,12 @@ export class ClaudeHarness implements AgentHarness {
   ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
-    // The KB session is read-only: harness MCP only, no user servers, no plugins.
-    const userServers = session.requestId === '' ? {} : claudeUserMcpServers(this.home, session.cwd);
-    const allowedTools = [...(session.requestId === '' ? KB_TOOLS : REQUEST_TOOLS)];
+    // The KB and master sessions are read-only: no user servers, no plugins.
+    const requestScope = session.scope === 'request';
+    const userServers = requestScope ? claudeUserMcpServers(this.home, session.cwd) : {};
+    const baseTools =
+      session.scope === 'kb' ? KB_TOOLS : session.scope === 'master' ? MASTER_TOOLS : REQUEST_TOOLS;
+    const allowedTools = [...baseTools];
     for (const name of Object.keys(userServers)) allowedTools.push(`mcp__${name}__*`);
 
     const servers: McpServerMap = {
@@ -152,6 +156,7 @@ export class ClaudeHarness implements AgentHarness {
         env: {
           SBOX_BRAIN_URL: this.brainUrl,
           SBOX_REQUEST_ID: session.requestId,
+          SBOX_SESSION_SCOPE: session.scope,
         },
       },
     };

@@ -87,12 +87,19 @@ built and vended by the brain; real-CLI verification is still pending.
   request and drains in order when the turn ends. Stop calls `POST /clarify/stop`, kills
   the child, saves the partial transcript, keeps the saved session for the next message,
   and clears the queue so the human can interject.
+- One thread across segments: the drawer renders the same chat for clarify, dispatch,
+  review, and finalize (terminal states stay read-only), so the human can interject at
+  any point in the workflow.
+- Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
+  scheduler appends prod, review, cycle, and skip notes to its transcript without a model
+  turn, and the Config page embeds the chat under Activity. Verified live: the master
+  answered, a prod posted notes, and a request moved to Review.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated
   with zod and written atomically. `GET/PATCH /api/config` expose the master policy, and
   the Config page edits it (enabled, interval, idle threshold, auto-review, unassigned
   requests, prompt) plus cell toggles, activity, and a manual run. The file on this host
   is `/root/.config/sandbox-harness/config.json`.
-- 149 vitest cases, all passing: 102 server across 14 files and 47 web across 10 files,
+- 155 vitest cases, all passing: 107 server across 14 files and 48 web across 10 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -138,6 +145,9 @@ built and vended by the brain; real-CLI verification is still pending.
   knows whether a live turn can be reattached.
 - `POST /clarify/send` marks the request started when it is the first message, even if
   `/clarify/start` was skipped.
+- Sessions carry a scope (`request`, `kb`, or `master`) to the harness MCP server via
+  `SBOX_SESSION_SCOPE`. `__kb__` and `__master__` are reserved sessions with no request
+  row; both are read-only, and the master gets board read tools.
 - App settings live in an XDG config file, separate from the environment path config. The
   file is created on the first save; environment values still win for paths and ports.
 
@@ -162,6 +172,7 @@ POST   /api/requests/:id/drop
 POST   /api/requests/:id/seen
 POST   /api/requests/:id/clarify/start                  NDJSON
 POST   /api/requests/:id/clarify/send     {text}         NDJSON
+POST   /api/requests/:id/clarify/stop                    {stopped}
 GET    /api/requests/:id/clarify/stream                 NDJSON or {active:false}
 GET    /api/requests/:id/clarify
 POST   /api/requests/:id/dispatch                       NDJSON
@@ -185,3 +196,6 @@ POST   /api/master/run
 GET    /api/master/events?cellId=…&limit=…
 GET    /ws
 ```
+
+`__kb__` (knowledge base) and `__master__` (cell master) use the same clarify routes as
+reserved sessions with no request row.

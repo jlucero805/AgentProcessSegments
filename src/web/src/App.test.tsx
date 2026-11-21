@@ -33,6 +33,16 @@ function installFetch(request: Request, transcript: unknown[] = []) {
         path: '/tmp/config.json',
       });
     }
+    if (url === '/api/requests/__master__/clarify') {
+      return jsonResponse({
+        started: true,
+        active: false,
+        transcript: [{ role: 'agent', kind: 'text', text: 'Master cycle: 1 prodded', ts: 1 }],
+      });
+    }
+    if (url === '/api/requests/__master__/clarify/stream') {
+      return jsonResponse({ active: false });
+    }
     if (url === '/api/master/status') {
       return jsonResponse({
         enabled: true,
@@ -60,6 +70,7 @@ function installFetch(request: Request, transcript: unknown[] = []) {
     if (url === '/api/requests?state=clarify') {
       return jsonResponse(request.state === 'clarify' ? [request] : []);
     }
+    if (url === `/api/requests?state=${request.state}`) return jsonResponse([request]);
     if (url.startsWith('/api/requests?state=')) return jsonResponse([]);
     return jsonResponse([]);
   });
@@ -100,6 +111,22 @@ describe('App', () => {
     fireEvent.click(screen.getByText('Skills'));
 
     await waitFor(() => expect(window.location.search).toContain('page=skills'));
+  });
+
+  it('keeps one chat thread across workflow segments', async () => {
+    const request = makeRequest({
+      id: 'a',
+      title: 'Dispatch card',
+      state: 'dispatch',
+      clarifyStarted: true,
+    });
+    installFetch(request);
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('Dispatch card'));
+
+    expect(await screen.findByText('Finalize digest')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Message this thread…')).toBeInTheDocument();
   });
 
   it('opens the config page and records it in the URL', async () => {

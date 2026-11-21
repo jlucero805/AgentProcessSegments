@@ -1,4 +1,5 @@
 import type { Engine } from '../clarify/engine.js';
+import { MASTER_SESSION_ID } from '../clarify/engine.js';
 import type { CellRepository } from '../cells/repository.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
@@ -88,6 +89,10 @@ export class MasterService {
             action: 'prod',
             detail: request.title,
           });
+          this.deps.engine.note(
+            MASTER_SESSION_ID,
+            `Prodded "${request.title}" in ${bucket.label}.`,
+          );
           bucketProdded += 1;
 
           await turn.promise;
@@ -111,17 +116,26 @@ export class MasterService {
                   action: 'review',
                   detail: 'agent reported ' + READY_MARKER,
                 });
+                this.deps.engine.note(
+                  MASTER_SESSION_ID,
+                  `Moved "${request.title}" to Review: agent reported ${READY_MARKER}.`,
+                );
               }
             }
           }
         } catch (error) {
           bucketSkipped += 1;
+          const message = error instanceof Error ? error.message : String(error);
           this.deps.events.record({
             cellId: bucket.cellId,
             requestId: request.id,
             action: 'skip',
-            detail: error instanceof Error ? error.message : String(error),
+            detail: message,
           });
+          this.deps.engine.note(
+            MASTER_SESSION_ID,
+            `Could not prod "${request.title}": ${message}`,
+          );
         }
       }
 
@@ -150,6 +164,12 @@ export class MasterService {
       reviewed,
       skipped,
     };
+    if (dispatch > 0 || prodded > 0 || reviewed > 0 || skipped > 0) {
+      this.deps.engine.note(
+        MASTER_SESSION_ID,
+        `Master cycle: ${dispatch} queued, ${prodded} prodded, ${reviewed} reviewed, ${skipped} skipped.`,
+      );
+    }
     this.lastRunAt = now;
     this.lastResult = result;
     return result;

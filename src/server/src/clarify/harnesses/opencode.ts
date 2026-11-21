@@ -21,13 +21,18 @@ import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
 const exec = promisify(execFile);
 
 /** The harness MCP server in OpenCode's config shape. */
-export function opencodeHarnessServer(requestId: string, brainUrl: string): Record<string, unknown> {
+export function opencodeHarnessServer(
+  requestId: string,
+  brainUrl: string,
+  scope: string,
+): Record<string, unknown> {
   return {
     type: 'local',
     command: [process.execPath, HARNESS_MCP_SERVER],
     environment: {
       SBOX_BRAIN_URL: brainUrl,
       SBOX_REQUEST_ID: requestId,
+      SBOX_SESSION_SCOPE: scope,
     },
     enabled: true,
   };
@@ -92,23 +97,23 @@ export class OpencodeHarness implements AgentHarness {
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
     const user = readOpencodeConfig(this.home, this.env);
-    // The KB session is read-only: harness MCP only, no user servers.
-    const userServers = session.requestId === '' ? {} : opencodeMcpServers(user);
+    const requestScope = session.scope === 'request';
+    // User MCP servers, plugins, and user permissions are request-session only.
+    const userServers = requestScope ? opencodeMcpServers(user) : {};
     const config: Record<string, unknown> = {
       ...user,
       mcp: {
         ...userServers,
-        harness: opencodeHarnessServer(session.requestId, this.brainUrl),
+        harness: opencodeHarnessServer(session.requestId, this.brainUrl, session.scope),
       },
     };
 
-    // The KB session is read-only, mirroring the Claude allowlist.
-    if (session.requestId === '') {
+    if (!requestScope) {
       const current = isRecord(user.permission) ? user.permission : {};
       config.permission = { ...current, ...READ_ONLY_PERMISSIONS };
     }
 
-    if (session.requestId !== '') {
+    if (requestScope) {
       const assets = readPluginAssets(session.pluginDirs);
       if (Object.keys(assets.commands).length > 0) {
         const userCommands = {

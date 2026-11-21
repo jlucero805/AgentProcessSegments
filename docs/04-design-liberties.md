@@ -116,6 +116,19 @@ transcript heuristics; a per-cell cadence in this pass.
 the marker. Cost: prods are sequential, a hung turn blocks the cycle, and cadence is
 global. Per-cell cadence and an LLM judge are natural next steps.
 
+## 10. One thread and an advisory master chat
+
+**Chosen.** The same chat thread is rendered in clarify, dispatch, review, and finalize;
+terminal states are read-only. The master is a reserved `__master__` session with
+read-only board/KB tools, and the scheduler writes cycle/prod/review notes into it.
+
+**Alternatives.** A separate chat per segment; giving the master write or prod tools;
+running an LLM master turn every cycle.
+
+**Why.** One persistent session already exists per request, so one thread is the honest
+interface. The master chat is advisory and the deterministic scheduler still drives
+work. Cost: the chat cannot operate the master; notes are one-way.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

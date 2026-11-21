@@ -308,3 +308,19 @@ order when the turn ends. `POST /clarify/stop` marks the turn cancelled, kills t
 **Cost.** The queue is per browser and not visible to other clients or the server. A stop
 is best-effort: the process can take a moment to die, and the transcript is whatever the
 parser had flushed.
+
+## D24. One thread across segments; a scoped master chat
+
+**Context.** The drawer only chatted during clarify, while the operator wants one thread
+to interject at any workflow step and also wants to talk to the cell master.
+
+**Decision.** Render the same `ClarifyChat` for every non-terminal state; terminal states
+show a read-only transcript. Add a session `scope` (`request`, `kb`, `master`) to the
+harness contract and pass it to the MCP server as `SBOX_SESSION_SCOPE`. The master is a
+reserved `__master__` session with `MASTER_TOOLS` (board and KB reads only). The
+scheduler appends prod/review/cycle/skip notes to that transcript without a model turn,
+and the Config page embeds the chat under the activity log.
+
+**Cost.** The master chat is advisory: it cannot prod, transition, or write config. Notes
+are agent-role transcript rows and can interleave with a live master reply. The scope
+env is one more wire detail in both harness adapters.

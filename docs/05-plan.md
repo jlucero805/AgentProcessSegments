@@ -130,3 +130,10 @@ states dispose the session as before; disabling the master stops scheduling imme
   cuts the stream so the human can interject.
 - [x] **8. Tests and docs** — engine/HTTP stop tests, queue/drain/stop component tests,
   browser smoke.
+- [x] **9. One thread across segments** — the drawer keeps the same chat for clarify,
+  dispatch, review, and finalize; terminal states are read-only transcripts.
+- [x] **10. Master chat** — a reserved `__master__` session with read-only board/KB
+  tools; the scheduler writes prod/review/cycle notes into it, and the Config page
+  embeds the chat.
+- [x] **11. Tests and docs** — scoped MCP tests, engine/HTTP master chat tests, web
+  thread and master chat tests.

@@ -5,11 +5,12 @@ import { requestDir } from '../config.js';
 import type { ClarifyEvent, Request, TranscriptMsg } from '../domain/request.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
-import { dispatchPrompt, finalizePrompt, kbSeedPrompt, seedPrompt } from './prompts.js';
+import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPrompt } from './prompts.js';
 import type { AgentProcess } from './transport.js';
 import { ensureWorktree, removeWorktree } from './worktree.js';
 
 export const KB_SESSION_ID = '__kb__';
+export const MASTER_SESSION_ID = '__master__';
 
 export interface LiveTurn {
   readonly events: ClarifyEvent[];
@@ -127,6 +128,37 @@ export class Engine {
     if (existing) return existing;
     const message = this.readSession(KB_SESSION_ID) ? text : `${kbSeedPrompt()}\n\n---\n\n${text}`;
     return this.beginTurn(KB_SESSION_ID, message, null);
+  }
+
+  /** Chat with the cell master. Advisory and read-only; the scheduler notes into it. */
+  async startMaster(text: string): Promise<LiveTurn> {
+    const existing = this.turns.get(MASTER_SESSION_ID);
+    if (existing) return existing;
+    const message = this.readSession(MASTER_SESSION_ID)
+      ? text.trim() === ''
+        ? 'Report the current board state and what the master has been doing.'
+        : text
+      : `${masterSeedPrompt()}\n\n---\n\n${text}`;
+    return this.beginTurn(MASTER_SESSION_ID, message, null);
+  }
+
+  /** Append a master log line to its chat without starting a model turn. */
+  note(id: string, text: string): void {
+    const trimmed = text.trim();
+    if (trimmed === '') return;
+    const parser = this.parsers.get(id);
+    const entry: TranscriptMsg = {
+      role: 'agent',
+      kind: 'text',
+      text: trimmed,
+      ts: Date.now(),
+    };
+    const transcript = parser ? parser.transcript : this.loadTranscript(id);
+    if (parser) parser.transcript.push(entry);
+    else transcript.push(entry);
+    this.saveTranscript(id, transcript);
+    const turn = this.turns.get(id);
+    if (turn) this.broadcast(turn, { t: 'text', text: trimmed });
   }
 
   private beginTurn(id: string, message: string, request: Request | null): LiveTurn {
@@ -250,6 +282,7 @@ export class Engine {
     }
 
     const command = await this.harness.prepare({
+      scope: request ? 'request' : id === KB_SESSION_ID ? 'kb' : 'master',
       requestId: request ? id : '',
       dir,
       cwd,

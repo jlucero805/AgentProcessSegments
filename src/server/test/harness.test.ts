@@ -40,6 +40,7 @@ describe('ClaudeHarness', () => {
 
     const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
     const command = await harness.prepare({
+      scope: 'request',
       requestId: 'req-1',
       dir,
       cwd,
@@ -56,6 +57,7 @@ describe('ClaudeHarness', () => {
     expect(config.mcpServers.harness.env).toEqual({
       SBOX_BRAIN_URL: 'http://brain:7391',
       SBOX_REQUEST_ID: 'req-1',
+      SBOX_SESSION_SCOPE: 'request',
     });
 
     const allowed = command.args[command.args.indexOf('--allowedTools') + 1];
@@ -83,6 +85,36 @@ describe('ClaudeHarness', () => {
     expect(command.env).toMatchObject({ CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' });
   });
 
+  it('gives the master read-only board tools and no user servers', async () => {
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { user: { command: 'node', args: ['user.js'] } } }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    const command = await harness.prepare({
+      scope: 'master',
+      requestId: '',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    const allowed = command.args[command.args.indexOf('--allowedTools') + 1];
+    expect(allowed).toContain('mcp__harness__list_requests');
+    expect(allowed).toContain('mcp__harness__get_request');
+    expect(allowed).not.toContain('Bash');
+    expect(allowed).not.toContain('mcp__user__*');
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    expect(config.mcpServers.harness.env.SBOX_SESSION_SCOPE).toBe('master');
+    expect(config.mcpServers.user).toBeUndefined();
+  });
+
   it('keeps the KB session read-only and scoped to an empty request id', async () => {
     const { home, cwd, dir } = workspace();
     writeFileSync(
@@ -92,6 +124,7 @@ describe('ClaudeHarness', () => {
     const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
 
     const command = await harness.prepare({
+      scope: 'kb',
       requestId: '',
       dir,
       cwd,
@@ -131,6 +164,7 @@ describe('OpencodeHarness', () => {
 
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     const command = await harness.prepare({
+      scope: 'request',
       requestId: 'req-2',
       dir,
       cwd,
@@ -175,6 +209,7 @@ describe('OpencodeHarness', () => {
 
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare({
+      scope: 'kb',
       requestId: '',
       dir,
       cwd,
@@ -221,6 +256,7 @@ describe('OpencodeHarness', () => {
 
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare({
+      scope: 'request',
       requestId: 'req-3',
       dir,
       cwd,
@@ -253,6 +289,7 @@ describe('OpencodeHarness', () => {
 
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare({
+      scope: 'kb',
       requestId: '',
       dir,
       cwd,
@@ -290,6 +327,37 @@ describe('OpencodeHarness', () => {
 
     const part = lines[0]?.part as { text?: string } | undefined;
     expect(JSON.parse(part?.text ?? '{}')).toEqual({ cwd, pwd: cwd });
+  });
+
+  it('makes the master session read-only with no user MCP or plugins', async () => {
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({
+        permission: { bash: 'allow' },
+        mcp: { user: { type: 'remote', url: 'https://mcp.example.test/sse' } },
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare({
+      scope: 'master',
+      requestId: '',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.permission).toMatchObject({ edit: 'deny', bash: 'deny' });
+    expect(config.mcp.harness.environment.SBOX_SESSION_SCOPE).toBe('master');
+    expect(config.mcp.user).toBeUndefined();
+    expect(config.commands).toBeUndefined();
+    expect(config.skills).toBeUndefined();
   });
 
   it('probes models from the CLI output', async () => {

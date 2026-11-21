@@ -144,7 +144,7 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
   }
 
   return (
-    <div className="grid h-full grid-cols-5 gap-3 p-4">
+    <div className="flex h-full snap-x snap-mandatory gap-3 overflow-x-auto p-3 md:grid md:grid-cols-5 md:gap-3 md:overflow-visible md:p-4">
       {COLUMNS.map((column) => {
         const cards = byColumn(column);
         return (
@@ -159,7 +159,7 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
             onDragLeave={() => setOver((current) => (current === column ? null : current))}
             onDrop={(event) => drop(event, column)}
             className={cn(
-              'flex min-h-0 flex-col rounded-xl border border-transparent bg-zinc-900/20 p-2 transition-colors',
+              'flex min-h-0 min-w-[85vw] snap-start flex-col rounded-xl border border-transparent bg-zinc-900/20 p-2 transition-colors md:min-w-0',
               over === column && 'border-zinc-700 bg-zinc-900/50',
             )}
           >

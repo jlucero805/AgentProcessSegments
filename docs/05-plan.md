@@ -1,0 +1,122 @@
+# Plan: mobile shell, cell masters, durable chat
+
+Working plan for the next feature set. Each task ships with tests and its own commit.
+Statuses are updated in place.
+
+## Goals
+
+1. Make the SPA usable on a phone: the left menu closes behind a hamburger, the board
+   scrolls, and the drawer uses the full screen.
+2. Give every cell a master that periodically reviews its implementation queue, prods
+   stalled agents to record decisions and continue, and moves genuinely finished work to
+   Review.
+3. Make chat durable: a reload reopens the same request and reattaches to a live stream.
+4. Put master behavior in a user-editable config file (XDG) with a page for it.
+
+Non-goals for this pass: multi-user auth, a separate master LLM process, per-cell custom
+prompt libraries, and semantic KB retrieval.
+
+## Task list
+
+- [x] **1. Mobile shell** — hamburger + overlay sidebar; horizontally scrolling board
+  columns on small screens; full-width drawer; responsive top bar.
+- [ ] **2. Durable chat and routing** — page/request in the URL; restore on reload;
+  reattach to a live turn with a running state; keep streaming text.
+- [ ] **3. Config store** — `$XDG_CONFIG_HOME/sandbox-harness/config.json` (override
+  `SBOX_CONFIG`), zod-validated defaults, `GET/PATCH /api/config`, and a Config page.
+- [ ] **4. Cell masters** — scheduler with configurable interval (default 5 min),
+  idle threshold, prod prompt, auto-review marker, per-cell enable toggles, event log,
+  manual "run now", and a Master page section.
+- [ ] **5. Tests and docs** — unit/HTTP/web coverage, browser smoke on mobile viewport,
+  status/decision/plan updates.
+
+## 1. Mobile shell
+
+- `App` keeps one sidebar component. On `md+` it is static. Below `md` it is off-canvas
+  (`-translate-x-full`) with a backdrop, and the top bar carries a hamburger.
+- Nav and cell selection close the menu on mobile. Escape closes it.
+- Board columns become a horizontal snap scroller on mobile (`min-w-[85vw]` per column)
+  and keep the five-column grid on desktop.
+- The request drawer is full-width below `md` and maximizable as before.
+
+Acceptance: hamburger toggles `aria-expanded`; choosing a nav item closes it; a 390 px
+viewport can reach every column and the drawer without horizontal page overflow.
+
+## 2. Durable chat and routing
+
+- Keep `page` and `request` in the URL query (`?page=board&request=<id>`), written with
+  `history.replaceState` and read on boot. A reload restores the board or KB page and the
+  open drawer.
+- On mount, the chat fetches `GET /clarify` for the transcript, then attaches to
+  `GET /clarify/stream`. While attached it shows `running`, appends text deltas live, and
+  on `{active:false}` falls back to the snapshot.
+- A finished turn is already persisted on disk; a live turn is decoupled from the HTTP
+  request and replays its buffer to the reattached client.
+
+Acceptance: reload during a live turn re-renders history and continues streaming; reload
+after a turn restores the same transcript; sending while a turn is live is blocked in the
+UI.
+
+## 3. Config store
+
+Path: `SBOX_CONFIG` or `$XDG_CONFIG_HOME/sandbox-harness/config.json`
+(`~/.config/sandbox-harness/config.json` fallback). The file is created lazily with:
+
+```json
+{
+  "master": {
+    "enabled": true,
+    "intervalMinutes": 5,
+    "idleMinutes": 10,
+    "autoReview": true,
+    "includeUnassigned": true,
+    "prompt": "…prod instructions…"
+  }
+}
+```
+
+- Zod validates every field; unknown keys are stripped. Invalid files fall back to
+  defaults with a warning instead of crashing the brain.
+- `GET /api/config` returns the effective config and the file path; `PATCH /api/config`
+  merges, validates, writes atomically, and tells the scheduler to reschedule.
+- The Config page edits master fields, shows the path, and has a "Run master now" action.
+
+## 4. Cell masters
+
+The master is deterministic server-side, not another LLM session. It has the board view
+through the repositories and prods request sessions with a configured prompt.
+
+Every interval (default 5 minutes), for each enabled cell:
+
+1. Select requests in `dispatch` that belong to the cell, are `idle` (no live turn), and
+   have not been touched for `idleMinutes` (default 10).
+2. Send a prod through the engine:
+   - record any decision already made in the request `context` via `update_request`;
+   - continue the implementation instead of waiting;
+   - if the work is complete, end the reply with the exact marker `READY FOR REVIEW`.
+3. Persist a master event (cell, request, action, detail). Keep the last prod time per
+   request in the event table so a request is not prodded more than once per interval.
+4. If `autoReview` is on and the prod turn's final agent text contains
+   `READY FOR REVIEW`, transition `dispatch → review`.
+
+Cells get `master_enabled` (default 1) and an optional `master_interval_minutes` (null
+uses the global interval). Unassigned dispatch requests are handled by the global master
+when `includeUnassigned` is on.
+
+Endpoints: `GET /api/master/status` (last run, next run, counts),
+`POST /api/master/run` (one cycle now), `GET /api/master/events?cellId=…&limit=…`.
+The Master page shows the switch, cadence, last run, event log, and a manual run button.
+
+Safety: master turns are ordinary request turns, one at a time per request; terminal
+states dispose the session as before; disabling the master stops scheduling immediately.
+
+## 5. Verification
+
+- Config: defaults, invalid file fallback, patch validation, atomic write, scheduler
+  reload.
+- Master: fake clock/cycle over a fake engine; idle selection, prod text, event rows,
+  READY marker transition, disabled cell skip, manual run.
+- HTTP: config + master routes over a real socket.
+- Web: hamburger/aria, nav close, URL restore, running reattach, config page save, master
+  controls.
+- Browser: 390 px viewport smoke through the create → drawer → board flow.

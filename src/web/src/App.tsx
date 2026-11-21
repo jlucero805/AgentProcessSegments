@@ -43,6 +43,7 @@ export function App() {
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [boardKey, setBoardKey] = useState(0);
+  const [navOpen, setNavOpen] = useState(false);
 
   const loadCells = useCallback(async () => {
     try {
@@ -62,22 +63,64 @@ export function App() {
 
   const refreshBoard = useCallback(() => setBoardKey((key) => key + 1), []);
 
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
+
+  const go = (next: Page) => {
+    setPage(next);
+    setNavOpen(false);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-200">
-      <aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-zinc-900 p-3">
-        <div className="px-2 pt-1">
-          <h1 className="text-sm font-semibold tracking-tight text-zinc-100">Sandbox Harness</h1>
-          <p className="text-[11px] text-zinc-600">process segments for agents</p>
+      {navOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          aria-hidden="true"
+          onClick={() => setNavOpen(false)}
+        />
+      ) : null}
+
+      <aside
+        id="app-sidebar"
+        data-testid="sidebar"
+        data-open={navOpen}
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col gap-4 border-r border-zinc-900 bg-zinc-950 p-3 transition-transform duration-200 md:static md:z-auto md:w-56 md:translate-x-0',
+          navOpen ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
+        <div className="flex items-start justify-between px-2 pt-1">
+          <div>
+            <h1 className="text-sm font-semibold tracking-tight text-zinc-100">
+              Sandbox Harness
+            </h1>
+            <p className="text-[11px] text-zinc-600">process segments for agents</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="rounded-md p-1 text-lg leading-none text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
+            onClick={() => setNavOpen(false)}
+          >
+            ×
+          </button>
         </div>
 
         <nav className="space-y-0.5">
-          <NavButton active={page === 'board'} onClick={() => setPage('board')}>
+          <NavButton active={page === 'board'} onClick={() => go('board')}>
             Floor
           </NavButton>
-          <NavButton active={page === 'kb'} onClick={() => setPage('kb')}>
+          <NavButton active={page === 'kb'} onClick={() => go('kb')}>
             Knowledge base
           </NavButton>
-          <NavButton active={page === 'skills'} onClick={() => setPage('skills')}>
+          <NavButton active={page === 'skills'} onClick={() => go('skills')}>
             Skills
           </NavButton>
         </nav>
@@ -86,14 +129,24 @@ export function App() {
           <CellBar
             cells={cells}
             value={cellId}
-            onChange={setCellId}
+            onChange={(id) => {
+              setCellId(id);
+              setNavOpen(false);
+            }}
             reload={() => void loadCells()}
             onError={setError}
           />
         </div>
 
         <div className="mt-auto space-y-2">
-          <Button variant="primary" className="w-full" onClick={() => setCreateOpen(true)}>
+          <Button
+            variant="primary"
+            className="w-full"
+            onClick={() => {
+              setCreateOpen(true);
+              setNavOpen(false);
+            }}
+          >
             + New request
           </Button>
           {error ? (
@@ -117,12 +170,36 @@ export function App() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-hidden">
-        {page === 'board' ? (
-          <Board key={boardKey} cellId={cellId} onOpen={setDetailId} onError={setError} />
-        ) : null}
-        {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
-        {page === 'skills' ? <SkillsPage onError={setError} /> : null}
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex items-center gap-3 border-b border-zinc-900 px-3 py-2 md:hidden">
+          <button
+            type="button"
+            aria-label="Open menu"
+            aria-expanded={navOpen}
+            aria-controls="app-sidebar"
+            onClick={() => setNavOpen(true)}
+            className="rounded-md p-1.5 text-zinc-300 hover:bg-zinc-800"
+          >
+            ☰
+          </button>
+          <span className="text-sm font-semibold text-zinc-100">Sandbox Harness</span>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {page === 'board' ? (
+            <Board
+              key={boardKey}
+              cellId={cellId}
+              onOpen={(id) => {
+                setDetailId(id);
+                setNavOpen(false);
+              }}
+              onError={setError}
+            />
+          ) : null}
+          {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
+          {page === 'skills' ? <SkillsPage onError={setError} /> : null}
+        </div>
       </main>
 
       {detailId ? (

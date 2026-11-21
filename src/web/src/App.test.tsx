@@ -44,12 +44,29 @@ function installFetch(request: Request, transcript: unknown[] = []) {
 }
 
 describe('App', () => {
+  it('opens and closes the mobile menu', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Nav card' }));
+    render(<App />);
+
+    const toggle = screen.getByRole('button', { name: 'Open menu' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-open', 'false');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-open', 'true');
+
+    fireEvent.click(screen.getByText('Knowledge base'));
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-open', 'false');
+  });
+
   it('mounts the shell, nav, cells, and board', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Mounted card' }));
 
     render(<App />);
 
-    expect(screen.getByText('Sandbox Harness')).toBeInTheDocument();
+    expect(screen.getAllByText('Sandbox Harness').length).toBeGreaterThan(0);
     expect(screen.getByText('Knowledge base')).toBeInTheDocument();
     expect(screen.getByText('Skills')).toBeInTheDocument();
     expect(screen.getByText('All cells')).toBeInTheDocument();

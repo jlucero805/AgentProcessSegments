@@ -14,6 +14,7 @@ export interface Config {
   harness: HarnessId;
   harnessBin: string;
   configPath: string;
+  processPath: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): Config {
@@ -37,6 +38,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     configPath:
       env.SBOX_CONFIG ??
       path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'sandbox-harness', 'config.json'),
+    processPath:
+      env.SBOX_PROCESS ??
+      path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'sandbox-harness', 'process.json'),
   };
 }
 

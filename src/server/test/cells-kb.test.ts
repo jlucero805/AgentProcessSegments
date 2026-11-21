@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellNotFoundError } from '../src/cells/repository.js';
+import { defaultProcess } from '../src/process/defaults.js';
+import { DEFAULT_SETTINGS } from '../src/settings.js';
 import { createHarness, type Harness } from './helpers.js';
 
 let harness: Harness | null = null;
@@ -43,6 +45,20 @@ describe('cells', () => {
     const { cells } = fresh();
     expect(() => cells.remove('nope')).toThrowError(CellNotFoundError);
     expect(() => cells.rename('nope', 'x')).toThrowError(CellNotFoundError);
+  });
+
+  it('stores and clears a cell process policy', () => {
+    const { cells } = fresh();
+    const process = defaultProcess(DEFAULT_SETTINGS.master);
+    process.segments[0]!.enabled = true;
+
+    const cell = cells.create('Strict repo', process);
+    expect(cells.get(cell.id)?.process?.segments[0]?.enabled).toBe(true);
+    expect(cells.getProcess(cell.id)?.segments[0]?.enabled).toBe(true);
+
+    const cleared = cells.setProcess(cell.id, null);
+    expect(cleared.process).toBeNull();
+    expect(cells.getProcess(cell.id)).toBeNull();
   });
 });
 

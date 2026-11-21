@@ -1,4 +1,11 @@
-export type MasterAction = 'cycle' | 'prod' | 'review' | 'skip';
+export type MasterAction =
+  | 'cycle'
+  | 'start'
+  | 'prod'
+  | 'review'
+  | 'advance'
+  | 'followup'
+  | 'skip';
 
 export interface MasterEvent {
   id: string;
@@ -13,8 +20,11 @@ export interface MasterResult {
   ranAt: number;
   cells: number;
   dispatch: number;
+  started: number;
   prodded: number;
   reviewed: number;
+  advanced: number;
+  followUps: number;
   skipped: number;
 }
 

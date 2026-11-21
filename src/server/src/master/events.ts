@@ -58,12 +58,21 @@ export class MasterEventRepository {
     return rows.map(toEvent);
   }
 
-  lastProdAt(requestId: string): number | null {
+  lastTurnAt(requestId: string): number | null {
     const row = this.db
       .prepare(
-        "SELECT MAX(created_at) AS at FROM master_events WHERE request_id = ? AND action = 'prod'",
+        "SELECT MAX(created_at) AS at FROM master_events WHERE request_id = ? AND action IN ('start', 'prod')",
       )
       .get(requestId) as { at: number | null } | undefined;
     return row?.at ?? null;
+  }
+
+  hasEvent(requestId: string, action: MasterAction, detail: string): boolean {
+    const row = this.db
+      .prepare(
+        'SELECT 1 AS found FROM master_events WHERE request_id = ? AND action = ? AND detail = ? LIMIT 1',
+      )
+      .get(requestId, action, detail) as { found: number } | undefined;
+    return row !== undefined;
   }
 }

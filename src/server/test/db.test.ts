@@ -54,6 +54,7 @@ describe('db migrations', () => {
     const db = openDb(file);
     expect(columns(db, 'requests')).toContain('cell_id');
     expect(columns(db, 'cells')).toContain('master_enabled');
+    expect(columns(db, 'cells')).toContain('process_json');
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );

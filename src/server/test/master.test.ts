@@ -8,8 +8,11 @@ import { openDb, type Db } from '../src/db.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
 import { MasterService } from '../src/master/service.js';
+import { defaultProcess, READY_FOR_IMPLEMENTATION } from '../src/process/defaults.js';
+import type { ProcessConfig } from '../src/process/definition.js';
+import type { ProcessStore } from '../src/process/store.js';
 import { RequestRepository } from '../src/requests/repository.js';
-import { SettingsStore } from '../src/settings.js';
+import { DEFAULT_SETTINGS, SettingsStore } from '../src/settings.js';
 
 interface Fixture {
   db: Db;
@@ -19,10 +22,11 @@ interface Fixture {
   settings: SettingsStore;
   engine: Engine;
   sent: Array<{ id: string; text: string }>;
+  started: string[];
   service: MasterService;
 }
 
-function setup(overrides: Record<string, unknown> = {}): Fixture {
+function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessConfig): Fixture {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-master-'));
   const db = openDb(path.join(base, 'db.sqlite'));
   const repo = new RequestRepository(db);
@@ -41,11 +45,17 @@ function setup(overrides: Record<string, unknown> = {}): Fixture {
   });
 
   const sent: Array<{ id: string; text: string }> = [];
+  const started: string[] = [];
+  const turn = () => ({ promise: Promise.resolve() }) as unknown as LiveTurn;
   const engine = {
     hasLive: vi.fn(() => false),
+    start: vi.fn(async (id: string) => {
+      started.push(id);
+      return turn();
+    }),
     send: vi.fn(async (id: string, text: string) => {
       sent.push({ id, text });
-      return { promise: Promise.resolve() } as unknown as LiveTurn;
+      return turn();
     }),
     transcript: vi.fn(() => [
       { role: 'agent' as const, kind: 'text' as const, text: 'finished. READY FOR REVIEW', ts: 1 },
@@ -53,8 +63,11 @@ function setup(overrides: Record<string, unknown> = {}): Fixture {
     note: vi.fn(),
   } as unknown as Engine;
 
-  const service = new MasterService({ repo, cells, engine, settings, events });
-  return { db, repo, cells, events, settings, engine, sent, service };
+  const process = processConfig
+    ? ({ get: () => processConfig } as unknown as ProcessStore)
+    : undefined;
+  const service = new MasterService({ repo, cells, engine, settings, events, process });
+  return { db, repo, cells, events, settings, engine, sent, started, service };
 }
 
 function dispatchRequest(
@@ -69,6 +82,25 @@ function dispatchRequest(
     .prepare("UPDATE requests SET agent_status = 'idle', updated_at = ? WHERE id = ?")
     .run(Date.now() - ageMs, request.id);
   return fixture.repo.require(request.id);
+}
+
+function processFor(mutate: (process: ProcessConfig) => void): ProcessConfig {
+  const process = defaultProcess(DEFAULT_SETTINGS.master);
+  for (const segment of process.segments) segment.followUps = { ...segment.followUps };
+  mutate(process);
+  return process;
+}
+
+function segment(process: ProcessConfig, id: ProcessConfig['segments'][number]['id']) {
+  const found = process.segments.find((item) => item.id === id);
+  if (!found) throw new Error(`missing segment ${id}`);
+  return found;
+}
+
+function age(fixture: Fixture, requestId: string, ageMs: number): void {
+  const at = Date.now() - ageMs;
+  fixture.db.prepare('UPDATE requests SET updated_at = ? WHERE id = ?').run(at, requestId);
+  fixture.db.prepare('UPDATE master_events SET created_at = ? WHERE request_id = ?').run(at, requestId);
 }
 
 describe('MasterService', () => {
@@ -162,6 +194,108 @@ describe('MasterService', () => {
     expect(result.skipped).toBe(1);
     const skip = fixture.events.list().find((event) => event.action === 'skip');
     expect(skip?.detail).toContain('session gone');
+  });
+
+  it('starts unplanned intake requests when the segment is enabled', async () => {
+    const process = processFor((config) => {
+      const intake = segment(config, 'intake');
+      intake.enabled = true;
+      intake.idleMinutes = 1;
+    });
+    const fixture = setup({}, process);
+    const request = fixture.repo.create({ title: 'Raw request' });
+    age(fixture, request.id, 2 * 60_000);
+
+    const result = await fixture.service.runOnce();
+
+    expect(result.started).toBe(1);
+    expect(fixture.started).toEqual([request.id]);
+    expect(fixture.events.list().some((event) => event.action === 'start')).toBe(true);
+  });
+
+  it('advances a planned request when the plan segment reports the marker', async () => {
+    const process = processFor((config) => {
+      const plan = segment(config, 'plan');
+      plan.enabled = true;
+      plan.idleMinutes = 1;
+      segment(config, 'implement').enabled = false;
+    });
+    const fixture = setup({}, process);
+    const request = fixture.repo.create({ title: 'Plan me' });
+    fixture.repo.setClarifyStarted(request.id, true);
+    age(fixture, request.id, 2 * 60_000);
+    (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
+      { role: 'agent', kind: 'text', text: `planned. ${READY_FOR_IMPLEMENTATION}`, ts: 1 },
+    ]);
+
+    const result = await fixture.service.runOnce();
+
+    expect(result.advanced).toBe(1);
+    expect(fixture.repo.require(request.id).state).toBe('dispatch');
+    expect(fixture.sent[0]?.text).toContain('Continue grooming');
+    expect(fixture.events.list().some((event) => event.action === 'advance')).toBe(true);
+  });
+
+  it('uses a cell’s own process instead of the global template', async () => {
+    const global = processFor((config) => {
+      segment(config, 'intake').enabled = false;
+      segment(config, 'implement').enabled = true;
+    });
+    const cellProcess = processFor((config) => {
+      const intake = segment(config, 'intake');
+      intake.enabled = true;
+      intake.idleMinutes = 1;
+      segment(config, 'implement').enabled = false;
+    });
+    const fixture = setup({ includeUnassigned: false }, global);
+    const cell = fixture.cells.create('Strict repo', cellProcess);
+    const intakeRequest = fixture.repo.create({ title: 'Raw in cell', cellId: cell.id });
+    age(fixture, intakeRequest.id, 2 * 60_000);
+    const dispatch = dispatchRequest(fixture, 'Build in cell', cell.id);
+
+    const result = await fixture.service.runOnce();
+
+    expect(result.started).toBe(1);
+    expect(fixture.started).toEqual([intakeRequest.id]);
+    expect(result.prodded).toBe(0);
+    expect(fixture.repo.require(dispatch.id).state).toBe('dispatch');
+  });
+
+  it('creates follow-up requests once per unique callout', async () => {
+    const process = processFor((config) => {
+      const implement = segment(config, 'implement');
+      implement.idleMinutes = 1;
+      implement.readyMarker = null;
+      implement.advanceTo = null;
+      implement.followUps.enabled = true;
+    });
+    const fixture = setup({}, process);
+    const request = dispatchRequest(fixture, 'Build it');
+    (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        role: 'agent',
+        kind: 'text',
+        text: ['Done.', 'FOLLOW-UP: Add metrics', '- FOLLOW-UP: Add metrics', 'FOLLOW-UP: Write docs'].join(
+          '\n',
+        ),
+        ts: 1,
+      },
+    ]);
+
+    const first = await fixture.service.runOnce();
+    expect(first.followUps).toBe(2);
+    const created = fixture.repo
+      .list()
+      .filter((item) => item.title === 'Add metrics' || item.title === 'Write docs');
+    expect(created).toHaveLength(2);
+    expect(fixture.events.list().filter((event) => event.action === 'followup')).toHaveLength(2);
+
+    age(fixture, request.id, 2 * 60_000);
+    const second = await fixture.service.runOnce();
+    expect(second.followUps).toBe(0);
+    expect(
+      fixture.repo.list().filter((item) => item.title === 'Add metrics' || item.title === 'Write docs'),
+    ).toHaveLength(2);
   });
 });
 

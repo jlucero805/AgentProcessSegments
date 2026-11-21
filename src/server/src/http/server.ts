@@ -19,6 +19,8 @@ import type { KbRepository } from '../kb/repository.js';
 import type { MasterEventRepository } from '../master/events.js';
 import type { MasterScheduler } from '../master/scheduler.js';
 import { PluginError, type PluginManager } from '../plugins/manager.js';
+import { processSchema } from '../process/defaults.js';
+import type { ProcessStore } from '../process/store.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
@@ -34,6 +36,7 @@ export interface ServerDeps {
   settings: SettingsStore;
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
+  process: ProcessStore;
   config: Config;
   logger?: boolean;
 }
@@ -86,15 +89,23 @@ const pluginSchema = z.object({
   subdir: z.string().optional(),
   name: z.string().optional(),
 });
-const cellSchema = z.object({ name: z.string().min(1) });
+const cellSchema = z.object({
+  name: z.string().min(1),
+  process: processSchema.optional(),
+});
 const cellPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
     masterEnabled: z.boolean().optional(),
+    process: processSchema.nullable().optional(),
   })
-  .refine((value) => value.name !== undefined || value.masterEnabled !== undefined, {
-    message: 'name or masterEnabled is required',
-  });
+  .refine(
+    (value) =>
+      value.name !== undefined ||
+      value.masterEnabled !== undefined ||
+      value.process !== undefined,
+    { message: 'name, masterEnabled, or process is required' },
+  );
 const masterEventsQuerySchema = z.object({
   cellId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -194,8 +205,19 @@ function assertCell(cells: CellRepository, cellId: string | null | undefined): v
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const { repo, cells, kb, engine, models, plugins, settings, master, masterEvents, config } =
-    deps;
+  const {
+    repo,
+    cells,
+    kb,
+    engine,
+    models,
+    plugins,
+    settings,
+    master,
+    masterEvents,
+    process: processStore,
+    config,
+  } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -394,9 +416,15 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/cells', async () => cells.list());
 
+  app.get('/api/cells/:id', async (request) => {
+    const { id } = request.params as { id: string };
+    return cells.require(id);
+  });
+
   app.post('/api/cells', async (request, reply) => {
-    const { name } = cellSchema.parse(request.body);
-    return reply.code(201).send(cells.create(name));
+    const input = cellSchema.parse(request.body);
+    const created = cells.create(input.name, input.process ?? processStore.get());
+    return reply.code(201).send(created);
   });
 
   app.patch('/api/cells/:id', async (request) => {
@@ -404,6 +432,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const body = cellPatchSchema.parse(request.body);
     if (body.name !== undefined) cells.rename(id, body.name);
     if (body.masterEnabled !== undefined) cells.setMasterEnabled(id, body.masterEnabled);
+    if (body.process !== undefined) cells.setProcess(id, body.process);
     return cells.require(id);
   });
 
@@ -432,6 +461,12 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.patch('/api/config', async (request) => ({
     ...settings.patch(request.body),
     path: settings.path,
+  }));
+
+  app.get('/api/process', async () => ({ ...processStore.get(), path: processStore.path }));
+  app.patch('/api/process', async (request) => ({
+    ...processStore.patch(request.body),
+    path: processStore.path,
   }));
 
   app.get('/api/master/status', async () => master.status());

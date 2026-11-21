@@ -11,6 +11,8 @@ import { MasterEventRepository } from './master/events.js';
 import { MasterScheduler } from './master/scheduler.js';
 import { MasterService } from './master/service.js';
 import { PluginManager } from './plugins/manager.js';
+import { defaultProcess } from './process/defaults.js';
+import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
 
@@ -23,6 +25,9 @@ export async function main(): Promise<void> {
   const kb = new KbRepository(db);
   const plugins = new PluginManager(config.pluginsDir);
   const settings = new SettingsStore(config.configPath);
+  const processStore = new ProcessStore(config.processPath, () =>
+    defaultProcess(settings.get().master),
+  );
   const harness = createHarness(config);
   const engine = new Engine({
     repo,
@@ -32,7 +37,7 @@ export async function main(): Promise<void> {
   });
   const models = new ModelCatalog(harness);
   const masterEvents = new MasterEventRepository(db);
-  const masterService = new MasterService({ repo, cells, engine, settings, events: masterEvents });
+  const masterService = new MasterService({ repo, cells, engine, settings, events: masterEvents, process: processStore });
   const master = new MasterScheduler(masterService, settings);
 
   const app = await buildServer({
@@ -45,6 +50,7 @@ export async function main(): Promise<void> {
     settings,
     master,
     masterEvents,
+    process: processStore,
     config,
   });
   master.start();

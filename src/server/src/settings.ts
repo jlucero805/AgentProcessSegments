@@ -10,7 +10,7 @@ export const DEFAULT_MASTER_PROMPT = [
   'If the implementation is complete, finish your reply with the exact line:',
   'READY FOR REVIEW',
   'Do not ask the human questions. Keep the request moving.',
-].join(' ');
+].join('\n');
 
 // Compile-time guard: the runtime schema and the shared contract cannot drift.
 const masterSchema = z.object({

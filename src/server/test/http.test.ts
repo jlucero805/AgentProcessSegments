@@ -9,6 +9,8 @@ import { buildServer } from '../src/http/server.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
 import { MasterService } from '../src/master/service.js';
+import { defaultProcess } from '../src/process/defaults.js';
+import { ProcessStore } from '../src/process/store.js';
 import { SettingsStore } from '../src/settings.js';
 import { createHarness, resultLine, settle, type Harness } from './helpers.js';
 
@@ -26,9 +28,10 @@ async function makeApp(
 ): Promise<Open> {
   const h = createHarness(script);
   const settings = new SettingsStore(h.config.configPath);
+  const process = new ProcessStore(h.config.processPath, () => defaultProcess(settings.get().master));
   const masterEvents = new MasterEventRepository(h.db);
   const master = new MasterScheduler(
-    new MasterService({ repo: h.repo, cells: h.cells, engine: h.engine, settings, events: masterEvents }),
+    new MasterService({ repo: h.repo, cells: h.cells, engine: h.engine, settings, events: masterEvents, process }),
     settings,
   );
   const app = await buildServer({
@@ -41,6 +44,7 @@ async function makeApp(
     settings,
     master,
     masterEvents,
+    process,
     config: { ...h.config, ...config },
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
@@ -208,6 +212,35 @@ describe('http api', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('reads and patches process segments through the API', async () => {
+    await makeApp();
+
+    const before = await call('GET', '/api/process');
+    expect(before.status).toBe(200);
+    expect(before.json().segments).toHaveLength(5);
+    expect(before.json().path).toContain('process.json');
+    const segments = before.json().segments as Array<{ id: string; enabled: boolean }>;
+    const intake = segments.find((segment) => segment.id === 'intake');
+    expect(intake).toBeDefined();
+    intake!.enabled = true;
+
+    const patched = await call('PATCH', '/api/process', { segments });
+    expect(patched.status).toBe(200);
+    expect(patched.json().segments.find((segment: { id: string }) => segment.id === 'intake').enabled).toBe(
+      true,
+    );
+
+    const after = await call('GET', '/api/process');
+    expect(after.json().segments.find((segment: { id: string }) => segment.id === 'intake').enabled).toBe(
+      true,
+    );
+
+    const bad = await call('PATCH', '/api/process', {
+      segments: [{ id: 'intake' }, { id: 'intake' }],
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it('reports master status, runs a cycle, and lists events', async () => {
     await makeApp();
     const status = await call('GET', '/api/master/status');
@@ -221,6 +254,34 @@ describe('http api', () => {
     const events = await call('GET', '/api/master/events?limit=10');
     expect(events.status).toBe(200);
     expect(Array.isArray(events.json())).toBe(true);
+  });
+
+  it('creates a cell with its own process and can replace it', async () => {
+    await makeApp();
+    const configured = (await call('GET', '/api/process')).json().segments as Array<{
+      id: string;
+      enabled: boolean;
+    }>;
+    const intake = configured.find((segment) => segment.id === 'intake');
+    if (!intake) throw new Error('missing intake');
+    intake.enabled = true;
+
+    const created = await call('POST', '/api/cells', {
+      name: 'Strict repo',
+      process: { version: 1, segments: configured },
+    });
+    expect(created.status).toBe(201);
+    expect(
+      created
+        .json()
+        .process.segments.find((segment: { id: string }) => segment.id === 'intake').enabled,
+    ).toBe(true);
+
+    const detail = await call('GET', `/api/cells/${created.json().id}`);
+    expect(detail.json().process.segments).toHaveLength(5);
+
+    const cleared = await call('PATCH', `/api/cells/${created.json().id}`, { process: null });
+    expect(cleared.json().process).toBeNull();
   });
 
   it('toggles a cell master through the cells patch', async () => {

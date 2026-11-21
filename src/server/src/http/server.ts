@@ -134,6 +134,9 @@ async function streamTurn(
   }
 
   await turn.promise;
+  // `done` is broadcast from the turn's finally block just after its promise
+  // resolves; give that continuation one tick before closing the response.
+  await new Promise<void>((resolve) => setImmediate(resolve));
   stream.end();
 }
 

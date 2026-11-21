@@ -26,17 +26,18 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 124 vitest cases: 84 server across 12 files and 40 web across 9 files, all green.
+- 133 vitest cases: 90 server across 13 files and 43 web across 10 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
-  knowledge base), a mobile shell, durable chat with URL route restore, a systemd user
-  unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
-  parity (skills and slash commands), and a GitHub Actions CI workflow template in
-  `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
+  knowledge base), a mobile shell, durable chat with URL route restore, a Config page
+  with an XDG settings file, a systemd user unit for a VPS, a harness seam with `claude`
+  and `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a
+  GitHub Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are
+  merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: pipeline/review automation, KB embeddings.
@@ -78,6 +79,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 - **Pin a child's `PWD` to its cwd.** OpenCode resolves its project root from `PWD`; an
   inherited value points it at the brain's directory and breaks per-request config and
   commands. Both harness adapters set it on spawn.
+- **App settings are not env config.** Master policy lives in
+  `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated by zod and
+  written atomically. Invalid files fall back to defaults until saved; env still owns
+  paths, ports, and the harness.
 - **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { buildServer } from '../src/http/server.js';
+import { SettingsStore } from '../src/settings.js';
 import { createHarness, resultLine, settle, type Harness } from './helpers.js';
 
 interface Open {
@@ -27,6 +28,7 @@ async function makeApp(
     engine: h.engine,
     models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
     plugins: h.plugins,
+    settings: new SettingsStore(h.config.configPath),
     config: { ...h.config, ...config },
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
@@ -123,6 +125,32 @@ describe('http api', () => {
 
     const seen = await call('POST', `/api/requests/${request.id}/seen`);
     expect(seen.json().unchecked).toBe(false);
+  });
+
+  it('reads and patches master settings through the API', async () => {
+    const { h } = await makeApp();
+    const before = await call('GET', '/api/config');
+    expect(before.status).toBe(200);
+    expect(before.json()).toMatchObject({
+      path: h.config.configPath,
+      master: { intervalMinutes: 5, idleMinutes: 10, enabled: true },
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      master: { intervalMinutes: 7, enabled: false },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().master).toMatchObject({
+      intervalMinutes: 7,
+      enabled: false,
+      idleMinutes: 10,
+    });
+
+    const after = await call('GET', '/api/config');
+    expect(after.json().master.intervalMinutes).toBe(7);
+
+    const bad = await call('PATCH', '/api/config', { master: { intervalMinutes: 0 } });
+    expect(bad.status).toBe(400);
   });
 
   it('serves the clarify snapshot and reports an idle stream', async () => {

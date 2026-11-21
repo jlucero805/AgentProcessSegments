@@ -39,6 +39,7 @@ main routes over a real socket.
 - `docs/02-status.md` built versus not built, route list, deviations
 - `docs/03-decisions.md` why this rebuild chose what it chose
 - `docs/04-design-liberties.md` autonomous choices to review
+- `docs/05-plan.md` current feature plan and task list
 - `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
@@ -64,6 +65,7 @@ src/server/src
   clarify/prompts.ts  seed, dispatch, finalize, and KB briefs
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   model catalog with a cached probe and harness fallback
+  settings.ts         XDG app settings: master policy, zod validation, atomic write
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
@@ -76,6 +78,7 @@ src/web
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
+  src/ConfigPage.tsx  master policy editor backed by /api/config
   src/ui.tsx          hand-rolled shadcn-style kit
 deploy
   sandbox-harness.service  systemd user unit for the brain
@@ -90,7 +93,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 124 vitest cases: 84 server cases (state machine, migrations including
+`npm test` runs 133 vitest cases: 90 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against

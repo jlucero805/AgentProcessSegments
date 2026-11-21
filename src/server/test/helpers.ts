@@ -27,6 +27,7 @@ export function testConfig(): Config {
     dataDir: path.join(base, 'data'),
     webDir: path.join(base, 'no-web-build'),
     pluginsDir: path.join(base, 'data', 'plugins'),
+    configPath: path.join(base, 'config.json'),
   };
 }
 

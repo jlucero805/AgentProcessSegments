@@ -3,7 +3,9 @@ import type {
   ClarifyEvent,
   ClarifyState,
   CommandInfo,
+  ConfigResponse,
   KbEntry,
+  MasterConfig,
   ModelsResult,
   PluginInfo,
   Request,
@@ -196,5 +198,11 @@ export const api = {
   },
   getCommands(): Promise<CommandInfo[]> {
     return request('/api/commands');
+  },
+  getConfig(): Promise<ConfigResponse> {
+    return request('/api/config');
+  },
+  patchConfig(master: Partial<MasterConfig>): Promise<ConfigResponse> {
+    return request('/api/config', { method: 'PATCH', body: JSON.stringify({ master }) });
   },
 };

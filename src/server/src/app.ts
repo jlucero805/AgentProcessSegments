@@ -9,6 +9,7 @@ import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
 import { PluginManager } from './plugins/manager.js';
 import { RequestRepository } from './requests/repository.js';
+import { SettingsStore } from './settings.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -18,6 +19,7 @@ export async function main(): Promise<void> {
   const cells = new CellRepository(db);
   const kb = new KbRepository(db);
   const plugins = new PluginManager(config.pluginsDir);
+  const settings = new SettingsStore(config.configPath);
   const harness = createHarness(config);
   const engine = new Engine({
     repo,
@@ -27,7 +29,7 @@ export async function main(): Promise<void> {
   });
   const models = new ModelCatalog(harness);
 
-  const app = await buildServer({ repo, cells, kb, engine, models, plugins, config });
+  const app = await buildServer({ repo, cells, kb, engine, models, plugins, settings, config });
   await app.listen({ host: config.host, port: config.port });
 
   const shutdown = async () => {

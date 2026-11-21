@@ -73,7 +73,12 @@ built and vended by the brain; real-CLI verification is still pending.
   `GET /clarify` reports `active`; the chat hydrates the snapshot and reattaches to a
   live turn, showing a working indicator and streaming text. Verified by reloading
   Chromium mid-turn and seeing the same turn continue.
-- 124 vitest cases, all passing: 84 server across 12 files and 40 web across 9 files,
+- Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated
+  with zod and written atomically. `GET/PATCH /api/config` expose the master policy, and
+  the Config page edits it (enabled, interval, idle threshold, auto-review, unassigned
+  requests, prompt). The file on this host is
+  `/root/.config/sandbox-harness/config.json`.
+- 133 vitest cases, all passing: 90 server across 13 files and 43 web across 10 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -119,6 +124,8 @@ built and vended by the brain; real-CLI verification is still pending.
   knows whether a live turn can be reattached.
 - `POST /clarify/send` marks the request started when it is the first message, even if
   `/clarify/start` was skipped.
+- App settings live in an XDG config file, separate from the environment path config. The
+  file is created on the first save; environment values still win for paths and ports.
 
 ## Not built yet
 

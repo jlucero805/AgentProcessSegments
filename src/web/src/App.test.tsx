@@ -20,6 +20,19 @@ function installFetch(request: Request, transcript: unknown[] = []) {
         supportsEffort: false,
       });
     }
+    if (url === '/api/config') {
+      return jsonResponse({
+        master: {
+          enabled: true,
+          intervalMinutes: 5,
+          idleMinutes: 10,
+          autoReview: true,
+          includeUnassigned: true,
+          prompt: 'prod',
+        },
+        path: '/tmp/config.json',
+      });
+    }
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);
     if (url === `/api/requests/${request.id}/clarify`) {
       return jsonResponse({ started: request.clarifyStarted, transcript });
@@ -76,6 +89,16 @@ describe('App', () => {
     fireEvent.click(screen.getByText('Skills'));
 
     await waitFor(() => expect(window.location.search).toContain('page=skills'));
+  });
+
+  it('opens the config page and records it in the URL', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Config'));
+
+    expect(await screen.findByText('Cell master')).toBeInTheDocument();
+    expect(window.location.search).toContain('page=config');
   });
 
   it('opens and closes the mobile menu', async () => {

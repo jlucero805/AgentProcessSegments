@@ -13,6 +13,7 @@ export interface Config {
   brainUrl: string;
   harness: HarnessId;
   harnessBin: string;
+  configPath: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): Config {
@@ -33,6 +34,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     brainUrl: env.SBOX_BRAIN_URL ?? `http://127.0.0.1:${port}`,
     harness,
     harnessBin: env.SBOX_HARNESS_BIN ?? defaultBin,
+    configPath:
+      env.SBOX_CONFIG ??
+      path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'sandbox-harness', 'config.json'),
   };
 }
 

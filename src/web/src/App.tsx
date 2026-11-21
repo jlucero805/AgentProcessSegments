@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Board } from './Board';
 import { CellBar } from './CellBar';
+import { ConfigPage } from './ConfigPage';
 import { CreateModal } from './CreateModal';
 import { KbEntries } from './KbEntries';
 import { RequestDetail } from './RequestDetail';
@@ -9,13 +10,14 @@ import { api, describeError } from './api';
 import type { Cell, CommandInfo } from './types';
 import { Button, cn } from './ui';
 
-type Page = 'board' | 'kb' | 'skills';
+type Page = 'board' | 'kb' | 'skills' | 'config';
 
 function readInitialRoute(): { page: Page; cellId: string | null; detailId: string | null } {
   if (typeof window === 'undefined') return { page: 'board', cellId: null, detailId: null };
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('page');
-  const page: Page = raw === 'kb' || raw === 'skills' ? raw : 'board';
+  const page: Page =
+    raw === 'kb' || raw === 'skills' || raw === 'config' ? raw : 'board';
   return { page, cellId: params.get('cell'), detailId: params.get('request') };
 }
 
@@ -147,6 +149,9 @@ export function App() {
           <NavButton active={page === 'skills'} onClick={() => go('skills')}>
             Skills
           </NavButton>
+          <NavButton active={page === 'config'} onClick={() => go('config')}>
+            Config
+          </NavButton>
         </nav>
 
         <div className="border-t border-zinc-900 pt-3">
@@ -223,6 +228,7 @@ export function App() {
           ) : null}
           {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
+          {page === 'config' ? <ConfigPage onError={setError} /> : null}
         </div>
       </main>
 

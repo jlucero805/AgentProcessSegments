@@ -43,6 +43,14 @@ systemctl --user restart sandbox-harness
 The unit's `PATH` includes `%h/.opencode/bin`, so an install there resolves without the
 binary override.
 
+## Settings
+
+Master policy lives in `$XDG_CONFIG_HOME/sandbox-harness/config.json` (usually
+`~/.config/sandbox-harness/config.json`); set `SBOX_CONFIG` to move it. Edit it from the
+Config page or `PATCH /api/config`. The file is created on the first save; an invalid
+file falls back to defaults until a valid one is written. It is intentionally outside the
+repo and outside the systemd unit.
+
 ## Install as a systemd user unit
 
 ```bash

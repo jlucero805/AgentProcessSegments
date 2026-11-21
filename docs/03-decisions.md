@@ -261,3 +261,17 @@ and streams text. The first `send` marks a request started.
 **Cost.** Query-string state is per tab and does not create back-button history; the
 drawer is not deep-linked across tools. The `active` field and `send` behavior are
 additive.
+
+## D21. App settings live in XDG, not the repository
+
+**Context.** The master cadence, thresholds, and prompt must be operator-editable, while
+`config.ts` is environment-driven and owns paths, ports, and the harness.
+
+**Decision.** Store app settings in
+`$XDG_CONFIG_HOME/sandbox-harness/config.json` (override `SBOX_CONFIG`). Validate with a
+zod schema, strip unknown keys, write atomically, fall back to defaults with a warning
+for invalid files, and expose `GET/PATCH /api/config` plus a Config page. The file is
+created on the first save.
+
+**Cost.** A second configuration surface. Invalid files silently use defaults until an
+operator saves a valid patch; the path is shown on the page so it is discoverable.

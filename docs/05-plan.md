@@ -22,7 +22,7 @@ prompt libraries, and semantic KB retrieval.
   columns on small screens; full-width drawer; responsive top bar.
 - [x] **2. Durable chat and routing** — page/request in the URL; restore on reload;
   reattach to a live turn with a running state; keep streaming text.
-- [ ] **3. Config store** — `$XDG_CONFIG_HOME/sandbox-harness/config.json` (override
+- [x] **3. Config store** — `$XDG_CONFIG_HOME/sandbox-harness/config.json` (override
   `SBOX_CONFIG`), zod-validated defaults, `GET/PATCH /api/config`, and a Config page.
 - [ ] **4. Cell masters** — scheduler with configurable interval (default 5 min),
   idle threshold, prod prompt, auto-review marker, per-cell enable toggles, event log,

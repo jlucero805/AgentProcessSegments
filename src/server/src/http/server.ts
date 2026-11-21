@@ -19,6 +19,7 @@ import type { KbRepository } from '../kb/repository.js';
 import { PluginError, type PluginManager } from '../plugins/manager.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
+import type { SettingsStore } from '../settings.js';
 
 export interface ServerDeps {
   repo: RequestRepository;
@@ -27,6 +28,7 @@ export interface ServerDeps {
   engine: Engine;
   models: ModelCatalog;
   plugins: PluginManager;
+  settings: SettingsStore;
   config: Config;
   logger?: boolean;
 }
@@ -141,7 +143,7 @@ async function streamTurn(
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const { repo, cells, kb, engine, models, plugins, config } = deps;
+  const { repo, cells, kb, engine, models, plugins, settings, config } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -342,6 +344,12 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/commands', async () => plugins.listCommands());
+
+  app.get('/api/config', async () => ({ ...settings.get(), path: settings.path }));
+  app.patch('/api/config', async (request) => ({
+    ...settings.patch(request.body),
+    path: settings.path,
+  }));
 
   await app.register(fastifyWebsocket);
   app.get('/ws', { websocket: true }, (socket) => {

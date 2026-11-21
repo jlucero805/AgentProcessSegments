@@ -75,6 +75,23 @@ export interface ModelsResult {
   supportsEffort?: boolean;
 }
 
+export interface MasterConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  idleMinutes: number;
+  autoReview: boolean;
+  includeUnassigned: boolean;
+  prompt: string;
+}
+
+export interface AppConfig {
+  master: MasterConfig;
+}
+
+export interface ConfigResponse extends AppConfig {
+  path: string;
+}
+
 export interface PluginInfo {
   name: string;
   description: string;

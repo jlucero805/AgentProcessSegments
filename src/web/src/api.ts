@@ -1,0 +1,200 @@
+import type {
+  Cell,
+  ClarifyEvent,
+  ClarifyState,
+  CommandInfo,
+  KbEntry,
+  ModelsResult,
+  PluginInfo,
+  Request,
+  State,
+} from './types';
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly issues?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+function describe(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+export { describe as describeError };
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { accept: 'application/json' };
+  if (init.body !== undefined) headers['content-type'] = 'application/json';
+
+  const response = await fetch(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
+  if (!response.ok) {
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = (await response.json()) as Record<string, unknown>;
+    } catch {
+      // Non-JSON error bodies are mapped below.
+    }
+    const message =
+      (typeof body?.['message'] === 'string' && body['message']) ||
+      (typeof body?.['error'] === 'string' && body['error']) ||
+      `${response.status} ${response.statusText}`;
+    throw new ApiError(response.status, message, body?.['issues']);
+  }
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+function withQuery(path: string, query: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const suffix = params.toString();
+  return suffix ? `${path}?${suffix}` : path;
+}
+
+/** Reads a newline-delimited JSON stream and hands each parsed event to the caller. */
+export async function streamNdjson(
+  path: string,
+  onEvent: (event: ClarifyEvent) => void,
+  init: RequestInit = {},
+): Promise<void> {
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+    try {
+      const body = (await response.json()) as Record<string, unknown>;
+      if (typeof body['message'] === 'string') message = body['message'];
+      else if (typeof body['error'] === 'string') message = body['error'];
+    } catch {
+      // Keep the status text.
+    }
+    throw new ApiError(response.status, message);
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) onEvent(JSON.parse(line) as ClarifyEvent);
+      newline = buffer.indexOf('\n');
+    }
+  }
+  const tail = buffer.trim();
+  if (tail) onEvent(JSON.parse(tail) as ClarifyEvent);
+}
+
+export const api = {
+  getRequests(query: Record<string, string | undefined> = {}): Promise<Request[]> {
+    return request(withQuery('/api/requests', query));
+  },
+  getRequest(id: string): Promise<Request> {
+    return request(`/api/requests/${encodeURIComponent(id)}`);
+  },
+  createRequest(input: {
+    title: string;
+    body?: string;
+    targetRepo?: string | null;
+    cellId?: string | null;
+  }): Promise<Request> {
+    return request('/api/requests', { method: 'POST', body: JSON.stringify(input) });
+  },
+  patchRequest(id: string, fields: Record<string, unknown>): Promise<Request> {
+    return request(`/api/requests/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(fields),
+    });
+  },
+  transition(id: string, to: State): Promise<Request> {
+    return request(`/api/requests/${encodeURIComponent(id)}/transition`, {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    });
+  },
+  drop(id: string): Promise<Request> {
+    return request(`/api/requests/${encodeURIComponent(id)}/drop`, { method: 'POST' });
+  },
+  markSeen(id: string): Promise<Request> {
+    return request(`/api/requests/${encodeURIComponent(id)}/seen`, { method: 'POST' });
+  },
+  getClarify(id: string): Promise<ClarifyState> {
+    return request(`/api/requests/${encodeURIComponent(id)}/clarify`);
+  },
+  startClarify(id: string): Promise<void> {
+    return streamNdjson(`/api/requests/${encodeURIComponent(id)}/clarify/start`, () => {}, {
+      method: 'POST',
+    });
+  },
+  sendClarify(id: string, text: string): Promise<void> {
+    return streamNdjson(
+      `/api/requests/${encodeURIComponent(id)}/clarify/send`,
+      () => {},
+      { method: 'POST', body: JSON.stringify({ text }) },
+    );
+  },
+  streamClarify(id: string, onEvent: (event: ClarifyEvent) => void): Promise<void> {
+    return streamNdjson(
+      `/api/requests/${encodeURIComponent(id)}/clarify/stream`,
+      onEvent,
+      { method: 'GET' },
+    );
+  },
+  indexAndFinalize(id: string, digest: string | null, index: boolean): Promise<Request> {
+    return request(`/api/requests/${encodeURIComponent(id)}/index`, {
+      method: 'POST',
+      body: JSON.stringify({ digest, index }),
+    });
+  },
+  getModels(refresh = false): Promise<ModelsResult> {
+    return request(withQuery('/api/models', refresh ? { refresh: 1 } : {}));
+  },
+  getKb(q?: string, limit?: number): Promise<KbEntry[]> {
+    return request(withQuery('/api/kb', { q, limit }));
+  },
+  storeKb(input: { requestId: string; title: string; content: string }): Promise<KbEntry> {
+    return request('/api/kb', { method: 'POST', body: JSON.stringify(input) });
+  },
+  getCells(): Promise<Cell[]> {
+    return request('/api/cells');
+  },
+  createCell(name: string): Promise<Cell> {
+    return request('/api/cells', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+  renameCell(id: string, name: string): Promise<Cell> {
+    return request(`/api/cells/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  },
+  deleteCell(id: string): Promise<void> {
+    return request(`/api/cells/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  getPlugins(): Promise<PluginInfo[]> {
+    return request('/api/plugins');
+  },
+  installPlugin(input: { url: string; subdir?: string; name?: string }): Promise<PluginInfo> {
+    return request('/api/plugins', { method: 'POST', body: JSON.stringify(input) });
+  },
+  removePlugin(name: string): Promise<void> {
+    return request(`/api/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
+  getCommands(): Promise<CommandInfo[]> {
+    return request('/api/commands');
+  },
+};

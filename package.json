@@ -3,12 +3,13 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "src/server"
+    "src/server",
+    "src/web"
   ],
   "scripts": {
-    "build": "npm run build --workspace src/server",
-    "typecheck": "npm run typecheck --workspace src/server",
-    "test": "npm test --workspace src/server",
+    "build": "npm run build --workspace src/web && npm run build --workspace src/server",
+    "typecheck": "npm run typecheck --workspace src/server && npm run typecheck --workspace src/web",
+    "test": "npm test --workspace src/server && npm test --workspace src/web",
     "dev": "npm run dev --workspace src/server",
     "start": "node src/server/dist/app.js"
   }

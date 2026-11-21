@@ -38,6 +38,7 @@ main routes over a real socket.
 - `docs/01-system-spec.md` the governing contract
 - `docs/02-status.md` built versus not built, route list, deviations
 - `docs/03-decisions.md` why this rebuild chose what it chose
+- `docs/04-design-liberties.md` autonomous choices to review
 - `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 

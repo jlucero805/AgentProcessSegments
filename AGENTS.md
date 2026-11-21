@@ -20,6 +20,8 @@ digests.
 3. `docs/02-status.md` is built versus not built, and it goes stale fast. Check it
    against `git log`.
 4. `docs/03-decisions.md` explains choices that look arbitrary until you read them.
+5. `docs/04-design-liberties.md` lists the autonomous choices made after the handoff,
+   with alternatives, for operator review.
 
 ## State at handoff
 

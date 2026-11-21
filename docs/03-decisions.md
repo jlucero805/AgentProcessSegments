@@ -293,3 +293,18 @@ exposed, and the Config page owns the policy and per-cell switches.
 **Cost.** One prod at a time, sequentially; a hung turn delays the rest of the cycle. The
 cadence is global (per-cell cadence is future work), and the review move relies on the
 marker rather than an LLM judgment. Prods are ordinary agent turns, so they cost tokens.
+
+## D23. Chat queue is client-side; stop keeps the session
+
+**Context.** A turn can take minutes. The operator wants to compose while it runs, cut it
+short deliberately, and interject without losing the conversation.
+
+**Decision.** Queue messages in the SPA per request (localStorage) and drain them in
+order when the turn ends. `POST /clarify/stop` marks the turn cancelled, kills the child
+(SIGTERM then SIGKILL), lets `finishTurn` save the partial transcript, and leaves
+`session.json` alone so the next message resumes. Stop clears the queue; the client shows
+"Stopped. You can interject."
+
+**Cost.** The queue is per browser and not visible to other clients or the server. A stop
+is best-effort: the process can take a moment to die, and the transcript is whatever the
+parser had flushed.

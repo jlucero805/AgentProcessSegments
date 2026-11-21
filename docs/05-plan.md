@@ -120,3 +120,13 @@ states dispose the session as before; disabling the master stops scheduling imme
 - Web: hamburger/aria, nav close, URL restore, running reattach, config page save, master
   controls.
 - Browser: 390 px viewport smoke through the create → drawer → board flow.
+
+## Follow-up: message queue and stop
+
+- [x] **6. Stop a live turn** — `Engine.cancel`, `POST /clarify/stop`, kill the child,
+  finish with the partial transcript, keep the session id so the next message resumes.
+- [x] **7. Queue and interject** — composing while a turn runs queues the message locally
+  (persisted per request), drains in order when the turn ends; Stop clears the queue and
+  cuts the stream so the human can interject.
+- [x] **8. Tests and docs** — engine/HTTP stop tests, queue/drain/stop component tests,
+  browser smoke.

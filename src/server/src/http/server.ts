@@ -247,6 +247,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return streamTurn(reply, engine, id, turn, () => (isKb ? null : repo.get(id)));
   });
 
+  app.post('/api/requests/:id/clarify/stop', async (request) => {
+    const { id } = request.params as { id: string };
+    return { stopped: engine.cancel(id) };
+  });
+
   app.get('/api/requests/:id/clarify/stream', async (request, reply) => {
     const { id } = request.params as { id: string };
     if (!engine.hasLive(id)) return reply.send({ active: false });

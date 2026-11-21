@@ -153,6 +153,9 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ text }) },
     );
   },
+  stopClarify(id: string): Promise<{ stopped: boolean }> {
+    return request(`/api/requests/${encodeURIComponent(id)}/clarify/stop`, { method: 'POST' });
+  },
   streamClarify(id: string, onEvent: (event: ClarifyEvent) => void): Promise<void> {
     return streamNdjson(
       `/api/requests/${encodeURIComponent(id)}/clarify/stream`,

@@ -80,6 +80,32 @@ describe('turn engine', () => {
     await settle();
   });
 
+  it('stops a live turn and keeps the saved session for the next message', async () => {
+    const h = fresh((text) => [initLine('sess-stop')]);
+    const request = h.repo.create({ title: 'Stop me' });
+
+    const first = await h.engine.start(request.id);
+    await settle();
+    expect(h.engine.hasLive(request.id)).toBe(true);
+
+    expect(h.engine.cancel(request.id)).toBe(true);
+    await first.promise;
+    await settle();
+
+    expect(h.engine.hasLive(request.id)).toBe(false);
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
+    expect(h.harness.process?.killed).toBe(true);
+    expect(first.events.some((event) => event.t === 'done')).toBe(true);
+    expect(h.engine.cancel(request.id)).toBe(false);
+
+    const second = await h.engine.send(request.id, 'interject');
+    await settle();
+    h.harness.process?.emit(resultLine());
+    await second.promise;
+    await settle();
+    expect(h.harness.sessions[1]?.sessionId).toBe('sess-stop');
+  });
+
   it('marks a request started when its first message is sent', async () => {
     const h = fresh(() => defaultScript());
     const request = h.repo.create({ title: 'Send first' });

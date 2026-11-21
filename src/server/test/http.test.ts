@@ -334,6 +334,24 @@ describe('http api', () => {
     expect(after.json().active).toBe(false);
   });
 
+  it('stops a live turn over HTTP', async () => {
+    const { h } = await makeApp({}, () => []);
+    const request = h.repo.create({ title: 'Stop HTTP' });
+    const turn = await h.engine.start(request.id);
+
+    const stopped = await call('POST', `/api/requests/${request.id}/clarify/stop`);
+    expect(stopped.status).toBe(200);
+    expect(stopped.json()).toEqual({ stopped: true });
+
+    await turn.promise;
+    await settle();
+    const snapshot = await call('GET', `/api/requests/${request.id}/clarify`);
+    expect(snapshot.json().active).toBe(false);
+
+    const again = await call('POST', `/api/requests/${request.id}/clarify/stop`);
+    expect(again.json()).toEqual({ stopped: false });
+  });
+
   it('vends SPA assets added after boot and keeps missing assets as 404s', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-web-'));
     mkdirSync(path.join(dir, 'assets'));

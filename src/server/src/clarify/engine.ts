@@ -16,6 +16,7 @@ export interface LiveTurn {
   readonly subscribers: Set<(event: ClarifyEvent) => void>;
   readonly promise: Promise<void>;
   done: boolean;
+  cancelled: boolean;
   resolve: () => void;
   failure: string | null;
 }
@@ -52,6 +53,26 @@ export class Engine {
 
   hasLive(id: string): boolean {
     return this.turns.has(id);
+  }
+
+  /**
+   * Stop a live turn without disposing the session. The partial transcript is
+   * finished and saved; the saved session id is reused by the next message.
+   */
+  cancel(id: string): boolean {
+    const turn = this.turns.get(id);
+    if (!turn || turn.done) return false;
+
+    turn.cancelled = true;
+    const proc = this.procs.get(id);
+    this.procs.delete(id);
+    if (proc) {
+      proc.kill('SIGTERM');
+      const force = setTimeout(() => proc.kill('SIGKILL'), 2_000);
+      force.unref();
+    }
+    turn.resolve();
+    return true;
   }
 
   attach(id: string, emit: (event: ClarifyEvent) => void): boolean {
@@ -119,6 +140,7 @@ export class Engine {
       subscribers: new Set(),
       promise: settled,
       done: false,
+      cancelled: false,
       resolve,
       failure: null,
     };
@@ -142,11 +164,16 @@ export class Engine {
 
     try {
       const proc = await this.ensureProc(id, request);
+      if (turn.cancelled) {
+        proc.kill();
+        this.procs.delete(id);
+        return;
+      }
       this.appendUserMessage(id, message);
       parser.transcript.push({ role: 'you', kind: 'text', text: message, ts: Date.now() });
       proc.writeUserMessage(message);
       await turn.promise;
-      if (turn.failure) this.broadcast(turn, { t: 'error', message: turn.failure });
+      if (turn.failure && !turn.cancelled) this.broadcast(turn, { t: 'error', message: turn.failure });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.broadcast(turn, { t: 'error', message });
@@ -197,7 +224,7 @@ export class Engine {
     const turn = this.turns.get(id);
     // A harness whose process ends after its final event has already finished
     // the turn normally; only an exit before completion is a failure.
-    if (!turn || turn.done || this.parsers.get(id)?.finished) return;
+    if (!turn || turn.done || turn.cancelled || this.parsers.get(id)?.finished) return;
     turn.failure = `agent process exited with code ${code ?? 'unknown'}`;
     turn.resolve();
   }

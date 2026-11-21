@@ -83,12 +83,16 @@ built and vended by the brain; real-CLI verification is still pending.
   `GET /clarify` reports `active`; the chat hydrates the snapshot and reattaches to a
   live turn, showing a working indicator and streaming text. Verified by reloading
   Chromium mid-turn and seeing the same turn continue.
+- Chat controls: composing while a turn runs queues the message in localStorage per
+  request and drains in order when the turn ends. Stop calls `POST /clarify/stop`, kills
+  the child, saves the partial transcript, keeps the saved session for the next message,
+  and clears the queue so the human can interject.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated
   with zod and written atomically. `GET/PATCH /api/config` expose the master policy, and
   the Config page edits it (enabled, interval, idle threshold, auto-review, unassigned
   requests, prompt) plus cell toggles, activity, and a manual run. The file on this host
   is `/root/.config/sandbox-harness/config.json`.
-- 145 vitest cases, all passing: 100 server across 14 files and 45 web across 10 files,
+- 149 vitest cases, all passing: 102 server across 14 files and 47 web across 10 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).

@@ -1,0 +1,15 @@
+{
+  "name": "sandbox-harness",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "src/server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace src/server",
+    "typecheck": "npm run typecheck --workspace src/server",
+    "test": "npm test --workspace src/server",
+    "dev": "npm run dev --workspace src/server",
+    "start": "node src/server/dist/app.js"
+  }
+}

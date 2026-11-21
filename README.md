@@ -40,6 +40,9 @@ main routes over a real socket.
 - `docs/03-decisions.md` why this rebuild chose what it chose
 - `docs/04-design-liberties.md` autonomous choices to review
 - `docs/05-plan.md` current feature plan and task list
+- `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
+- `docs/07-process-segments.md` process.json contract and automation rules
+- `docs/08-user-workflows.md` end-to-end operator workflows
 - `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
@@ -52,7 +55,7 @@ src/server/src
   db.ts               schema, idempotent column migrations, boot reconcile
   domain/request.ts   states, transition table, entities, transcript types
   requests/           RequestRepository: CRUD, edit, guarded transitions
-  cells/              CellRepository: delete detaches requests, never deletes them
+  cells/              CellRepository: delete detaches requests, per-cell process policy
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
@@ -65,9 +68,10 @@ src/server/src
   clarify/prompts.ts  seed, dispatch, finalize, and KB briefs
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   model catalog with a cached probe and harness fallback
-  settings.ts         XDG app settings: master policy, zod validation, atomic write
-  master/events.ts    master event log (prod, review, cycle, skip)
-  master/service.ts   one master cycle: prod stalled dispatch work, marker review
+  settings.ts         XDG scheduler settings, zod validation, atomic write
+  process/            process.json definition, defaults, store, follow-up parser
+  master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
+  master/service.ts   one master cycle: walk segments, start/prod, follow-ups, advance
   master/scheduler.ts cadence, config reload, manual run, coalesced cycles
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
@@ -81,7 +85,10 @@ src/web
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
-  src/ConfigPage.tsx  master policy editor backed by /api/config
+  src/ConfigPage.tsx  scheduler + global process editor + cell policy entry points
+  src/ProcessEditor.tsx structured per-segment controls
+  src/CellModal.tsx   cell creation/edit flow with a process snapshot
+  src/MasterDetail.tsx first-class master drawer: status, prompts, activity, chat
   src/ui.tsx          hand-rolled shadcn-style kit
 deploy
   sandbox-harness.service  systemd user unit for the brain
@@ -96,13 +103,15 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 165 vitest cases: 110 server cases (state machine, migrations including
+`npm test` runs 186 vitest cases: 125 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
-real git clones, and the HTTP API over a real socket) and 55 web cases (shared contract
+real git clones, process definitions/store/follow-ups, per-cell policies, the generic
+master pipeline, and the HTTP API over a real socket) and 61 web cases (shared contract
 re-exports, NDJSON client, chat folding, request-form mapping, board, create modal,
-composer, cell bar, and the app shell with the drawer and chat mounted under jsdom).
+composer, cell bar, cell creation, config/process editor, master detail, and the app shell
+with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

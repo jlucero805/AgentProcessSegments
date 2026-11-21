@@ -45,12 +45,20 @@ binary override.
 
 ## Settings
 
-Master policy lives in `$XDG_CONFIG_HOME/sandbox-harness/config.json` (usually
+Scheduler policy lives in `$XDG_CONFIG_HOME/sandbox-harness/config.json` (usually
 `~/.config/sandbox-harness/config.json`); set `SBOX_CONFIG` to move it. Edit it from the
 Config page or `PATCH /api/config`. The file is created on the first save; an invalid
-file falls back to defaults until a valid one is written. It is intentionally outside the
-repo and outside the systemd unit. The master scheduler runs inside the brain; its
-cadence, thresholds, and prod prompt come from this file, not from the unit.
+file falls back to defaults until a valid one is written.
+
+Process segments live beside it in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
+(`SBOX_PROCESS` overrides). This is the global default and the template for new cells.
+Each cell stores its own copy in SQLite (`cells.process_json`); edit it from the cell
+creation/edit flow or `PATCH /api/cells/:id`. The Config page edits the global default;
+the Cell master drawer shows the selected cell’s policy. See
+`docs/07-process-segments.md` for the shape and automation semantics.
+
+Both files are intentionally outside the repo and outside the systemd unit. The master
+scheduler runs inside the brain.
 
 ## Install as a systemd user unit
 

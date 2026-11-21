@@ -16,11 +16,22 @@ built and vended by the brain; real-CLI verification is still pending.
 - `CellRepository`: list, get, create, rename, delete in a transaction that detaches
   requests instead of deleting them, plus the per-cell `master_enabled` switch.
 - Cell masters: a scheduler ticks on the configured interval (default 5 minutes) and
-  reviews each enabled cell's `dispatch` queue plus unassigned work when configured. It
-  prods requests idle beyond the threshold with the configured prompt, records
-  `prod`/`review`/`cycle`/`skip` events, and moves `dispatch → review` when the prod
-  reply ends with `READY FOR REVIEW`. Manual run, status, and event history are exposed;
-  the Config page has the policy, cell toggles, activity, and a run button.
+  walks the configured process segments. It starts or prods due work, records
+  `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events, and advances on
+  exact markers through legal transitions. A segment can also create follow-up requests
+  from `FOLLOW-UP:` callouts. Manual run, status, and event history are exposed; the
+  Config page edits the schedule and segments, and the Cell master drawer shows status,
+  prompts, activity, and the master chat.
+- Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
+  (`SBOX_PROCESS` override): five ordered segments with purpose, enabled, idle minutes,
+  per-cycle cap, prompt, ready marker, advance target, and follow-up policy. It is
+  zod-validated and written atomically. Missing/invalid files fall back to the legacy
+  implement-only policy derived from `config.json`.
+- Per-cell process policies: creating a cell opens a process editor seeded from the
+  global default; the saved policy is stored on the cell (`cells.process_json`) and its
+  master uses it instead of the global template. Existing cells without a policy inherit
+  the global default. The Cell master drawer shows the selected cell’s policy and filters
+  activity to it.
 - Live master verification: a stalled dispatch request was prodded by the real OpenCode
   agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
   prod, review, and cycle events.
@@ -91,10 +102,14 @@ built and vended by the brain; real-CLI verification is still pending.
 - One thread across segments: the drawer renders the same chat for clarify, dispatch,
   review, and finalize (terminal states stay read-only), so the human can interject at
   any point in the workflow.
+- Cell master detail: a `Cell master` button above `+ New request` opens a dedicated
+  drawer with status, last/next run, the enabled cron loop and prompts, activity, and the
+  master chat. `?master=1` restores it.
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
-  scheduler appends prod, review, cycle, and skip notes to its transcript without a model
-  turn, and the Config page embeds the chat under Activity. Verified live: the master
-  answered, a prod posted notes, and a request moved to Review.
+  scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
+  transcript without a model turn. The Config page and the Cell master drawer embed the
+  chat. Verified live: the master answered, a prod posted notes, and a request moved to
+  Review.
 - Refactor audit (`docs/06-refactor-audit.md`): the SPA now type-imports the pure server
   contract instead of mirroring it; sentinel routing, MCP board tools, and plugin
   markdown/fs helpers have one implementation; the drawer's form mapping and terminal
@@ -102,12 +117,15 @@ built and vended by the brain; real-CLI verification is still pending.
   on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
-- Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated
-  with zod and written atomically. `GET/PATCH /api/config` expose the master policy, and
-  the Config page edits it (enabled, interval, idle threshold, auto-review, unassigned
-  requests, prompt) plus cell toggles, activity, and a manual run. The file on this host
-  is `/root/.config/sandbox-harness/config.json`.
-- 165 vitest cases, all passing: 110 server across 14 files and 55 web across 11 files,
+- Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
+  scheduler switch, interval, and unassigned-work flag, validated with zod and written
+  atomically. `GET/PATCH /api/config` expose it. `process.json` is the global process
+  template; each cell snapshots it into `cells.process_json` and the master uses the
+  cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
+  remain only to derive process defaults when `process.json` is absent. See
+  `docs/07-process-segments.md`. The files on this host are
+  `/root/.config/sandbox-harness/config.json` and `process.json`.
+- 186 vitest cases, all passing: 125 server across 15 files and 61 web across 13 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -161,8 +179,10 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Not built yet
 
-- Pipeline/review automation: the review step is human-driven by design; agents are told
-  not to push or open change requests.
+- Per-cell cadence: all cells share the scheduler tick; per-segment idle thresholds and
+  prompts are cell-specific. A truly independent interval per cell is future work.
+- Automatic finalize/index: the human still approves KB indexing. Per-cell review
+  prompts can create draft CRs, but there is no hardcoded forger integration.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
@@ -190,8 +210,9 @@ GET    /api/models?refresh=1
 GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells
-POST   /api/cells                         {name}
-PATCH  /api/cells/:id                     {name?, masterEnabled?}
+GET    /api/cells/:id
+POST   /api/cells                         {name, process?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
@@ -199,6 +220,8 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/config
 PATCH  /api/config                        {master:{…}}
+GET    /api/process
+PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status
 POST   /api/master/run
 GET    /api/master/events?cellId=…&limit=…

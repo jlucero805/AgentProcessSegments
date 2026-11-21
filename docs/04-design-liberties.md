@@ -141,6 +141,19 @@ instead of restating them. Those modules stay free of Node imports.
 of truth and no extra build graph. Cost: the boundary is enforced by convention and a
 comment, not package exports.
 
+## 12. Process segments are XDG JSON with per-cell snapshots
+
+**Chosen.** `process.json` beside `config.json` is the global default; JSON rather than
+YAML so the existing zod/atomic-write path is reused without a parser dependency. A cell
+stores a full snapshot in `cells.process_json`, seeded from the global default at
+creation. The Config page edits it structurally; raw JSON is not shown in the SPA.
+
+**Alternatives.** Put segments inside `config.json`, global-only policy, or YAML support.
+
+**Why.** Pipeline definitions are larger and change more often than the scheduler policy,
+and separate per-cell snapshots let a strict repository diverge without changing every
+other cell. Cost: two config locations and snapshots do not follow later global edits.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

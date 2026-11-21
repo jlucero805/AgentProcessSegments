@@ -350,3 +350,41 @@ and the chat reattaches through `GET /clarify` plus `/clarify/stream`.
 
 **Cost.** A detached kick does not surface agent text in the workflow card; the unified
 thread is the place to watch it. Callers that want the stream keep the default route.
+
+## D27. Process segments are persisted data
+
+**Context.** The master only knew how to prod stalled implementation work. Operators
+want to configure every segment and expand the cron loop to start planning, implement,
+review, create follow-ups, and advance on rules.
+
+**Decision.** Store five ordered segments in
+`$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS` overrides) as the global
+default. A cell can store a full copy of the same shape in `cells.process_json`; its
+master uses that policy, while cells without one inherit the global default. Each
+segment has a label, purpose, enabled flag, idle threshold, per-cycle cap, prompt, exact
+ready marker, legal target state, and follow-up marker. The master walks enabled segments
+in array order. `intake` uses `engine.start`; other segments use `engine.send` with the
+configured prompt. A marker advances only through a legal transition. `intake` and
+`finalize` cannot auto-advance. Follow-up lines create requests in the same cell and are
+deduplicated per source request in `master_events`.
+
+**Cost.** A missing global file falls back to a policy derived from the legacy master
+fields. Cell policies are snapshots, so changing the global template does not rewrite
+existing cells. The master is still sequential and all cells share one scheduler tick,
+so a full pipeline can take one cadence per segment. Prompts cost tokens when segments
+are enabled.
+
+## D28. The cell master has its own detail
+
+**Context.** The master was a section inside Config. The operator wants to watch what
+the cron is doing, see the prompt it uses, and chat with it as a first-class object.
+
+**Decision.** Add a `Cell master` button above `+ New request`. It opens a dedicated
+drawer with status, last/next run, the enabled segment loop and prompts, activity, and the
+`__master__` chat. When a cell is selected in the sidebar, the drawer shows that cell’s
+policy and filters activity to the cell; otherwise it shows the global template.
+`?master=1` restores the drawer. Config remains the editor; the drawer is the
+observability surface.
+
+**Cost.** The drawer polls status and events every 10 seconds while open, the master chat
+is shared across cells, and the chat remains read-only/advisory.

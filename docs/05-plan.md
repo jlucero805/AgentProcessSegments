@@ -148,3 +148,24 @@ states dispose the session as before; disabling the master stops scheduling imme
   cell-id validation, slash commands, KB backslash search, drawer form clobber, mobile
   cell controls, KB mobile layout, and aborted chat streams.
 - [x] **15. Docs** — `docs/06-refactor-audit.md` plus decision/status updates.
+
+## Follow-up: configurable process segments
+
+- [x] **16. Process config** — separate `$XDG_CONFIG_HOME/sandbox-harness/process.json`
+  (`SBOX_PROCESS`), zod-validated, atomic writes, conservative fallback derived from
+  the legacy master policy.
+- [x] **17. Generic master loop** — walk enabled segments in order, start/prod due work,
+  apply follow-up callouts, and advance on exact markers through legal transitions.
+- [x] **18. Process UI** — structured segment editor and a first-class Cell master
+  detail with status, prompts, activity, and chat (`?master=1`).
+- [x] **19. Tests and docs** — process/store/defaults/follow-up tests, master pipeline
+  tests, HTTP process routes, ConfigPage and MasterDetail tests, `docs/07`.
+
+## Follow-up: per-cell process ownership
+
+- [x] **20. Cell policies** — each cell can store its own process snapshot; the master
+  uses it instead of the global template. Existing cells keep inheriting the global.
+- [x] **21. Cell creation flow** — New/Edit cell opens a process editor seeded from the
+  global default; Config links to the same editor; the Cell master drawer is cell-scoped.
+- [x] **22. Tests and docs** — cell process persistence, per-cell master selection, cell
+  modal, HTTP cell process routes, and `docs/07` workflow examples.

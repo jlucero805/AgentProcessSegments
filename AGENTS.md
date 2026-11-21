@@ -24,11 +24,14 @@ digests.
    with alternatives, for operator review.
 6. `docs/06-refactor-audit.md` records the duplication/bug audit, what was fixed, and
    what was deliberately deferred.
+7. `docs/07-process-segments.md` is the process.json contract and automation semantics.
+8. `docs/08-user-workflows.md` is the operator workflow: cells, process choices, master
+   observation, requests, review, and finalize.
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 165 vitest cases: 110 server across 14 files and 55 web across 11 files, all green.
+- 186 vitest cases: 125 server across 15 files and 61 web across 13 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -36,23 +39,26 @@ digests.
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
   knowledge base), a mobile shell, durable chat with URL route restore, queued messages
-  and stop/interject, one thread across workflow segments, a Config page with an XDG
-  settings file, cell masters with a scheduled prod loop, event log, and an embedded
-  master chat, a systemd user unit for a VPS, a harness seam with `claude` and `opencode`
-  adapters, OpenCode plugin parity (skills and slash commands), and a GitHub Actions CI
-  workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged into request
-  sessions for both.
+  and stop/interject, one thread across workflow segments, a Config page with XDG
+  settings and a structured process editor, configurable global and per-cell process
+  segments with a generic scheduled loop, follow-up callouts, event log, a first-class
+  Cell master detail with prompts/activity/chat, a cell creation flow that defines the
+  policy up front, a systemd user unit for a VPS, a harness seam with `claude` and
+  `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a GitHub
+  Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged
+  into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: pipeline/review automation, KB embeddings.
-  The CI workflow is not published yet; it needs the `workflow` token scope.
+- Not built: per-cell cadence, KB embeddings. Review/finalize automation is configurable
+  per cell but finalize remains human-gated; the CI workflow is not published yet and
+  needs the `workflow` token scope.
 
 ## Commands
 
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 110 server + 55 web
+npm test                       # 125 server + 61 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
@@ -84,10 +90,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 - **Pin a child's `PWD` to its cwd.** OpenCode resolves its project root from `PWD`; an
   inherited value points it at the brain's directory and breaks per-request config and
   commands. Both harness adapters set it on spawn.
-- **App settings are not env config.** Master policy lives in
-  `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated by zod and
-  written atomically. Invalid files fall back to defaults until saved; env still owns
-  paths, ports, and the harness.
+- **App settings are not env config.** Scheduler policy lives in
+  `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`), and process segments
+  live in `process.json` (`SBOX_PROCESS`). Both are zod-validated and written atomically.
+  Invalid files fall back to defaults until saved; env still owns paths, ports, and the
+  harness.
 - **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
@@ -136,16 +143,22 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     `domain/request`, `master/types`, `plugins/types`, and `clarify/models`. Keep those
     modules free of Node imports so Vite can bundle them; do not restate workflow tables
     or request shapes in the SPA.
-11. **Master prods are ordinary turns.** The scheduler sends one prod through
-    `engine.send`, waits for it, and only transitions `dispatch → review` when the final
-    agent text contains `READY FOR REVIEW`. Disabled cells and the disabled master are
-    skipped; terminal transitions still dispose the session.
+11. **Process segments are data.** `process.json` is the global template. A cell can
+    store its own snapshot in `cells.process_json`; its master uses that policy, or the
+    global template when absent. The master walks enabled segments in order, uses the
+    segment prompt, and advances only on the exact marker through `canTransition`. Do not
+    hardcode a prod/review rule in a route or UI.
 12. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
     finishes with the partial transcript; it does not clear `session.json`, so the next
     message resumes. Stop clears the client queue; normal completion drains it in order.
 13. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
     delete a live turn's maps without resolving its promise.
+14. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
+    into the KB is a human action. Do not add an automatic finalize transition without an
+    explicit indexing path.
+15. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
+    request/title; the `followup` event is the dedupe key.
 
 ## Extension recipes
 
@@ -171,12 +184,18 @@ or disk.
 `clarify/harnesses/index.ts` behind `SBOX_HARNESS`, and add prepare plus parser tests in
 `test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`.
 
+**Add or change a process segment.** Update `process/definition.ts`, `process/defaults.ts`
+(defaults plus prompt), the UI labels, and `test/process.test.ts`. Advancement must be a
+legal `canTransition` from the segment’s state; `intake` and `finalize` stay manual. A
+cell policy is a snapshot: edit `cells.process_json` through `PATCH /api/cells/:id`, not
+by mutating the global file.
+
 ## Next units, in order
 
 1. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
    it with a token that has the `workflow` scope.
-2. **Review/pipeline automation.** The review step is human-driven by design; agents are
-   told not to push or open change requests. Nothing in the repo automates it.
+2. **Optional chaining.** A segment can advance a request but the next segment waits for
+   its idle window; add a `chain` flag only if operators want same-cycle handoff.
 3. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic
    recall still needs an embedding provider.
 

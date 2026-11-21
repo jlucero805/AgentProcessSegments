@@ -137,3 +137,14 @@ states dispose the session as before; disabling the master stops scheduling imme
   embeds the chat.
 - [x] **11. Tests and docs** — scoped MCP tests, engine/HTTP master chat tests, web
   thread and master chat tests.
+
+## Follow-up: refactor and bug audit
+
+- [x] **12. Shared contract** — web type-imports pure server modules; master/plugin
+  shapes moved to pure type files; web no longer mirrors the transition table.
+- [x] **13. Deduplicate boundaries** — sentinel session routing, MCP board tools, plugin
+  markdown/fs helpers, repository writes, and master cycle helpers each have one home.
+- [x] **14. Bug fixes** — dispose-while-live, detached board kicks, illegal drag guards,
+  cell-id validation, slash commands, KB backslash search, drawer form clobber, mobile
+  cell controls, KB mobile layout, and aborted chat streams.
+- [x] **15. Docs** — `docs/06-refactor-audit.md` plus decision/status updates.

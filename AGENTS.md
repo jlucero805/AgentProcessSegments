@@ -22,11 +22,13 @@ digests.
 4. `docs/03-decisions.md` explains choices that look arbitrary until you read them.
 5. `docs/04-design-liberties.md` lists the autonomous choices made after the handoff,
    with alternatives, for operator review.
+6. `docs/06-refactor-audit.md` records the duplication/bug audit, what was fixed, and
+   what was deliberately deferred.
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 155 vitest cases: 107 server across 14 files and 48 web across 10 files, all green.
+- 165 vitest cases: 110 server across 14 files and 55 web across 11 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -50,7 +52,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 75 server + 34 web
+npm test                       # 110 server + 55 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
@@ -128,14 +130,22 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 8. **Plugins contribute skills and commands only.** `install` strips `hooks`,
    `mcpServers`, `hooks/`, and `.mcp.json`. Never re-add them.
 9. **Guards at the boundary.** zod validates HTTP and MCP input. Repositories trust
-   their arguments. No route reads `request.body` without a schema.
-10. **Master prods are ordinary turns.** The scheduler sends one prod through
+   their arguments. No route reads `request.body` without a schema. A non-null `cellId`
+   is checked against `CellRepository` before it is written.
+10. **The SPA imports the pure server contract.** `src/web/src/types.ts` re-exports
+    `domain/request`, `master/types`, `plugins/types`, and `clarify/models`. Keep those
+    modules free of Node imports so Vite can bundle them; do not restate workflow tables
+    or request shapes in the SPA.
+11. **Master prods are ordinary turns.** The scheduler sends one prod through
     `engine.send`, waits for it, and only transitions `dispatch → review` when the final
     agent text contains `READY FOR REVIEW`. Disabled cells and the disabled master are
     skipped; terminal transitions still dispose the session.
-11. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
+12. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
     finishes with the partial transcript; it does not clear `session.json`, so the next
     message resumes. Stop clears the client queue; normal completion drains it in order.
+13. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
+    cancelled, and resolves it so `finishTurn` can save the partial transcript; never
+    delete a live turn's maps without resolving its promise.
 
 ## Extension recipes
 

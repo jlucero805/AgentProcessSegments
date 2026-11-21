@@ -129,6 +129,18 @@ running an LLM master turn every cycle.
 interface. The master chat is advisory and the deterministic scheduler still drives
 work. Cost: the chat cannot operate the master; notes are one-way.
 
+## 11. The SPA type-imports the server contract
+
+**Chosen.** `src/web/src/types.ts` re-exports the pure modules
+`server/src/domain/request`, `master/types`, `plugins/types`, and `clarify/models`
+instead of restating them. Those modules stay free of Node imports.
+
+**Alternative.** A `src/shared` workspace package compiled for both sides.
+
+**Why.** It removes drift between the workflow table and request shape with one source
+of truth and no extra build graph. Cost: the boundary is enforced by convention and a
+comment, not package exports.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

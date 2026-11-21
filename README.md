@@ -96,13 +96,13 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 155 vitest cases: 107 server cases (state machine, migrations including
+`npm test` runs 165 vitest cases: 110 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
-real git clones, and the HTTP API over a real socket) and 34 web cases (domain mirror,
-NDJSON client, chat folding, board, create modal, composer, cell bar, and the app shell
-with the drawer and chat mounted under jsdom).
+real git clones, and the HTTP API over a real socket) and 55 web cases (shared contract
+re-exports, NDJSON client, chat folding, request-form mapping, board, create modal,
+composer, cell bar, and the app shell with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

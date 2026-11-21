@@ -324,3 +324,29 @@ and the Config page embeds the chat under the activity log.
 **Cost.** The master chat is advisory: it cannot prod, transition, or write config. Notes
 are agent-role transcript rows and can interleave with a live master reply. The scope
 env is one more wire detail in both harness adapters.
+
+## D25. The SPA imports the pure server contract
+
+**Context.** The web duplicated the workflow table, request/master/plugin shapes, and
+event types; the state-machine test called itself a mirror of the server table.
+
+**Decision.** Move master/plugin shapes into pure server modules and have
+`src/web/src/types.ts` type-import those modules plus `domain/request` and
+`clarify/models`. Keep the server modules free of Node imports so Vite can bundle them.
+`settings.ts` checks its zod schema against the shared `MasterConfig`.
+
+**Cost.** The SPA build now includes a few server source files, and the server modules
+are constrained to stay pure. A shared workspace package is the cleaner packaging if a
+third consumer appears.
+
+## D26. Detached workflow kicks
+
+**Context.** Dragging a board card to Plan/Implement/Finalize awaited the NDJSON turn
+before refreshing the board, so a long turn froze the interaction.
+
+**Decision.** `POST /clarify/start`, `/dispatch`, and `/finalize` accept `?detach=1`:
+they create the turn and return `{started:true}` immediately. The board uses that path
+and the chat reattaches through `GET /clarify` plus `/clarify/stream`.
+
+**Cost.** A detached kick does not surface agent text in the workflow card; the unified
+thread is the place to watch it. Callers that want the stream keep the default route.

@@ -25,11 +25,12 @@ built and vended by the brain; real-CLI verification is still pending.
   agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
   prod, review, and cycle events.
 - `KbRepository`: one entry per request (store replaces), list, get by request, and a
-  multi-term literal LIKE search (`%` and `_` escaped) ranked by title/body term hits
-  and recency.
+  multi-term literal LIKE search (`%`, `_`, and `\` escaped) ranked by title/body term
+  hits and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
   clarify snapshot, dispatch, finalize, index, models, KB, cells, websocket echo, and
-  optional SPA vend with an `index.html` fallback.
+  optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch, and
+  finalize accept `?detach=1` to start a turn and return immediately.
 - Engine: one persistent child per request, buffered live turns with reattach,
   transcript and session persistence, `--resume` on later spawns, agent status
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
@@ -94,12 +95,19 @@ built and vended by the brain; real-CLI verification is still pending.
   scheduler appends prod, review, cycle, and skip notes to its transcript without a model
   turn, and the Config page embeds the chat under Activity. Verified live: the master
   answered, a prod posted notes, and a request moved to Review.
+- Refactor audit (`docs/06-refactor-audit.md`): the SPA now type-imports the pure server
+  contract instead of mirroring it; sentinel routing, MCP board tools, and plugin
+  markdown/fs helpers have one implementation; the drawer's form mapping and terminal
+  transcript are extracted. Fixed: dispose-while-live promise leak, board drags waiting
+  on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
+  backslash search, drawer edits overwritten on turn completion, touch-invisible cell
+  actions, and the fixed-width KB sidebar on phones.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`), validated
   with zod and written atomically. `GET/PATCH /api/config` expose the master policy, and
   the Config page edits it (enabled, interval, idle threshold, auto-review, unassigned
   requests, prompt) plus cell toggles, activity, and a manual run. The file on this host
   is `/root/.config/sandbox-harness/config.json`.
-- 155 vitest cases, all passing: 107 server across 14 files and 48 web across 10 files,
+- 165 vitest cases, all passing: 110 server across 14 files and 55 web across 11 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -170,13 +178,13 @@ PATCH  /api/requests/:id
 POST   /api/requests/:id/transition      {to}
 POST   /api/requests/:id/drop
 POST   /api/requests/:id/seen
-POST   /api/requests/:id/clarify/start                  NDJSON
-POST   /api/requests/:id/clarify/send     {text}         NDJSON
+POST   /api/requests/:id/clarify/start[?detach=1]        NDJSON or {started}
+POST   /api/requests/:id/clarify/send     {text}[?detach=1] NDJSON or {started}
 POST   /api/requests/:id/clarify/stop                    {stopped}
 GET    /api/requests/:id/clarify/stream                 NDJSON or {active:false}
 GET    /api/requests/:id/clarify
-POST   /api/requests/:id/dispatch                       NDJSON
-POST   /api/requests/:id/finalize                       NDJSON
+POST   /api/requests/:id/dispatch[?detach=1]             NDJSON or {started}
+POST   /api/requests/:id/finalize[?detach=1]             NDJSON or {started}
 POST   /api/requests/:id/index            {digest?,index?}
 GET    /api/models?refresh=1
 GET    /api/kb[?q=…&limit=…]

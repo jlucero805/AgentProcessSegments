@@ -47,6 +47,7 @@ src/server/src
   clarify/prompts.ts  seed, dispatch, finalize, and KB briefs
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   CLI probe with cached fallback list
+  mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
 ```
 
 ## API
@@ -56,7 +57,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 46 vitest cases: state machine, migrations (including the index
+`npm test` runs 53 vitest cases: state machine, migrations (including the index
 ordering fix on a legacy database), repositories, stream parser, engine turns over a
-fake transport, worktree isolation against a real git repo, and the HTTP API over a
-real socket.
+fake transport, worktree isolation against a real git repo, the MCP tool surface, and
+the HTTP API over a real socket.
+
+`node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
+the built MCP server over stdio, and proves a tool call persists through the API into
+SQLite.

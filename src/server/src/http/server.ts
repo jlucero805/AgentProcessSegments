@@ -68,6 +68,10 @@ const kbSchema = z.object({
   title: z.string().min(1),
   content: z.string(),
 });
+const kbQuerySchema = z.object({
+  q: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
 const cellSchema = z.object({ name: z.string().min(1) });
 
 interface Stream {
@@ -265,7 +269,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return models.list(query.refresh === '1');
   });
 
-  app.get('/api/kb', async () => kb.list());
+  app.get('/api/kb', async (request) => {
+    const query = kbQuerySchema.parse(request.query);
+    if (query.q !== undefined) return kb.search(query.q, query.limit ?? 20);
+    return kb.list();
+  });
 
   app.post('/api/kb', async (request, reply) => {
     const input = kbSchema.parse(request.body);

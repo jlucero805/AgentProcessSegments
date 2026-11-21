@@ -162,6 +162,13 @@ describe('http api', () => {
     const list = await call('GET', '/api/kb');
     expect(list.json()).toHaveLength(1);
     expect(list.json()[0].content).toBe('what we learned');
+
+    const search = await call('GET', '/api/kb?q=learned');
+    expect(search.json()).toHaveLength(1);
+    expect(search.json()[0].requestId).toBe('r1');
+
+    const miss = await call('GET', '/api/kb?q=absent');
+    expect(miss.json()).toEqual([]);
   });
 
   it('indexes a digest and finishes the request', async () => {

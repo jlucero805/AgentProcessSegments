@@ -28,7 +28,12 @@ covers everything that runs and can be verified without the `claude` CLI.
   tool output.
 - Worktrees: `sbox/<id>` branch per request, reuse of an existing checkout, branch kept
   on removal, scratch fallback when git is unavailable.
-- 46 vitest cases, all passing, plus `scripts/smoke.sh` against the built server.
+- MCP server (`src/mcp/server.ts`): stdio server scoped by `SBOX_REQUEST_ID`, proxying
+  to the loopback API. Request sessions get `update_request`, `get_request`,
+  `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and
+  `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool.
+- 53 vitest cases, all passing, plus `scripts/smoke.sh` (built brain) and
+  `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
 
 ## Deviations from the spec
 
@@ -44,10 +49,7 @@ covers everything that runs and can be verified without the `claude` CLI.
 
 ## Not built yet
 
-- `src/mcp/server.ts` and `/api/plugins`, `/api/commands`, the plugin manager, and the
-  SPA. The engine already writes an `mcp-config.json` that points at
-  `dist/mcp/server.js`, so a real `claude` turn starts with a harness MCP server that
-  does not exist yet. Build the MCP server before running real turns.
+- `/api/plugins`, `/api/commands`, the plugin manager, and the SPA.
 - The model probe is implemented but unverified, because `claude` is not installed
   here. `GET /api/models` returns `source: "fallback"` in this environment.
 - User MCP servers are not merged into the generated `mcp-config.json` and
@@ -73,7 +75,7 @@ POST   /api/requests/:id/dispatch                       NDJSON
 POST   /api/requests/:id/finalize                       NDJSON
 POST   /api/requests/:id/index            {digest?,index?}
 GET    /api/models?refresh=1
-GET    /api/kb
+GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells
 POST   /api/cells                         {name}

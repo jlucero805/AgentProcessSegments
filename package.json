@@ -10,7 +10,10 @@
     "build": "npm run build --workspace src/web && npm run build --workspace src/server",
     "typecheck": "npm run typecheck --workspace src/server && npm run typecheck --workspace src/web",
     "test": "npm test --workspace src/server && npm test --workspace src/web",
-    "dev": "npm run dev --workspace src/server",
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm run dev --workspace src/server\" \"npm run dev --workspace src/web\"",
     "start": "node src/server/dist/app.js"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
   }
 }

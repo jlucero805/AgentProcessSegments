@@ -56,6 +56,17 @@ src/server/src
   clarify/models.ts   CLI probe with cached fallback list
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
+src/web
+  vite.config.ts      dev server, proxying /api and /ws to the brain
+  src/main.tsx        mounts the app and turns on the dark class
+  src/App.tsx         shell: nav, cell bar, board, detail drawer, pages
+  src/Board.tsx       five columns, drag-to-advance, agent badges
+  src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, digest
+  src/ClarifyChat.tsx    per-request chat, reattach on mount
+  src/Thread.tsx      assistant-ui primitives, markdown, tool cards
+  src/runtime.ts      useExternalStoreRuntime over React-owned messages
+  src/Composer.tsx    custom input with slash-command autocomplete
+  src/ui.tsx          hand-rolled shadcn-style kit
 ```
 
 ## API
@@ -65,10 +76,12 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 61 vitest cases: state machine, migrations (including the index
-ordering fix on a legacy database), repositories, stream parser, engine turns over a
-fake transport, worktree isolation against a real git repo, the MCP tool surface, the
-plugin manager against real git clones, and the HTTP API over a real socket.
+`npm test` runs 93 vitest cases: 61 server cases (state machine, migrations including
+the index ordering fix on a legacy database, repositories, stream parser, engine turns
+over a fake transport, worktree isolation against a real git repo, the MCP tool surface,
+the plugin manager against real git clones, and the HTTP API over a real socket) and 32
+web cases (domain mirror, NDJSON client, chat folding, board, create modal, composer,
+and cell bar under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

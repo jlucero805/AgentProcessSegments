@@ -11,6 +11,7 @@ export default defineConfig({
     restoreMocks: true,
   },
   server: {
+    host: '127.0.0.1',
     proxy: {
       '/api': { target: `http://127.0.0.1:${process.env.SBOX_PORT ?? 7391}`, changeOrigin: true },
       '/ws': {

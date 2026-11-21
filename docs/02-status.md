@@ -1,7 +1,8 @@
-# Status: phase 1
+# Status: phase 1 with the SPA
 
 Rebuilt from the system spec (`f849fed` plus the `db.ts` index-ordering fix). Phase 1
-covers everything that runs and can be verified without the `claude` CLI.
+covers everything that runs and can be verified without the `claude` CLI. The SPA is
+built and vended by the brain; real-CLI verification is still pending.
 
 ## Built
 
@@ -36,8 +37,16 @@ covers everything that runs and can be verified without the `claude` CLI.
   hook and MCP stripping, replace-on-reinstall, slug-guarded removal, and slash-command
   discovery from `commands/**/*.md` and `skills/*/SKILL.md`. Local directory sources are
   accepted in addition to `http(s)`, `git`, and `ssh` (D9).
-- 61 vitest cases, all passing, plus `scripts/smoke.sh` (built brain) and
-  `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
+- SPA (`src/web`): Vite + React 18 + Tailwind v3, dark by default. Five board columns
+  with drag-to-advance, a cell bar with inline create/rename/delete, a create modal, a
+  right-side request drawer with editable fields and two-step confirms, assistant-ui
+  chat with markdown and tool cards, slash-command autocomplete from `/api/commands`,
+  a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
+  was verified against the built server: `/` and client-side routes serve `index.html`,
+  `/api` still returns JSON, and hashed assets are served.
+- 93 vitest cases, all passing: 61 server across 10 files and 32 web across 7 files,
+  plus `scripts/smoke.sh` (built brain) and `scripts/mcp-smoke.mjs` (built brain plus
+  built MCP server over real stdio).
 
 ## Deviations from the spec
 
@@ -50,11 +59,13 @@ covers everything that runs and can be verified without the `claude` CLI.
 - HTTP tests use a real listening socket instead of `app.inject()`. On Node 22.7,
   `light-my-request` does `require()` of an ESM-only `cookie` v2 and throws. That is a
   test-harness incompatibility, not a production path: `listen()` works.
+- The SPA pins `@assistant-ui/react` 0.10 (the `useExternalStoreRuntime` era) with
+  React 18, as the spec names. The registry now ships 0.15, which moved the primitives.
+  Tailwind stays v3, with PostCSS and autoprefixer wired through `postcss.config.js`.
+  Vite 8 and Vitest 5 run in the web workspace; the server keeps Vitest 2.
 
 ## Not built yet
 
-- The web SPA and the `src/web` workspace. `webDir` is wired and the server vends
-  `index.html` when the directory exists, but nothing builds into it.
 - The model probe is implemented but unverified, because `claude` is not installed
   here. `GET /api/models` returns `source: "fallback"` in this environment.
 - User MCP servers are not merged into the generated `mcp-config.json` and

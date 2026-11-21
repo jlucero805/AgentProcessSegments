@@ -8,7 +8,7 @@ the spec, say so rather than silently following either.
 
 A local Node/TS service that drives headless Claude Code sessions through
 Intake → Plan → Implement → Review → Finalize. One port serves `/api`, `/ws`, and
-optionally the SPA. Requests live in SQLite, one persistent agent session per request,
+the built SPA. Requests live in SQLite, one persistent agent session per request,
 one git worktree per request, and a knowledge base fed by human-approved digests.
 
 ## Ground truth
@@ -22,21 +22,23 @@ one git worktree per request, and a knowledge base fed by human-approved digests
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 61 vitest cases across 10 files, all green.
+- 93 vitest cases: 61 server across 10 files and 32 web across 7 files, all green.
 - Two proof scripts: `scripts/smoke.sh` (built brain over a socket) and
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parser, worktrees, MCP server,
-  plugin manager, models with fallback.
-- Not built: SPA, user MCP server merge, real-CLI verification, process supervisor.
+  plugin manager, models with fallback, and the SPA (board, drawer, chat, cells, skills,
+  knowledge base).
+- Not built: user MCP server merge, real-CLI verification, process supervisor.
 
 ## Commands
 
 ```bash
 npm install
-npm run typecheck              # must print nothing
-npm test                       # 61 passing
-npm run build                  # tsc into src/server/dist
+npm run typecheck              # server then web, must print nothing
+npm test                       # 61 server + 32 web
+npm run build                  # vite into src/web/dist, then tsc into src/server/dist
+npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 ```
@@ -50,6 +52,8 @@ node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.
 - **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
+  On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
+  `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.
 - **macOS temp paths differ**: `os.tmpdir()` returns `/var/...` while `git rev-parse`
   returns `/private/var/...`. Compare real paths or existence, never strings, in
   worktree code.
@@ -104,15 +108,10 @@ disk.
    whatever command exposes server definitions on the installed CLI version. Add the
    names to the allowlist and the definitions to the generated config. Acceptance: a
    fake transport test shows both `harness` and a user server in the written config.
-2. **SPA.** `src/web` with Vite, React 18, Tailwind v3 dark by default, assistant-ui
-   chat, board columns, detail drawer, cell bar, skills page. `config.webDir` already
-   points at `src/web/dist` and the server vends it when present. Acceptance: `npm run
-   build` produces `dist`, a client-side route serves `index.html`, and `/api` still
-   wins over the fallback.
-3. **Real-CLI verification.** Install `claude`, run one request end to end, confirm
+2. **Real-CLI verification.** Install `claude`, run one request end to end, confirm
    `--resume` across a brain restart, confirm the model probe returns `source: "probe"`,
    and confirm tool cards survive. Update `docs/02-status.md` with what you saw.
-4. **Process supervisor.** The brain is a backgrounded process today. Either a launch
+3. **Process supervisor.** The brain is a backgrounded process today. Either a launch
    agent or a documented restart procedure, whichever the operator prefers.
 
 ## Conventions

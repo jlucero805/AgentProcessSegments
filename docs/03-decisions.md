@@ -152,3 +152,18 @@ process exits on SIGTERM.
 
 **Cost.** An in-flight NDJSON turn is cut at shutdown rather than drained. Shutdown is
 already the end of service, and the transcript on disk is what survives.
+
+## D14. The SPA pins assistant-ui 0.10 and React 18
+
+**Context.** The spec names React 18 and `useExternalStoreRuntime`. The registry now
+ships `@assistant-ui/react` 0.15, whose primitives and runtime helpers moved, and React
+19 is current.
+
+**Decision.** Pin the 0.10 line of `@assistant-ui/react` with React 18 so the spec's
+external-store model is exactly what the code uses. Keep Tailwind v3 with PostCSS and
+autoprefixer; Vite 8 and Vitest 5 run in the web workspace while the server keeps
+Vitest 2.
+
+**Cost.** Two Vitest majors live in the repo, and a later assistant-ui upgrade will be
+a primitives migration. In exchange the chat code matches the contract the spec
+describes and the server tests are untouched.

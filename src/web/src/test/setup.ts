@@ -14,6 +14,9 @@ if (!('ResizeObserver' in globalThis)) {
 if (typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = () => {};
 }
+if (typeof Element.prototype.scrollTo !== 'function') {
+  Element.prototype.scrollTo = () => {};
+}
 
 afterEach(() => {
   cleanup();

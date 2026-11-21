@@ -246,3 +246,18 @@ at 1000.
 
 **Cost.** No semantic recall, and a space-separated query is now AND of terms rather
 than one phrase. No new dependency or index.
+
+## D20. Mobile shell, URL route state, and live-turn snapshots
+
+**Context.** The SPA is mobile-first, a reload used to lose the open request, and a live
+turn had to be reattached without a second turn.
+
+**Decision.** Below `md`, the sidebar is off-canvas behind a hamburger and the board is a
+horizontal snap scroller. The page, cell, and open request live in the query string and
+are written with `replaceState`. `GET /clarify` returns `active` beside the transcript;
+the chat always hydrates the snapshot, attaches when active, shows a working indicator,
+and streams text. The first `send` marks a request started.
+
+**Cost.** Query-string state is per tab and does not create back-button history; the
+drawer is not deep-linked across tools. The `active` field and `send` behavior are
+additive.

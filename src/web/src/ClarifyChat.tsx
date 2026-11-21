@@ -61,7 +61,10 @@ export function ClarifyChat({
     try {
       const state = await api.getClarify(requestId);
       setMessages(fromTranscript(state.transcript));
-      await api.streamClarify(requestId, handleEvent);
+      if (state.active) {
+        setBusy(true);
+        await api.streamClarify(requestId, handleEvent);
+      }
     } catch (error) {
       onErrorRef.current(describeError(error));
     } finally {
@@ -70,13 +73,10 @@ export function ClarifyChat({
   }, [requestId, handleEvent, setBusy]);
 
   useEffect(() => {
-    if (!started) {
-      setMessages([]);
-      setBusy(false);
-      return;
-    }
+    // Always read the snapshot: a live turn can exist even if the request row
+    // has not flipped `clarifyStarted` yet.
     void hydrate();
-  }, [hydrate, started, setBusy]);
+  }, [hydrate, started]);
 
   const submit = useCallback(
     async (text: string) => {
@@ -101,19 +101,27 @@ export function ClarifyChat({
   const runtime = useChatRuntime({
     messages,
     running,
-    disabled: !started || disabled,
+    disabled: !started || disabled || running,
     onNew: submit,
   });
 
   return (
-    <div className="h-full">
-      <Thread
-        runtime={runtime}
-        commands={commands}
-        onSend={submit}
-        disabled={!started || disabled}
-        placeholder={placeholder}
-      />
+    <div className="flex h-full flex-col">
+      {running ? (
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1 text-[11px] text-blue-400">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+          Agent is working…
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1">
+        <Thread
+          runtime={runtime}
+          commands={commands}
+          onSend={submit}
+          disabled={!started || disabled || running}
+          placeholder={!started ? 'Start clarify to chat.' : placeholder}
+        />
+      </div>
     </div>
   );
 }

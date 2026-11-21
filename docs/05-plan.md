@@ -20,7 +20,7 @@ prompt libraries, and semantic KB retrieval.
 
 - [x] **1. Mobile shell** — hamburger + overlay sidebar; horizontally scrolling board
   columns on small screens; full-width drawer; responsive top bar.
-- [ ] **2. Durable chat and routing** — page/request in the URL; restore on reload;
+- [x] **2. Durable chat and routing** — page/request in the URL; restore on reload;
   reattach to a live turn with a running state; keep streaming text.
 - [ ] **3. Config store** — `$XDG_CONFIG_HOME/sandbox-harness/config.json` (override
   `SBOX_CONFIG`), zod-validated defaults, `GET/PATCH /api/config`, and a Config page.

@@ -80,6 +80,17 @@ describe('turn engine', () => {
     await settle();
   });
 
+  it('marks a request started when its first message is sent', async () => {
+    const h = fresh(() => defaultScript());
+    const request = h.repo.create({ title: 'Send first' });
+
+    const turn = await h.engine.send(request.id, 'hello');
+    await turn.promise;
+    await settle();
+
+    expect(h.repo.require(request.id).clarifyStarted).toBe(true);
+  });
+
   it('resumes the saved session id on the next spawn', async () => {
     const h = fresh(() => [initLine('sess-persist'), resultLine()]);
     const request = h.repo.create({ title: 'Remember me' });

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { buildServer } from '../src/http/server.js';
-import { createHarness, type Harness } from './helpers.js';
+import { createHarness, resultLine, settle, type Harness } from './helpers.js';
 
 interface Open {
   h: Harness;
@@ -15,8 +15,11 @@ interface Open {
 
 let open: Open | null = null;
 
-async function makeApp(config: Partial<Harness['config']> = {}): Promise<Open> {
-  const h = createHarness();
+async function makeApp(
+  config: Partial<Harness['config']> = {},
+  script?: (text: string) => string[],
+): Promise<Open> {
+  const h = createHarness(script);
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
@@ -128,7 +131,7 @@ describe('http api', () => {
 
     const snapshot = await call('GET', `/api/requests/${request.id}/clarify`);
     expect(snapshot.status).toBe(200);
-    expect(snapshot.json()).toEqual({ started: false, transcript: [] });
+    expect(snapshot.json()).toEqual({ started: false, transcript: [], active: false });
 
     const idle = await call('GET', `/api/requests/${request.id}/clarify/stream`);
     expect(idle.json()).toEqual({ active: false });
@@ -243,6 +246,23 @@ describe('http api', () => {
     const body = response.json() as { harness: string; supportsEffort: boolean };
     expect(body.harness).toBe('opencode');
     expect(body.supportsEffort).toBe(false);
+  });
+
+  it('reports a live clarify turn and clears it when the turn finishes', async () => {
+    const { h } = await makeApp({}, () => []);
+    const request = h.repo.create({ title: 'Live snapshot' });
+
+    const turn = await h.engine.start(request.id);
+    const live = await call('GET', `/api/requests/${request.id}/clarify`);
+    expect(live.status).toBe(200);
+    expect(live.json()).toMatchObject({ started: true, active: true });
+
+    h.harness.process?.emit(resultLine());
+    await turn.promise;
+    await settle();
+
+    const after = await call('GET', `/api/requests/${request.id}/clarify`);
+    expect(after.json().active).toBe(false);
   });
 
   it('vends SPA assets added after boot and keeps missing assets as 404s', async () => {

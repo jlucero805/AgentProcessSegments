@@ -92,7 +92,7 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
           disabled={disabled}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={disabled ? 'Start clarify to chat.' : placeholder ?? 'Ask a question...'}
+          placeholder={placeholder ?? 'Ask a question...'}
           className="min-h-[2.5rem] flex-1 resize-none rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
         />
         <Button

@@ -102,6 +102,8 @@ export interface TranscriptMsg {
 export interface ClarifyState {
   started: boolean;
   transcript: TranscriptMsg[];
+  /** True when a turn is live and can be reattached. */
+  active?: boolean;
 }
 
 export type ClarifyEvent =

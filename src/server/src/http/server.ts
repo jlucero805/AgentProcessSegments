@@ -244,9 +244,19 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/requests/:id/clarify', async (request) => {
     const { id } = request.params as { id: string };
-    if (id === KB_SESSION_ID) return { started: true, transcript: engine.transcript(id) };
+    if (id === KB_SESSION_ID) {
+      return {
+        started: true,
+        transcript: engine.transcript(id),
+        active: engine.hasLive(id),
+      };
+    }
     const found = repo.require(id);
-    return { started: found.clarifyStarted, transcript: engine.transcript(id) };
+    return {
+      started: found.clarifyStarted,
+      transcript: engine.transcript(id),
+      active: engine.hasLive(id),
+    };
   });
 
   app.post('/api/requests/:id/dispatch', async (request, reply) => {

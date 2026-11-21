@@ -46,7 +46,14 @@ describe('Composer', () => {
   });
 
   it('is disabled when the chat has not started', () => {
-    render(<Composer onSend={() => {}} commands={[]} disabled />);
+    render(
+      <Composer
+        onSend={() => {}}
+        commands={[]}
+        disabled
+        placeholder="Start clarify to chat."
+      />,
+    );
     expect(screen.getByPlaceholderText('Start clarify to chat.')).toBeDisabled();
   });
 });

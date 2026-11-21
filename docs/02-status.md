@@ -66,7 +66,14 @@ built and vended by the brain; real-CLI verification is still pending.
   `/api` still returns JSON, and hashed assets are served. A headless Chromium run
   (`scripts/ui-smoke.mjs`, optional Puppeteer) also created a request, opened the
   drawer and chat, visited the KB page, and found no page or console errors.
-- 115 vitest cases, all passing: 81 server across 12 files and 34 web across 8 files,
+- Mobile shell: the sidebar is off-canvas with a hamburger below `md`, board columns
+  scroll horizontally with snap, and the drawer fills the screen. A 390 px Chromium run
+  verified the menu, board scroll, and full-width drawer.
+- Durable chat: `?page=`, `?cell=`, and `?request=` restore the view on reload;
+  `GET /clarify` reports `active`; the chat hydrates the snapshot and reattaches to a
+  live turn, showing a working indicator and streaming text. Verified by reloading
+  Chromium mid-turn and seeing the same turn continue.
+- 124 vitest cases, all passing: 84 server across 12 files and 40 web across 9 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -108,6 +115,10 @@ built and vended by the brain; real-CLI verification is still pending.
   `SBOX_CLAUDE_BIN` remains the Claude-specific override.
 - `GET /api/models` adds `harness` and `supportsEffort` alongside the spec's
   `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert (OpenCode).
+- `GET /clarify` adds `active` alongside `started`/`transcript` so a reconnecting client
+  knows whether a live turn can be reattached.
+- `POST /clarify/send` marks the request started when it is the first message, even if
+  `/clarify/start` was skipped.
 
 ## Not built yet
 

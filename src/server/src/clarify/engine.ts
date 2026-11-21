@@ -80,7 +80,8 @@ export class Engine {
   async send(id: string, text: string): Promise<LiveTurn> {
     const existing = this.turns.get(id);
     if (existing) return existing;
-    const request = this.repo.require(id);
+    // Sending the first message is starting clarify, even if `/start` was skipped.
+    const request = this.repo.setClarifyStarted(id, true);
     return this.beginTurn(id, text, request);
   }
 

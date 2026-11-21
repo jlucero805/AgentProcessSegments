@@ -11,6 +11,14 @@ import { Button, cn } from './ui';
 
 type Page = 'board' | 'kb' | 'skills';
 
+function readInitialRoute(): { page: Page; cellId: string | null; detailId: string | null } {
+  if (typeof window === 'undefined') return { page: 'board', cellId: null, detailId: null };
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('page');
+  const page: Page = raw === 'kb' || raw === 'skills' ? raw : 'board';
+  return { page, cellId: params.get('cell'), detailId: params.get('request') };
+}
+
 function NavButton({
   active,
   onClick,
@@ -35,10 +43,10 @@ function NavButton({
 }
 
 export function App() {
-  const [page, setPage] = useState<Page>('board');
+  const [page, setPage] = useState<Page>(() => readInitialRoute().page);
   const [cells, setCells] = useState<Cell[]>([]);
-  const [cellId, setCellId] = useState<string | null>(null);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [cellId, setCellId] = useState<string | null>(() => readInitialRoute().cellId);
+  const [detailId, setDetailId] = useState<string | null>(() => readInitialRoute().detailId);
   const [createOpen, setCreateOpen] = useState(false);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +71,21 @@ export function App() {
 
   const refreshBoard = useCallback(() => setBoardKey((key) => key + 1), []);
 
+  // Keep the current page, floor, and open request in the URL so a reload (or a
+  // phone switching apps) comes back to the same place.
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (page !== 'board') params.set('page', page);
+    if (cellId) params.set('cell', cellId);
+    if (detailId) params.set('request', detailId);
+    const search = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
+    );
+  }, [page, cellId, detailId]);
+
   useEffect(() => {
     if (!navOpen) return;
     const onKey = (event: KeyboardEvent) => {
@@ -74,6 +97,7 @@ export function App() {
 
   const go = (next: Page) => {
     setPage(next);
+    setDetailId(null);
     setNavOpen(false);
   };
 

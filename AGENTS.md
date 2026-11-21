@@ -26,17 +26,17 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 115 vitest cases: 81 server across 12 files and 34 web across 8 files, all green.
+- 124 vitest cases: 84 server across 12 files and 40 web across 9 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
-  knowledge base), a systemd user unit for a VPS, a harness seam with `claude` and
-  `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a GitHub
-  Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged
-  into request sessions for both.
+  knowledge base), a mobile shell, durable chat with URL route restore, a systemd user
+  unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
+  parity (skills and slash commands), and a GitHub Actions CI workflow template in
+  `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: pipeline/review automation, KB embeddings.

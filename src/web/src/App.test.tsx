@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { jsonResponse, makeRequest } from './test/fixtures';
 import type { Request } from './types';
@@ -44,6 +44,40 @@ function installFetch(request: Request, transcript: unknown[] = []) {
 }
 
 describe('App', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('restores the page from the URL', async () => {
+    window.history.replaceState(null, '', '/?page=kb');
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+
+    expect(await screen.findByPlaceholderText('Search entries...')).toBeInTheDocument();
+    expect(window.location.search).toContain('page=kb');
+  });
+
+  it('restores an open request from the URL', async () => {
+    const request = makeRequest({ id: 'a', title: 'Url card', clarifyStarted: true });
+    window.history.replaceState(null, '', '/?request=a');
+    installFetch(request, [{ role: 'you', kind: 'text', text: 'hello', ts: 1 }]);
+
+    render(<App />);
+
+    expect(await screen.findByText('Finalize digest')).toBeInTheDocument();
+    expect(window.location.search).toContain('request=a');
+  });
+
+  it('writes the current page to the URL', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Skills'));
+
+    await waitFor(() => expect(window.location.search).toContain('page=skills'));
+  });
+
   it('opens and closes the mobile menu', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Nav card' }));
     render(<App />);

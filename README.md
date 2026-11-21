@@ -90,7 +90,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 115 vitest cases: 81 server cases (state machine, migrations including
+`npm test` runs 124 vitest cases: 84 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against

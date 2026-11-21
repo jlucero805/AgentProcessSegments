@@ -22,7 +22,13 @@ const status: MasterStatus = {
   lastResult: null,
 };
 
-const cell: Cell = { id: 'c1', name: 'Alpha', masterEnabled: true, createdAt: 1 };
+const cell: Cell = {
+  id: 'c1',
+  name: 'Alpha',
+  masterEnabled: true,
+  masterIntervalMinutes: null,
+  createdAt: 1,
+};
 
 const event: MasterEvent = {
   id: 'e1',

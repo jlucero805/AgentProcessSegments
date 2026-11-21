@@ -3,7 +3,7 @@ import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
 import {
-  MASTER_SESSION_ID,
+  masterSessionId,
   timeAgo,
   type Cell,
   type CellDetail,
@@ -51,7 +51,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       const [config, globalProcess, masterStatus, cellList, eventList] = await Promise.all([
         api.getConfig(),
         api.getProcess(),
-        api.getMasterStatus(),
+        api.getMasterStatus(cellId ?? undefined),
         api.getCells(),
         api.getMasterEvents({ cellId: cellId ?? undefined, limit: 30 }),
       ]);
@@ -85,7 +85,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   async function runNow() {
     setRunning(true);
     try {
-      const result = await api.runMaster();
+      const result = await api.runMaster(cellId ?? undefined);
       setLastResult(result);
       await load();
     } catch (error) {
@@ -237,7 +237,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
         </div>
         <div className="h-[calc(100%-1.75rem)]">
           <ClarifyChat
-            requestId={MASTER_SESSION_ID}
+            requestId={masterSessionId(cellId)}
             started
             commands={commands}
             onError={onError}

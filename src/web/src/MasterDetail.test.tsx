@@ -93,4 +93,73 @@ describe('MasterDetail', () => {
     await waitFor(() => expect(captured.ran).toBe(true));
     expect(await screen.findByText(/Last cycle: 0 started/)).toBeInTheDocument();
   });
+
+  it('uses the cell chat and cell status when a cell is selected', async () => {
+    const process = makeProcessResponse();
+    const cell = {
+      id: 'c1',
+      name: 'Alpha',
+      masterEnabled: true,
+      masterIntervalMinutes: 3,
+      process: { version: process.version, segments: process.segments },
+      createdAt: 1,
+    };
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        urls.push(url);
+        if (url === '/api/config') {
+          return jsonResponse({
+            master: {
+              enabled: true,
+              intervalMinutes: 5,
+              idleMinutes: 10,
+              autoReview: true,
+              includeUnassigned: true,
+              prompt: 'prod',
+            },
+            path: '/tmp/config.json',
+          });
+        }
+        if (url === '/api/process') return jsonResponse(process);
+        if (url === '/api/master/status?cellId=c1') {
+          return jsonResponse({
+            enabled: true,
+            intervalMinutes: 3,
+            running: false,
+            nextRunAt: null,
+            lastRunAt: null,
+            lastResult: null,
+          });
+        }
+        if (url === '/api/cells') return jsonResponse([cell]);
+        if (url.startsWith('/api/master/events')) return jsonResponse([]);
+        if (url === '/api/requests/__master__%3Ac1/clarify') {
+          return jsonResponse({
+            started: true,
+            active: false,
+            transcript: [{ role: 'agent', kind: 'text', text: 'cell note', ts: 1 }],
+          });
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
+    expect(await screen.findByText('cell note')).toBeInTheDocument();
+    expect(urls).toContain('/api/master/status?cellId=c1');
+    expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
+  });
 });

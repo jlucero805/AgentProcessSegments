@@ -39,16 +39,19 @@ export type {
   SegmentId,
 } from '../../server/src/process/definition';
 export { SEGMENT_IDS, SEGMENT_STATES } from '../../server/src/process/definition';
+export {
+  KB_SESSION_ID,
+  MASTER_SESSION_ID,
+  isMasterSession,
+  isVirtualSessionId,
+  masterCellId,
+  masterSessionId,
+} from '../../server/src/domain/sessions';
 
 import type { AgentStatus, Request, State, TranscriptMsg } from '../../server/src/domain/request';
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
 import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
-
-/** Sentinel session for the knowledge-base chat; it has no request row. */
-export const KB_SESSION_ID = '__kb__';
-/** Sentinel session for the cell-master chat; it has no request row. */
-export const MASTER_SESSION_ID = '__master__';
 
 export interface ModelsResult {
   models: ModelOption[];

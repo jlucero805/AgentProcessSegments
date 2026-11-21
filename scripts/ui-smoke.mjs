@@ -181,9 +181,6 @@ try {
   );
   const cells = await (await fetch(`${base}/api/cells`)).json();
   const smokeCell = cells.find((cell) => cell.name === 'Smoke cell');
-  if (smokeCell) {
-    await fetch(`${base}/api/cells/${smokeCell.id}`, { method: 'DELETE' });
-  }
 
   await openMenu('master');
   await clickText('Cell master');
@@ -193,6 +190,14 @@ try {
       document.body.innerText.toLowerCase().includes('cron loop'),
     { timeout: 15_000 },
   );
+  if (smokeCell) {
+    await page.waitForFunction(
+      () =>
+        document.body.innerText.includes('Smoke cell') &&
+        document.body.innerText.toLowerCase().includes('cell policy'),
+      { timeout: 10_000 },
+    );
+  }
   await page.waitForFunction(
     () => document.body.innerText.toLowerCase().includes('master chat'),
     { timeout: 10_000 },
@@ -236,6 +241,9 @@ try {
   const created = list.find((request) => request.title === 'Browser smoke');
   if (created) {
     await fetch(`${base}/api/requests/${created.id}/drop`, { method: 'POST' });
+  }
+  if (smokeCell) {
+    await fetch(`${base}/api/cells/${smokeCell.id}`, { method: 'DELETE' });
   }
 
   const shot = process.env.UI_SHOT ?? (mobile ? '/tmp/sbox-ui-mobile.png' : '/tmp/sbox-ui-smoke.png');

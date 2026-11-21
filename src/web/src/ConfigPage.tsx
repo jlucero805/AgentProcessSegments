@@ -257,9 +257,12 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
           <div>
             <SectionTitle>Master</SectionTitle>
             <p className="mt-1 text-sm text-zinc-400">
-              {status?.enabled ? `Scheduled every ${status.intervalMinutes} min` : 'Disabled'}
+              {status?.enabled
+                ? `Global cadence every ${status.intervalMinutes} min`
+                : 'Disabled'}
               {status?.running ? ' · running' : ''}
             </p>
+            <p className="mt-1 text-[11px] text-zinc-600">cells may set their own interval</p>
             <p className="mt-1 text-[11px] text-zinc-600">
               last {status?.lastRunAt ? `${timeAgo(status.lastRunAt)} ago` : 'never'} ·
               next {clock(status?.nextRunAt)}
@@ -287,6 +290,9 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
               >
                 <span className="truncate text-sm text-zinc-300">{cell.name}</span>
                 <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-zinc-600">
+                    {cell.masterIntervalMinutes ? `${cell.masterIntervalMinutes}m` : 'global'}
+                  </span>
                   {onEditCell ? (
                     <Button
                       variant="ghost"
@@ -334,10 +340,10 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-zinc-800 px-4 py-3">
-          <SectionTitle>Master chat</SectionTitle>
+          <SectionTitle>Global master chat</SectionTitle>
           <p className="mt-1 text-[11px] text-zinc-500">
-            The scheduler posts cycle, prod, and review notes here. Ask the master what it is
-            doing; it can read the board and the knowledge base.
+            Notes for unassigned work and this global template. Each cell has its own chat
+            in the Cell master drawer when that cell is selected.
           </p>
         </div>
         <div className="h-96">

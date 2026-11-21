@@ -20,6 +20,7 @@ interface CellModalProps {
  */
 export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalProps) {
   const [name, setName] = useState('');
+  const [interval, setInterval] = useState('');
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,6 +31,7 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
     if (!open) return;
     let cancelled = false;
     setName(cell?.name ?? '');
+    setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
     setProcess(cell?.process ?? null);
     setLoading(cell?.process == null);
     setSaving(false);
@@ -111,11 +113,20 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
       onError('The process is still loading.');
       return;
     }
+    const minutes = interval.trim() === '' ? null : Number(interval);
+    if (minutes !== null && (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440)) {
+      onError('The master interval must be a whole number from 1 to 1440, or empty to inherit.');
+      return;
+    }
     setSaving(true);
     try {
       const saved = cell
-        ? await api.patchCell(cell.id, { name: trimmed, process })
-        : await api.createCell(trimmed, process);
+        ? await api.patchCell(cell.id, {
+            name: trimmed,
+            process,
+            masterIntervalMinutes: minutes,
+          })
+        : await api.createCell(trimmed, process, minutes);
       onSaved(saved);
     } catch (error) {
       onError(describeError(error));
@@ -138,6 +149,17 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="e.g. Work repo"
+          />
+        </Field>
+
+        <Field label="Master interval (minutes)" hint="empty uses the global cadence">
+          <Input
+            type="number"
+            min={1}
+            max={1440}
+            value={interval}
+            onChange={(event) => setInterval(event.target.value)}
+            placeholder="global default"
           />
         </Field>
 

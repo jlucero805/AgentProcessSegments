@@ -197,15 +197,21 @@ export const api = {
   createCell(
     name: string,
     process?: ProcessConfig,
+    masterIntervalMinutes?: number | null,
   ): Promise<CellDetail> {
     return request('/api/cells', {
       method: 'POST',
-      body: JSON.stringify({ name, process }),
+      body: JSON.stringify({ name, process, masterIntervalMinutes }),
     });
   },
   patchCell(
     id: string,
-    fields: { name?: string; masterEnabled?: boolean; process?: ProcessConfig | null },
+    fields: {
+      name?: string;
+      masterEnabled?: boolean;
+      masterIntervalMinutes?: number | null;
+      process?: ProcessConfig | null;
+    },
   ): Promise<CellDetail> {
     return request(`/api/cells/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -239,11 +245,11 @@ export const api = {
   patchProcess(segments: SegmentConfig[]): Promise<ProcessResponse> {
     return request('/api/process', { method: 'PATCH', body: JSON.stringify({ segments }) });
   },
-  getMasterStatus(): Promise<MasterStatus> {
-    return request('/api/master/status');
+  getMasterStatus(cellId?: string): Promise<MasterStatus> {
+    return request(withQuery('/api/master/status', { cellId }));
   },
-  runMaster(): Promise<MasterResult> {
-    return request('/api/master/run', { method: 'POST' });
+  runMaster(cellId?: string): Promise<MasterResult> {
+    return request(withQuery('/api/master/run', { cellId }), { method: 'POST' });
   },
   getMasterEvents(options: { cellId?: string; limit?: number } = {}): Promise<MasterEvent[]> {
     return request(withQuery('/api/master/events', options));

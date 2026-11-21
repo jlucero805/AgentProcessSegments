@@ -11,7 +11,9 @@ describe('CellModal', () => {
   };
 
   it('creates a cell with a full process policy', async () => {
-    let created: { name?: string; process?: { segments?: unknown[] } } | undefined;
+    let created:
+      | { name?: string; process?: { segments?: unknown[] }; masterIntervalMinutes?: number | null }
+      | undefined;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -23,6 +25,7 @@ describe('CellModal', () => {
             id: 'c2',
             name: created?.name ?? 'Cell',
             masterEnabled: true,
+            masterIntervalMinutes: null,
             process: baseProcess(),
             createdAt: 2,
           };
@@ -41,10 +44,14 @@ describe('CellModal', () => {
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
       target: { value: 'Work repo' },
     });
+    fireEvent.change(screen.getByPlaceholderText('global default'), {
+      target: { value: '3' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(created?.name).toBe('Work repo');
+    expect(created?.masterIntervalMinutes).toBe(3);
     expect(created?.process?.segments).toHaveLength(5);
   });
 
@@ -53,6 +60,7 @@ describe('CellModal', () => {
       id: 'c1',
       name: 'Alpha',
       masterEnabled: true,
+      masterIntervalMinutes: 7,
       process: baseProcess(),
       createdAt: 1,
     };

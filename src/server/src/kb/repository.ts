@@ -26,6 +26,32 @@ export interface StoreInput {
   content: string;
 }
 
+function escapeLike(value: string): string {
+  return value.replace(/[%_]/g, (match) => `\\${match}`);
+}
+
+function occurrences(haystack: string, needle: string): number {
+  if (needle === '') return 0;
+  let count = 0;
+  let index = 0;
+  while ((index = haystack.indexOf(needle, index)) !== -1) {
+    count += 1;
+    index += needle.length;
+  }
+  return count;
+}
+
+/** Title hits are worth more than body hits; a full phrase in the title more still. */
+function relevance(row: KbRow, terms: string[], phrase: string): number {
+  const title = row.title.toLowerCase();
+  const content = row.content.toLowerCase();
+  let score = title.includes(phrase) ? 6 : 0;
+  for (const term of terms) {
+    score += occurrences(title, term) * 3 + occurrences(content, term);
+  }
+  return score;
+}
+
 export class KbRepository {
   constructor(private readonly db: Db) {}
 
@@ -59,15 +85,34 @@ export class KbRepository {
     return row ? toEntry(row) : null;
   }
 
+  /**
+   * Every whitespace-separated term must appear (literal LIKE, `%` and `_` escaped).
+   * Results are ranked by title/body term hits and phrase hits, then recency.
+   */
   search(query: string, limit = 20): KbEntry[] {
-    const like = `%${query.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+    const terms = query.trim().split(/\s+/).filter((term) => term !== '');
+    if (terms.length === 0) return this.list().slice(0, limit);
+
+    const clauses = terms.map(
+      () => "(title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')",
+    );
+    const params = terms.flatMap((term) => {
+      const like = `%${escapeLike(term)}%`;
+      return [like, like];
+    });
+
     const rows = this.db
       .prepare(
-        `SELECT * FROM kb_entries
-         WHERE title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\'
-         ORDER BY created_at DESC LIMIT ?`,
+        `SELECT * FROM kb_entries WHERE ${clauses.join(' AND ')} LIMIT 1000`,
       )
-      .all(like, like, limit) as KbRow[];
-    return rows.map(toEntry);
+      .all(...params) as KbRow[];
+
+    const lowered = terms.map((term) => term.toLowerCase());
+    const phrase = query.trim().toLowerCase();
+    return rows
+      .map((row) => ({ row, score: relevance(row, lowered, phrase) }))
+      .sort((a, b) => b.score - a.score || b.row.created_at - a.row.created_at)
+      .slice(0, limit)
+      .map((entry) => toEntry(entry.row));
   }
 }

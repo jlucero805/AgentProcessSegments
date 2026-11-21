@@ -15,8 +15,9 @@ built and vended by the brain; real-CLI verification is still pending.
   run ids, agent status, unchecked, branch.
 - `CellRepository`: list, get, create, rename, delete in a transaction that detaches
   requests instead of deleting them.
-- `KbRepository`: one entry per request (store replaces), list, get by request, LIKE
-  search with literal `%` and `_`.
+- `KbRepository`: one entry per request (store replaces), list, get by request, and a
+  multi-term literal LIKE search (`%` and `_` escaped) ranked by title/body term hits
+  and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
   clarify snapshot, dispatch, finalize, index, models, KB, cells, websocket echo, and
   optional SPA vend with an `index.html` fallback.
@@ -61,7 +62,7 @@ built and vended by the brain; real-CLI verification is still pending.
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served.
-- 113 vitest cases, all passing: 79 server across 12 files and 34 web across 8 files,
+- 115 vitest cases, all passing: 81 server across 12 files and 34 web across 8 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -108,7 +109,8 @@ built and vended by the brain; real-CLI verification is still pending.
 
 - Pipeline/review automation: the review step is human-driven by design; agents are told
   not to push or open change requests.
-- No embeddings over the KB (literal LIKE search only).
+- No embeddings over the KB: search is literal terms ranked locally, with no semantic
+  recall.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list

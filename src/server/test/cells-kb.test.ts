@@ -68,4 +68,30 @@ describe('knowledge base', () => {
     expect(kb.search('100%').map((entry) => entry.requestId)).toEqual(['r2']);
     expect(kb.search('100_').length).toBe(0);
   });
+
+  it('requires every term and ranks title hits above body hits', () => {
+    const { kb } = fresh();
+    kb.store({ requestId: 'a', title: 'Deploy cache', content: 'notes' });
+    kb.store({ requestId: 'b', title: 'Deploy guide', content: 'cache cache cache' });
+    kb.store({ requestId: 'c', title: 'Other', content: 'deploy cache' });
+    kb.store({ requestId: 'd', title: 'Deploy only', content: 'unrelated' });
+
+    expect(kb.search('deploy cache').map((entry) => entry.requestId)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(kb.search('deploy unrelated').map((entry) => entry.requestId)).toEqual(['d']);
+    expect(kb.search('deploy missing').length).toBe(0);
+  });
+
+  it('breaks relevance ties by recency and honours the limit', async () => {
+    const { kb } = fresh();
+    kb.store({ requestId: 'old', title: 'Same', content: 'hit' });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    kb.store({ requestId: 'new', title: 'Same', content: 'hit' });
+
+    expect(kb.search('hit').map((entry) => entry.requestId)).toEqual(['new', 'old']);
+    expect(kb.search('hit', 1).map((entry) => entry.requestId)).toEqual(['new']);
+  });
 });

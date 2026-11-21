@@ -24,7 +24,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 113 vitest cases: 79 server across 12 files and 34 web across 8 files, all green.
+- 115 vitest cases: 81 server across 12 files and 34 web across 8 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -144,7 +144,8 @@ or disk.
    it with a token that has the `workflow` scope.
 2. **Review/pipeline automation.** The review step is human-driven by design; agents are
    told not to push or open change requests. Nothing in the repo automates it.
-3. **KB embeddings.** The KB is still a literal LIKE store (`GET /api/kb?q=`).
+3. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic
+   recall still needs an embedding provider.
 
 ## Conventions
 

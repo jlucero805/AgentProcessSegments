@@ -233,3 +233,16 @@ harness in the drawer, and render Effort as inert with a hint when unsupported.
 
 **Cost.** Two additive fields beyond the spec DTO; clients that ignore them are
 unchanged.
+
+## D19. KB search ranks literal term matches
+
+**Context.** The KB has no embeddings; search was one LIKE, ordered by recency, so a
+query with several words required the exact phrase.
+
+**Decision.** Split the query on whitespace and require every term with escaped `LIKE`
+(`%` and `_` stay literal). Rank the matches locally: a phrase hit in the title scores
+6, a title term hit 3, body hits 1, and recency breaks ties. Candidate rows are capped
+at 1000.
+
+**Cost.** No semantic recall, and a space-separated query is now AND of terms rather
+than one phrase. No new dependency or index.

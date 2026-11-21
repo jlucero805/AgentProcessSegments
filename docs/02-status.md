@@ -35,8 +35,10 @@ built and vended by the brain; real-CLI verification is still pending.
   the global default.
 - Per-cell masters: the scheduler keeps a separate timer per cell (`masterIntervalMinutes`
   or the global interval) plus one for unassigned work. Each cell has its own reserved
-  master chat (`__master__:<cellId>`); notes and chat do not mix between cells. The Cell
-  master drawer shows the selected cell’s ticker, policy, filtered activity, and chat.
+  master chat (`__master__:<cellId>`); notes and chat do not mix between cells. Cells also
+  store a max-concurrency cap (default 3, pauses new work while that many requests are
+  `working`) and default model/effort (a request’s own values win). The Cell master drawer
+  shows the selected cell’s ticker, policy, activity, and chat.
 - Desktop terminal: a sidebar **Terminal** action opens a real PTY (`node-pty`) in
   `SBOX_TERMINAL_CWD`, independent of every agent session. It can be maximized, restored,
   reconnected, and closed; only one shell per WebSocket and up to four concurrent shells.
@@ -135,7 +137,7 @@ built and vended by the brain; real-CLI verification is still pending.
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. The files on this host are
   `/root/.config/sandbox-harness/config.json` and `process.json`.
-- 192 vitest cases, all passing: 130 server across 16 files and 62 web across 13 files,
+- 194 vitest cases, all passing: 132 server across 16 files and 62 web across 13 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -219,8 +221,8 @@ GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells
 GET    /api/cells/:id
-POST   /api/cells                         {name, process?, masterIntervalMinutes?}
-PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, process?}
+POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, model?, effort?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, model?, effort?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}

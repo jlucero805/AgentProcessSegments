@@ -43,6 +43,7 @@ main routes over a real socket.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
+- `docs/09-backlog.md` scoped but unbuilt work (token/cost tracking)
 - `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
@@ -56,7 +57,8 @@ src/server/src
   domain/request.ts   states, transition table, entities, transcript types
   domain/sessions.ts  reserved KB/master session ids, per-cell master sessions
   requests/           RequestRepository: CRUD, edit, guarded transitions
-  cells/              CellRepository: delete detaches requests, per-cell process policy
+  cells/              CellRepository: delete detaches requests, per-cell process policy,
+                      interval, concurrency cap, and model/effort defaults
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
@@ -106,11 +108,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 192 vitest cases: 130 server cases (state machine, migrations including
+`npm test` runs 194 vitest cases: 132 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
-real git clones, process definitions/store/follow-ups, per-cell policies and tickers,
+real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
 the generic master pipeline, terminal PTY service, and the HTTP API over a real socket)
 and 62 web cases (shared contract re-exports, NDJSON client, chat folding, request-form
 mapping, board, create modal, composer, cell bar, cell creation, config/process editor,

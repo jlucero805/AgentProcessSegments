@@ -53,11 +53,13 @@ file falls back to defaults until a valid one is written.
 Process segments live beside it in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
 (`SBOX_PROCESS` overrides). This is the global default and the template for new cells.
 Each cell stores its own copy in SQLite (`cells.process_json`) plus an optional
-`master_interval_minutes`; the scheduler keeps one timer per enabled cell plus one for
-unassigned work. Per-cell master chats use `__master__:<cellId>`. Edit cell policy from
-the cell creation/edit flow or `PATCH /api/cells/:id`. The Config page edits the global
-default; the Cell master drawer shows the selected cell’s policy, ticker, activity, and
-chat. See `docs/07-process-segments.md` and `docs/08-user-workflows.md`.
+`master_interval_minutes`, `max_concurrent` (default 3), and `model`/`effort` defaults.
+The scheduler keeps one timer per enabled cell plus one for unassigned work. Per-cell
+master chats use `__master__:<cellId>`. Edit cell policy from the cell creation/edit flow
+or `PATCH /api/cells/:id`. The Config page edits the global default; the Cell master
+drawer shows the selected cell’s policy, ticker, activity, and chat. See
+`docs/07-process-segments.md` and `docs/08-user-workflows.md`. Token/cost timelines are
+backlogged in `docs/09-backlog.md`.
 
 Both files are intentionally outside the repo and outside the systemd unit. The master
 scheduler runs inside the brain.

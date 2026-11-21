@@ -169,6 +169,18 @@ PTY is independent of agent sessions and behaves like a normal terminal. Cost: a
 dependency, a powerful no-auth endpoint, and a desktop-only UI that relies on the
 loopback/trusted-tunnel boundary.
 
+## 14. Cell concurrency and model defaults over per-segment settings
+
+**Chosen.** `max_concurrent` (default 3), `model`, and `effort` live on the cell, not on
+each process segment. The engine falls back to them when a request leaves model/effort
+empty; a request override wins. The master checks `working` count before starting turns.
+
+**Alternative.** Per-segment model/effort/concurrency.
+
+**Why.** Most operators change a cell’s risk posture as a whole, and a request-level
+override already exists. Cost: a cell cannot run Plan on a cheaper model than Implement
+without a request override; per-segment limits are future work if that becomes common.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

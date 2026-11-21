@@ -27,11 +27,12 @@ digests.
 7. `docs/07-process-segments.md` is the process.json contract and automation semantics.
 8. `docs/08-user-workflows.md` is the operator workflow: cells, process choices, master
    observation, requests, review, and finalize.
+9. `docs/09-backlog.md` holds scoped but unbuilt work (token/cost tracking).
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 192 vitest cases: 130 server across 16 files and 62 web across 13 files, all green.
+- 194 vitest cases: 132 server across 16 files and 62 web across 13 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -43,23 +44,23 @@ digests.
   settings and a structured process editor, configurable global and per-cell process
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
-  defines the policy up front, a desktop-only maximizable PTY terminal independent of
-  agent sessions, a systemd user unit for a VPS, a harness seam with `claude` and
-  `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a GitHub
-  Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged
-  into request sessions for both.
+  defines the policy up front, per-cell concurrency caps and model/effort defaults, a
+  desktop-only maximizable PTY terminal independent of agent sessions, a systemd user
+  unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
+  parity (skills and slash commands), and a GitHub Actions CI workflow template in
+  `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: per-cell cadence, KB embeddings. Review/finalize automation is configurable
-  per cell but finalize remains human-gated; the CI workflow is not published yet and
-  needs the `workflow` token scope.
+- Not built: token/cost tracking per cell (scoped in `docs/09-backlog.md`), KB
+  embeddings. Review/finalize automation is configurable per cell but finalize remains
+  human-gated; the CI workflow is not published yet and needs the `workflow` token scope.
 
 ## Commands
 
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 130 server + 62 web
+npm test                       # 132 server + 62 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
@@ -172,6 +173,12 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 17. **The terminal is not an agent session.** Each WebSocket owns one `node-pty` shell in
     `SBOX_TERMINAL_CWD`; it must never reuse an engine process or transcript. Keep the
     UI desktop-only and the route disableable with `SBOX_TERMINAL=0`.
+18. **Concurrency is per cell.** The master counts `working` requests in the cell and
+    stops starting turns at `max_concurrent` (default 3). Unassigned work uses 3.
+19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
+    then the cell defaults; persist cell changes on the cell, not in memory.
+20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage
+    writes; follow `docs/09-backlog.md` when it is built.
 
 ## Extension recipes
 

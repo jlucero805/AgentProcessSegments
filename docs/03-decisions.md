@@ -406,3 +406,19 @@ shells may run at once. `SBOX_TERMINAL=0` disables both the status route and new
 **Cost.** A direct shell is more powerful than the agent tools. The route has no auth of
 its own, so the brain must stay loopback-only or behind an authenticated tunnel. The UI
 hides the action below `md`, but that is presentation, not an access control.
+
+## D30. Per-cell concurrency and model defaults
+
+**Context.** Prodding every stalled request in a cell can start too many agent processes
+and exhaust memory. Operators also want a cell-level model/difficulty policy rather than
+setting it on every request.
+
+**Decision.** Cells store `max_concurrent` (default 3), `model`, and `effort`. The master
+counts requests in `working` state for the cell and stops starting new turns once the cap
+is reached; it records a `skip`/cycle event and a master-chat note. The engine resolves a
+turn’s model/effort from the request first, then the cell defaults. A per-cell master
+chat also inherits the cell defaults.
+
+**Cost.** Concurrency is per cell; unassigned work uses the default cap of 3 until a cell
+is attached. Changing a cell model affects the next spawned turn, not a child that is
+already running. Token/cost tracking is backlogged in `docs/09-backlog.md`.

@@ -151,15 +151,19 @@ The operator defines the policy before the cell receives work:
 1. In the sidebar, press **New cell** or edit an existing cell.
 2. Name the cell and optionally set its own **master interval** (empty uses the global
    cadence). This is the cell’s separate ticker.
-3. The process editor opens with a complete copy of the global default.
-4. Adjust the segments for that cell. Typical changes:
+3. Set the cell’s **max concurrent requests** (default 3), **default model**, and
+   **default difficulty**. A request’s own model/effort overrides the cell default. The
+   master will not start more work in a cell while that many requests are already
+   `working`.
+4. The process editor opens with a complete copy of the global default.
+5. Adjust the segments for that cell. Typical changes:
    - enable `intake` and `plan` for a hands-off pipeline;
    - shorten segment idle thresholds;
    - rewrite the implement/review prompts;
    - enable follow-up callouts;
    - choose where a segment advances.
-5. Create the cell. The policy is stored as JSON on the cell and used by its master.
-6. Press **Cell master** while that cell is selected to see its status, ticker, prompts,
+6. Create the cell. The policy is stored as JSON on the cell and used by its master.
+7. Press **Cell master** while that cell is selected to see its status, ticker, prompts,
    recent activity, and **its own chat**. Press **Process** on the cell in Config to edit
    it later.
 

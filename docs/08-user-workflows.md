@@ -12,17 +12,20 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
 2. Name the cell.
 3. Optionally set **Master interval (minutes)**. Empty inherits the global cadence; a
    value gives this cell its own ticker.
-4. The process editor opens with a full copy of the global default from
+4. Set **Max concurrent requests** (default 3), **default model**, and **default
+   difficulty**. The master pauses new work when that many requests in the cell are
+   already `working`; a request’s own model/effort wins.
+5. The process editor opens with a full copy of the global default from
    `process.json`. Adjust the five segments:
    - **Requests** (intake): start clarification for unplanned work.
    - **Plan**: groom tickets and advance to Implement.
    - **Implement**: continue/build work and advance to Review.
    - **Review**: check the result; optionally create a draft change request.
    - **Finalize**: produce the digest; the human still approves KB indexing.
-5. For each segment set the enabled switch, idle threshold, per-cycle cap, prompt, ready
+6. For each segment set the enabled switch, idle threshold, per-cycle cap, prompt, ready
    marker, legal target, and follow-up rule.
-6. Press **Create cell**. The policy is stored on the cell as a snapshot.
-7. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
+7. Press **Create cell**. The policy is stored on the cell as a snapshot.
+8. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
 
 Existing cells with no policy inherit the global default. New cells snapshot it so later
 global edits do not silently rewrite every cell.

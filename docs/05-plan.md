@@ -27,7 +27,7 @@ prompt libraries, and semantic KB retrieval.
 - [x] **4. Cell masters** — scheduler with configurable interval (default 5 min),
   idle threshold, prod prompt, auto-review marker, per-cell enable toggles, event log,
   manual "run now", and a Master page section.
-- [ ] **5. Tests and docs** — unit/HTTP/web coverage, browser smoke on mobile viewport,
+- [x] **5. Tests and docs** — unit/HTTP/web coverage, browser smoke on mobile viewport,
   status/decision/plan updates.
 
 ## 1. Mobile shell

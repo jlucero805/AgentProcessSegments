@@ -6,10 +6,11 @@
 //   npx puppeteer browsers install chrome
 //   node scripts/ui-smoke.mjs
 //
-// Point UI_BASE at a running brain (default http://127.0.0.1:7391). The script
-// creates a request through the UI, checks the drawer/chat and KB page, drops the
-// request through the API, and fails on page or console errors. It skips when
-// Puppeteer is not installed.
+// Set UI_MOBILE=1 for a 390x844 viewport (off-canvas menu, horizontal board,
+// full-width drawer). Set UI_BASE for a different running brain.
+// The script creates a request through the UI, checks the drawer/chat, the Config
+// page, drops the request through the API, and fails on page or console errors.
+// It skips when Puppeteer is not installed.
 
 let puppeteer;
 try {
@@ -20,8 +21,11 @@ try {
 }
 
 const base = process.env.UI_BASE ?? 'http://127.0.0.1:7391';
+const mobile = process.env.UI_MOBILE === '1';
 const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
+if (mobile) await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+
 const errors = [];
 page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
 page.on('console', (message) => {
@@ -48,8 +52,43 @@ async function clickText(text) {
   if (!found) throw new Error(`button not found: ${text}`);
 }
 
+async function sidebarBox() {
+  return page.evaluate(() => {
+    const element = document.querySelector('[data-testid="sidebar"]');
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x, width: rect.width, open: element.getAttribute('data-open') };
+  });
+}
+
+async function openMenu(step) {
+  if (!mobile) return;
+  // Wait until the closing transition is done and the hamburger is the top element.
+  await page.waitForFunction(
+    () => {
+      const button = document.querySelector('button[aria-label="Open menu"]');
+      if (!button) return false;
+      const rect = button.getBoundingClientRect();
+      return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === button;
+    },
+    { timeout: 3_000 },
+  ).catch((error) => {
+    throw new Error(`hamburger not reachable at ${step}: ${error.message}`);
+  });
+  await page.click('button[aria-label="Open menu"]');
+  await page.waitForFunction(
+    () => {
+      const element = document.querySelector('[data-testid="sidebar"]');
+      return Boolean(element) && element.getBoundingClientRect().x >= 0;
+    },
+    { timeout: 2_000 },
+  ).catch((error) => {
+    throw new Error(`menu did not open at ${step}: ${error.message}`);
+  });
+}
+
 try {
-  await page.goto(base, { waitUntil: 'networkidle0', timeout: 30_000 });
+  await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(
     () => document.body.innerText.toLowerCase().includes('sandbox harness'),
     { timeout: 15_000 },
@@ -67,6 +106,22 @@ try {
     if (!(await hasText(label))) throw new Error(`board column missing: ${label}`);
   }
 
+  if (mobile) {
+    const closed = await sidebarBox();
+    if (!closed || closed.x >= 0 || closed.open !== 'false') {
+      throw new Error(`menu should start off-canvas: ${JSON.stringify(closed)}`);
+    }
+    const scroll = await page.evaluate(() => {
+      const column = document.querySelector('[data-testid="column-intake"]');
+      const board = column?.parentElement;
+      return board ? { scrollWidth: board.scrollWidth, clientWidth: board.clientWidth } : null;
+    });
+    if (!scroll || scroll.scrollWidth <= scroll.clientWidth) {
+      throw new Error(`board is not horizontally scrollable: ${JSON.stringify(scroll)}`);
+    }
+  }
+
+  await openMenu('create');
   await clickText('+ New request');
   await page.waitForSelector('input[placeholder="What should the agent do?"]', { timeout: 10_000 });
   await page.type('input[placeholder="What should the agent do?"]', 'Browser smoke');
@@ -87,6 +142,20 @@ try {
     timeout: 10_000,
   });
 
+  if (mobile) {
+    const drawer = await page.evaluate(() => {
+      const aside = [...document.querySelectorAll('aside')].find((element) =>
+        element.textContent?.includes('Finalize digest'),
+      );
+      if (!aside) return null;
+      const rect = aside.getBoundingClientRect();
+      return { x: rect.x, width: rect.width, viewport: window.innerWidth };
+    });
+    if (!drawer || drawer.x > 2 || drawer.width < drawer.viewport - 2) {
+      throw new Error(`drawer is not full-width: ${JSON.stringify(drawer)}`);
+    }
+  }
+
   await page.evaluate(() => {
     const close = [...document.querySelectorAll('button')].find(
       (button) => button.getAttribute('aria-label') === 'Close drawer',
@@ -98,12 +167,29 @@ try {
     { timeout: 10_000 },
   );
 
-  await clickText('Knowledge base');
-  await page.waitForSelector('input[placeholder="Search entries..."]', { timeout: 10_000 });
-  await page.waitForSelector('textarea[placeholder="Ask the knowledge base..."]', {
-    timeout: 10_000,
-  });
+  await openMenu('config');
+  await clickText('Config');
+  await page.waitForFunction(
+    () => document.body.innerText.toLowerCase().includes('cell master'),
+    { timeout: 15_000 },
+  );
+  await page.waitForFunction(
+    () => document.body.innerText.toLowerCase().includes('run master now'),
+    { timeout: 10_000 },
+  );
+  if (mobile) {
+    const menu = await sidebarBox();
+    if (!menu || menu.open !== 'false') {
+      throw new Error(`navigating should close the mobile menu: ${JSON.stringify(menu)}`);
+    }
+  }
+
+  await openMenu('floor');
   await clickText('Floor');
+  await page.waitForFunction(
+    () => document.body.innerText.toLowerCase().includes('requests'),
+    { timeout: 10_000 },
+  );
 
   const list = await (await fetch(`${base}/api/requests?view=intake`)).json();
   const created = list.find((request) => request.title === 'Browser smoke');
@@ -111,12 +197,14 @@ try {
     await fetch(`${base}/api/requests/${created.id}/drop`, { method: 'POST' });
   }
 
-  await page.screenshot({ path: process.env.UI_SHOT ?? '/tmp/sbox-ui-smoke.png', fullPage: true });
+  const shot = process.env.UI_SHOT ?? (mobile ? '/tmp/sbox-ui-mobile.png' : '/tmp/sbox-ui-smoke.png');
+  await page.screenshot({ path: shot, fullPage: true });
 
   if (errors.length > 0) throw new Error(`browser errors:\n${errors.join('\n')}`);
-  console.log('ui smoke ok');
+  console.log(`ui smoke ok (${mobile ? 'mobile' : 'desktop'})`);
   console.log('root background:', background);
   console.log('request:', created?.id ?? 'not found');
+  console.log('screenshot:', shot);
 } catch (error) {
   console.error('ui smoke FAILED:', error.message);
   console.error('page text:', (await page.evaluate(() => document.body.innerText)).slice(0, 800));

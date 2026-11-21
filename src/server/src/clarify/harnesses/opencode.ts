@@ -1,0 +1,337 @@
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { promisify } from 'node:util';
+import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
+import {
+  HARNESS_MCP_SERVER,
+  isRecord,
+  type AgentHarness,
+  type HarnessCommand,
+  type HarnessSession,
+  type McpServerMap,
+  type TurnParserLike,
+} from '../harness.js';
+import type { ModelOption } from '../models.js';
+import type { AgentProcess } from '../transport.js';
+
+const exec = promisify(execFile);
+
+/** The harness MCP server in OpenCode's config shape. */
+export function opencodeHarnessServer(requestId: string, brainUrl: string): Record<string, unknown> {
+  return {
+    type: 'local',
+    command: [process.execPath, HARNESS_MCP_SERVER],
+    environment: {
+      SBOX_BRAIN_URL: brainUrl,
+      SBOX_REQUEST_ID: requestId,
+    },
+    enabled: true,
+  };
+}
+
+/** Reads the user's OpenCode config so its MCP servers and settings survive injection. */
+export function readOpencodeConfig(
+  home = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, unknown> {
+  const dir =
+    env.OPENCODE_CONFIG_DIR ??
+    path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'opencode');
+
+  for (const name of ['opencode.json', 'opencode.jsonc']) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
+      if (isRecord(parsed)) return parsed;
+    } catch {
+      // Missing or non-JSON config: fall through.
+    }
+  }
+  return {};
+}
+
+/** Accepts both the documented direct `mcp.<name>` shape and the encoded `mcp.servers` shape. */
+export function opencodeMcpServers(config: Record<string, unknown>): McpServerMap {
+  const mcp = config.mcp;
+  if (!isRecord(mcp)) return {};
+  const source = isRecord(mcp.servers) ? mcp.servers : mcp;
+  const out: McpServerMap = {};
+  for (const [name, definition] of Object.entries(source)) {
+    if (!isRecord(definition)) continue;
+    out[name] = definition;
+  }
+  return out;
+}
+
+const READ_ONLY_PERMISSIONS = {
+  read: 'allow',
+  glob: 'allow',
+  grep: 'allow',
+  list: 'allow',
+  edit: 'deny',
+  bash: 'deny',
+  task: 'deny',
+  external_directory: 'deny',
+  webfetch: 'deny',
+  websearch: 'deny',
+};
+
+export class OpencodeHarness implements AgentHarness {
+  readonly id = 'opencode';
+  readonly fallbackModels: readonly ModelOption[] = [];
+
+  constructor(
+    private readonly bin = 'opencode',
+    private readonly brainUrl = 'http://127.0.0.1:7391',
+    private readonly home = os.homedir(),
+    private readonly env: NodeJS.ProcessEnv = process.env,
+  ) {}
+
+  async prepare(session: HarnessSession): Promise<HarnessCommand> {
+    const user = readOpencodeConfig(this.home, this.env);
+    // The KB session is read-only: harness MCP only, no user servers.
+    const userServers = session.requestId === '' ? {} : opencodeMcpServers(user);
+    const config: Record<string, unknown> = {
+      ...user,
+      mcp: {
+        ...userServers,
+        harness: opencodeHarnessServer(session.requestId, this.brainUrl),
+      },
+    };
+
+    // The KB session is read-only, mirroring the Claude allowlist.
+    if (session.requestId === '') {
+      const current = isRecord(user.permission) ? user.permission : {};
+      config.permission = { ...current, ...READ_ONLY_PERMISSIONS };
+    }
+
+    const configDir = path.join(session.dir, 'opencode');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(path.join(configDir, 'opencode.json'), `${JSON.stringify(config, null, 2)}\n`);
+
+    // --standalone keeps each turn's server private so OPENCODE_CONFIG_DIR applies.
+    const args = ['run', '--format', 'json', '--auto', '--standalone'];
+    if (session.model) args.push('--model', session.model);
+
+    return {
+      cmd: this.bin,
+      args,
+      env: { OPENCODE_CONFIG_DIR: configDir },
+      cwd: session.cwd,
+      sessionId: session.sessionId,
+    };
+  }
+
+  spawn(command: HarnessCommand): AgentProcess {
+    return new OpencodeProcess(command);
+  }
+
+  createParser(transcript: TranscriptMsg[]): TurnParserLike {
+    return new OpencodeTurnParser(transcript);
+  }
+
+  probeModels(): Promise<ModelOption[] | null> {
+    return probeOpencodeModels(this.bin);
+  }
+}
+
+/**
+ * OpenCode is one-shot per message, so the process controller starts a fresh
+ * `opencode run` for every turn. The session id is carried forward from the
+ * events, which is what makes `--session` resume work across processes.
+ */
+export class OpencodeProcess implements AgentProcess {
+  private child: ChildProcess | null = null;
+  private sessionId: string | null;
+  private readonly lineHandlers: Array<(line: string) => void> = [];
+  private readonly exitHandlers: Array<(code: number | null) => void> = [];
+
+  constructor(private readonly command: HarnessCommand) {
+    this.sessionId = command.sessionId ?? null;
+  }
+
+  writeUserMessage(text: string): void {
+    const args = [...this.command.args];
+    if (this.sessionId) args.push('--session', this.sessionId);
+    args.push('--', text);
+
+    const child = spawn(this.command.cmd, args, {
+      cwd: this.command.cwd,
+      env: { ...process.env, ...this.command.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.child = child;
+
+    if (child.stdout) {
+      createInterface({ input: child.stdout }).on('line', (line) => {
+        this.captureSession(line);
+        for (const handler of this.lineHandlers) handler(line);
+      });
+    }
+    child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk));
+    child.on('exit', (code) => {
+      if (this.child === child) this.child = null;
+      for (const handler of this.exitHandlers) handler(code);
+    });
+    child.on('error', (error) => {
+      const line = JSON.stringify({ type: 'error', message: error.message });
+      for (const handler of this.lineHandlers) handler(line);
+    });
+  }
+
+  private captureSession(line: string): void {
+    try {
+      const event: unknown = JSON.parse(line);
+      if (isRecord(event) && typeof event.sessionID === 'string') {
+        this.sessionId = event.sessionID;
+      }
+    } catch {
+      // Not a JSON event line.
+    }
+  }
+
+  kill(signal: NodeJS.Signals = 'SIGTERM'): void {
+    this.child?.kill(signal);
+  }
+
+  onLine(handler: (line: string) => void): void {
+    this.lineHandlers.push(handler);
+  }
+
+  onExit(handler: (code: number | null) => void): void {
+    this.exitHandlers.push(handler);
+  }
+}
+
+/**
+ * Maps OpenCode's `--format json` events to the harness event contract.
+ * Events: step_start, text, tool_use, step_finish, error.
+ */
+export class OpencodeTurnParser implements TurnParserLike {
+  sessionId: string | null = null;
+  finished = false;
+
+  private readonly toolIndex = new Map<string, number>();
+  private readonly resultEmitted = new Set<string>();
+
+  constructor(readonly transcript: TranscriptMsg[]) {}
+
+  push(line: string): ClarifyEvent[] {
+    if (this.finished) return [];
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return [];
+    }
+    if (!isRecord(parsed)) return [];
+
+    if (typeof parsed.sessionID === 'string') this.sessionId = parsed.sessionID;
+    const part = isRecord(parsed.part) ? parsed.part : {};
+
+    switch (parsed.type) {
+      case 'text': {
+        const text = typeof part.text === 'string' ? part.text : '';
+        if (text === '') return [];
+        this.transcript.push({ role: 'agent', kind: 'text', text, ts: Date.now() });
+        return [{ t: 'text', text }];
+      }
+      case 'tool_use':
+        return this.onTool(part);
+      case 'step_finish':
+        return this.onStepFinish(part);
+      case 'error':
+        this.finished = true;
+        return [{ t: 'error', message: errorText(parsed) }];
+      default:
+        return [];
+    }
+  }
+
+  private onTool(part: Record<string, unknown>): ClarifyEvent[] {
+    const state = isRecord(part.state) ? part.state : {};
+    const id =
+      typeof part.callID === 'string'
+        ? part.callID
+        : typeof part.id === 'string'
+          ? part.id
+          : `tool_${this.transcript.length}`;
+    const name = typeof part.tool === 'string' ? part.tool : 'tool';
+    const input =
+      typeof state.input === 'string' ? state.input : JSON.stringify(state.input ?? {}, null, 2);
+
+    const events: ClarifyEvent[] = [];
+    let index = this.toolIndex.get(id);
+    if (index === undefined) {
+      index = this.transcript.length;
+      this.toolIndex.set(id, index);
+      this.transcript.push({
+        role: 'agent',
+        kind: 'tool',
+        text: name,
+        toolId: id,
+        toolName: name,
+        toolInput: input,
+        ts: Date.now(),
+      });
+      events.push({ t: 'tool', id, name, input });
+    }
+
+    const raw = state.output ?? state.error;
+    if (raw !== undefined && !this.resultEmitted.has(id)) {
+      const text = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+      const isError = state.status === 'error';
+      const entry = this.transcript[index];
+      if (entry) {
+        entry.toolResult = text;
+        entry.toolError = isError;
+      }
+      this.resultEmitted.add(id);
+      events.push({ t: 'tool_result', id, text, isError });
+    }
+    return events;
+  }
+
+  private onStepFinish(part: Record<string, unknown>): ClarifyEvent[] {
+    const reason = typeof part.reason === 'string' ? part.reason : 'unknown';
+    if (reason === 'tool-calls') return [];
+    this.finished = true;
+    if (reason === 'stop' || reason === 'length') return [];
+    return [{ t: 'error', message: `agent stopped: ${reason}` }];
+  }
+
+  finalize(): TranscriptMsg[] {
+    return this.transcript;
+  }
+}
+
+function errorText(event: Record<string, unknown>): string {
+  if (typeof event.message === 'string') return event.message;
+  const error = event.error;
+  if (isRecord(error)) {
+    const data = isRecord(error.data) ? error.data : error;
+    if (typeof data.message === 'string') return data.message;
+  }
+  return 'agent error';
+}
+
+export async function probeOpencodeModels(bin: string): Promise<ModelOption[] | null> {
+  try {
+    const { stdout } = await exec(bin, ['models'], {
+      timeout: 20_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const models: ModelOption[] = [];
+    for (const line of stdout.split('\n')) {
+      const id = line.trim();
+      if (!id.includes('/') || /\s/.test(id)) continue;
+      models.push({ id, label: id });
+    }
+    return models.length > 0 ? models : null;
+  } catch {
+    return null;
+  }
+}

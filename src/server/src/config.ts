@@ -1,6 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 
+export type HarnessId = 'claude' | 'opencode';
+
 export interface Config {
   host: string;
   port: number;
@@ -9,13 +11,17 @@ export interface Config {
   dataDir: string;
   pluginsDir: string;
   brainUrl: string;
-  claudeBin: string;
+  harness: HarnessId;
+  harnessBin: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): Config {
   const home = os.homedir();
   const dataDir = env.SBOX_DATA_DIR ?? path.join(home, '.sandbox-harness');
   const port = Number(env.SBOX_PORT ?? 7391);
+  const harness: HarnessId = env.SBOX_HARNESS === 'opencode' ? 'opencode' : 'claude';
+  const defaultBin =
+    harness === 'opencode' ? 'opencode' : (env.SBOX_CLAUDE_BIN ?? 'claude');
 
   return {
     host: env.SBOX_HOST ?? '127.0.0.1',
@@ -25,7 +31,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     dataDir,
     pluginsDir: env.SBOX_PLUGINS_DIR ?? path.join(dataDir, 'plugins'),
     brainUrl: env.SBOX_BRAIN_URL ?? `http://127.0.0.1:${port}`,
-    claudeBin: env.SBOX_CLAUDE_BIN ?? 'claude',
+    harness,
+    harnessBin: env.SBOX_HARNESS_BIN ?? defaultBin,
   };
 }
 

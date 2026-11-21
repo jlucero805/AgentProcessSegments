@@ -1,8 +1,8 @@
 import { pathToFileURL } from 'node:url';
 import { CellRepository } from './cells/repository.js';
 import { Engine } from './clarify/engine.js';
+import { createHarness } from './clarify/harnesses/index.js';
 import { ModelCatalog } from './clarify/models.js';
-import { ClaudeCliTransport } from './clarify/transport.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { buildServer } from './http/server.js';
@@ -18,13 +18,14 @@ export async function main(): Promise<void> {
   const cells = new CellRepository(db);
   const kb = new KbRepository(db);
   const plugins = new PluginManager(config.pluginsDir);
+  const harness = createHarness(config);
   const engine = new Engine({
     repo,
-    transport: new ClaudeCliTransport(config.claudeBin),
+    harness,
     config,
     pluginDirs: () => plugins.installedPluginDirs(),
   });
-  const models = new ModelCatalog(config.claudeBin);
+  const models = new ModelCatalog(harness);
 
   const app = await buildServer({ repo, cells, kb, engine, models, plugins, config });
   await app.listen({ host: config.host, port: config.port });

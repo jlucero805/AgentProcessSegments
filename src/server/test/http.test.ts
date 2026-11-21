@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ModelCatalog } from '../src/clarify/models.js';
+import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { buildServer } from '../src/http/server.js';
 import { createHarness, type Harness } from './helpers.js';
 
@@ -19,7 +19,7 @@ async function makeApp(): Promise<Open> {
     cells: h.cells,
     kb: h.kb,
     engine: h.engine,
-    models: new ModelCatalog('/definitely/not/a/claude'),
+    models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
     plugins: h.plugins,
     config: h.config,
   });

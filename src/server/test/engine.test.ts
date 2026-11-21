@@ -38,10 +38,9 @@ describe('turn engine', () => {
     const persisted = h.engine.transcript(request.id);
     expect(persisted.filter((msg) => msg.kind === 'text')).toHaveLength(2);
 
-    const spawn = h.transport.spawns[0];
-    expect(spawn?.allowedTools).toContain('Bash');
-    expect(spawn?.allowedTools).toContain('mcp__harness__update_request');
-    expect(h.transport.process?.messages[0]).toContain('Groom me');
+    const session = h.harness.sessions[0];
+    expect(session?.requestId).toBe(request.id);
+    expect(h.harness.process?.messages[0]).toContain('Groom me');
   });
 
   it('replays buffered events to a subscriber that attaches mid-turn', async () => {
@@ -55,9 +54,9 @@ describe('turn engine', () => {
     expect(h.engine.attach(request.id, (event) => seen.push(event.t))).toBe(true);
     expect(h.engine.hasLive(request.id)).toBe(true);
 
-    h.transport.process?.emit(initLine('sess-live'));
-    h.transport.process?.emit(textLine('streaming'));
-    h.transport.process?.emit(resultLine());
+    h.harness.process?.emit(initLine('sess-live'));
+    h.harness.process?.emit(textLine('streaming'));
+    h.harness.process?.emit(resultLine());
     await settle();
     await turn.promise;
     await settle();
@@ -75,8 +74,8 @@ describe('turn engine', () => {
     const second = await h.engine.start(request.id);
 
     expect(second).toBe(first);
-    expect(h.transport.spawns).toHaveLength(1);
-    h.transport.process?.emit(resultLine());
+    expect(h.harness.sessions).toHaveLength(1);
+    h.harness.process?.emit(resultLine());
     await first.promise;
     await settle();
   });
@@ -94,8 +93,8 @@ describe('turn engine', () => {
     await second.promise;
     await settle();
 
-    expect(h.transport.spawns).toHaveLength(2);
-    expect(h.transport.spawns[1]?.sessionId).toBe('sess-persist');
+    expect(h.harness.sessions).toHaveLength(2);
+    expect(h.harness.sessions[1]?.sessionId).toBe('sess-persist');
   });
 
   it('transitions on the dispatch kickoff and tells the agent not to push', async () => {
@@ -108,7 +107,7 @@ describe('turn engine', () => {
 
     expect(h.repo.require(request.id).state).toBe('dispatch');
     expect(h.repo.require(request.id).branch).toBeNull();
-    expect(h.transport.process?.messages[0]).toContain('Do not push');
+    expect(h.harness.process?.messages[0]).toContain('Do not push');
   });
 
   it('keeps the knowledge-base session read-only with no request scope', async () => {
@@ -118,10 +117,9 @@ describe('turn engine', () => {
     await turn.promise;
     await settle();
 
-    const spawn = h.transport.spawns[0];
-    expect(spawn?.allowedTools).not.toContain('Write');
-    expect(spawn?.allowedTools).not.toContain('Bash');
-    expect(spawn?.allowedTools).toContain('mcp__harness__search_kb');
+    const session = h.harness.sessions[0];
+    expect(session?.requestId).toBe('');
+    expect(session?.pluginDirs).toEqual([]);
 
     const done = turn.events.find((event) => event.t === 'done');
     expect(done?.t).toBe('done');
@@ -135,7 +133,7 @@ describe('turn engine', () => {
 
     const turn = await h.engine.start(request.id);
     await settle();
-    h.transport.process?.emitExit(1);
+    h.harness.process?.emitExit(1);
 
     await turn.promise;
     await settle();

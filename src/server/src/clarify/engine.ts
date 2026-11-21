@@ -1,37 +1,15 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Request, TranscriptMsg } from '../domain/request.js';
 import type { RequestRepository } from '../requests/repository.js';
+import type { AgentHarness, TurnParserLike } from './harness.js';
 import { dispatchPrompt, finalizePrompt, kbSeedPrompt, seedPrompt } from './prompts.js';
-import { TurnParser } from './stream.js';
-import type { AgentProcess, AgentTransport } from './transport.js';
+import type { AgentProcess } from './transport.js';
 import { ensureWorktree, removeWorktree } from './worktree.js';
 
 export const KB_SESSION_ID = '__kb__';
-
-const HARNESS_TOOLS = [
-  'mcp__harness__update_request',
-  'mcp__harness__get_request',
-  'mcp__harness__spawn_request',
-  'mcp__harness__list_requests',
-  'mcp__harness__index_to_kb',
-];
-
-const REQUEST_TOOLS = ['Write', 'Read', 'Edit', 'Bash', 'Skill', 'Glob', 'Grep', ...HARNESS_TOOLS];
-const KB_TOOLS = ['Read', 'mcp__harness__search_kb', 'mcp__harness__list_kb'];
-
-/** `claude mcp list` prints one `name: command` line per configured server. */
-export function parseMcpListServers(output: string): string[] {
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('No MCP servers'))
-    .map((line) => line.split(':')[0]?.trim() ?? '')
-    .filter((name) => name !== '');
-}
 
 export interface LiveTurn {
   readonly events: ClarifyEvent[];
@@ -48,20 +26,24 @@ interface StoredSession {
 
 export interface EngineDeps {
   repo: RequestRepository;
-  transport: AgentTransport;
+  harness: AgentHarness;
   config: Config;
   pluginDirs?: () => string[];
 }
 
 export class Engine {
   private readonly turns = new Map<string, LiveTurn>();
-  private readonly parsers = new Map<string, TurnParser>();
+  private readonly parsers = new Map<string, TurnParserLike>();
   private readonly procs = new Map<string, AgentProcess>();
 
   constructor(private readonly deps: EngineDeps) {}
 
   private get repo(): RequestRepository {
     return this.deps.repo;
+  }
+
+  private get harness(): AgentHarness {
+    return this.deps.harness;
   }
 
   private get config(): Config {
@@ -141,7 +123,7 @@ export class Engine {
     };
 
     this.turns.set(id, turn);
-    this.parsers.set(id, new TurnParser(this.loadTranscript(id)));
+    this.parsers.set(id, this.harness.createParser(this.loadTranscript(id)));
     if (request) this.repo.setAgentStatus(id, 'working');
 
     void this.runTurn(id, turn, message, request);
@@ -212,7 +194,9 @@ export class Engine {
   private onExit(id: string, code: number | null): void {
     this.procs.delete(id);
     const turn = this.turns.get(id);
-    if (!turn || turn.done) return;
+    // A harness whose process ends after its final event has already finished
+    // the turn normally; only an exit before completion is a failure.
+    if (!turn || turn.done || this.parsers.get(id)?.finished) return;
     turn.failure = `agent process exited with code ${code ?? 'unknown'}`;
     turn.resolve();
   }
@@ -237,40 +221,21 @@ export class Engine {
       if (worktree.branch !== request.branch) this.repo.setBranch(id, worktree.branch);
     }
 
-    const mcpConfigPath = this.writeMcpConfig(dir, request ? id : '');
-    const proc = this.deps.transport.spawn({
+    const command = await this.harness.prepare({
+      requestId: request ? id : '',
+      dir,
       cwd,
-      allowedTools: request ? REQUEST_TOOLS : KB_TOOLS,
       sessionId: this.readSession(id),
       model: request?.model ?? null,
       effort: request?.effort ?? null,
-      mcpConfigPath,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });
+    const proc = this.harness.spawn(command);
 
     this.procs.set(id, proc);
     proc.onLine((line) => this.consume(id, line));
     proc.onExit((code) => this.onExit(id, code));
     return proc;
-  }
-
-  private writeMcpConfig(dir: string, requestId: string): string | null {
-    const serverPath = fileURLToPath(new URL('../mcp/server.js', import.meta.url));
-    const configPath = path.join(dir, 'mcp-config.json');
-    const config = {
-      mcpServers: {
-        harness: {
-          command: process.execPath,
-          args: [serverPath],
-          env: {
-            SBOX_BRAIN_URL: this.config.brainUrl,
-            SBOX_REQUEST_ID: requestId,
-          },
-        },
-      },
-    };
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-    return configPath;
   }
 
   private readSession(id: string): string | null {

@@ -35,6 +35,19 @@ describe('streamNdjson', () => {
     expect(events).toEqual([{ t: 'done', request: null, transcript: [] }]);
   });
 
+  it('skips non-JSON noise instead of aborting the stream', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        ndjsonResponse(['not json\n', '{"t":"text","text":"ok"}\n']),
+      ),
+    );
+
+    const events: unknown[] = [];
+    await streamNdjson('/stream', (event) => events.push(event));
+    expect(events).toEqual([{ t: 'text', text: 'ok' }]);
+  });
+
   it('rejects with a typed error on a failed stream', async () => {
     vi.stubGlobal(
       'fetch',

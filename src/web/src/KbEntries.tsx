@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { KB_SESSION_ID, type CommandInfo, type KbEntry } from './types';
@@ -15,6 +15,7 @@ export function KbEntries({ commands, onError }: KbEntriesProps) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<KbEntry | null>(null);
   const [loading, setLoading] = useState(true);
+  const firstLoad = useRef(true);
 
   const load = useCallback(
     async (q: string) => {
@@ -30,17 +31,16 @@ export function KbEntries({ commands, onError }: KbEntriesProps) {
   );
 
   useEffect(() => {
-    void load('');
-  }, [load]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void load(query), 250);
+    // First paint loads immediately; typing is debounced.
+    const delay = firstLoad.current ? 0 : 250;
+    firstLoad.current = false;
+    const timer = window.setTimeout(() => void load(query), delay);
     return () => window.clearTimeout(timer);
   }, [query, load]);
 
   return (
-    <div className="flex h-full">
-      <section className="flex w-[22rem] shrink-0 flex-col border-r border-zinc-900">
+    <div className="flex h-full flex-col md:flex-row">
+      <section className="flex h-1/2 min-h-0 w-full shrink-0 flex-col border-b border-zinc-900 md:h-auto md:w-[22rem] md:border-b-0 md:border-r">
         <div className="border-b border-zinc-900 p-3">
           <h1 className="mb-2 text-sm font-semibold text-zinc-100">Knowledge base</h1>
           <Input

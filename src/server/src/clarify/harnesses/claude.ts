@@ -2,15 +2,14 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { TranscriptMsg } from '../../domain/request.js';
+import { isRecord } from '../../util/json.js';
 import {
   HARNESS_MCP_SERVER,
   KB_TOOLS,
   MASTER_TOOLS,
   REQUEST_TOOLS,
-  isRecord,
   type AgentHarness,
   type HarnessCommand,
   type HarnessSession,
@@ -20,6 +19,7 @@ import {
 import { HARDCODED_MODELS, type ModelOption } from '../models.js';
 import { TurnParser } from '../stream.js';
 import type { AgentProcess } from '../transport.js';
+import { LineProcess } from './line-process.js';
 
 const exec = promisify(execFile);
 
@@ -207,12 +207,11 @@ export class ClaudeHarness implements AgentHarness {
 }
 
 /** Long-lived `claude -p` child; turns are written to stdin as stream-json. */
-class ClaudeProcess implements AgentProcess {
+class ClaudeProcess extends LineProcess {
   private readonly child: ChildProcessWithoutNullStreams;
-  private readonly lineHandlers: Array<(line: string) => void> = [];
-  private readonly exitHandlers: Array<(code: number | null) => void> = [];
 
   constructor(command: HarnessCommand) {
+    super();
     this.child = spawn(command.cmd, command.args, {
       cwd: command.cwd,
       // Pin PWD: OpenCode resolves the project root from it, and an inherited
@@ -220,22 +219,15 @@ class ClaudeProcess implements AgentProcess {
       env: { ...process.env, ...command.env, PWD: command.cwd },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    this.attach(this.child);
+  }
 
-    createInterface({ input: this.child.stdout }).on('line', (line) => {
-      for (const handler of this.lineHandlers) handler(line);
-    });
-    this.child.stderr.on('data', (chunk: Buffer) => process.stderr.write(chunk));
-    this.child.on('exit', (code) => {
-      for (const handler of this.exitHandlers) handler(code);
-    });
-    this.child.on('error', (error) => {
-      const line = JSON.stringify({
-        type: 'result',
-        subtype: 'error',
-        is_error: true,
-        result: error.message,
-      });
-      for (const handler of this.lineHandlers) handler(line);
+  protected errorLine(error: Error): string {
+    return JSON.stringify({
+      type: 'result',
+      subtype: 'error',
+      is_error: true,
+      result: error.message,
     });
   }
 
@@ -246,13 +238,5 @@ class ClaudeProcess implements AgentProcess {
 
   kill(signal: NodeJS.Signals = 'SIGTERM'): void {
     this.child.kill(signal);
-  }
-
-  onLine(handler: (line: string) => void): void {
-    this.lineHandlers.push(handler);
-  }
-
-  onExit(handler: (code: number | null) => void): void {
-    this.exitHandlers.push(handler);
   }
 }

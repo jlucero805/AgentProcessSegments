@@ -8,8 +8,8 @@ import {
   timeAgo,
 } from './types';
 
-describe('workflow mirror', () => {
-  it('mirrors the server transition table', () => {
+describe('workflow helpers', () => {
+  it('uses the shared server transition table', () => {
     expect(canTransition('clarify', 'dispatch')).toBe(true);
     expect(canTransition('clarify', 'review')).toBe(false);
     expect(canTransition('dispatch', 'review')).toBe(true);

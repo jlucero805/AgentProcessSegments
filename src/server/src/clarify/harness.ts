@@ -3,8 +3,6 @@ import type { ClarifyEvent, TranscriptMsg } from '../domain/request.js';
 import type { ModelOption } from './models.js';
 import type { AgentProcess } from './transport.js';
 
-export const KB_REQUEST_ID = '';
-
 export type SessionScope = 'request' | 'kb' | 'master';
 
 /** Tools the harness MCP server exposes. Keep in sync with `mcp/server.ts`. */
@@ -74,8 +72,4 @@ export interface AgentHarness {
   spawn(command: HarnessCommand): AgentProcess;
   createParser(transcript: TranscriptMsg[]): TurnParserLike;
   probeModels(): Promise<ModelOption[] | null>;
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

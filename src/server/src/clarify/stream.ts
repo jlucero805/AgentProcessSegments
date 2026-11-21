@@ -1,13 +1,10 @@
 import type { ClarifyEvent, TranscriptMsg } from '../domain/request.js';
+import { asRecord } from '../util/json.js';
 
 const TOOL_RESULT_CAP = 8_000;
 
 function truncate(text: string, cap = TOOL_RESULT_CAP): string {
   return text.length <= cap ? text : `${text.slice(0, cap)}\n… (${text.length - cap} chars truncated)`;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 function contentBlocks(message: unknown): Record<string, unknown>[] {

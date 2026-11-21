@@ -160,6 +160,37 @@ describe('ClarifyChat live turns', () => {
     expect(sendBodies).toHaveLength(0);
   });
 
+  it('aborts the live stream when the chat unmounts', async () => {
+    let signal: AbortSignal | undefined;
+    const live = controllableStream();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          signal = init?.signal ?? undefined;
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    const { unmount } = render(
+      <ClarifyChat requestId="req-abort" started commands={[]} onError={() => {}} />,
+    );
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    await waitFor(() => expect(signal).toBeDefined());
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
   it('does not open a stream when the turn is already finished', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

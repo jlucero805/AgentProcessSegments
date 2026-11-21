@@ -34,24 +34,26 @@ function describe(error: unknown): string {
 
 export { describe as describeError };
 
+async function toApiError(response: Response): Promise<ApiError> {
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = (await response.json()) as Record<string, unknown>;
+  } catch {
+    // Non-JSON error bodies fall back to the status text.
+  }
+  const message =
+    (typeof body?.['message'] === 'string' && body['message']) ||
+    (typeof body?.['error'] === 'string' && body['error']) ||
+    `${response.status} ${response.statusText}`;
+  return new ApiError(response.status, message, body?.['issues']);
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
   if (init.body !== undefined) headers['content-type'] = 'application/json';
 
   const response = await fetch(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } });
-  if (!response.ok) {
-    let body: Record<string, unknown> | null = null;
-    try {
-      body = (await response.json()) as Record<string, unknown>;
-    } catch {
-      // Non-JSON error bodies are mapped below.
-    }
-    const message =
-      (typeof body?.['message'] === 'string' && body['message']) ||
-      (typeof body?.['error'] === 'string' && body['error']) ||
-      `${response.status} ${response.statusText}`;
-    throw new ApiError(response.status, message, body?.['issues']);
-  }
+  if (!response.ok) throw await toApiError(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -72,22 +74,21 @@ export async function streamNdjson(
   init: RequestInit = {},
 ): Promise<void> {
   const response = await fetch(path, init);
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.json()) as Record<string, unknown>;
-      if (typeof body['message'] === 'string') message = body['message'];
-      else if (typeof body['error'] === 'string') message = body['error'];
-    } catch {
-      // Keep the status text.
-    }
-    throw new ApiError(response.status, message);
-  }
+  if (!response.ok) throw await toApiError(response);
   if (!response.body) return;
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+
+  const emit = (line: string): void => {
+    if (!line) return;
+    try {
+      onEvent(JSON.parse(line) as ClarifyEvent);
+    } catch {
+      // A non-JSON line is transport noise, not a reason to abort the turn.
+    }
+  };
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -97,12 +98,11 @@ export async function streamNdjson(
     while (newline >= 0) {
       const line = buffer.slice(0, newline).trim();
       buffer = buffer.slice(newline + 1);
-      if (line) onEvent(JSON.parse(line) as ClarifyEvent);
+      emit(line);
       newline = buffer.indexOf('\n');
     }
   }
-  const tail = buffer.trim();
-  if (tail) onEvent(JSON.parse(tail) as ClarifyEvent);
+  emit(buffer.trim());
 }
 
 export const api = {
@@ -141,26 +141,33 @@ export const api = {
   getClarify(id: string): Promise<ClarifyState> {
     return request(`/api/requests/${encodeURIComponent(id)}/clarify`);
   },
-  startClarify(id: string): Promise<void> {
-    return streamNdjson(`/api/requests/${encodeURIComponent(id)}/clarify/start`, () => {}, {
+  startClarify(id: string): Promise<{ started: boolean }> {
+    return request(`/api/requests/${encodeURIComponent(id)}/clarify/start?detach=1`, {
       method: 'POST',
     });
   },
-  sendClarify(id: string, text: string): Promise<void> {
-    return streamNdjson(
-      `/api/requests/${encodeURIComponent(id)}/clarify/send`,
-      () => {},
-      { method: 'POST', body: JSON.stringify({ text }) },
-    );
+  kickoffDispatch(id: string): Promise<{ started: boolean }> {
+    return request(`/api/requests/${encodeURIComponent(id)}/dispatch?detach=1`, {
+      method: 'POST',
+    });
+  },
+  kickoffFinalize(id: string): Promise<{ started: boolean }> {
+    return request(`/api/requests/${encodeURIComponent(id)}/finalize?detach=1`, {
+      method: 'POST',
+    });
   },
   stopClarify(id: string): Promise<{ stopped: boolean }> {
     return request(`/api/requests/${encodeURIComponent(id)}/clarify/stop`, { method: 'POST' });
   },
-  streamClarify(id: string, onEvent: (event: ClarifyEvent) => void): Promise<void> {
+  streamClarify(
+    id: string,
+    onEvent: (event: ClarifyEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
     return streamNdjson(
       `/api/requests/${encodeURIComponent(id)}/clarify/stream`,
       onEvent,
-      { method: 'GET' },
+      { method: 'GET', signal },
     );
   },
   indexAndFinalize(id: string, digest: string | null, index: boolean): Promise<Request> {

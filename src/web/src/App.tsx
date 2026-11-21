@@ -45,10 +45,11 @@ function NavButton({
 }
 
 export function App() {
-  const [page, setPage] = useState<Page>(() => readInitialRoute().page);
+  const [initialRoute] = useState(readInitialRoute);
+  const [page, setPage] = useState<Page>(initialRoute.page);
   const [cells, setCells] = useState<Cell[]>([]);
-  const [cellId, setCellId] = useState<string | null>(() => readInitialRoute().cellId);
-  const [detailId, setDetailId] = useState<string | null>(() => readInitialRoute().detailId);
+  const [cellId, setCellId] = useState<string | null>(initialRoute.cellId);
+  const [detailId, setDetailId] = useState<string | null>(initialRoute.detailId);
   const [createOpen, setCreateOpen] = useState(false);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [error, setError] = useState<string | null>(null);

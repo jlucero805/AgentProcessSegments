@@ -11,7 +11,7 @@ import type { Config } from '../config.js';
 import {
   EFFORT_LEVELS,
   STATES,
-  TERMINAL_STATES,
+  isTerminal,
   type ClarifyEvent,
   type Request,
 } from '../domain/request.js';
@@ -22,6 +22,7 @@ import { PluginError, type PluginManager } from '../plugins/manager.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
+import { errorMessage } from '../util/errors.js';
 
 export interface ServerDeps {
   repo: RequestRepository;
@@ -134,10 +135,9 @@ async function streamTurn(
   reply: FastifyReply,
   engine: Engine,
   id: string,
-  turnPromise: Promise<LiveTurn>,
+  turn: LiveTurn,
   fallbackRequest: () => Request | null,
 ): Promise<void> {
-  const turn = await turnPromise;
   const stream = openStream(reply);
 
   const attached = engine.attach(id, (event) => {
@@ -156,6 +156,41 @@ async function streamTurn(
   // resolves; give that continuation one tick before closing the response.
   await new Promise<void>((resolve) => setImmediate(resolve));
   stream.end();
+}
+
+/** Stream a started turn, or return immediately when the caller asked to detach. */
+async function respondTurn(
+  reply: FastifyReply,
+  engine: Engine,
+  id: string,
+  turnPromise: Promise<LiveTurn>,
+  fallbackRequest: () => Request | null,
+  detach: boolean,
+): Promise<void | { started: true }> {
+  const turn = await turnPromise;
+  if (detach) return { started: true };
+  return streamTurn(reply, engine, id, turn, fallbackRequest);
+}
+
+function isVirtualSession(id: string): boolean {
+  return id === KB_SESSION_ID || id === MASTER_SESSION_ID;
+}
+
+/** Start or continue a turn, routing the reserved sessions to their own entry points. */
+function sessionTurn(engine: Engine, id: string, text?: string): Promise<LiveTurn> {
+  if (id === KB_SESSION_ID) return engine.startKb(text ?? '');
+  if (id === MASTER_SESSION_ID) return engine.startMaster(text ?? '');
+  return text === undefined ? engine.start(id) : engine.send(id, text);
+}
+
+/** `?detach=1` starts a workflow turn without holding the HTTP response open. */
+function wantsDetach(query: unknown): boolean {
+  if (typeof query !== 'object' || query === null) return false;
+  return (query as { detach?: unknown }).detach === '1';
+}
+
+function assertCell(cells: CellRepository, cellId: string | null | undefined): void {
+  if (cellId) cells.require(cellId);
 }
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
@@ -179,8 +214,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       return reply.code(status).send({ error: error.code.toLowerCase(), message: error.message });
     }
     app.log.error(error);
-    const message = error instanceof Error ? error.message : String(error);
-    return reply.code(500).send({ error: 'internal', message });
+    return reply.code(500).send({ error: 'internal', message: errorMessage(error) });
   });
 
   app.get('/health', async () => ({ ok: true }));
@@ -197,6 +231,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.post('/api/requests', async (request, reply) => {
     const input = createSchema.parse(request.body);
+    assertCell(cells, input.cellId);
     const created = repo.create(input);
     return reply.code(201).send(created);
   });
@@ -204,6 +239,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.patch('/api/requests/:id', async (request) => {
     const { id } = request.params as { id: string };
     const fields = editSchema.parse(request.body);
+    assertCell(cells, fields.cellId);
     return repo.edit(id, fields);
   });
 
@@ -211,14 +247,14 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { id } = request.params as { id: string };
     const { to } = transitionSchema.parse(request.body);
     const updated = repo.transition(id, to);
-    if (TERMINAL_STATES.includes(to)) await engine.dispose(id);
+    if (isTerminal(to)) await engine.dispose(id);
     return updated;
   });
 
   app.post('/api/requests/:id/drop', async (request) => {
     const { id } = request.params as { id: string };
     const current = repo.require(id);
-    const updated = TERMINAL_STATES.includes(current.state)
+    const updated = isTerminal(current.state)
       ? current
       : repo.transition(id, 'dropped');
     await engine.dispose(id);
@@ -234,30 +270,26 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.post('/api/requests/:id/clarify/start', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const isKb = id === KB_SESSION_ID;
-    const isMaster = id === MASTER_SESSION_ID;
-    const turn = isKb
-      ? engine.startKb('')
-      : isMaster
-        ? engine.startMaster('')
-        : engine.start(id);
-    return streamTurn(reply, engine, id, turn, () =>
-      isKb || isMaster ? null : repo.get(id),
+    return respondTurn(
+      reply,
+      engine,
+      id,
+      sessionTurn(engine, id),
+      () => (isVirtualSession(id) ? null : repo.get(id)),
+      wantsDetach(request.query),
     );
   });
 
   app.post('/api/requests/:id/clarify/send', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { text } = sendSchema.parse(request.body);
-    const isKb = id === KB_SESSION_ID;
-    const isMaster = id === MASTER_SESSION_ID;
-    const turn = isKb
-      ? engine.startKb(text)
-      : isMaster
-        ? engine.startMaster(text)
-        : engine.send(id, text);
-    return streamTurn(reply, engine, id, turn, () =>
-      isKb || isMaster ? null : repo.get(id),
+    return respondTurn(
+      reply,
+      engine,
+      id,
+      sessionTurn(engine, id, text),
+      () => (isVirtualSession(id) ? null : repo.get(id)),
+      wantsDetach(request.query),
     );
   });
 
@@ -270,7 +302,6 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { id } = request.params as { id: string };
     if (!engine.hasLive(id)) return reply.send({ active: false });
 
-    const isKb = id === KB_SESSION_ID;
     const stream = openStream(reply);
     const attached = engine.attach(id, (event) => {
       stream.emit(event);
@@ -282,7 +313,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/requests/:id/clarify', async (request) => {
     const { id } = request.params as { id: string };
-    if (id === KB_SESSION_ID || id === MASTER_SESSION_ID) {
+    if (isVirtualSession(id)) {
       return {
         started: true,
         transcript: engine.transcript(id),
@@ -299,12 +330,26 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.post('/api/requests/:id/dispatch', async (request, reply) => {
     const { id } = request.params as { id: string };
-    return streamTurn(reply, engine, id, engine.kickoffDispatch(id), () => repo.get(id));
+    return respondTurn(
+      reply,
+      engine,
+      id,
+      engine.kickoffDispatch(id),
+      () => repo.get(id),
+      wantsDetach(request.query),
+    );
   });
 
   app.post('/api/requests/:id/finalize', async (request, reply) => {
     const { id } = request.params as { id: string };
-    return streamTurn(reply, engine, id, engine.kickoffFinalize(id), () => repo.get(id));
+    return respondTurn(
+      reply,
+      engine,
+      id,
+      engine.kickoffFinalize(id),
+      () => repo.get(id),
+      wantsDetach(request.query),
+    );
   });
 
   app.post('/api/requests/:id/index', async (request) => {

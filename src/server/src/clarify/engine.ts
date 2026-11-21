@@ -4,6 +4,7 @@ import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Request, TranscriptMsg } from '../domain/request.js';
 import type { RequestRepository } from '../requests/repository.js';
+import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
 import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPrompt } from './prompts.js';
 import type { AgentProcess } from './transport.js';
@@ -207,7 +208,7 @@ export class Engine {
       await turn.promise;
       if (turn.failure && !turn.cancelled) this.broadcast(turn, { t: 'error', message: turn.failure });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       this.broadcast(turn, { t: 'error', message });
     } finally {
       this.finishTurn(id, turn, request);
@@ -339,10 +340,19 @@ export class Engine {
 
   async dispose(id: string): Promise<void> {
     const proc = this.procs.get(id);
+    const turn = this.turns.get(id);
     proc?.kill();
     this.procs.delete(id);
-    this.turns.delete(id);
-    this.parsers.delete(id);
+
+    if (turn && !turn.done) {
+      // A terminal route can dispose a live turn. Resolving it lets `finishTurn`
+      // save the partial transcript, broadcast `done`, and clean up the maps.
+      turn.cancelled = true;
+      turn.resolve();
+    } else {
+      this.turns.delete(id);
+      this.parsers.delete(id);
+    }
 
     const request = this.repo.get(id);
     await removeWorktree({

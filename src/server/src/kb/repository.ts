@@ -27,7 +27,7 @@ export interface StoreInput {
 }
 
 function escapeLike(value: string): string {
-  return value.replace(/[%_]/g, (match) => `\\${match}`);
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
 function occurrences(haystack: string, needle: string): number {

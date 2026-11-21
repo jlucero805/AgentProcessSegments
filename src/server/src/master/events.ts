@@ -1,16 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
-
-export type MasterAction = 'cycle' | 'prod' | 'review' | 'skip';
-
-export interface MasterEvent {
-  id: string;
-  cellId: string | null;
-  requestId: string | null;
-  action: MasterAction;
-  detail: string;
-  createdAt: number;
-}
+import type { MasterAction, MasterEvent } from './types.js';
 
 interface MasterEventRow {
   id: string;

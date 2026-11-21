@@ -45,6 +45,24 @@ describe('Composer', () => {
     expect(input).toHaveValue('/release');
   });
 
+  it('does not double the slash when the API already includes one', () => {
+    render(
+      <Composer
+        onSend={() => {}}
+        commands={[
+          { command: '/demo-kit:hello', description: 'Say hello', plugin: 'demo-kit' },
+        ]}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText('Ask a question...');
+    fireEvent.change(input, { target: { value: '/hel' } });
+
+    expect(screen.getByText('/demo-kit:hello')).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(input).toHaveValue('/demo-kit:hello');
+  });
+
   it('is disabled when the chat has not started', () => {
     render(
       <Composer

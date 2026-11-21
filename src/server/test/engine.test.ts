@@ -137,6 +137,23 @@ describe('turn engine', () => {
     expect(h.repo.require(request.id).clarifyStarted).toBe(true);
   });
 
+  it('ends a live turn when the request is disposed', async () => {
+    const h = fresh(() => []);
+    const request = h.repo.create({ title: 'Dispose me' });
+
+    const turn = await h.engine.start(request.id);
+    await settle();
+    expect(h.engine.hasLive(request.id)).toBe(true);
+
+    await h.engine.dispose(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.process?.killed).toBe(true);
+    expect(h.engine.hasLive(request.id)).toBe(false);
+    expect(turn.events.find((event) => event.t === 'done')).toBeTruthy();
+  });
+
   it('resumes the saved session id on the next spawn', async () => {
     const h = fresh(() => [initLine('sess-persist'), resultLine()]);
     const request = h.repo.create({ title: 'Remember me' });

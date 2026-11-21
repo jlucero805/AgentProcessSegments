@@ -2,6 +2,10 @@ import { execFile } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { markdownDescription, walkFiles } from '../util/files.js';
+import type { CommandInfo, InstallInput, PluginInfo } from './types.js';
+
+export type { CommandInfo, InstallInput, PluginInfo } from './types.js';
 
 const exec = promisify(execFile);
 
@@ -17,25 +21,7 @@ export class PluginError extends Error {
   }
 }
 
-export interface PluginInfo {
-  name: string;
-  description: string;
-  dir: string;
-}
-
-export interface CommandInfo {
-  command: string;
-  description: string;
-  plugin: string;
-}
-
-export interface InstallInput {
-  url: string;
-  subdir?: string | undefined;
-  name?: string | undefined;
-}
-
-interface PluginManifest {
+export interface PluginManifest {
   name?: string;
   description?: string;
   [key: string]: unknown;
@@ -73,25 +59,6 @@ function readManifest(file: string): PluginManifest {
     if (error instanceof PluginError) throw error;
     throw new PluginError('INVALID_PLUGIN', `${file} is missing or not valid JSON`);
   }
-}
-
-function descriptionOf(markdown: string): string {
-  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown);
-  if (!frontmatter) return '';
-  const line = /^description:\s*(.+)$/m.exec(frontmatter[1] ?? '');
-  if (!line?.[1]) return '';
-  return line[1].trim().replace(/^["']|["']$/g, '');
-}
-
-function walk(dir: string, base = dir): string[] {
-  if (!existsSync(dir)) return [];
-  const found: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...walk(full, base));
-    else if (entry.isFile()) found.push(path.relative(base, full));
-  }
-  return found;
 }
 
 function inside(parent: string, child: string): boolean {
@@ -199,13 +166,13 @@ export class PluginManager {
     const commands: CommandInfo[] = [];
 
     for (const plugin of this.list()) {
-      for (const relative of walk(path.join(plugin.dir, 'commands'))) {
+      for (const relative of walkFiles(path.join(plugin.dir, 'commands'))) {
         if (!relative.endsWith('.md')) continue;
         const file = path.join(plugin.dir, 'commands', relative);
         const name = relative.replace(/\.md$/i, '').split(path.sep).join(':');
         commands.push({
           command: `/${plugin.name}:${name}`,
-          description: descriptionOf(readFileSync(file, 'utf8')),
+          description: markdownDescription(readFileSync(file, 'utf8')),
           plugin: plugin.name,
         });
       }
@@ -218,7 +185,7 @@ export class PluginManager {
         if (!existsSync(file)) continue;
         commands.push({
           command: `/${plugin.name}:${skill.name}`,
-          description: descriptionOf(readFileSync(file, 'utf8')),
+          description: markdownDescription(readFileSync(file, 'utf8')),
           plugin: plugin.name,
         });
       }

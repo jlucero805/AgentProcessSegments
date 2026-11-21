@@ -59,14 +59,16 @@ describe('knowledge base', () => {
     expect(replaced.title).toBe('Second');
   });
 
-  it('searches titles and bodies, treating percent signs literally', () => {
+  it('searches titles and bodies, treating LIKE wildcards literally', () => {
     const { kb } = fresh();
     kb.store({ requestId: 'r1', title: 'Cache warmup', content: 'reduce cold starts' });
     kb.store({ requestId: 'r2', title: 'Budget', content: 'we hit 100% of the cap' });
+    kb.store({ requestId: 'r3', title: 'Windows path', content: 'look under C:\\temp' });
 
     expect(kb.search('cold').map((entry) => entry.requestId)).toEqual(['r1']);
     expect(kb.search('100%').map((entry) => entry.requestId)).toEqual(['r2']);
     expect(kb.search('100_').length).toBe(0);
+    expect(kb.search('C:\\temp').map((entry) => entry.requestId)).toEqual(['r3']);
   });
 
   it('requires every term and ranks title hits above body hits', () => {

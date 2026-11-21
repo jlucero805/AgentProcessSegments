@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { api, describeError, streamNdjson } from './api';
+import { api, describeError } from './api';
 import {
   AGENT_BADGE,
   COLUMNS,
   COLUMN_LABELS,
+  COLUMN_STATE,
+  canTransition,
   columnOf,
   timeAgo,
   type Column,
@@ -81,27 +83,23 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
       if (!request) return;
       if (columnOf(request) === target) return;
 
+      const targetState = COLUMN_STATE[target];
+      const startsClarify = target === 'clarify' && request.state === 'clarify';
+      if (targetState === null || (!startsClarify && !canTransition(request.state, targetState))) {
+        onError('That move is not allowed. Use the detail drawer for other moves.');
+        return;
+      }
+
       try {
         if (target === 'clarify') {
-          if (columnOf(request) === 'intake') {
-            await api.startClarify(id);
-          } else {
-            await api.transition(id, 'clarify');
-          }
+          if (startsClarify) await api.startClarify(id);
+          else await api.transition(id, 'clarify');
         } else if (target === 'dispatch') {
-          await streamNdjson(
-            `/api/requests/${encodeURIComponent(id)}/dispatch`,
-            () => {},
-            { method: 'POST' },
-          );
+          await api.kickoffDispatch(id);
         } else if (target === 'review') {
           await api.transition(id, 'review');
         } else if (target === 'finalize') {
-          await streamNdjson(
-            `/api/requests/${encodeURIComponent(id)}/finalize`,
-            () => {},
-            { method: 'POST' },
-          );
+          await api.kickoffFinalize(id);
         } else {
           onError('Cards move forward one step at a time. Use the detail drawer for other moves.');
           return;

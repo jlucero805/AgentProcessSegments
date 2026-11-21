@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { isRecord } from '../harness.js';
+import { isRecord } from '../../util/json.js';
+import { frontmatterField, splitMarkdown, walkFiles } from '../../util/files.js';
 
 export interface PluginCommand {
   template: string;
@@ -12,34 +13,6 @@ export interface PluginAssets {
   skills: string[];
   /** OpenCode command name -> template. */
   commands: Record<string, PluginCommand>;
-}
-
-function walk(dir: string, base = dir): string[] {
-  if (!existsSync(dir)) return [];
-  const found: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...walk(full, base));
-    else if (entry.isFile()) found.push(path.relative(base, full));
-  }
-  return found;
-}
-
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-
-function splitMarkdown(markdown: string): { frontmatter: string; body: string } {
-  const match = FRONTMATTER.exec(markdown);
-  if (!match) return { frontmatter: '', body: markdown };
-  return { frontmatter: match[1] ?? '', body: markdown.slice(match[0].length) };
-}
-
-function field(frontmatter: string, key: string): string {
-  const line = new RegExp(`^${key}:\\s*(.+)$`, 'm').exec(frontmatter);
-  return line?.[1]?.trim().replace(/^["']|["']$/g, '') ?? '';
-}
-
-function unquote(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
 /**
@@ -54,7 +27,7 @@ export function readPluginAssets(pluginDirs: readonly string[]): PluginAssets {
   for (const dir of pluginDirs) {
     const plugin = path.basename(dir);
 
-    for (const relative of walk(path.join(dir, 'commands'))) {
+    for (const relative of walkFiles(path.join(dir, 'commands'))) {
       if (!relative.toLowerCase().endsWith('.md')) continue;
       const file = path.join(dir, 'commands', relative);
       const markdown = readFileSync(file, 'utf8');
@@ -62,11 +35,10 @@ export function readPluginAssets(pluginDirs: readonly string[]): PluginAssets {
       const template = body.trim();
       if (template === '') continue;
       const name = relative.replace(/\.md$/i, '').split(path.sep).join(':');
+      const description = frontmatterField(frontmatter, 'description');
       commands[`${plugin}:${name}`] = {
         template,
-        ...(field(frontmatter, 'description')
-          ? { description: field(frontmatter, 'description') }
-          : {}),
+        ...(description ? { description } : {}),
       };
     }
 
@@ -79,8 +51,8 @@ export function readPluginAssets(pluginDirs: readonly string[]): PluginAssets {
       if (!existsSync(skillFile)) continue;
 
       const { frontmatter } = splitMarkdown(readFileSync(skillFile, 'utf8'));
-      const named = unquote(field(frontmatter, 'name')) ?? entry.name;
-      const description = field(frontmatter, 'description');
+      const named = frontmatterField(frontmatter, 'name') || entry.name;
+      const description = frontmatterField(frontmatter, 'description');
       skills.add(skillDir);
       commands[`${plugin}:${entry.name}`] = {
         template: `Use the ${named} skill now and follow its instructions.`,

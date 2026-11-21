@@ -2,12 +2,11 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
+import { isRecord } from '../../util/json.js';
 import {
   HARNESS_MCP_SERVER,
-  isRecord,
   type AgentHarness,
   type HarnessCommand,
   type HarnessSession,
@@ -16,6 +15,7 @@ import {
 } from '../harness.js';
 import type { ModelOption } from '../models.js';
 import type { AgentProcess } from '../transport.js';
+import { LineProcess } from './line-process.js';
 import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
 
 const exec = promisify(execFile);
@@ -109,6 +109,11 @@ export class OpencodeHarness implements AgentHarness {
     };
 
     if (!requestScope) {
+      // Read-only harness sessions keep the user's MCP merge out and must not
+      // load user plugins, commands, skills, or agents.
+      for (const key of ['plugin', 'plugins', 'command', 'commands', 'skills', 'agent', 'agents']) {
+        delete config[key];
+      }
       const current = isRecord(user.permission) ? user.permission : {};
       config.permission = { ...current, ...READ_ONLY_PERMISSIONS };
     }
@@ -163,14 +168,17 @@ export class OpencodeHarness implements AgentHarness {
  * `opencode run` for every turn. The session id is carried forward from the
  * events, which is what makes `--session` resume work across processes.
  */
-export class OpencodeProcess implements AgentProcess {
+export class OpencodeProcess extends LineProcess {
   private child: ChildProcess | null = null;
   private sessionId: string | null;
-  private readonly lineHandlers: Array<(line: string) => void> = [];
-  private readonly exitHandlers: Array<(code: number | null) => void> = [];
 
   constructor(private readonly command: HarnessCommand) {
+    super();
     this.sessionId = command.sessionId ?? null;
+  }
+
+  protected errorLine(error: Error): string {
+    return JSON.stringify({ type: 'error', message: error.message });
   }
 
   writeUserMessage(text: string): void {
@@ -186,21 +194,11 @@ export class OpencodeProcess implements AgentProcess {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;
-
-    if (child.stdout) {
-      createInterface({ input: child.stdout }).on('line', (line) => {
-        this.captureSession(line);
-        for (const handler of this.lineHandlers) handler(line);
-      });
-    }
-    child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk));
-    child.on('exit', (code) => {
-      if (this.child === child) this.child = null;
-      for (const handler of this.exitHandlers) handler(code);
-    });
-    child.on('error', (error) => {
-      const line = JSON.stringify({ type: 'error', message: error.message });
-      for (const handler of this.lineHandlers) handler(line);
+    this.attach(child, {
+      onLine: (line) => this.captureSession(line),
+      onExit: () => {
+        if (this.child === child) this.child = null;
+      },
     });
   }
 
@@ -217,14 +215,6 @@ export class OpencodeProcess implements AgentProcess {
 
   kill(signal: NodeJS.Signals = 'SIGTERM'): void {
     this.child?.kill(signal);
-  }
-
-  onLine(handler: (line: string) => void): void {
-    this.lineHandlers.push(handler);
-  }
-
-  onExit(handler: (code: number | null) => void): void {
-    this.exitHandlers.push(handler);
   }
 }
 

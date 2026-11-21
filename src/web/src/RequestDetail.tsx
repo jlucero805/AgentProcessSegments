@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, describeError, streamNdjson } from './api';
 import { ClarifyChat } from './ClarifyChat';
+import { TranscriptList } from './TranscriptList';
+import { formFromRequest, patchFromForm, type RequestFormState } from './requestForm';
 import {
   EFFORT_LEVELS,
+  isTerminal,
   STATE_LABELS,
   type Cell,
   type CommandInfo,
@@ -16,7 +19,6 @@ import {
   Button,
   Card,
   Checkbox,
-  EmptyState,
   Field,
   IconButton,
   Input,
@@ -34,20 +36,6 @@ interface RequestDetailProps {
   onChanged?: () => void;
 }
 
-interface FormState {
-  title: string;
-  body: string;
-  targetRepo: string;
-  acceptanceCriteria: string;
-  context: string;
-  skillsText: string;
-  groomed: boolean;
-  model: string;
-  effort: string;
-  kbDigest: boolean;
-  cellId: string;
-}
-
 const STATE_TONES: Record<State, 'purple' | 'blue' | 'amber' | 'green' | 'red' | 'neutral'> = {
   clarify: 'purple',
   dispatch: 'blue',
@@ -57,59 +45,10 @@ const STATE_TONES: Record<State, 'purple' | 'blue' | 'amber' | 'green' | 'red' |
   dropped: 'red',
 };
 
-function fromRequest(request: Request): FormState {
-  return {
-    title: request.title,
-    body: request.body,
-    targetRepo: request.targetRepo ?? '',
-    acceptanceCriteria: request.acceptanceCriteria ?? '',
-    context: request.context ?? '',
-    skillsText: request.skills.join(', '),
-    groomed: request.groomed,
-    model: request.model ?? '',
-    effort: request.effort ?? '',
-    kbDigest: request.kbDigest,
-    cellId: request.cellId ?? '',
-  };
-}
-
-function TranscriptList({ transcript }: { transcript: TranscriptMsg[] }) {
-  if (transcript.length === 0) {
-    return <EmptyState title="No agent output yet" hint="Start a step to see the transcript." />;
-  }
-  return (
-    <div className="space-y-2">
-      {transcript.map((message, index) => (
-        <div
-          key={`${message.ts}-${index}`}
-          className={cn(
-            'rounded-lg border p-2 text-xs',
-            message.role === 'you'
-              ? 'border-zinc-800 bg-zinc-900/60'
-              : 'border-zinc-900 bg-zinc-950',
-          )}
-        >
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            {message.role === 'you' ? 'You' : message.kind === 'tool' ? message.toolName ?? 'Tool' : 'Agent'}
-          </div>
-          <pre className="whitespace-pre-wrap font-sans text-zinc-300">
-            {message.kind === 'tool' ? message.toolInput ?? '' : message.text}
-          </pre>
-          {message.toolResult ? (
-            <pre className="mt-1 max-h-40 overflow-auto rounded bg-black/40 p-1.5 font-mono text-[10px] text-zinc-500">
-              {message.toolResult}
-            </pre>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** Right-side request drawer: editable fields, workflow actions, chat, and digest. */
 export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetailProps) {
   const [request, setRequest] = useState<Request | null>(null);
-  const [form, setForm] = useState<FormState | null>(null);
+  const [form, setForm] = useState<RequestFormState | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
@@ -128,7 +67,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     try {
       const found = await api.getRequest(id);
       setRequest(found);
-      setForm(fromRequest(found));
+      setForm(formFromRequest(found));
       setDigest(found.digest ?? '');
 
       const [clarify, modelResult, commandList, cellList] = await Promise.all([
@@ -159,7 +98,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     api.markSeen(id).catch(() => {});
   }, [id]);
 
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+  const set = <K extends keyof RequestFormState>(key: K, value: RequestFormState[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
     setSaved(false);
   };
@@ -168,25 +107,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     if (!form) return;
     setBusy('save');
     try {
-      const updated = await api.patchRequest(id, {
-        title: form.title.trim(),
-        body: form.body,
-        targetRepo: form.targetRepo.trim() || null,
-        acceptanceCriteria: form.acceptanceCriteria.trim() === '' ? null : form.acceptanceCriteria,
-        context: form.context.trim() === '' ? null : form.context,
-        skills: form.skillsText
-          .split(',')
-          .map((skill) => skill.trim())
-          .filter(Boolean),
-        groomed: form.groomed,
-        model: form.model || null,
-        effort: form.effort || null,
-        kbDigest: form.kbDigest,
-        digest: digest.trim() === '' ? null : digest,
-        cellId: form.cellId || null,
-      });
+      const updated = await api.patchRequest(id, patchFromForm(form, digest));
       setRequest(updated);
-      setForm(fromRequest(updated));
+      setForm(formFromRequest(updated));
       setSaved(true);
       onChanged?.();
     } catch (error) {
@@ -200,6 +123,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     setBusy(key);
     setPending(null);
     setStreamText('');
+    let sawDone = false;
     try {
       await streamNdjson(
         path,
@@ -207,11 +131,13 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
           if (event.t === 'text') setStreamText((current) => current + event.text);
           else if (event.t === 'error') onError(event.message);
           else if (event.t === 'done') {
+            sawDone = true;
             if (event.request) {
               setRequest(event.request);
-              setForm(fromRequest(event.request));
+              setForm(formFromRequest(event.request));
             }
             setTranscript(event.transcript);
+            onChanged?.();
             if (key === 'finalize') {
               const text = event.transcript
                 .filter((message) => message.role === 'agent' && message.kind === 'text')
@@ -228,7 +154,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       onError(describeError(error));
     } finally {
       setBusy(null);
-      await load();
+      // On a clean `done` the event already carried fresh row data. A stream
+      // that ends early may have changed state server-side, so resync then.
+      if (!sawDone) await load();
     }
   }
 
@@ -238,7 +166,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     try {
       const updated = await api.transition(id, to);
       setRequest(updated);
-      setForm(fromRequest(updated));
+      setForm(formFromRequest(updated));
       onChanged?.();
     } catch (error) {
       onError(describeError(error));
@@ -253,7 +181,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     try {
       const updated = await api.drop(id);
       setRequest(updated);
-      setForm(fromRequest(updated));
+      setForm(formFromRequest(updated));
       onChanged?.();
     } catch (error) {
       onError(describeError(error));
@@ -268,7 +196,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     try {
       const updated = await api.indexAndFinalize(id, digest.trim() === '' ? null : digest, true);
       setRequest(updated);
-      setForm(fromRequest(updated));
+      setForm(formFromRequest(updated));
       onChanged?.();
     } catch (error) {
       onError(describeError(error));
@@ -286,7 +214,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     }
   }
 
-  const terminal = request?.state === 'done' || request?.state === 'dropped';
+  const terminal = request ? isTerminal(request.state) : false;
 
   const actions = useMemo(() => {
     if (!request) return null;
@@ -526,7 +454,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               onError={onError}
               onRequest={(updated) => {
                 setRequest(updated);
-                setForm(fromRequest(updated));
+                setForm(formFromRequest(updated));
               }}
               placeholder="Message this thread…"
             />

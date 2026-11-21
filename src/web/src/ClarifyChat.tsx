@@ -58,6 +58,7 @@ export function ClarifyChat({
   const [stopping, setStopping] = useState(false);
   const [stopped, setStopped] = useState(false);
   const runningRef = useRef(false);
+  const activeStream = useRef<AbortController | null>(null);
 
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -89,18 +90,25 @@ export function ClarifyChat({
   );
 
   const hydrate = useCallback(async () => {
+    const controller = new AbortController();
+    activeStream.current?.abort();
+    activeStream.current = controller;
     try {
       const state = await api.getClarify(requestId);
+      if (controller.signal.aborted) return;
       setMessages(fromTranscript(state.transcript));
       if (state.active) {
         setBusy(true);
-        await api.streamClarify(requestId, handleEvent);
+        await api.streamClarify(requestId, handleEvent, controller.signal);
       }
     } catch (error) {
-      onErrorRef.current(describeError(error));
+      if (!controller.signal.aborted) onErrorRef.current(describeError(error));
     } finally {
-      setBusy(false);
-      setStopping(false);
+      if (activeStream.current === controller) activeStream.current = null;
+      if (!controller.signal.aborted) {
+        setBusy(false);
+        setStopping(false);
+      }
     }
   }, [requestId, handleEvent, setBusy]);
 
@@ -110,10 +118,15 @@ export function ClarifyChat({
     void hydrate();
   }, [hydrate, started]);
 
+  useEffect(() => () => activeStream.current?.abort(), []);
+
   const sendText = useCallback(
     async (raw: string) => {
       const text = raw.trim();
       if (text === '') return;
+      const controller = new AbortController();
+      activeStream.current?.abort();
+      activeStream.current = controller;
       setStopped(false);
       setMessages((current) => appendUser(current, text));
       setBusy(true);
@@ -121,13 +134,16 @@ export function ClarifyChat({
         await streamNdjson(
           `/api/requests/${encodeURIComponent(requestId)}/clarify/send`,
           handleEvent,
-          { method: 'POST', body: JSON.stringify({ text }) },
+          { method: 'POST', body: JSON.stringify({ text }), signal: controller.signal },
         );
       } catch (error) {
-        onErrorRef.current(describeError(error));
+        if (!controller.signal.aborted) onErrorRef.current(describeError(error));
       } finally {
-        setBusy(false);
-        setStopping(false);
+        if (activeStream.current === controller) activeStream.current = null;
+        if (!controller.signal.aborted) {
+          setBusy(false);
+          setStopping(false);
+        }
       }
     },
     [requestId, handleEvent, setBusy],

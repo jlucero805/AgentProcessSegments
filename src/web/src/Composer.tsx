@@ -9,6 +9,15 @@ export interface ComposerProps {
   placeholder?: string;
 }
 
+/** The API can return a command with or without its leading slash; normalize once. */
+function commandName(command: string): string {
+  return command.replace(/^\/+/, '');
+}
+
+function commandLabel(command: string): string {
+  return `/${commandName(command)}`;
+}
+
 /** Custom composer with slash-command autocomplete driven by GET /api/commands. */
 export function Composer({ commands = [], onSend, disabled, placeholder }: ComposerProps) {
   const [value, setValue] = useState('');
@@ -19,12 +28,12 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
     if (!value.startsWith('/') || value.includes(' ') || value.includes('\n')) return [];
     const query = value.slice(1).toLowerCase();
     return commands
-      .filter((command) => command.command.toLowerCase().includes(query))
+      .filter((command) => commandName(command.command).toLowerCase().includes(query))
       .slice(0, 8);
   }, [value, commands]);
 
   function choose(command: string) {
-    setValue(`/${command}`);
+    setValue(commandLabel(command));
     setHighlight(0);
     textareaRef.current?.focus();
   }
@@ -77,7 +86,7 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
                 index === highlight ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-900',
               )}
             >
-              <span className="font-mono">/{suggestion.command}</span>
+              <span className="font-mono">/{commandName(suggestion.command)}</span>
               <span className="truncate text-[11px] text-zinc-500">{suggestion.description}</span>
             </button>
           ))}

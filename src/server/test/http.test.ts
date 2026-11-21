@@ -101,6 +101,49 @@ describe('http api', () => {
     expect(listed.json()).toHaveLength(1);
   });
 
+  it('rejects a request pointed at a missing cell', async () => {
+    const { h } = await makeApp();
+    const cell = h.cells.create('Alpha');
+
+    const missing = await call('POST', '/api/requests', { title: 'x', cellId: 'ghost' });
+    expect(missing.status).toBe(404);
+    expect(missing.json().error).toBe('not_found');
+
+    const created = await call('POST', '/api/requests', { title: 'x', cellId: cell.id });
+    expect(created.status).toBe(201);
+    expect(created.json().cellId).toBe(cell.id);
+
+    const badPatch = await call('PATCH', `/api/requests/${created.json().id}`, {
+      cellId: 'ghost',
+    });
+    expect(badPatch.status).toBe(404);
+  });
+
+  it('starts workflow turns without holding the response open when detach=1', async () => {
+    const { h } = await makeApp({}, () => []);
+    const startRequest = h.repo.create({ title: 'Detached start' });
+    const dispatchRequest = h.repo.create({ title: 'Detached dispatch' });
+
+    const started = await call(
+      'POST',
+      `/api/requests/${startRequest.id}/clarify/start?detach=1`,
+    );
+    expect(started.status).toBe(200);
+    expect(started.json()).toEqual({ started: true });
+    expect(h.engine.hasLive(startRequest.id)).toBe(true);
+
+    const dispatched = await call(
+      'POST',
+      `/api/requests/${dispatchRequest.id}/dispatch?detach=1`,
+    );
+    expect(dispatched.status).toBe(200);
+    expect(dispatched.json()).toEqual({ started: true });
+    expect(h.repo.require(dispatchRequest.id).state).toBe('dispatch');
+
+    await call('POST', `/api/requests/${startRequest.id}/drop`);
+    await call('POST', `/api/requests/${dispatchRequest.id}/drop`);
+  });
+
   it('maps validation, missing, and illegal transitions to the documented codes', async () => {
     await makeApp();
 

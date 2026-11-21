@@ -1,14 +1,6 @@
 import type { SettingsStore } from '../settings.js';
-import type { MasterResult, MasterService } from './service.js';
-
-export interface MasterStatus {
-  enabled: boolean;
-  intervalMinutes: number;
-  running: boolean;
-  nextRunAt: number | null;
-  lastRunAt: number | null;
-  lastResult: MasterResult | null;
-}
+import type { MasterService } from './service.js';
+import type { MasterResult, MasterStatus } from './types.js';
 
 /** Drives `MasterService.runOnce` on the configured cadence and on demand. */
 export class MasterScheduler {

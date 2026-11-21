@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import type { MasterConfig } from './master/types.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -11,6 +12,7 @@ export const DEFAULT_MASTER_PROMPT = [
   'Do not ask the human questions. Keep the request moving.',
 ].join(' ');
 
+// Compile-time guard: the runtime schema and the shared contract cannot drift.
 const masterSchema = z.object({
   enabled: z.boolean(),
   intervalMinutes: z.number().int().min(1).max(24 * 60),
@@ -18,11 +20,11 @@ const masterSchema = z.object({
   autoReview: z.boolean(),
   includeUnassigned: z.boolean(),
   prompt: z.string().min(1).max(8000),
-});
+}) satisfies z.ZodType<MasterConfig>;
 
 const settingsSchema = z.object({ master: masterSchema });
 
-export type MasterSettings = z.infer<typeof masterSchema>;
+export type MasterSettings = MasterConfig;
 export type AppSettings = z.infer<typeof settingsSchema>;
 
 export const DEFAULT_SETTINGS: AppSettings = {

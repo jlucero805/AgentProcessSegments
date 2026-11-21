@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Board } from './Board';
-import { fakeDataTransfer, jsonResponse, makeRequest, ndjsonResponse } from './test/fixtures';
+import { fakeDataTransfer, jsonResponse, makeRequest } from './test/fixtures';
 import type { Request } from './types';
 
 function installFetch(store: Request[]) {
@@ -23,7 +23,9 @@ function installFetch(store: Request[]) {
       return jsonResponse(store.filter((r) => r.state === 'finalize'));
     }
     if (url.endsWith('/transition')) return jsonResponse(store[0]);
-    if (url.endsWith('/dispatch')) return ndjsonResponse(['{"t":"done","request":null,"transcript":[]}\n']);
+    if (url.endsWith('/dispatch?detach=1')) return jsonResponse({ started: true });
+    if (url.endsWith('/finalize?detach=1')) return jsonResponse({ started: true });
+    if (url.endsWith('/clarify/start?detach=1')) return jsonResponse({ started: true });
     return jsonResponse([]);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -69,7 +71,9 @@ describe('Board', () => {
   });
 
   it('transitions a card when it is dropped on another column', async () => {
-    const fetchMock = installFetch([makeRequest({ id: 'b', title: 'Build that', clarifyStarted: true })]);
+    const fetchMock = installFetch([
+      makeRequest({ id: 'b', title: 'Build that', state: 'dispatch', clarifyStarted: true }),
+    ]);
 
     render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
     const card = (await screen.findByText('Build that')).closest('button');
@@ -89,5 +93,43 @@ describe('Board', () => {
     const init = call[1]!;
     expect(init.method).toBe('POST');
     expect(init.body).toBe(JSON.stringify({ to: 'review' }));
+  });
+
+  it('starts a dispatch turn without waiting for the stream', async () => {
+    const fetchMock = installFetch([
+      makeRequest({ id: 'c', title: 'Kick off', clarifyStarted: true }),
+    ]);
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    const card = (await screen.findByText('Kick off')).closest('button');
+    expect(card).not.toBeNull();
+
+    const transfer = fakeDataTransfer();
+    fireEvent.dragStart(card as HTMLElement, { dataTransfer: transfer });
+    fireEvent.drop(screen.getByTestId('column-dispatch'), { dataTransfer: transfer });
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).endsWith('/dispatch?detach=1')),
+      ).toBe(true);
+    });
+  });
+
+  it('refuses an illegal workflow jump before calling the API', async () => {
+    const fetchMock = installFetch([
+      makeRequest({ id: 'd', title: 'No shortcuts', clarifyStarted: true }),
+    ]);
+    const onError = vi.fn();
+
+    render(<Board cellId={null} onOpen={() => {}} onError={onError} />);
+    const card = (await screen.findByText('No shortcuts')).closest('button');
+    expect(card).not.toBeNull();
+
+    const transfer = fakeDataTransfer();
+    fireEvent.dragStart(card as HTMLElement, { dataTransfer: transfer });
+    fireEvent.drop(screen.getByTestId('column-finalize'), { dataTransfer: transfer });
+
+    expect(onError).toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/finalize'))).toBe(false);
   });
 });

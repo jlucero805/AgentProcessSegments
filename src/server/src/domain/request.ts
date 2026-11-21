@@ -3,6 +3,10 @@ export type State = (typeof STATES)[number];
 
 export const TERMINAL_STATES: readonly State[] = ['done', 'dropped'];
 
+export function isTerminal(state: State): boolean {
+  return TERMINAL_STATES.includes(state);
+}
+
 export const TRANSITIONS: Record<State, readonly State[]> = {
   clarify: ['dispatch', 'dropped'],
   dispatch: ['review', 'clarify', 'dropped'],

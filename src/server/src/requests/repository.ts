@@ -134,6 +134,16 @@ function encodeValue(value: unknown): unknown {
 export class RequestRepository {
   constructor(private readonly db: Db) {}
 
+  /** One place for `updated_at` and column encoding so every write behaves the same. */
+  private write(id: string, assignments: Array<[column: string, value: unknown]>): void {
+    if (assignments.length === 0) return;
+    const sets = assignments.map(([column]) => `${column} = ?`);
+    const values = assignments.map(([, value]) => encodeValue(value));
+    sets.push('updated_at = ?');
+    values.push(Date.now());
+    this.db.prepare(`UPDATE requests SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);
+  }
+
   create(input: CreateInput): Request {
     const now = Date.now();
     const id = randomUUID();
@@ -194,32 +204,22 @@ export class RequestRepository {
 
   setClarifyStarted(id: string, started: boolean): Request {
     this.require(id);
-    this.db
-      .prepare('UPDATE requests SET clarify_started = ?, updated_at = ? WHERE id = ?')
-      .run(started ? 1 : 0, Date.now(), id);
+    this.write(id, [['clarify_started', started]]);
     return this.require(id);
   }
 
   edit(id: string, fields: EditInput): Request {
     this.require(id);
 
-    const sets: string[] = [];
-    const values: unknown[] = [];
     const source = fields as Record<string, unknown>;
-
+    const assignments: Array<[string, unknown]> = [];
     for (const [key, column] of Object.entries(EDIT_COLUMNS)) {
       const value = source[key];
       if (value === undefined) continue;
-      sets.push(`${column} = ?`);
-      values.push(encodeValue(value));
+      assignments.push([column, value]);
     }
 
-    if (sets.length > 0) {
-      sets.push('updated_at = ?');
-      values.push(Date.now(), id);
-      this.db.prepare(`UPDATE requests SET ${sets.join(', ')} WHERE id = ?`).run(...values);
-    }
-
+    this.write(id, assignments);
     return this.require(id);
   }
 
@@ -231,38 +231,25 @@ export class RequestRepository {
         `cannot move request from ${request.state} to ${to}`,
       );
     }
-    this.db
-      .prepare('UPDATE requests SET state = ?, updated_at = ? WHERE id = ?')
-      .run(to, Date.now(), id);
+    this.write(id, [['state', to]]);
     return this.require(id);
   }
 
   addRun(id: string, runId: string): Request {
     const request = this.require(id);
-    const runs = [...request.hcRunIds, runId];
-    this.db
-      .prepare('UPDATE requests SET hc_run_ids = ?, updated_at = ? WHERE id = ?')
-      .run(JSON.stringify(runs), Date.now(), id);
+    this.write(id, [['hc_run_ids', JSON.stringify([...request.hcRunIds, runId])]]);
     return this.require(id);
   }
 
   setAgentStatus(id: string, status: AgentStatus): void {
-    this.db
-      .prepare('UPDATE requests SET agent_status = ?, updated_at = ? WHERE id = ?')
-      .run(status, Date.now(), id);
+    this.write(id, [['agent_status', status]]);
   }
 
   setUnchecked(id: string, unchecked: boolean): void {
-    this.db
-      .prepare('UPDATE requests SET unchecked = ?, updated_at = ? WHERE id = ?')
-      .run(unchecked ? 1 : 0, Date.now(), id);
+    this.write(id, [['unchecked', unchecked]]);
   }
 
   setBranch(id: string, branch: string | null): void {
-    this.db.prepare('UPDATE requests SET branch = ?, updated_at = ? WHERE id = ?').run(
-      branch,
-      Date.now(),
-      id,
-    );
+    this.write(id, [['branch', branch]]);
   }
 }

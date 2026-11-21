@@ -109,7 +109,7 @@ export function CellBar({ cells, value, onChange, reload, onError }: CellBarProp
             </button>
             <IconButton
               label={`Rename ${cell.name}`}
-              className="h-6 w-6 text-zinc-600 opacity-0 group-hover:opacity-100"
+              className="h-6 w-6 text-zinc-600 opacity-100 md:opacity-0 md:group-hover:opacity-100"
               onClick={() => {
                 setEditing(cell.id);
                 setEditDraft(cell.name);
@@ -119,7 +119,7 @@ export function CellBar({ cells, value, onChange, reload, onError }: CellBarProp
             </IconButton>
             <IconButton
               label={`Delete ${cell.name}`}
-              className="h-6 w-6 text-zinc-600 opacity-0 hover:text-red-400 group-hover:opacity-100"
+              className="h-6 w-6 text-zinc-600 opacity-100 hover:text-red-400 md:opacity-0 md:group-hover:opacity-100"
               onClick={() => void remove(cell.id)}
             >
               ×

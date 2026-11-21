@@ -27,7 +27,10 @@ export function worktreePath(dataDir: string, requestId: string): string {
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await exec('git', ['-C', cwd, ...args], { maxBuffer: 8 * 1024 * 1024 });
+  const { stdout } = await exec('git', ['-C', cwd, ...args], {
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: 30_000,
+  });
   return stdout.trim();
 }
 

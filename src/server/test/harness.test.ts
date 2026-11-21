@@ -336,6 +336,10 @@ describe('OpencodeHarness', () => {
       path.join(home, '.config', 'opencode', 'opencode.json'),
       JSON.stringify({
         permission: { bash: 'allow' },
+        plugin: ['./plugin.js'],
+        agent: { build: { prompt: 'write everything' } },
+        commands: { deploy: { template: 'ship it' } },
+        skills: ['/tmp/skills'],
         mcp: { user: { type: 'remote', url: 'https://mcp.example.test/sse' } },
       }),
     );
@@ -356,6 +360,8 @@ describe('OpencodeHarness', () => {
     expect(config.permission).toMatchObject({ edit: 'deny', bash: 'deny' });
     expect(config.mcp.harness.environment.SBOX_SESSION_SCOPE).toBe('master');
     expect(config.mcp.user).toBeUndefined();
+    expect(config.plugin).toBeUndefined();
+    expect(config.agent).toBeUndefined();
     expect(config.commands).toBeUndefined();
     expect(config.skills).toBeUndefined();
   });

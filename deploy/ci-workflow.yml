@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: typecheck, test, build, smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # better-sqlite3 v11 has no Node 24 prebuild, so it compiles from source.
+      - name: Install build toolchain
+        run: sudo apt-get update && sudo apt-get install -y make g++ python3
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: HTTP smoke
+        run: bash scripts/smoke.sh
+
+      - name: MCP stdio smoke
+        run: node scripts/mcp-smoke.mjs

@@ -71,6 +71,10 @@ built and vended by the brain; real-CLI verification is still pending.
   `127.0.0.1:7391`, SPA and API served with `/api` winning over the SPA fallback, a
   `kill -9` of the main process triggered `Restart=on-failure`, and a clean restart kept
   serving. `loginctl enable-linger` is set so the user manager starts at boot.
+- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, typecheck, the full
+  test suite, the build, `scripts/smoke.sh`, and `scripts/mcp-smoke.mjs` on pushes and
+  pull requests. It is not active on the remote: publishing a workflow needs a credential
+  with the `workflow` scope. Copy it to `.github/workflows/ci.yml` once that is available.
 
 ## Deviations from the spec
 
@@ -95,7 +99,11 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Not built yet
 
-- No CI/pipeline integration, no embeddings over the KB.
+- Pipeline/review automation: the review step is human-driven by design; agents are told
+  not to push or open change requests.
+- OpenCode plugin mapping: installed skills/commands reach Claude through `--plugin-dir`;
+  the OpenCode adapter currently ignores `pluginDirs`.
+- No embeddings over the KB (literal LIKE search only).
 
 ## Route list
 

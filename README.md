@@ -78,6 +78,7 @@ src/web
 deploy
   sandbox-harness.service  systemd user unit for the brain
   vps.md                   install, tunnel, update, and restart runbook
+  ci-workflow.yml          ready GitHub Actions workflow (needs workflow scope)
 ```
 
 ## API
@@ -102,3 +103,8 @@ SQLite.
 `node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
 probed model catalog. It skips when no `claude` binary is available.
+
+CI (`deploy/ci-workflow.yml`) runs typecheck, the full test suite, the build, and the
+HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
+`.github/workflows/ci.yml` with a credential that has the `workflow` scope to activate
+it.

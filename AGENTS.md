@@ -31,11 +31,13 @@ digests.
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
-  knowledge base), a systemd user unit for a VPS, and a harness seam with `claude` and
-  `opencode` adapters. User MCP servers are merged into request sessions for both.
+  knowledge base), a systemd user unit for a VPS, a harness seam with `claude` and
+  `opencode` adapters, and a GitHub Actions CI workflow template in
+  `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: CI/pipeline integration, KB embeddings.
+- Not built: pipeline/review automation, OpenCode plugin mapping, KB embeddings.
+  The CI workflow is not published yet; it needs the `workflow` token scope.
 
 ## Commands
 
@@ -134,9 +136,14 @@ or disk.
 
 ## Next units, in order
 
-1. **CI/pipeline integration.** Add a workflow that runs install, typecheck, tests, and
-   the smoke scripts on Linux.
-2. **KB embeddings.** The KB is still a literal LIKE store.
+1. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
+   it with a token that has the `workflow` scope.
+2. **OpenCode plugin mapping.** Installed plugins currently contribute `--plugin-dir`
+   only for Claude. Map their skills and slash commands into the OpenCode config so the
+   Skills page has the same effect on both harnesses.
+3. **Review/pipeline automation.** The review step is human-driven by design; agents are
+   told not to push or open change requests. Nothing in the repo automates it.
+4. **KB embeddings.** The KB is still a literal LIKE store (`GET /api/kb?q=`).
 
 ## Conventions
 

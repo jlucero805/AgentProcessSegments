@@ -13,6 +13,14 @@ There are two layers:
    one, its master uses it instead of the global default. Existing cells without a
    policy keep inheriting the global default.
 
+Each cell also has its own **ticker** and **master chat**:
+
+- `masterIntervalMinutes` on the cell overrides the global scheduler interval; null
+  inherits it.
+- The scheduler keeps one timer per enabled cell plus one for unassigned work.
+- Scheduler notes for a cell go to `__master__:<cellId>`; unassigned work uses the global
+  `__master__` chat. The Cell master drawer opens the chat for the selected cell.
+
 ## File and path
 
 - Default: `$XDG_CONFIG_HOME/sandbox-harness/process.json`
@@ -132,25 +140,28 @@ the master carry work from an unplanned request through implementation:
 3. Keep `implement` enabled; review its prompt and marker.
 4. Optionally enable `review` and `finalize`.
 
-The master still runs one cadence at a time (default 5 minutes). Lower a segment’s
-`idleMinutes` to move through that segment sooner; the same request is not handled twice
-inside that window.
+Each cell’s ticker drives its own cycle; a cell interval overrides the global cadence.
+Lower a segment’s `idleMinutes` to move through that segment sooner; the same request is
+not handled twice inside that window.
 
 ## Cell creation process
 
 The operator defines the policy before the cell receives work:
 
 1. In the sidebar, press **New cell** or edit an existing cell.
-2. Name the cell. The process editor opens with a complete copy of the global default.
-3. Adjust the segments for that cell. Typical changes:
+2. Name the cell and optionally set its own **master interval** (empty uses the global
+   cadence). This is the cell’s separate ticker.
+3. The process editor opens with a complete copy of the global default.
+4. Adjust the segments for that cell. Typical changes:
    - enable `intake` and `plan` for a hands-off pipeline;
    - shorten segment idle thresholds;
    - rewrite the implement/review prompts;
    - enable follow-up callouts;
    - choose where a segment advances.
-4. Create the cell. The policy is stored as JSON on the cell and used by its master.
-5. Press **Cell master** while that cell is selected to see its status, prompts, recent
-   activity, and chat. Press **Process** on the cell in Config to edit it later.
+5. Create the cell. The policy is stored as JSON on the cell and used by its master.
+6. Press **Cell master** while that cell is selected to see its status, ticker, prompts,
+   recent activity, and **its own chat**. Press **Process** on the cell in Config to edit
+   it later.
 
 New cells start from `process.json`. An existing cell with no policy (for example one
 created before this feature) inherits the global default until edited. Clearing a cell
@@ -186,13 +197,20 @@ Deduplication is per source request and title, so repeated callouts do not multi
 ## Per-cell API
 
 ```text
-GET   /api/cells                       list cells, each with its process or null
+GET   /api/cells                       list cells, each with its process and interval
 GET   /api/cells/:id                   one cell with its process
-POST  /api/cells {name, process?}      create; omitted process snapshots the global default
-PATCH /api/cells/:id {name?, masterEnabled?, process?}
+POST  /api/cells {name, process?, masterIntervalMinutes?}
+                                       create; omitted process snapshots the global default
+PATCH /api/cells/:id {name?, masterEnabled?, masterIntervalMinutes?, process?}
+GET   /api/master/status?cellId=…      that cell's ticker/last-run status
+POST  /api/master/run?cellId=…         run that cell's cycle now
 ```
 
-`PATCH` with `process: null` makes the cell inherit the global default again.
+`PATCH` with `process: null` makes the cell inherit the global default again. An empty
+`masterIntervalMinutes` inherits the global scheduler interval.
+
+Per-cell master chats use the reserved `__master__:<cellId>` session; unassigned work
+uses `__master__`.
 
 ## Follow-up requests
 

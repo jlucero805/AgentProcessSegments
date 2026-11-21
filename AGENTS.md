@@ -31,7 +31,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 186 vitest cases: 125 server across 15 files and 61 web across 13 files, all green.
+- 189 vitest cases: 127 server across 15 files and 62 web across 13 files, all green.
 - Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
@@ -41,12 +41,12 @@ digests.
   knowledge base), a mobile shell, durable chat with URL route restore, queued messages
   and stop/interject, one thread across workflow segments, a Config page with XDG
   settings and a structured process editor, configurable global and per-cell process
-  segments with a generic scheduled loop, follow-up callouts, event log, a first-class
-  Cell master detail with prompts/activity/chat, a cell creation flow that defines the
-  policy up front, a systemd user unit for a VPS, a harness seam with `claude` and
-  `opencode` adapters, OpenCode plugin parity (skills and slash commands), and a GitHub
-  Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers are merged
-  into request sessions for both.
+  segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
+  a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
+  defines the policy up front, a systemd user unit for a VPS, a harness seam with
+  `claude` and `opencode` adapters, OpenCode plugin parity (skills and slash commands),
+  and a GitHub Actions CI workflow template in `deploy/ci-workflow.yml`. User MCP servers
+  are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: per-cell cadence, KB embeddings. Review/finalize automation is configurable
@@ -58,7 +58,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 125 server + 61 web
+npm test                       # 127 server + 62 web
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
@@ -118,9 +118,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 
 1. **Transition table is data.** Add states in `domain/request.ts`; never branch on
    state elsewhere without going through `canTransition`.
-2. **`__kb__` and `__master__` are sentinel session ids with no rows.** Routes
-   special-case them before touching the request repository. Both sessions are read-only;
-   the master scope gets board read tools in addition to the KB tools.
+2. **`__kb__` and `__master__` are sentinel session ids with no rows.** A cell master
+   uses `__master__:<cellId>`; the bare id is the global/unassigned chat. Routes
+   special-case them before touching the request repository. All reserved sessions are
+   read-only; the master scope gets board read tools in addition to the KB tools.
 3. **MCP tool names must match the harness allowlist.** Registering a tool does not
    grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, or `MASTER_TOOLS` in
    `clarify/harness.ts` or the Claude agent cannot call it under auto-approve. OpenCode
@@ -140,24 +141,28 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
    their arguments. No route reads `request.body` without a schema. A non-null `cellId`
    is checked against `CellRepository` before it is written.
 10. **The SPA imports the pure server contract.** `src/web/src/types.ts` re-exports
-    `domain/request`, `master/types`, `plugins/types`, and `clarify/models`. Keep those
-    modules free of Node imports so Vite can bundle them; do not restate workflow tables
-    or request shapes in the SPA.
+    `domain/request`, `domain/sessions`, `master/types`, `plugins/types`, and
+    `clarify/models`. Keep those modules free of Node imports so Vite can bundle them; do
+    not restate workflow tables, session ids, or request shapes in the SPA.
 11. **Process segments are data.** `process.json` is the global template. A cell can
-    store its own snapshot in `cells.process_json`; its master uses that policy, or the
-    global template when absent. The master walks enabled segments in order, uses the
-    segment prompt, and advances only on the exact marker through `canTransition`. Do not
-    hardcode a prod/review rule in a route or UI.
-12. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
+    store its own snapshot in `cells.process_json` and an optional
+    `master_interval_minutes`; its master uses that policy and ticker, or the global
+    template and interval when absent. The master walks enabled segments in order, uses
+    the segment prompt, and advances only on the exact marker through `canTransition`. Do
+    not hardcode a prod/review rule in a route or UI.
+12. **Master chats and notes are per cell.** `masterSessionId(cellId)` returns
+    `__master__:<cellId>`; unassigned work uses `__master__`. Notes from a cell cycle go
+    only to that cell’s session.
+13. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
     finishes with the partial transcript; it does not clear `session.json`, so the next
     message resumes. Stop clears the client queue; normal completion drains it in order.
-13. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
+14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
     delete a live turn's maps without resolving its promise.
-14. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
+15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
     into the KB is a human action. Do not add an automatic finalize transition without an
     explicit indexing path.
-15. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
+16. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
     request/title; the `followup` event is the dedupe key.
 
 ## Extension recipes

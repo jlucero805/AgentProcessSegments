@@ -290,9 +290,10 @@ prod is an ordinary `engine.send` turn using the configured prompt. If the reply
 prod/review/cycle/skip is stored in `master_events`; status, history, and a manual run are
 exposed, and the Config page owns the policy and per-cell switches.
 
-**Cost.** One prod at a time, sequentially; a hung turn delays the rest of the cycle. The
-cadence is global (per-cell cadence is future work), and the review move relies on the
-marker rather than an LLM judgment. Prods are ordinary agent turns, so they cost tokens.
+**Cost.** One prod at a time per cell, sequentially inside that cell; a hung turn delays
+the rest of that cell’s cycle. D27 later made cadence and policy per cell and replaced
+the single prod rule with configurable segments. The review move relies on the marker
+rather than an LLM judgment. Prods are ordinary agent turns, so they cost tokens.
 
 ## D23. Chat queue is client-side; stop keeps the session
 
@@ -360,19 +361,20 @@ review, create follow-ups, and advance on rules.
 **Decision.** Store five ordered segments in
 `$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS` overrides) as the global
 default. A cell can store a full copy of the same shape in `cells.process_json`; its
-master uses that policy, while cells without one inherit the global default. Each
-segment has a label, purpose, enabled flag, idle threshold, per-cycle cap, prompt, exact
-ready marker, legal target state, and follow-up marker. The master walks enabled segments
-in array order. `intake` uses `engine.start`; other segments use `engine.send` with the
-configured prompt. A marker advances only through a legal transition. `intake` and
-`finalize` cannot auto-advance. Follow-up lines create requests in the same cell and are
-deduplicated per source request in `master_events`.
+master uses that policy, while cells without one inherit the global default. Each cell
+also has `master_interval_minutes` (null inherits the global cadence), its own timer, and
+its own reserved chat session (`__master__:<cellId>`). Each segment has a label, purpose,
+enabled flag, idle threshold, per-cycle cap, prompt, exact ready marker, legal target
+state, and follow-up marker. The master walks enabled segments in array order. `intake`
+uses `engine.start`; other segments use `engine.send` with the configured prompt. A marker
+advances only through a legal transition. `intake` and `finalize` cannot auto-advance.
+Follow-up lines create requests in the same cell and are deduplicated per source request
+in `master_events`.
 
 **Cost.** A missing global file falls back to a policy derived from the legacy master
 fields. Cell policies are snapshots, so changing the global template does not rewrite
-existing cells. The master is still sequential and all cells share one scheduler tick,
-so a full pipeline can take one cadence per segment. Prompts cost tokens when segments
-are enabled.
+existing cells. Each enabled cell has its own timer and cycle; cycles are sequential
+inside a cell. Prompts cost tokens when segments are enabled.
 
 ## D28. The cell master has its own detail
 
@@ -380,11 +382,12 @@ are enabled.
 the cron is doing, see the prompt it uses, and chat with it as a first-class object.
 
 **Decision.** Add a `Cell master` button above `+ New request`. It opens a dedicated
-drawer with status, last/next run, the enabled segment loop and prompts, activity, and the
-`__master__` chat. When a cell is selected in the sidebar, the drawer shows that cell’s
-policy and filters activity to the cell; otherwise it shows the global template.
+drawer with status, the cell’s own ticker/last/next run, the enabled segment loop and
+prompts, filtered activity, and the cell’s `__master__:<cellId>` chat. With no cell
+selected it shows the global template, the unassigned ticker, and the global chat.
 `?master=1` restores the drawer. Config remains the editor; the drawer is the
 observability surface.
 
-**Cost.** The drawer polls status and events every 10 seconds while open, the master chat
-is shared across cells, and the chat remains read-only/advisory.
+**Cost.** The drawer polls status and events every 10 seconds while open. Each cell’s
+chat is separate; unassigned work keeps the global chat. The chat remains
+read-only/advisory.

@@ -54,6 +54,7 @@ src/server/src
   config.ts           every path and port, env-overridable
   db.ts               schema, idempotent column migrations, boot reconcile
   domain/request.ts   states, transition table, entities, transcript types
+  domain/sessions.ts  reserved KB/master session ids, per-cell master sessions
   requests/           RequestRepository: CRUD, edit, guarded transitions
   cells/              CellRepository: delete detaches requests, per-cell process policy
   kb/                 KbRepository: one entry per request, ranked literal search
@@ -71,8 +72,8 @@ src/server/src
   settings.ts         XDG scheduler settings, zod validation, atomic write
   process/            process.json definition, defaults, store, follow-up parser
   master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
-  master/service.ts   one master cycle: walk segments, start/prod, follow-ups, advance
-  master/scheduler.ts cadence, config reload, manual run, coalesced cycles
+  master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
+  master/scheduler.ts per-cell timers, unassigned timer, manual run, coalesced cycles
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
@@ -103,15 +104,15 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 186 vitest cases: 125 server cases (state machine, migrations including
+`npm test` runs 189 vitest cases: 127 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
-real git clones, process definitions/store/follow-ups, per-cell policies, the generic
-master pipeline, and the HTTP API over a real socket) and 61 web cases (shared contract
-re-exports, NDJSON client, chat folding, request-form mapping, board, create modal,
-composer, cell bar, cell creation, config/process editor, master detail, and the app shell
-with the drawer and chat mounted under jsdom).
+real git clones, process definitions/store/follow-ups, per-cell policies and tickers,
+the generic master pipeline, and the HTTP API over a real socket) and 62 web cases
+(shared contract re-exports, NDJSON client, chat folding, request-form mapping, board,
+create modal, composer, cell bar, cell creation, config/process editor, master detail, and
+the app shell with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

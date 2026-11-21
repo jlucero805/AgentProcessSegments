@@ -10,17 +10,19 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
 
 1. Open the sidebar and press **New cell** (or the pencil on an existing cell).
 2. Name the cell.
-3. The process editor opens with a full copy of the global default from
+3. Optionally set **Master interval (minutes)**. Empty inherits the global cadence; a
+   value gives this cell its own ticker.
+4. The process editor opens with a full copy of the global default from
    `process.json`. Adjust the five segments:
    - **Requests** (intake): start clarification for unplanned work.
    - **Plan**: groom tickets and advance to Implement.
    - **Implement**: continue/build work and advance to Review.
    - **Review**: check the result; optionally create a draft change request.
    - **Finalize**: produce the digest; the human still approves KB indexing.
-4. For each segment set the enabled switch, idle threshold, per-cycle cap, prompt, ready
+5. For each segment set the enabled switch, idle threshold, per-cycle cap, prompt, ready
    marker, legal target, and follow-up rule.
-5. Press **Create cell**. The policy is stored on the cell as a snapshot.
-6. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
+6. Press **Create cell**. The policy is stored on the cell as a snapshot.
+7. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
 
 Existing cells with no policy inherit the global default. New cells snapshot it so later
 global edits do not silently rewrite every cell.
@@ -61,15 +63,19 @@ The full field reference is in `docs/07-process-segments.md`.
 Press **Cell master** (above **+ New request**).
 
 - With no cell selected it shows the global template and all activity.
-- With a cell selected it shows that cell’s policy, filters activity to the cell, and
-  says whether the cell is using its own policy or inheriting the global default.
+- With a cell selected it shows that cell’s policy and **ticker interval**, filters
+  activity to the cell, and says whether the cell is using its own policy or inheriting
+  the global default.
 - The drawer shows status, last/next run, every segment prompt, recent
-  start/prod/advance/followup/skip events, and the master chat.
-- **Run now** executes one cycle immediately.
+  start/prod/advance/followup/skip events, and **that cell’s master chat**. Unassigned
+  work uses the global master chat.
+- **Run now** executes one cycle for the selected cell (or the global cycle when no cell
+  is selected).
 - **Configure** jumps to the Config page.
 
-The master chat is shared across cells and is advisory. Scheduler notes are posted into
-it; it can read the board and KB but cannot mutate requests.
+Each cell’s master chat is a separate reserved session, so one cell’s notes and
+conversation do not mix with another’s. The chat is advisory: it can read the board and
+KB but cannot mutate requests.
 
 ## 5. Review, finalize, and follow-ups
 

@@ -169,3 +169,7 @@ states dispose the session as before; disabling the master stops scheduling imme
   global default; Config links to the same editor; the Cell master drawer is cell-scoped.
 - [x] **22. Tests and docs** — cell process persistence, per-cell master selection, cell
   modal, HTTP cell process routes, and `docs/07` workflow examples.
+- [x] **23. Per-cell master runtime** — cell interval tickers, per-cell master chat
+  sessions and notes, cell-scoped status/run endpoints, and per-cell chat in the drawer.
+- [x] **24. Tests and docs** — scheduler ticker, per-cell chat/status, cell interval, and
+  workflow/decision updates.

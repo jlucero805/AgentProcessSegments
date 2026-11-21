@@ -14,14 +14,16 @@ built and vended by the brain; real-CLI verification is still pending.
   boolean/array encoding, guarded transitions (`ILLEGAL_TRANSITION`, `NOT_FOUND`),
   run ids, agent status, unchecked, branch.
 - `CellRepository`: list, get, create, rename, delete in a transaction that detaches
-  requests instead of deleting them, plus the per-cell `master_enabled` switch.
-- Cell masters: a scheduler ticks on the configured interval (default 5 minutes) and
-  walks the configured process segments. It starts or prods due work, records
+  requests instead of deleting them, plus `master_enabled`, `master_interval_minutes`,
+  and the per-cell process snapshot.
+- Cell masters: the scheduler keeps one timer per enabled cell (cell interval or the
+  global default) plus one for unassigned work, and walks the configured process
+  segments. It starts or prods due work, records
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events, and advances on
   exact markers through legal transitions. A segment can also create follow-up requests
-  from `FOLLOW-UP:` callouts. Manual run, status, and event history are exposed; the
-  Config page edits the schedule and segments, and the Cell master drawer shows status,
-  prompts, activity, and the master chat.
+  from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
+  event history are cell-scoped. The Config page edits the global schedule/template, and
+  the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
 - Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
   (`SBOX_PROCESS` override): five ordered segments with purpose, enabled, idle minutes,
   per-cycle cap, prompt, ready marker, advance target, and follow-up policy. It is
@@ -30,8 +32,11 @@ built and vended by the brain; real-CLI verification is still pending.
 - Per-cell process policies: creating a cell opens a process editor seeded from the
   global default; the saved policy is stored on the cell (`cells.process_json`) and its
   master uses it instead of the global template. Existing cells without a policy inherit
-  the global default. The Cell master drawer shows the selected cell’s policy and filters
-  activity to it.
+  the global default.
+- Per-cell masters: the scheduler keeps a separate timer per cell (`masterIntervalMinutes`
+  or the global interval) plus one for unassigned work. Each cell has its own reserved
+  master chat (`__master__:<cellId>`); notes and chat do not mix between cells. The Cell
+  master drawer shows the selected cell’s ticker, policy, filtered activity, and chat.
 - Live master verification: a stalled dispatch request was prodded by the real OpenCode
   agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
   prod, review, and cycle events.
@@ -125,7 +130,7 @@ built and vended by the brain; real-CLI verification is still pending.
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. The files on this host are
   `/root/.config/sandbox-harness/config.json` and `process.json`.
-- 186 vitest cases, all passing: 125 server across 15 files and 61 web across 13 files,
+- 189 vitest cases, all passing: 127 server across 15 files and 62 web across 13 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
   binary against a local mock Anthropic API).
@@ -179,8 +184,6 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Not built yet
 
-- Per-cell cadence: all cells share the scheduler tick; per-segment idle thresholds and
-  prompts are cell-specific. A truly independent interval per cell is future work.
 - Automatic finalize/index: the human still approves KB indexing. Per-cell review
   prompts can create draft CRs, but there is no hardcoded forger integration.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
@@ -211,8 +214,8 @@ GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells
 GET    /api/cells/:id
-POST   /api/cells                         {name, process?}
-PATCH  /api/cells/:id                     {name?, masterEnabled?, process?}
+POST   /api/cells                         {name, process?, masterIntervalMinutes?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
@@ -222,8 +225,8 @@ GET    /api/config
 PATCH  /api/config                        {master:{…}}
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
-GET    /api/master/status
-POST   /api/master/run
+GET    /api/master/status[?cellId=…]
+POST   /api/master/run[?cellId=…]
 GET    /api/master/events?cellId=…&limit=…
 GET    /ws
 ```

@@ -146,13 +146,15 @@ comment, not package exports.
 **Chosen.** `process.json` beside `config.json` is the global default; JSON rather than
 YAML so the existing zod/atomic-write path is reused without a parser dependency. A cell
 stores a full snapshot in `cells.process_json`, seeded from the global default at
-creation. The Config page edits it structurally; raw JSON is not shown in the SPA.
+creation, plus an optional `master_interval_minutes` for its own ticker. The Config page
+edits the global template structurally; raw JSON is not shown in the SPA.
 
 **Alternatives.** Put segments inside `config.json`, global-only policy, or YAML support.
 
 **Why.** Pipeline definitions are larger and change more often than the scheduler policy,
 and separate per-cell snapshots let a strict repository diverge without changing every
-other cell. Cost: two config locations and snapshots do not follow later global edits.
+other cell. Cost: two config locations; snapshots do not follow later global edits; each
+cell has its own timer and master chat.
 
 ## Open items for review
 

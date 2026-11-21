@@ -1,4 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { buildServer } from '../src/http/server.js';
@@ -240,6 +243,29 @@ describe('http api', () => {
     const body = response.json() as { harness: string; supportsEffort: boolean };
     expect(body.harness).toBe('opencode');
     expect(body.supportsEffort).toBe(false);
+  });
+
+  it('vends SPA assets added after boot and keeps missing assets as 404s', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-web-'));
+    mkdirSync(path.join(dir, 'assets'));
+    writeFileSync(path.join(dir, 'index.html'), '<!doctype html><body>spa-index</body>');
+    writeFileSync(path.join(dir, 'assets', 'app.js'), 'console.log("asset")');
+    await makeApp({ webDir: dir });
+
+    const index = await call('GET', '/');
+    expect(index.status).toBe(200);
+    expect(index.text).toContain('spa-index');
+
+    const asset = await call('GET', '/assets/app.js');
+    expect(asset.status).toBe(200);
+    expect(asset.text).toContain('console.log');
+
+    const deep = await call('GET', '/boards/abc');
+    expect(deep.status).toBe(200);
+    expect(deep.text).toContain('spa-index');
+
+    const missing = await call('GET', '/assets/missing.js');
+    expect(missing.status).toBe(404);
   });
 
   it('streams a clarify turn as NDJSON over a real socket', async () => {

@@ -94,6 +94,18 @@ flowchart LR
 The deployment runbook is in [`deploy/vps.md`](deploy/vps.md); the operator workflow is
 in [`docs/08-user-workflows.md`](docs/08-user-workflows.md).
 
+## Screens
+
+The board is the main loop: five process segments, cell filters, agent status, and
+unchecked-work markers. The drawer is the selected cell’s master: ticker, cron loop,
+prompts, activity, and chat.
+
+These screenshots use a staged demo board in an isolated temp database, not live data.
+
+![Sandbox Harness board with staged tasks across Requests, Plan, Implement, Review, and Finalize](docs/screenshots/board.png)
+
+![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
+
 ## Requirements
 
 - Node 20 or newer

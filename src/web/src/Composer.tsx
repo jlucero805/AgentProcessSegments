@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { resolveSlashText } from './slash';
 import type { CommandInfo } from './types';
 import { Button, cn } from './ui';
 
@@ -39,10 +40,10 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
   }
 
   function submit() {
-    const text = value.trim();
-    if (!text || disabled) return;
+    const raw = value.trim();
+    if (!raw || disabled) return;
     setValue('');
-    void onSend(text);
+    void onSend(resolveSlashText(raw, commands));
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -88,6 +89,11 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
             >
               <span className="font-mono">/{commandName(suggestion.command)}</span>
               <span className="truncate text-[11px] text-zinc-500">{suggestion.description}</span>
+              {suggestion.kind === 'skill' ? (
+                <span className="ml-auto rounded border border-purple-900 px-1 text-[9px] uppercase tracking-wide text-purple-300">
+                  skill
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -114,7 +120,7 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
         </Button>
       </div>
       <p className="mt-1 text-[10px] text-zinc-600">
-        Enter to send · Shift+Enter for a newline · / for commands
+        Enter to send · Shift+Enter for a newline · / for skills and commands
       </p>
     </div>
   );

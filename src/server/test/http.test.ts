@@ -12,6 +12,7 @@ import { MasterService } from '../src/master/service.js';
 import { defaultProcess } from '../src/process/defaults.js';
 import { ProcessStore } from '../src/process/store.js';
 import { SettingsStore } from '../src/settings.js';
+import { SkillCatalog } from '../src/skills/catalog.js';
 import { createHarness, resultLine, settle, type Harness } from './helpers.js';
 
 interface Open {
@@ -29,6 +30,7 @@ async function makeApp(
   const h = createHarness(script);
   const settings = new SettingsStore(h.config.configPath);
   const process = new ProcessStore(h.config.processPath, () => defaultProcess(settings.get().master));
+  const skills = new SkillCatalog({ home: h.config.dataDir, cwd: h.config.dataDir, env: {} });
   const masterEvents = new MasterEventRepository(h.db);
   const master = new MasterScheduler(
     new MasterService({ repo: h.repo, cells: h.cells, engine: h.engine, settings, events: masterEvents, process }),
@@ -46,6 +48,7 @@ async function makeApp(
     master,
     masterEvents,
     process,
+    skills,
     config: { ...h.config, ...config },
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
@@ -400,6 +403,7 @@ describe('http api', () => {
 
     expect((await call('GET', '/api/plugins')).json()).toEqual([]);
     expect((await call('GET', '/api/commands')).json()).toEqual([]);
+    expect((await call('GET', '/api/skills')).json()).toEqual([]);
 
     const bad = await call('POST', '/api/plugins', { url: 'javascript:alert(1)' });
     expect(bad.status).toBe(400);

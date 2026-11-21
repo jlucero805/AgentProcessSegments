@@ -14,8 +14,9 @@ import type {
   ProcessConfig,
   ProcessResponse,
   Request,
-  State,
   SegmentConfig,
+  SkillInfo,
+  State,
   TerminalStatus,
 } from './types';
 
@@ -239,6 +240,9 @@ export const api = {
   },
   getCommands(): Promise<CommandInfo[]> {
     return request('/api/commands');
+  },
+  getSkills(requestId?: string): Promise<SkillInfo[]> {
+    return request(withQuery('/api/skills', { requestId }));
   },
   getConfig(): Promise<ConfigResponse> {
     return request('/api/config');

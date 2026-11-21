@@ -30,6 +30,7 @@ export type {
   MasterStatus,
 } from '../../server/src/master/types';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
+export type { SkillInfo } from '../../server/src/skills/types';
 export type { ModelOption } from '../../server/src/clarify/models';
 export type {
   CellDetail,

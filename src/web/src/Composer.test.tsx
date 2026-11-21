@@ -63,6 +63,36 @@ describe('Composer', () => {
     expect(input).toHaveValue('/demo-kit:hello');
   });
 
+  it('sends a skill invocation when the message is the skill label', () => {
+    const onSend = vi.fn();
+    render(
+      <Composer
+        onSend={onSend}
+        commands={[
+          {
+            command: '/poteto-mode',
+            description: 'Maximum focus',
+            plugin: 'opencode',
+            kind: 'skill',
+            invoke: 'Use the poteto-mode skill now and follow its instructions.',
+          },
+        ]}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText('Ask a question...');
+    fireEvent.change(input, { target: { value: '/poteto' } });
+    expect(screen.getByText('/poteto-mode')).toBeInTheDocument();
+    expect(screen.getByText('skill')).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(input).toHaveValue('/poteto-mode');
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onSend).toHaveBeenCalledWith(
+      'Use the poteto-mode skill now and follow its instructions.',
+    );
+  });
+
   it('is disabled when the chat has not started', () => {
     render(
       <Composer

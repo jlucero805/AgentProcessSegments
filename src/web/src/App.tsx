@@ -9,6 +9,7 @@ import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
 import { SkillsPage } from './SkillsPage';
 import { api, describeError } from './api';
+import { mergeSlashCommands } from './slash';
 import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
 
@@ -94,7 +95,9 @@ export function App() {
   }, [loadCells]);
 
   useEffect(() => {
-    api.getCommands().then(setCommands).catch(() => {});
+    Promise.all([api.getCommands(), api.getSkills()])
+      .then(([commandList, skillList]) => setCommands(mergeSlashCommands(commandList, skillList)))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {

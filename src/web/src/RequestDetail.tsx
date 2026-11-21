@@ -3,6 +3,7 @@ import { api, describeError, streamNdjson } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { TranscriptList } from './TranscriptList';
 import { formFromRequest, patchFromForm, type RequestFormState } from './requestForm';
+import { mergeSlashCommands } from './slash';
 import {
   EFFORT_LEVELS,
   isTerminal,
@@ -70,10 +71,11 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       setForm(formFromRequest(found));
       setDigest(found.digest ?? '');
 
-      const [clarify, modelResult, commandList, cellList] = await Promise.all([
+      const [clarify, modelResult, commandList, skillList, cellList] = await Promise.all([
         api.getClarify(id).catch(() => ({ started: found.clarifyStarted, transcript: [] })),
         api.getModels().catch(() => null),
         api.getCommands().catch(() => [] as CommandInfo[]),
+        api.getSkills(id).catch(() => []),
         api.getCells().catch(() => [] as Cell[]),
       ]);
       setTranscript(clarify.transcript);
@@ -83,7 +85,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
         setHarness(modelResult.harness ?? null);
         setSupportsEffort(modelResult.supportsEffort !== false);
       }
-      setCommands(commandList);
+      setCommands(mergeSlashCommands(commandList, skillList));
       setCells(cellList);
     } catch (error) {
       onError(describeError(error));

@@ -16,6 +16,7 @@ import { defaultProcess } from './process/defaults.js';
 import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
+import { SkillCatalog } from './skills/catalog.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -47,6 +48,7 @@ export async function main(): Promise<void> {
       },
     });
     const models = new ModelCatalog(harness);
+    const skills = new SkillCatalog();
     const masterEvents = new MasterEventRepository(db);
     const masterService = new MasterService({
       repo,
@@ -70,6 +72,7 @@ export async function main(): Promise<void> {
       master,
       masterEvents,
       process: processStore,
+      skills,
       errorLog: errors,
       config,
     });

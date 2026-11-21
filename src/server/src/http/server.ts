@@ -9,6 +9,7 @@ import { KB_SESSION_ID, masterCellId, isMasterSession } from '../clarify/engine.
 import { isVirtualSessionId } from '../clarify/engine.js';
 import type { ModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
+import { worktreePath } from '../clarify/worktree.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -26,6 +27,7 @@ import type { ProcessStore } from '../process/store.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
+import { SkillCatalog } from '../skills/catalog.js';
 import { TerminalService } from '../terminal/service.js';
 import { errorMessage } from '../util/errors.js';
 
@@ -40,6 +42,7 @@ export interface ServerDeps {
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
   process: ProcessStore;
+  skills?: SkillCatalog;
   errorLog?: ErrorSink;
   config: Config;
   logger?: boolean;
@@ -130,6 +133,7 @@ const masterEventsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
+const skillsQuerySchema = z.object({ requestId: z.string().optional() });
 
 interface Stream {
   emit: (event: ClarifyEvent) => void;
@@ -253,6 +257,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     master,
     masterEvents,
     process: processStore,
+    skills,
     errorLog,
     config,
   } = deps;
@@ -525,6 +530,18 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/commands', async () => plugins.listCommands());
+  app.get('/api/skills', async (request) => {
+    const query = skillsQuerySchema.parse(request.query);
+    if (query.requestId) {
+      const found = repo.get(query.requestId);
+      if (found?.targetRepo) {
+        const dir = worktreePath(config.dataDir, found.id);
+        const cwd = existsSync(dir) ? dir : found.targetRepo;
+        return new SkillCatalog({ cwd }).list();
+      }
+    }
+    return skills?.list() ?? [];
+  });
 
   app.get('/api/config', async () => ({ ...settings.get(), path: settings.path }));
   app.patch('/api/config', async (request) => ({

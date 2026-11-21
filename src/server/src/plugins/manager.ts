@@ -187,6 +187,8 @@ export class PluginManager {
           command: `/${plugin.name}:${skill.name}`,
           description: markdownDescription(readFileSync(file, 'utf8')),
           plugin: plugin.name,
+          kind: 'skill',
+          invoke: `Use the ${skill.name} skill now and follow its instructions.`,
         });
       }
     }

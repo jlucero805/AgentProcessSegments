@@ -25,16 +25,17 @@ digests.
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
 - 109 vitest cases: 75 server across 12 files and 34 web across 8 files, all green.
-- Two proof scripts: `scripts/smoke.sh` (built brain over a socket) and
-  `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
+- Three proof scripts: `scripts/smoke.sh` (built brain over a socket),
+  `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio), and
+  `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
   knowledge base), a systemd user unit for a VPS, and a harness seam with `claude` and
   `opencode` adapters. User MCP servers are merged into request sessions for both.
-  OpenCode is verified end to end: a real turn, MCP tools, resume across a brain
-  restart, and a read-only KB session.
-- Not built: Claude real-CLI verification, CI/pipeline integration, KB embeddings.
+  OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
+  brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
+- Not built: CI/pipeline integration, KB embeddings.
 
 ## Commands
 
@@ -47,6 +48,7 @@ npm run dev                    # brain plus the Vite dev server (proxies /api an
 SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
+node scripts/claude-mock-smoke.mjs  # real claude binary + mock Anthropic API
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart sandbox-harness
 journalctl --user -u sandbox-harness -n 50 --no-pager
@@ -54,10 +56,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 
 ## Environment facts that will bite
 
-- **No `claude` binary here; `opencode` v2.3.2 is installed and authenticated.** Claude
-  turns, the model probe, and the merged-MCP allowlist stay unverified against the real
-  CLI. OpenCode is verified end to end: `opencode models` feeds the catalog, config is
-  injected through `OPENCODE_CONFIG_DIR`, and `--session` resumes after a brain restart.
+- **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
+  Code binary can be supplied with `SBOX_CLAUDE_BIN`.
+  `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock
+  Anthropic API (stream, MCP tool, `--resume`, model probe) and skips when no binary is
+  found. Do not infer live Claude model behavior from the mock.
 - **OpenCode is one-shot per message.** The adapter starts
   `opencode run --format json --auto --standalone` per turn, carries the `ses_…` session
   id, and maps `text`, `tool_use`, `step_finish`, and `error` events. MCP tools surface
@@ -131,11 +134,9 @@ or disk.
 
 ## Next units, in order
 
-1. **Claude real-CLI verification.** Install `claude`, run one request end to end,
-   confirm the merged MCP config and `mcp__<server>__*` allow rules, confirm `--resume`
-   across a brain restart, and confirm the model probe returns `source: "probe"`.
-   Update `docs/02-status.md` with what you saw.
-2. **CI/pipeline integration and KB embeddings** remain design work; neither is built.
+1. **CI/pipeline integration.** Add a workflow that runs install, typecheck, tests, and
+   the smoke scripts on Linux.
+2. **KB embeddings.** The KB is still a literal LIKE store.
 
 ## Conventions
 

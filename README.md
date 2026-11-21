@@ -98,3 +98,7 @@ the drawer and chat mounted under jsdom).
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into
 SQLite.
+
+`node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
+mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
+probed model catalog. It skips when no `claude` binary is available.

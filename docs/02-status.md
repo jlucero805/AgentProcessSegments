@@ -58,8 +58,14 @@ built and vended by the brain; real-CLI verification is still pending.
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served.
 - 109 vitest cases, all passing: 75 server across 12 files and 34 web across 8 files,
-  plus `scripts/smoke.sh` (built brain) and `scripts/mcp-smoke.mjs` (built brain plus
-  built MCP server over real stdio).
+  plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
+  MCP server over real stdio), and `scripts/claude-mock-smoke.mjs` (real Claude Code
+  binary against a local mock Anthropic API).
+- Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
+  streamed turn with an `mcp__harness__*` tool call, merged harness plus user MCP config,
+  `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
+  Anthropic account was needed; the mock API answered the Messages stream and the
+  `StructuredOutput` probe tool.
 - Deployment: a systemd user unit in `deploy/sandbox-harness.service` and a VPS runbook
   in `deploy/vps.md`. Verified on this host: enabled and active, bound to
   `127.0.0.1:7391`, SPA and API served with `/api` winning over the SPA fallback, a
@@ -89,9 +95,6 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Not built yet
 
-- Claude real-CLI verification: no `claude` binary is installed here, so Claude turns,
-  its model probe (`source: "probe"`), the merged-MCP allowlist, and `--resume` are
-  unverified against the real CLI. OpenCode covers the live end-to-end path.
 - No CI/pipeline integration, no embeddings over the KB.
 
 ## Route list

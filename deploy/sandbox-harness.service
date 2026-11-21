@@ -1,0 +1,40 @@
+# systemd user unit for the Sandbox Harness brain.
+#
+# Install (single-user VPS):
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/sandbox-harness.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sandbox-harness
+#   sudo loginctl enable-linger "$USER"     # start at boot without a login
+#
+# The unit assumes the clone lives at ~/sandbox-harness. Use a drop-in to change
+# WorkingDirectory and the env paths; see deploy/vps.md.
+#
+# The brain binds loopback only. Put a tunnel or SSO proxy in front of it; never
+# widen the bind.
+
+[Unit]
+Description=Sandbox Harness brain
+Documentation=https://github.com/jlucero805/AgentProcessSegments
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/sandbox-harness
+ExecStart=/usr/bin/env node src/server/dist/app.js
+Environment=NODE_ENV=production
+Environment=SBOX_HOST=127.0.0.1
+Environment=SBOX_PORT=7391
+Environment=SBOX_DB=%h/sandbox-harness/sandbox-harness.sqlite
+Environment=SBOX_WEB_DIR=%h/sandbox-harness/src/web/dist
+Environment=SBOX_DATA_DIR=%h/.sandbox-harness
+# systemd does not read the shell profile. Keep node, git, and claude on PATH.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

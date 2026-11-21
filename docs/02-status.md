@@ -47,6 +47,11 @@ built and vended by the brain; real-CLI verification is still pending.
 - 93 vitest cases, all passing: 61 server across 10 files and 32 web across 7 files,
   plus `scripts/smoke.sh` (built brain) and `scripts/mcp-smoke.mjs` (built brain plus
   built MCP server over real stdio).
+- Deployment: a systemd user unit in `deploy/sandbox-harness.service` and a VPS runbook
+  in `deploy/vps.md`. Verified on this host: enabled and active, bound to
+  `127.0.0.1:7391`, SPA and API served with `/api` winning over the SPA fallback, a
+  `kill -9` of the main process triggered `Restart=on-failure`, and a clean restart kept
+  serving. `loginctl enable-linger` is set so the user manager starts at boot.
 
 ## Deviations from the spec
 
@@ -70,7 +75,7 @@ built and vended by the brain; real-CLI verification is still pending.
   here. `GET /api/models` returns `source: "fallback"` in this environment.
 - User MCP servers are not merged into the generated `mcp-config.json` and
   `parseMcpListServers` is not wired in.
-- No process supervisor, no CI/pipeline integration, no embeddings over the KB.
+- No CI/pipeline integration, no embeddings over the KB.
 
 ## Route list
 

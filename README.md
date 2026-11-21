@@ -34,6 +34,7 @@ main routes over a real socket.
 - `docs/01-system-spec.md` the governing contract
 - `docs/02-status.md` built versus not built, route list, deviations
 - `docs/03-decisions.md` why this rebuild chose what it chose
+- `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
 ## Layout
@@ -67,6 +68,9 @@ src/web
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
   src/ui.tsx          hand-rolled shadcn-style kit
+deploy
+  sandbox-harness.service  systemd user unit for the brain
+  vps.md                   install, tunnel, update, and restart runbook
 ```
 
 ## API

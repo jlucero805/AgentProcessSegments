@@ -27,9 +27,9 @@ one git worktree per request, and a knowledge base fed by human-approved digests
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parser, worktrees, MCP server,
-  plugin manager, models with fallback, and the SPA (board, drawer, chat, cells, skills,
-  knowledge base).
-- Not built: user MCP server merge, real-CLI verification, process supervisor.
+  plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
+  knowledge base), and a systemd user unit for a VPS.
+- Not built: user MCP server merge, real-CLI verification.
 
 ## Commands
 
@@ -41,6 +41,9 @@ npm run build                  # vite into src/web/dist, then tsc into src/serve
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
+# on a VPS, the brain runs as a systemd user unit:
+systemctl --user restart sandbox-harness
+journalctl --user -u sandbox-harness -n 50 --no-pager
 ```
 
 ## Environment facts that will bite
@@ -54,6 +57,9 @@ node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 - **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
   On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
   `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.
+- **systemd user units need a user manager.** In a non-login shell set
+  `XDG_RUNTIME_DIR=/run/user/<uid>` before `systemctl --user`. Linger starts the user
+  manager at boot; the brain's unit is in `deploy/`.
 - **macOS temp paths differ**: `os.tmpdir()` returns `/var/...` while `git rev-parse`
   returns `/private/var/...`. Compare real paths or existence, never strings, in
   worktree code.
@@ -111,8 +117,6 @@ disk.
 2. **Real-CLI verification.** Install `claude`, run one request end to end, confirm
    `--resume` across a brain restart, confirm the model probe returns `source: "probe"`,
    and confirm tool cards survive. Update `docs/02-status.md` with what you saw.
-3. **Process supervisor.** The brain is a backgrounded process today. Either a launch
-   agent or a documented restart procedure, whichever the operator prefers.
 
 ## Conventions
 

@@ -167,3 +167,19 @@ Vitest 2.
 **Cost.** Two Vitest majors live in the repo, and a later assistant-ui upgrade will be
 a primitives migration. In exchange the chat code matches the contract the spec
 describes and the server tests are untouched.
+
+## D15. A systemd user unit on the VPS
+
+**Context.** The spec ran the brain as a background process with manual restarts. The
+operator wants it on a VPS as a systemd service, on a host that already uses
+herdr-core for interactive terminals.
+
+**Decision.** Ship a systemd user unit (`deploy/sandbox-harness.service`) and a runbook
+(`deploy/vps.md`), with `loginctl enable-linger` for boot. A user unit keeps the
+`claude` login, git config, and ssh keys of the account that owns the clone, and keeps
+the brain in its own cgroup instead of inside a herdr pane. The system-wide variant is
+documented for multi-user hosts.
+
+**Cost.** A fresh machine needs the linger step and a reachable user manager; a host
+without systemd (a plain container) runs the foreground command instead. The unit binds
+loopback only, so remote access still needs the tunnel.

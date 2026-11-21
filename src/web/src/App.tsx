@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Board } from './Board';
 import { CellBar } from './CellBar';
 import { CellModal } from './CellModal';
@@ -13,6 +13,10 @@ import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
 
 type Page = 'board' | 'kb' | 'skills' | 'config';
+
+const TerminalPanel = lazy(() =>
+  import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
+);
 
 function readInitialRoute(): {
   page: Page;
@@ -68,6 +72,9 @@ export function App() {
   const [masterOpen, setMasterOpen] = useState(initialRoute.masterOpen);
   const [cellModalOpen, setCellModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
+  const [terminalAvailable, setTerminalAvailable] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +95,13 @@ export function App() {
 
   useEffect(() => {
     api.getCommands().then(setCommands).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api
+      .getTerminalStatus()
+      .then((status) => setTerminalAvailable(status.available))
+      .catch(() => setTerminalAvailable(false));
   }, []);
 
   const refreshBoard = useCallback(() => setBoardKey((key) => key + 1), []);
@@ -199,6 +213,19 @@ export function App() {
         </div>
 
         <div className="mt-auto space-y-2">
+          {terminalAvailable ? (
+            <Button
+              variant="secondary"
+              className="hidden w-full md:inline-flex"
+              onClick={() => {
+                setTerminalOpen(true);
+                setTerminalMaximized(false);
+                setNavOpen(false);
+              }}
+            >
+              Terminal
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             className="w-full"
@@ -318,6 +345,19 @@ export function App() {
         }}
         onError={setError}
       />
+
+      {terminalOpen && terminalAvailable ? (
+        <Suspense fallback={null}>
+          <TerminalPanel
+            maximized={terminalMaximized}
+            onToggleMaximize={() => setTerminalMaximized((value) => !value)}
+            onClose={() => {
+              setTerminalOpen(false);
+              setTerminalMaximized(false);
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       <CreateModal
         open={createOpen}

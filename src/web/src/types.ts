@@ -74,6 +74,11 @@ export interface ProcessResponse extends ProcessConfig {
   path: string;
 }
 
+export interface TerminalStatus {
+  available: boolean;
+  cwd: string;
+}
+
 export interface ClarifyState {
   started: boolean;
   transcript: TranscriptMsg[];

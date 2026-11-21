@@ -16,6 +16,7 @@ import type {
   Request,
   State,
   SegmentConfig,
+  TerminalStatus,
 } from './types';
 
 export class ApiError extends Error {
@@ -241,6 +242,9 @@ export const api = {
   },
   getProcess(): Promise<ProcessResponse> {
     return request('/api/process');
+  },
+  getTerminalStatus(): Promise<TerminalStatus> {
+    return request('/api/terminal');
   },
   patchProcess(segments: SegmentConfig[]): Promise<ProcessResponse> {
     return request('/api/process', { method: 'PATCH', body: JSON.stringify({ segments }) });

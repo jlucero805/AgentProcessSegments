@@ -25,6 +25,7 @@ import type { ProcessStore } from '../process/store.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
+import { TerminalService } from '../terminal/service.js';
 import { errorMessage } from '../util/errors.js';
 
 export interface ServerDeps {
@@ -241,6 +242,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     config,
   } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
+  const terminal = new TerminalService(config.terminalEnabled, config.terminalCwd);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) {
@@ -262,6 +264,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/health', async () => ({ ok: true }));
+  app.get('/api/terminal', async () => terminal.status());
 
   app.get('/api/requests', async (request) => {
     const query = listQuerySchema.parse(request.query);
@@ -518,6 +521,60 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/ws', { websocket: true }, (socket) => {
     socket.send(JSON.stringify({ t: 'hello' }));
     socket.on('message', (raw: Buffer) => socket.send(raw.toString()));
+  });
+
+  app.get('/ws/terminal', { websocket: true }, (socket, request) => {
+    let terminalHandle: ReturnType<TerminalService['open']> | null = null;
+    const send = (value: unknown): void => {
+      if (socket.readyState === 1) socket.send(JSON.stringify(value));
+    };
+    const close = (): void => {
+      terminalHandle?.kill();
+      terminalHandle = null;
+    };
+
+    try {
+      const query = request.query as { cols?: string; rows?: string };
+      terminalHandle = terminal.open({
+        cols: Number(query.cols),
+        rows: Number(query.rows),
+        onData: (data) => send({ t: 'data', data }),
+        onExit: (code) => {
+          send({ t: 'exit', code });
+          if (socket.readyState === 1) socket.close(1000, 'shell exited');
+        },
+      });
+      send({
+        t: 'ready',
+        pid: terminalHandle.pid,
+        shell: terminalHandle.shell,
+        cwd: terminalHandle.cwd,
+      });
+    } catch (error) {
+      send({ t: 'error', message: errorMessage(error) });
+      socket.close(1008, errorMessage(error));
+      return;
+    }
+
+    socket.on('message', (raw: Buffer) => {
+      try {
+        const message = JSON.parse(raw.toString()) as {
+          type?: string;
+          data?: string;
+          cols?: number;
+          rows?: number;
+        };
+        if (message.type === 'input' && typeof message.data === 'string') {
+          terminalHandle?.write(message.data);
+        } else if (message.type === 'resize') {
+          terminalHandle?.resize(Number(message.cols), Number(message.rows));
+        }
+      } catch {
+        // Malformed frame; ignore it rather than tearing down the shell.
+      }
+    });
+    socket.on('close', close);
+    socket.on('error', close);
   });
 
   if (existsSync(config.webDir)) {

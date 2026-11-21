@@ -15,6 +15,8 @@ export interface Config {
   harnessBin: string;
   configPath: string;
   processPath: string;
+  terminalEnabled: boolean;
+  terminalCwd: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): Config {
@@ -41,6 +43,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     processPath:
       env.SBOX_PROCESS ??
       path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'sandbox-harness', 'process.json'),
+    // The browser terminal is a direct shell, separate from agent sessions.
+    // Disable with SBOX_TERMINAL=0 when the brain is exposed beyond loopback.
+    terminalEnabled: env.SBOX_TERMINAL !== '0',
+    terminalCwd: env.SBOX_TERMINAL_CWD ?? cwd,
   };
 }
 

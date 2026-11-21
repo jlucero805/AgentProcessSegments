@@ -90,6 +90,13 @@ describe('http api', () => {
     expect(response.json()).toEqual({ ok: true });
   });
 
+  it('reports terminal availability without starting a shell', async () => {
+    const { h } = await makeApp();
+    const response = await call('GET', '/api/terminal');
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({ available: true, cwd: h.config.terminalCwd });
+  });
+
   it('creates, reads, and lists requests', async () => {
     await makeApp();
 

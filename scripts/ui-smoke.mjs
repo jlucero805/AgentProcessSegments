@@ -213,6 +213,16 @@ try {
     { timeout: 5_000 },
   );
 
+  if (!mobile) {
+    await clickText('Terminal');
+    await page.waitForSelector('button[aria-label="Close terminal"]', { timeout: 5_000 });
+    await page.click('button[aria-label="Maximize terminal"]');
+    await page.waitForSelector('button[aria-label="Restore terminal"]', { timeout: 5_000 });
+    await page.click('button[aria-label="Restore terminal"]');
+    await page.click('button[aria-label="Close terminal"]');
+    await page.waitForSelector('button[aria-label="Close terminal"]', { hidden: true, timeout: 5_000 });
+  }
+
   await openMenu('config');
   await clickText('Config');
   await page.waitForFunction(

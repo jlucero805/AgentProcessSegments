@@ -31,10 +31,19 @@ export type {
 } from '../../server/src/master/types';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { ModelOption } from '../../server/src/clarify/models';
+export type {
+  CellDetail,
+  FollowUpPolicy,
+  ProcessConfig,
+  SegmentConfig,
+  SegmentId,
+} from '../../server/src/process/definition';
+export { SEGMENT_IDS, SEGMENT_STATES } from '../../server/src/process/definition';
 
 import type { AgentStatus, Request, State, TranscriptMsg } from '../../server/src/domain/request';
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
+import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
 
 /** Sentinel session for the knowledge-base chat; it has no request row. */
 export const KB_SESSION_ID = '__kb__';
@@ -55,6 +64,10 @@ export interface AppConfig {
 }
 
 export interface ConfigResponse extends AppConfig {
+  path: string;
+}
+
+export interface ProcessResponse extends ProcessConfig {
   path: string;
 }
 

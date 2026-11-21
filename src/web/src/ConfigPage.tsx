@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
+import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
+import { ProcessEditor } from './ProcessEditor';
 import {
   MASTER_SESSION_ID,
   timeAgo,
-  type Cell,
+  type CellDetail,
   type CommandInfo,
   type MasterConfig,
   type MasterEvent,
   type MasterResult,
   type MasterStatus,
+  type ProcessConfig,
+  type SegmentConfig,
 } from './types';
 import {
   Badge,
@@ -20,61 +24,47 @@ import {
   Input,
   SectionTitle,
   Spinner,
-  Textarea,
 } from './ui';
 
 interface ConfigPageProps {
   onError: (message: string) => void;
   commands: CommandInfo[];
+  onEditCell?: (cell: CellDetail) => void;
 }
-
-const ACTION_TONES = {
-  cycle: 'neutral',
-  prod: 'blue',
-  review: 'green',
-  skip: 'amber',
-} as const;
 
 function clock(ts: number | null | undefined): string {
   return ts ? new Date(ts).toLocaleTimeString() : '—';
 }
 
-function eventDetail(event: MasterEvent): string {
-  if (event.action !== 'cycle') return event.detail;
-  try {
-    const parsed = JSON.parse(event.detail) as {
-      dispatch?: number;
-      prodded?: number;
-      skipped?: number;
-    };
-    return `${parsed.dispatch ?? 0} queued · ${parsed.prodded ?? 0} prodded · ${parsed.skipped ?? 0} skipped`;
-  } catch {
-    return event.detail;
-  }
-}
-
 /** Edits the persisted master policy and shows its live status and activity. */
-export function ConfigPage({ onError, commands }: ConfigPageProps) {
+export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
+  const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
+  const [processPath, setProcessPath] = useState('');
   const [status, setStatus] = useState<MasterStatus | null>(null);
-  const [cells, setCells] = useState<Cell[]>([]);
+  const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [processSaving, setProcessSaving] = useState(false);
+  const [processSaved, setProcessSaved] = useState(false);
   const [running, setRunning] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [config, masterStatus, cellList, eventList] = await Promise.all([
+      const [config, processConfig, masterStatus, cellList, eventList] = await Promise.all([
         api.getConfig(),
+        api.getProcess(),
         api.getMasterStatus(),
         api.getCells(),
         api.getMasterEvents({ limit: 20 }),
       ]);
       setMaster(config.master);
       setPath(config.path);
+      setProcess({ version: processConfig.version, segments: processConfig.segments });
+      setProcessPath(processConfig.path);
       setStatus(masterStatus);
       setCells(cellList);
       setEvents(eventList);
@@ -93,6 +83,44 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
     setSaved(false);
   };
 
+  const setSegment = <K extends keyof SegmentConfig>(
+    id: SegmentConfig['id'],
+    key: K,
+    value: SegmentConfig[K],
+  ) => {
+    setProcess((current) =>
+      current
+        ? {
+            ...current,
+            segments: current.segments.map((segment) =>
+              segment.id === id ? { ...segment, [key]: value } : segment,
+            ),
+          }
+        : current,
+    );
+    setProcessSaved(false);
+  };
+
+  const setFollowUp = (
+    id: SegmentConfig['id'],
+    key: 'enabled' | 'marker',
+    value: boolean | string,
+  ) => {
+    setProcess((current) =>
+      current
+        ? {
+            ...current,
+            segments: current.segments.map((segment) =>
+              segment.id === id
+                ? { ...segment, followUps: { ...segment.followUps, [key]: value } }
+                : segment,
+            ),
+          }
+        : current,
+    );
+    setProcessSaved(false);
+  };
+
   async function save() {
     if (!master) return;
     setSaving(true);
@@ -106,6 +134,21 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveProcess() {
+    if (!process) return;
+    setProcessSaving(true);
+    try {
+      const savedProcess = await api.patchProcess(process.segments);
+      setProcess({ version: savedProcess.version, segments: savedProcess.segments });
+      setProcessPath(savedProcess.path);
+      setProcessSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setProcessSaving(false);
     }
   }
 
@@ -127,7 +170,7 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
     }
   }
 
-  async function toggleCell(cell: Cell) {
+  async function toggleCell(cell: CellDetail) {
     try {
       const updated = await api.patchCell(cell.id, { masterEnabled: !cell.masterEnabled });
       setCells((current) => current.map((item) => (item.id === cell.id ? updated : item)));
@@ -136,7 +179,7 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
     }
   }
 
-  if (!master) {
+  if (!master || !process) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
         <Spinner /> Loading settings...
@@ -149,14 +192,13 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
       <div>
         <h1 className="text-lg font-semibold text-zinc-100">Cell master</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          The master reviews each cell&apos;s implementation queue on a cadence, prods
-          stalled agents to record decisions and keep moving, and can move completed work
-          to Review.
+          The master walks the process segments on a cadence, starts or prods due work,
+          records follow-up requests, and advances on exact markers.
         </p>
       </div>
 
       <Card className="space-y-5 p-4">
-        <SectionTitle>Policy</SectionTitle>
+        <SectionTitle>Schedule</SectionTitle>
 
         <Checkbox
           label="Master enabled"
@@ -174,48 +216,41 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
               onChange={(event) => set('intervalMinutes', Number(event.target.value))}
             />
           </Field>
-          <Field label="Idle threshold (minutes)" hint="prod after this long">
-            <Input
-              type="number"
-              min={1}
-              max={1440}
-              value={master.idleMinutes}
-              onChange={(event) => set('idleMinutes', Number(event.target.value))}
+          <div className="flex items-end pb-1">
+            <Checkbox
+              label="Include requests without a cell"
+              checked={master.includeUnassigned}
+              onChange={(event) => set('includeUnassigned', event.target.checked)}
             />
-          </Field>
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <Checkbox
-            label="Move to Review when the agent ends with READY FOR REVIEW"
-            checked={master.autoReview}
-            onChange={(event) => set('autoReview', event.target.checked)}
-          />
-          <Checkbox
-            label="Include requests without a cell"
-            checked={master.includeUnassigned}
-            onChange={(event) => set('includeUnassigned', event.target.checked)}
-          />
-        </div>
-
-        <Field label="Prod prompt" hint="sent to stalled implementation sessions">
-          <Textarea
-            rows={8}
-            value={master.prompt}
-            onChange={(event) => set('prompt', event.target.value)}
-          />
-        </Field>
+        <p className="text-[11px] text-zinc-600">
+          Idle thresholds, prompts, markers, and advancement are per segment below.
+        </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="break-all font-mono text-[11px] text-zinc-600">{path}</p>
           <div className="flex items-center justify-end gap-2">
             {saved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
             <Button variant="primary" disabled={saving} onClick={() => void save()}>
-              {saving ? <Spinner /> : 'Save settings'}
+              {saving ? <Spinner /> : 'Save schedule'}
             </Button>
           </div>
         </div>
       </Card>
+
+      <ProcessEditor
+        process={process}
+        path={processPath}
+        saving={processSaving}
+        saved={processSaved}
+        title="Global process template"
+        description="Used by unassigned work and cells without their own policy; new cells start with a copy that can diverge."
+        onChange={setSegment}
+        onFollowUp={setFollowUp}
+        onSave={() => void saveProcess()}
+      />
 
       <Card className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -235,11 +270,7 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
           </Button>
         </div>
         {lastResult ? (
-          <p className="text-[11px] text-zinc-500">
-            Last cycle: {lastResult.prodded} prodded · {lastResult.reviewed} moved to review ·{' '}
-            {lastResult.skipped} skipped across {lastResult.cells} queue
-            {lastResult.cells === 1 ? '' : 's'}.
-          </p>
+          <p className="text-[11px] text-zinc-500">Last cycle: {resultSummary(lastResult)}.</p>
         ) : null}
       </Card>
 
@@ -255,11 +286,22 @@ export function ConfigPage({ onError, commands }: ConfigPageProps) {
                 className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 px-3 py-2"
               >
                 <span className="truncate text-sm text-zinc-300">{cell.name}</span>
-                <Checkbox
-                  label={`${cell.name} master`}
-                  checked={cell.masterEnabled}
-                  onChange={() => void toggleCell(cell)}
-                />
+                <div className="flex items-center gap-2">
+                  {onEditCell ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onEditCell(cell)}
+                    >
+                      Process
+                    </Button>
+                  ) : null}
+                  <Checkbox
+                    label={`${cell.name} master`}
+                    checked={cell.masterEnabled}
+                    onChange={() => void toggleCell(cell)}
+                  />
+                </div>
               </div>
             ))}
           </div>

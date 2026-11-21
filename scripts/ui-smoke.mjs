@@ -167,6 +167,47 @@ try {
     { timeout: 10_000 },
   );
 
+  await openMenu('cell');
+  await page.click('button[aria-label="New cell"]');
+  await page.waitForFunction(
+    () => document.body.innerText.toLowerCase().includes('cell process segments'),
+    { timeout: 15_000 },
+  );
+  await page.type('input[placeholder="e.g. Work repo"]', 'Smoke cell');
+  await clickText('Create cell');
+  await page.waitForFunction(
+    () => document.body.innerText.includes('Smoke cell'),
+    { timeout: 15_000 },
+  );
+  const cells = await (await fetch(`${base}/api/cells`)).json();
+  const smokeCell = cells.find((cell) => cell.name === 'Smoke cell');
+  if (smokeCell) {
+    await fetch(`${base}/api/cells/${smokeCell.id}`, { method: 'DELETE' });
+  }
+
+  await openMenu('master');
+  await clickText('Cell master');
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.toLowerCase().includes('process automation') &&
+      document.body.innerText.toLowerCase().includes('cron loop'),
+    { timeout: 15_000 },
+  );
+  await page.waitForFunction(
+    () => document.body.innerText.toLowerCase().includes('master chat'),
+    { timeout: 10_000 },
+  );
+  await page.evaluate(() => {
+    const close = [...document.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Close master detail',
+    );
+    close?.click();
+  });
+  await page.waitForFunction(
+    () => !document.body.innerText.toLowerCase().includes('process automation'),
+    { timeout: 5_000 },
+  );
+
   await openMenu('config');
   await clickText('Config');
   await page.waitForFunction(

@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigPage } from './ConfigPage';
-import { jsonResponse } from './test/fixtures';
-import type { Cell, MasterConfig, MasterEvent, MasterStatus } from './types';
+import { jsonResponse, makeProcessResponse } from './test/fixtures';
+import type { Cell, MasterConfig, MasterEvent, MasterStatus, SegmentConfig } from './types';
 
 const master: MasterConfig = {
   enabled: true,
@@ -35,12 +35,14 @@ const event: MasterEvent = {
 
 interface Captured {
   config?: { master?: Partial<MasterConfig> };
+  process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
   ran?: boolean;
 }
 
 function installFetch(): Captured {
   const captured: Captured = {};
+  const processResponse = makeProcessResponse();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/config' && init?.method === 'PATCH') {
@@ -53,6 +55,11 @@ function installFetch(): Captured {
     if (url === '/api/config') {
       return jsonResponse({ master, path: '/tmp/sandbox-harness/config.json' });
     }
+    if (url === '/api/process' && init?.method === 'PATCH') {
+      captured.process = JSON.parse(String(init.body)) as Captured['process'];
+      return jsonResponse({ ...processResponse, segments: captured.process?.segments });
+    }
+    if (url === '/api/process') return jsonResponse(processResponse);
     if (url === '/api/requests/__master__/clarify') {
       return jsonResponse({
         started: true,
@@ -73,8 +80,11 @@ function installFetch(): Captured {
         ranAt: Date.now(),
         cells: 1,
         dispatch: 0,
+        started: 0,
         prodded: 0,
         reviewed: 0,
+        advanced: 0,
+        followUps: 0,
         skipped: 0,
       });
     }
@@ -95,7 +105,7 @@ describe('ConfigPage', () => {
     expect(screen.getByText('/tmp/sandbox-harness/config.json')).toBeInTheDocument();
 
     fireEvent.change(interval, { target: { value: '8' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     await waitFor(() => expect(captured.config).toBeDefined());
@@ -108,7 +118,7 @@ describe('ConfigPage', () => {
     render(<ConfigPage commands={[]} onError={() => {}} />);
     const toggle = await screen.findByRole('checkbox', { name: 'Master enabled' });
     fireEvent.click(toggle);
-    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
     await waitFor(() => expect(captured.config).toBeDefined());
     expect(captured.config?.master).toMatchObject({ enabled: false });
@@ -125,7 +135,7 @@ describe('ConfigPage', () => {
     await waitFor(() => expect(captured.cell).toEqual({ masterEnabled: false }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Run master now' }));
-    expect(await screen.findByText(/Last cycle: 0 prodded/)).toBeInTheDocument();
+    expect(await screen.findByText(/Last cycle: 0 started/)).toBeInTheDocument();
     expect(captured.ran).toBe(true);
   });
 
@@ -135,5 +145,20 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Build it')).toBeInTheDocument();
     expect(screen.getByText('prod')).toBeInTheDocument();
     expect(await screen.findByText('Master cycle: 1 prodded')).toBeInTheDocument();
+  });
+
+  it('saves a per-segment process change', async () => {
+    const captured = installFetch();
+    render(<ConfigPage commands={[]} onError={() => {}} />);
+
+    const intake = await screen.findByRole('checkbox', { name: 'Automate Requests' });
+    expect(intake).not.toBeChecked();
+    fireEvent.click(intake);
+    fireEvent.click(screen.getByRole('button', { name: 'Save process' }));
+
+    await waitFor(() => expect(captured.process).toBeDefined());
+    expect(
+      captured.process?.segments?.find((segment) => segment.id === 'intake')?.enabled,
+    ).toBe(true);
   });
 });

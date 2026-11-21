@@ -1,24 +1,39 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Board } from './Board';
 import { CellBar } from './CellBar';
+import { CellModal } from './CellModal';
 import { ConfigPage } from './ConfigPage';
 import { CreateModal } from './CreateModal';
 import { KbEntries } from './KbEntries';
+import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
 import { SkillsPage } from './SkillsPage';
 import { api, describeError } from './api';
-import type { Cell, CommandInfo } from './types';
+import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
 
 type Page = 'board' | 'kb' | 'skills' | 'config';
 
-function readInitialRoute(): { page: Page; cellId: string | null; detailId: string | null } {
-  if (typeof window === 'undefined') return { page: 'board', cellId: null, detailId: null };
+function readInitialRoute(): {
+  page: Page;
+  cellId: string | null;
+  detailId: string | null;
+  masterOpen: boolean;
+} {
+  if (typeof window === 'undefined') {
+    return { page: 'board', cellId: null, detailId: null, masterOpen: false };
+  }
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('page');
   const page: Page =
     raw === 'kb' || raw === 'skills' || raw === 'config' ? raw : 'board';
-  return { page, cellId: params.get('cell'), detailId: params.get('request') };
+  const masterOpen = params.get('master') === '1';
+  return {
+    page,
+    cellId: params.get('cell'),
+    detailId: masterOpen ? null : params.get('request'),
+    masterOpen,
+  };
 }
 
 function NavButton({
@@ -47,9 +62,12 @@ function NavButton({
 export function App() {
   const [initialRoute] = useState(readInitialRoute);
   const [page, setPage] = useState<Page>(initialRoute.page);
-  const [cells, setCells] = useState<Cell[]>([]);
+  const [cells, setCells] = useState<CellDetail[]>([]);
   const [cellId, setCellId] = useState<string | null>(initialRoute.cellId);
   const [detailId, setDetailId] = useState<string | null>(initialRoute.detailId);
+  const [masterOpen, setMasterOpen] = useState(initialRoute.masterOpen);
+  const [cellModalOpen, setCellModalOpen] = useState(false);
+  const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -81,13 +99,14 @@ export function App() {
     if (page !== 'board') params.set('page', page);
     if (cellId) params.set('cell', cellId);
     if (detailId) params.set('request', detailId);
+    if (masterOpen) params.set('master', '1');
     const search = params.toString();
     window.history.replaceState(
       null,
       '',
       `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
     );
-  }, [page, cellId, detailId]);
+  }, [page, cellId, detailId, masterOpen]);
 
   useEffect(() => {
     if (!navOpen) return;
@@ -101,6 +120,7 @@ export function App() {
   const go = (next: Page) => {
     setPage(next);
     setDetailId(null);
+    setMasterOpen(false);
     setNavOpen(false);
   };
 
@@ -163,6 +183,16 @@ export function App() {
               setCellId(id);
               setNavOpen(false);
             }}
+            onCreate={() => {
+              setEditingCell(null);
+              setCellModalOpen(true);
+              setNavOpen(false);
+            }}
+            onEdit={(cell) => {
+              setEditingCell(cells.find((item) => item.id === cell.id) ?? null);
+              setCellModalOpen(true);
+              setNavOpen(false);
+            }}
             reload={() => void loadCells()}
             onError={setError}
           />
@@ -170,9 +200,21 @@ export function App() {
 
         <div className="mt-auto space-y-2">
           <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              setDetailId(null);
+              setMasterOpen(true);
+              setNavOpen(false);
+            }}
+          >
+            Cell master
+          </Button>
+          <Button
             variant="primary"
             className="w-full"
             onClick={() => {
+              setMasterOpen(false);
               setCreateOpen(true);
               setNavOpen(false);
             }}
@@ -221,6 +263,7 @@ export function App() {
               key={boardKey}
               cellId={cellId}
               onOpen={(id) => {
+                setMasterOpen(false);
                 setDetailId(id);
                 setNavOpen(false);
               }}
@@ -229,7 +272,16 @@ export function App() {
           ) : null}
           {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
-          {page === 'config' ? <ConfigPage commands={commands} onError={setError} /> : null}
+          {page === 'config' ? (
+            <ConfigPage
+              commands={commands}
+              onError={setError}
+              onEditCell={(cell) => {
+                setEditingCell(cell);
+                setCellModalOpen(true);
+              }}
+            />
+          ) : null}
         </div>
       </main>
 
@@ -245,6 +297,28 @@ export function App() {
         />
       ) : null}
 
+      {masterOpen ? (
+        <MasterDetail
+          cellId={cellId}
+          commands={commands}
+          onClose={() => setMasterOpen(false)}
+          onConfigure={() => go('config')}
+          onError={setError}
+        />
+      ) : null}
+
+      <CellModal
+        open={cellModalOpen}
+        cell={editingCell}
+        onClose={() => setCellModalOpen(false)}
+        onSaved={(cell) => {
+          setCellModalOpen(false);
+          setCellId(cell.id);
+          void loadCells();
+        }}
+        onError={setError}
+      />
+
       <CreateModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
@@ -253,6 +327,7 @@ export function App() {
         onCreated={(id) => {
           setCreateOpen(false);
           setPage('board');
+          setMasterOpen(false);
           setDetailId(id);
           refreshBoard();
         }}

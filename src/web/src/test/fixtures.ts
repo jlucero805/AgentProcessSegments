@@ -1,4 +1,14 @@
-import type { Request } from '../types';
+import type { MasterConfig, Request } from '../types';
+import { defaultProcess } from '../../../server/src/process/defaults';
+
+const fixtureMaster: MasterConfig = {
+  enabled: true,
+  intervalMinutes: 5,
+  idleMinutes: 10,
+  autoReview: true,
+  includeUnassigned: true,
+  prompt: 'prod prompt',
+};
 
 export function makeRequest(overrides: Partial<Request> = {}): Request {
   const now = Date.now();
@@ -29,8 +39,15 @@ export function makeRequest(overrides: Partial<Request> = {}): Request {
   };
 }
 
-export function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
+export function makeProcess() {
+  return defaultProcess(fixtureMaster);
+}
+
+export function makeProcessResponse() {
+  return { ...makeProcess(), path: '/tmp/sandbox-harness/process.json' };
+}
+
+export function jsonResponse(body: unknown, status = 200): Response {  return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json' },
   });

@@ -1,5 +1,5 @@
 import type {
-  Cell,
+  CellDetail,
   ClarifyEvent,
   ClarifyState,
   CommandInfo,
@@ -11,8 +11,11 @@ import type {
   MasterStatus,
   ModelsResult,
   PluginInfo,
+  ProcessConfig,
+  ProcessResponse,
   Request,
   State,
+  SegmentConfig,
 } from './types';
 
 export class ApiError extends Error {
@@ -185,19 +188,25 @@ export const api = {
   storeKb(input: { requestId: string; title: string; content: string }): Promise<KbEntry> {
     return request('/api/kb', { method: 'POST', body: JSON.stringify(input) });
   },
-  getCells(): Promise<Cell[]> {
+  getCells(): Promise<CellDetail[]> {
     return request('/api/cells');
   },
-  createCell(name: string): Promise<Cell> {
-    return request('/api/cells', { method: 'POST', body: JSON.stringify({ name }) });
+  getCell(id: string): Promise<CellDetail> {
+    return request(`/api/cells/${encodeURIComponent(id)}`);
   },
-  renameCell(id: string, name: string): Promise<Cell> {
-    return request(`/api/cells/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ name }),
+  createCell(
+    name: string,
+    process?: ProcessConfig,
+  ): Promise<CellDetail> {
+    return request('/api/cells', {
+      method: 'POST',
+      body: JSON.stringify({ name, process }),
     });
   },
-  patchCell(id: string, fields: { name?: string; masterEnabled?: boolean }): Promise<Cell> {
+  patchCell(
+    id: string,
+    fields: { name?: string; masterEnabled?: boolean; process?: ProcessConfig | null },
+  ): Promise<CellDetail> {
     return request(`/api/cells/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(fields),
@@ -223,6 +232,12 @@ export const api = {
   },
   patchConfig(master: Partial<MasterConfig>): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify({ master }) });
+  },
+  getProcess(): Promise<ProcessResponse> {
+    return request('/api/process');
+  },
+  patchProcess(segments: SegmentConfig[]): Promise<ProcessResponse> {
+    return request('/api/process', { method: 'PATCH', body: JSON.stringify({ segments }) });
   },
   getMasterStatus(): Promise<MasterStatus> {
     return request('/api/master/status');

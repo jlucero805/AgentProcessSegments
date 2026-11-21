@@ -1,7 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CellBar } from './CellBar';
-import { jsonResponse } from './test/fixtures';
 import type { Cell } from './types';
 
 const cells: Cell[] = [{ id: 'c1', name: 'Alpha', masterEnabled: true, createdAt: 1 }];
@@ -10,7 +9,15 @@ describe('CellBar', () => {
   it('switches between all cells and a specific cell', () => {
     const onChange = vi.fn();
     render(
-      <CellBar cells={cells} value={null} onChange={onChange} reload={() => {}} onError={() => {}} />,
+      <CellBar
+        cells={cells}
+        value={null}
+        onChange={onChange}
+        onCreate={() => {}}
+        onEdit={() => {}}
+        reload={() => {}}
+        onError={() => {}}
+      />,
     );
 
     fireEvent.click(screen.getByText('Alpha'));
@@ -20,20 +27,26 @@ describe('CellBar', () => {
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 
-  it('creates a cell and selects it', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ id: 'c2', name: 'Beta', createdAt: 2 }, 201)));
-    const onChange = vi.fn();
-    const reload = vi.fn();
+  it('opens the cell creation flow and the editor', () => {
+    const onCreate = vi.fn();
+    const onEdit = vi.fn();
 
     render(
-      <CellBar cells={cells} value={null} onChange={onChange} reload={reload} onError={() => {}} />,
+      <CellBar
+        cells={cells}
+        value={null}
+        onChange={() => {}}
+        onCreate={onCreate}
+        onEdit={onEdit}
+        reload={() => {}}
+        onError={() => {}}
+      />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'New cell' }));
-    fireEvent.change(screen.getByPlaceholderText('Cell name'), { target: { value: 'Beta' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(onCreate).toHaveBeenCalled();
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith('c2'));
-    expect(reload).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Alpha' }));
+    expect(onEdit).toHaveBeenCalledWith(cells[0]);
   });
 });

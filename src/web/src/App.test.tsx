@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { jsonResponse, makeRequest } from './test/fixtures';
+import { jsonResponse, makeProcessResponse, makeRequest } from './test/fixtures';
 import type { Request } from './types';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -33,6 +33,7 @@ function installFetch(request: Request, transcript: unknown[] = []) {
         path: '/tmp/config.json',
       });
     }
+    if (url === '/api/process') return jsonResponse(makeProcessResponse());
     if (url === '/api/requests/__master__/clarify') {
       return jsonResponse({
         started: true,
@@ -127,6 +128,17 @@ describe('App', () => {
 
     expect(await screen.findByText('Finalize digest')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Message this thread…')).toBeInTheDocument();
+  });
+
+  it('opens the cell master detail from the sidebar', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cell master' }));
+
+    expect(await screen.findByText('Process automation')).toBeInTheDocument();
+    expect(screen.getByText('Cron loop')).toBeInTheDocument();
+    expect(window.location.search).toContain('master=1');
   });
 
   it('opens the config page and records it in the URL', async () => {

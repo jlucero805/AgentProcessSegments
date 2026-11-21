@@ -32,7 +32,11 @@ covers everything that runs and can be verified without the `claude` CLI.
   to the loopback API. Request sessions get `update_request`, `get_request`,
   `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and
   `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool.
-- 53 vitest cases, all passing, plus `scripts/smoke.sh` (built brain) and
+- Plugin manager: shallow clone, optional monorepo subdir, manifest verification,
+  hook and MCP stripping, replace-on-reinstall, slug-guarded removal, and slash-command
+  discovery from `commands/**/*.md` and `skills/*/SKILL.md`. Local directory sources are
+  accepted in addition to `http(s)`, `git`, and `ssh` (D9).
+- 61 vitest cases, all passing, plus `scripts/smoke.sh` (built brain) and
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio).
 
 ## Deviations from the spec
@@ -49,7 +53,8 @@ covers everything that runs and can be verified without the `claude` CLI.
 
 ## Not built yet
 
-- `/api/plugins`, `/api/commands`, the plugin manager, and the SPA.
+- The web SPA and the `src/web` workspace. `webDir` is wired and the server vends
+  `index.html` when the directory exists, but nothing builds into it.
 - The model probe is implemented but unverified, because `claude` is not installed
   here. `GET /api/models` returns `source: "fallback"` in this environment.
 - User MCP servers are not merged into the generated `mcp-config.json` and
@@ -81,5 +86,9 @@ GET    /api/cells
 POST   /api/cells                         {name}
 PATCH  /api/cells/:id                     {name}
 DELETE /api/cells/:id
+GET    /api/plugins
+POST   /api/plugins                       {url,subdir?,name?}
+DELETE /api/plugins/:name
+GET    /api/commands
 GET    /ws
 ```

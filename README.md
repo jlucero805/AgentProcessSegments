@@ -29,6 +29,13 @@ widen the bind. A tunnel is the audience gate, not the process.
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
 
+## Docs
+
+- `docs/01-system-spec.md` the governing contract
+- `docs/02-status.md` built versus not built, route list, deviations
+- `docs/03-decisions.md` why this rebuild chose what it chose
+- `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
+
 ## Layout
 
 ```
@@ -48,6 +55,7 @@ src/server/src
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   CLI probe with cached fallback list
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
+  plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 ```
 
 ## API
@@ -57,10 +65,10 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 53 vitest cases: state machine, migrations (including the index
+`npm test` runs 61 vitest cases: state machine, migrations (including the index
 ordering fix on a legacy database), repositories, stream parser, engine turns over a
-fake transport, worktree isolation against a real git repo, the MCP tool surface, and
-the HTTP API over a real socket.
+fake transport, worktree isolation against a real git repo, the MCP tool surface, the
+plugin manager against real git clones, and the HTTP API over a real socket.
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

@@ -35,7 +35,7 @@ flowchart TB
   end
 
   subgraph VPS["Always-on Linux VPS"]
-    Unit["systemd user unit<br/>sandbox-harness + linger"]
+    Unit["systemd user unit<br/>agent-process-segments + linger"]
     subgraph Brain["Brain process"]
       HTTP["Fastify<br/>SPA + REST + NDJSON + WebSocket"]
       Masters["Cell masters<br/>one ticker per cell"]
@@ -119,9 +119,10 @@ These screenshots use a staged demo board in an isolated temp database, not live
 
 - Node 20 or newer
 - `git` for per-request worktrees
-- `claude` and/or `opencode` on `PATH` to run real agent turns. `SBOX_HARNESS` picks the
-  brain default, and each cell can override it, so one brain can mix both. The core
-  (database, workflows, HTTP, stream parsing) runs and is tested without an agent CLI.
+- `claude` and/or `opencode` on `PATH` to run real agent turns. `APS_HARNESS` picks the
+  brain default (legacy `SBOX_HARNESS` still works), and each cell can override it, so one
+  brain can mix both. The core (database, workflows, HTTP, stream parsing) runs and is
+  tested without an agent CLI.
 
 ## Quick start
 
@@ -130,28 +131,28 @@ npm install
 npm test
 npm run e2e
 npm run build
-SBOX_DB=$PWD/sandbox-harness.sqlite node src/server/dist/app.js
+APS_DB=$PWD/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
-The brain binds `127.0.0.1:7391` unless `SBOX_HOST` / `SBOX_PORT` say otherwise. Do not
+The brain binds `127.0.0.1:7391` unless `APS_HOST` / `APS_PORT` say otherwise. Do not
 widen the bind. A tunnel is the audience gate, not the process.
 
 The sidebar **Help** row renders the operator docs in-app from the same origin, including
 the screenshots, with grouped navigation and `?help=<slug>` deep links. A GitHub icon
 beside it links to the public source repository in a new tab. The brain reads the docs
-from `SBOX_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
+from `APS_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
 build.
 
-Agent turns are bounded by `SBOX_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
+Agent turns are bounded by `APS_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
 child is killed and produces a visible error, and its recent stderr goes to the error log.
-Harness MCP calls time out after `SBOX_MCP_TIMEOUT_MS` (default 15 seconds).
+Harness MCP calls time out after `APS_MCP_TIMEOUT_MS` (default 15 seconds).
 
-`SBOX_HARNESS=claude` (the default) or `opencode` sets the brain default. Each cell can
+`APS_HARNESS=claude` (the default) or `opencode` sets the brain default. Each cell can
 choose its own harness in the cell editor; a cell with **Brain default** inherits this
-value. `SBOX_CLAUDE_BIN` and `SBOX_OPENCODE_BIN` point at each adapter's binary;
-`SBOX_HARNESS_BIN` remains a legacy fallback for the default adapter only, and the
-adapter-specific value wins when both are set.
-`SBOX_DEFAULT_MODEL` sets the default harness's fallback model. OpenCode also has an
+value. `APS_CLAUDE_BIN` and `APS_OPENCODE_BIN` point at each adapter's binary;
+`APS_HARNESS_BIN` remains a legacy fallback for the default adapter only, and the
+adapter-specific value wins when both are set. The legacy `SBOX_*` names still work.
+`APS_DEFAULT_MODEL` sets the default harness's fallback model. OpenCode also has an
 implicit `opencode-go/deepseek-v4.1-flash` default; Claude has none unless configured.
 
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
@@ -162,6 +163,37 @@ reported by the harness, never estimated.
 
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
+
+## Upgrading from Sandbox Harness
+
+`APS_*` is the canonical environment prefix. Every legacy `SBOX_*` variable still works
+as a fallback, and `APS_*` wins when both are set. The fallback is per variable: if you set
+`APS_HARNESS` while an old `SBOX_HARNESS_BIN` is still exported, the old binary path wins
+for `HARNESS_BIN`; set `APS_HARNESS_BIN` (or unset the legacy value) when switching
+harnesses. Filesystem defaults are also backward-compatible: if only `~/.sandbox-harness`,
+`$XDG_CONFIG_HOME/sandbox-harness`, `$XDG_STATE_HOME/sandbox-harness`, or
+`<cwd>/sandbox-harness.sqlite` exists, the brain keeps using it. New installs get the
+`agent-process-segments` names.
+
+To move an existing install to the new names:
+
+1. Stop the old unit: `systemctl --user stop sandbox-harness`.
+2. Preview then run the move: `npm run migrate:paths -- --dry-run` and
+   `npm run migrate:paths`. The script moves the data, config, and state directories and
+   the SQLite file together, including `-wal`/`-shm`; it never overwrites an existing
+   destination and is safe to re-run.
+3. Install the new unit: copy `deploy/agent-process-segments.service` into
+   `~/.config/systemd/user/`, then `systemctl --user daemon-reload` and
+   `systemctl --user enable --now agent-process-segments`.
+
+Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
+brain would open empty new locations. Existing worktrees move with the data directory; if
+git reports them at the old path, run `git worktree repair` in the target repo or remove
+and recreate them.
+
+Rollback is manual: an older binary reads only `SBOX_*`, so a rollback unit or drop-in
+must point `SBOX_DB`, `SBOX_DATA_DIR`, `SBOX_CONFIG`, and the other path variables at the
+migrated locations.
 
 ## Docs
 
@@ -241,7 +273,7 @@ src/web
   src/TerminalPanel.tsx desktop-only maximizable xterm/PTY drawer
   src/ui.tsx          hand-rolled shadcn-style kit
 deploy
-  sandbox-harness.service  systemd user unit for the brain
+  agent-process-segments.service  systemd user unit for the brain
   vps.md                   install, tunnel, update, and restart runbook
   ci-workflow.yml          ready GitHub Actions workflow (needs workflow scope)
 ```
@@ -253,7 +285,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 318 vitest cases: 214 server cases (state machine, migrations including
+`npm test` runs 344 vitest cases: 239 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
@@ -262,7 +294,7 @@ real git clones, process definitions/store/follow-ups, per-cell policies/tickers
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
 stats/generation/scheduling, docs manifest/traversal/HTTP, error-log format/rotation,
 skill discovery, terminal session lifecycle, and the HTTP API
-over a real socket) and 104 web cases (shared contract re-exports, NDJSON client, chat
+over a real socket) and 105 web cases (shared contract re-exports, NDJSON client, chat
 folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
 the source link, board, create modal, composer, cell bar, cell creation, config/process
 editor, master detail and scorecard, the usage page and formatters, and the app shell

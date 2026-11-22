@@ -2,7 +2,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildMcpServer, type FetchLike } from '../src/mcp/server.js';
+import { buildMcpServer, readMcpEnv, type FetchLike } from '../src/mcp/server.js';
 
 interface Recorded {
   method: string;
@@ -260,5 +260,60 @@ describe('harness mcp server', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('404');
+  });
+});
+
+describe('readMcpEnv', () => {
+  it('prefers APS_* and falls back to the legacy SBOX_* names', () => {
+    expect(
+      readMcpEnv({
+        APS_BRAIN_URL: 'http://aps:7391',
+        SBOX_BRAIN_URL: 'http://legacy:7391',
+        APS_REQUEST_ID: 'req-aps',
+        SBOX_REQUEST_ID: 'req-legacy',
+        APS_SESSION_SCOPE: 'master',
+        SBOX_SESSION_SCOPE: 'request',
+        APS_SETUP_DRAFT_ID: 'draft-aps',
+        APS_MCP_TIMEOUT_MS: '2000',
+      }),
+    ).toEqual({
+      brainUrl: 'http://aps:7391',
+      requestId: 'req-aps',
+      scope: 'master',
+      draftId: 'draft-aps',
+      timeoutMs: 2000,
+    });
+
+    expect(
+      readMcpEnv({
+        SBOX_BRAIN_URL: 'http://legacy:7391',
+        SBOX_REQUEST_ID: 'req-legacy',
+        SBOX_SESSION_SCOPE: 'kb',
+        SBOX_MCP_TIMEOUT_MS: '3000',
+      }),
+    ).toEqual({
+      brainUrl: 'http://legacy:7391',
+      requestId: 'req-legacy',
+      scope: 'kb',
+      draftId: undefined,
+      timeoutMs: 3000,
+    });
+  });
+
+  it('keeps the default brain URL, timeout, and an empty request id', () => {
+    expect(readMcpEnv({})).toEqual({
+      brainUrl: 'http://127.0.0.1:7391',
+      requestId: '',
+      scope: undefined,
+      draftId: undefined,
+      timeoutMs: 15_000,
+    });
+  });
+
+  it('ignores an unknown scope and a non-positive timeout', () => {
+    const env = readMcpEnv({ APS_SESSION_SCOPE: 'unknown', APS_MCP_TIMEOUT_MS: '0' });
+
+    expect(env.scope).toBeUndefined();
+    expect(env.timeoutMs).toBe(15_000);
   });
 });

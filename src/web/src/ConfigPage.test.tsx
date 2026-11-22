@@ -70,7 +70,7 @@ function installFetch(): Captured {
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
         usage: { ...usage, ...captured.config?.usage },
-        path: '/tmp/sandbox-harness/config.json',
+        path: '/tmp/agent-process-segments/config.json',
       });
     }
     if (url === '/api/config') {
@@ -78,7 +78,7 @@ function installFetch(): Captured {
         master,
         summary: scorecard,
         usage,
-        path: '/tmp/sandbox-harness/config.json',
+        path: '/tmp/agent-process-segments/config.json',
       });
     }
     if (url === '/api/process' && init?.method === 'PATCH') {
@@ -107,7 +107,7 @@ describe('ConfigPage', () => {
     const interval = await screen.findByRole('spinbutton', { name: /interval/i });
     expect(interval).toHaveValue(5);
     expect(screen.getByRole('spinbutton', { name: /every/i })).toHaveValue(360);
-    expect(screen.getByText('/tmp/sandbox-harness/config.json')).toBeInTheDocument();
+    expect(screen.getByText('/tmp/agent-process-segments/config.json')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /without a cell/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Global master chat')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Run master now/i })).not.toBeInTheDocument();

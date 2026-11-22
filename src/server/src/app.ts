@@ -4,7 +4,7 @@ import { CellDraftStore } from './cells/drafts.js';
 import { Engine } from './clarify/engine.js';
 import { createHarnessRegistry } from './clarify/harnesses/index.js';
 import { HarnessModelCatalog } from './clarify/models.js';
-import { loadConfig } from './config.js';
+import { legacyPathWarning, loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { DocsService } from './docs/service.js';
 import { buildServer } from './http/server.js';
@@ -27,6 +27,8 @@ import { UsageRetention } from './usage/retention.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
+  const warning = legacyPathWarning(config.legacyPaths);
+  if (warning) console.warn(warning);
   const errors = new ErrorLogger(config.errorLogPath, { maxBytes: config.errorLogMaxBytes });
 
   try {

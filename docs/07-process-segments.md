@@ -31,9 +31,9 @@ Each cell also has its own **ticker** and **master chat**:
 
 ## File and path
 
-- Default: `$XDG_CONFIG_HOME/sandbox-harness/process.json`
-  (`~/.config/sandbox-harness/process.json` when `XDG_CONFIG_HOME` is unset).
-- Override: `SBOX_PROCESS=/path/to/process.json`.
+- Default: `$XDG_CONFIG_HOME/agent-process-segments/process.json`
+  (`~/.config/agent-process-segments/process.json` when `XDG_CONFIG_HOME` is unset).
+- Override: `APS_PROCESS=/path/to/process.json`.
 - Writes are atomic and mode `0600`.
 - Missing or invalid files fall back to a conservative policy derived from
   `config.json`’s `master` section until you save a valid process.
@@ -191,7 +191,7 @@ The operator defines the policy before the cell receives work:
    cadence). This is the cell’s separate ticker.
 3. Set the cell’s **max concurrent requests** (default 3), **default model**, and
    **default difficulty**. A request’s own model/effort overrides the cell default, and
-   the cell default overrides `SBOX_DEFAULT_MODEL`. On OpenCode the brain default is
+   the cell default overrides `APS_DEFAULT_MODEL`. On OpenCode the brain default is
    `opencode-go/deepseek-v4.1-flash`. The master will not start more work in a cell while
    that many requests are already `working`.
 4. Use the **Setup assistant** chat to reason about the repo’s risk posture, merge

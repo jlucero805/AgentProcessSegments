@@ -32,10 +32,10 @@ export function opencodeHarnessServer(
     type: 'local',
     command: [process.execPath, HARNESS_MCP_SERVER],
     environment: {
-      SBOX_BRAIN_URL: brainUrl,
-      SBOX_REQUEST_ID: requestId,
-      SBOX_SESSION_SCOPE: scope,
-      ...(draftId ? { SBOX_SETUP_DRAFT_ID: draftId } : {}),
+      APS_BRAIN_URL: brainUrl,
+      APS_REQUEST_ID: requestId,
+      APS_SESSION_SCOPE: scope,
+      ...(draftId ? { APS_SETUP_DRAFT_ID: draftId } : {}),
     },
     // Keep harness tools native so each call is visible and small models do not
     // have to generate Code Mode JavaScript between steps.

@@ -24,7 +24,7 @@ import { UsageRepository } from '../src/usage/repository.js';
 export function testConfig(): Config {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-test-'));
   return {
-    ...loadConfig({}, base),
+    ...loadConfig({}, base, path.join(base, 'home')),
     dbPath: path.join(base, 'harness.sqlite'),
     dataDir: path.join(base, 'data'),
     webDir: path.join(base, 'no-web-build'),

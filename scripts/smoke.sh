@@ -5,9 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
 PORT=$(( 7300 + (RANDOM % 200) ))
 
-SBOX_DB="$WORK/harness.sqlite" \
-SBOX_DATA_DIR="$WORK/data" \
-SBOX_PORT=$PORT \
+APS_DB="$WORK/harness.sqlite" \
+APS_DATA_DIR="$WORK/data" \
+APS_CONFIG="$WORK/config.json" \
+APS_PROCESS="$WORK/process.json" \
+APS_ERROR_LOG="$WORK/errors.log" \
+APS_PORT=$PORT \
 node "$ROOT/src/server/dist/app.js" >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 

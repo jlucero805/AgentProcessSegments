@@ -3,12 +3,13 @@
 //
 // Starts a mock Anthropic Messages API that streams a tool_use for
 // `mcp__harness__get_request`, then a text result. The built brain runs with
-// SBOX_HARNESS=claude and the real `claude` binary, so this exercises the CLI's
-// stream-json contract, merged MCP config/allow rules, tool execution through the
-// harness MCP server, and `--resume` across a brain restart.
+// APS_HARNESS=claude (and the legacy SBOX_HARNESS alias) and the real `claude`
+// binary, so this exercises the CLI's stream-json contract, merged MCP
+// config/allow rules, tool execution through the harness MCP server, and
+// `--resume` across a brain restart.
 //
-// Skips (exit 0) when no `claude` binary is available. Set SBOX_CLAUDE_BIN to point
-// at one; otherwise `claude` must be on PATH.
+// Skips (exit 0) when no `claude` binary is available. Set APS_CLAUDE_BIN (or the
+// legacy SBOX_CLAUDE_BIN) to point at one; otherwise `claude` must be on PATH.
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,7 +21,8 @@ import path from 'node:path';
 const root = path.resolve(import.meta.dirname, '..');
 
 function findBinary() {
-  if (process.env.SBOX_CLAUDE_BIN) return process.env.SBOX_CLAUDE_BIN;
+  const configured = process.env.APS_CLAUDE_BIN ?? process.env.SBOX_CLAUDE_BIN;
+  if (configured) return configured;
   for (const dir of (process.env.PATH ?? '').split(':')) {
     const candidate = path.join(dir, 'claude');
     if (dir && existsSync(candidate)) return candidate;
@@ -30,7 +32,7 @@ function findBinary() {
 
 const claude = findBinary();
 if (!claude) {
-  console.log('claude not found (set SBOX_CLAUDE_BIN); skipping Claude mock smoke');
+  console.log('claude not found (set APS_CLAUDE_BIN); skipping Claude mock smoke');
   process.exit(0);
 }
 
@@ -235,7 +237,9 @@ function startBrain() {
   const child = spawn(process.execPath, [path.join(root, 'src/server/dist/app.js')], {
     env: {
       ...process.env,
+      // Deliberately legacy: proves the brain still honors the SBOX_* aliases.
       SBOX_HARNESS: 'claude',
+      SBOX_HARNESS_BIN: claude,
       SBOX_CLAUDE_BIN: claude,
       SBOX_PORT: String(brainPort),
       SBOX_DB: dbPath,

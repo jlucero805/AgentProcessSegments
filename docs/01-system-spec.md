@@ -51,7 +51,7 @@ A new client is just another consumer of this one loopback origin.
 
 ### Security defaults
 
-Bind defaults to `127.0.0.1` even though `SBOX_HOST` can override it. Never widen the
+Bind defaults to `127.0.0.1` even though `APS_HOST` can override it. Never widen the
 bind. The audience gate is the tunnel, not the process. Before sharing a tunnel, verify
 that anonymous requests to `/` and `/api` hit the SSO redirect. The agent child is
 non-interactive and auto-approves exactly the tools in its `--allowedTools` allowlist,
@@ -78,22 +78,30 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
 - **Entry:** `src/server/app.ts` opens the database, constructs `RequestRepository`,
   `KbRepository`, `CellRepository`, `PluginManager`, and the engine, builds the server,
   and listens. Loopback only; no in-process auth, because the tunnel is the gate.
-- **Config** (`src/server/config.ts`, every value env-overridable):
-  - `host` = `SBOX_HOST` ?? `127.0.0.1`; `port` = `SBOX_PORT` ?? `7391`
-  - `dbPath` = `SBOX_DB` ?? `sandbox-harness.sqlite`
-  - `webDir` = `SBOX_WEB_DIR` ?? `<cwd>/src/web/dist`
-  - `dataDir` = `SBOX_DATA_DIR` ?? `~/.sandbox-harness` (per-request workdirs)
-  - `pluginsDir` = `SBOX_PLUGINS_DIR` ?? `~/.sandbox-harness/plugins`
-  - `brainUrl` = `SBOX_BRAIN_URL` ?? `http://127.0.0.1:<port>`, used by the MCP proxy
-  - `harness` = `SBOX_HARNESS` ?? `claude`; must be `claude` or `opencode`
-  - `harnessBins.claude` = `SBOX_CLAUDE_BIN` ?? `claude`;
-    `harnessBins.opencode` = `SBOX_OPENCODE_BIN` ?? `opencode`.
-    `SBOX_HARNESS_BIN` is the legacy fallback for the adapter selected by
-    `SBOX_HARNESS` only; the adapter-specific value wins when both are set.
-  - `defaultModels` = one fallback per adapter. `SBOX_DEFAULT_MODEL` overrides the
+- **Config** (`src/server/src/config.ts`, every value env-overridable):
+  - `host` = `APS_HOST` ?? `127.0.0.1`; `port` = `APS_PORT` ?? `7391`
+  - `dbPath` = `APS_DB` ?? `agent-process-segments.sqlite`
+  - `webDir` = `APS_WEB_DIR` ?? `<cwd>/src/web/dist`
+  - `dataDir` = `APS_DATA_DIR` ?? `~/.agent-process-segments` (per-request workdirs)
+  - `pluginsDir` = `APS_PLUGINS_DIR` ?? `~/.agent-process-segments/plugins`
+  - `brainUrl` = `APS_BRAIN_URL` ?? `http://127.0.0.1:<port>`, used by the MCP proxy
+  - `harness` = `APS_HARNESS` ?? `claude`; must be `claude` or `opencode`
+  - `harnessBins.claude` = `APS_CLAUDE_BIN` ?? `claude`;
+    `harnessBins.opencode` = `APS_OPENCODE_BIN` ?? `opencode`.
+    `APS_HARNESS_BIN` is the legacy fallback for the adapter selected by `APS_HARNESS`
+    only; the adapter-specific value wins when both are set.
+  - `defaultModels` = one fallback per adapter. `APS_DEFAULT_MODEL` overrides the
     process-default harness; OpenCode otherwise gets
     `opencode-go/deepseek-v4.1-flash`, Claude gets null.
-- **Run:** `node src/server/dist/app.js` with `SBOX_DB` set. The original had no process
+  - `configPath` / `processPath` = `APS_CONFIG` / `APS_PROCESS` ??
+    `$XDG_CONFIG_HOME/agent-process-segments/{config,process}.json`
+  - `errorLogPath` = `APS_ERROR_LOG` ??
+    `$XDG_STATE_HOME/agent-process-segments/errors.log`
+  - Every `APS_*` name also accepts the legacy `SBOX_*` alias; `APS_*` wins when both
+    are set. Path defaults prefer an existing `agent-process-segments` location, then
+    an existing `sandbox-harness` one, then the new location. `app.ts` warns when a
+    legacy default is still in use and points at `npm run migrate:paths`.
+- **Run:** `node src/server/dist/app.js` with `APS_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
 
 ---
@@ -250,9 +258,9 @@ object per line.
 
 One persistent child per request, carried across all workflow steps and resumed across
 restarts. The adapter is chosen per session: a request or cell master resolves through
-its cell (`cells.harness`, then `SBOX_HARNESS`), while setup, KB, and unassigned sessions
-use the process default. The same resolved adapter creates the parser and spawns the
-child.
+its cell (`cells.harness`, then `APS_HARNESS`; legacy `SBOX_HARNESS` still works), while
+setup, KB, and unassigned sessions use the process default. The same resolved adapter
+creates the parser and spawns the child.
 
 - **Spawn:** Claude runs `claude -p --input-format stream-json --output-format
   stream-json --include-partial-messages --verbose --mcp-config <generated>
@@ -291,9 +299,10 @@ child.
   no target repo or git fails. Transcript, session, and MCP config stay in the scratch
   workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
   terminal transitions.
-- **Workdirs:** `~/.sandbox-harness/requests/<id>/` holds `transcript.json`,
+- **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
-  (`mcp-config.json` or `opencode/opencode.json`).
+  (`mcp-config.json` or `opencode/opencode.json`). An existing legacy
+  `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it.
 
 ### Models
 
@@ -310,7 +319,7 @@ passing both parameters or an unknown harness is a 400.
 The snapshot below is a default to override, and should be re-verified as models ship.
 Model and effort are per-request (`--model`, `--effort`; null means the brain default,
 then the CLI default) and apply to that request's one persistent session across every
-step. `SBOX_DEFAULT_MODEL` sets the process-default harness's fallback; per-cell model
+step. `APS_DEFAULT_MODEL` sets the process-default harness's fallback; per-cell model
 overrides win. OpenCode otherwise defaults to `opencode-go/deepseek-v4.1-flash`; Claude
 otherwise has no model default.
 
@@ -348,7 +357,7 @@ what this guidance keys on.
 ### Harness MCP server
 
 A stdio MCP server the engine launches per session through `--mcp-config`, scoped by
-env `SBOX_REQUEST_ID` and `SBOX_BRAIN_URL`, proxying to the loopback REST API. Tools:
+env `APS_REQUEST_ID` and `APS_BRAIN_URL`, proxying to the loopback REST API. Tools:
 `update_request`, `get_request`, `spawn_request`, `list_requests`, `index_to_kb` for
 request sessions; `search_kb`, `list_kb` for the KB session. Namespaced
 `mcp__harness__*` and allow-listed so the agent can call them under auto-approve.
@@ -373,10 +382,10 @@ Input to the child is written to stdin as
 ```json
 { "mcpServers": { "harness": {
   "command": "<node>", "args": ["<dist>/mcp/server.js"],
-  "env": { "SBOX_BRAIN_URL": "http://127.0.0.1:7391", "SBOX_REQUEST_ID": "<id or ''>" } } } }
+  "env": { "APS_BRAIN_URL": "http://127.0.0.1:7391", "APS_REQUEST_ID": "<id or ''>" } } } }
 ```
 
-`SBOX_REQUEST_ID` is empty for the `__kb__` session.
+`APS_REQUEST_ID` is empty for the `__kb__` session.
 
 **TranscriptMsg**, persisted to `transcript.json`, returned by `GET /clarify`, and
 carried in the `done` event:
@@ -436,7 +445,7 @@ npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for both
 npm test                    # vitest, server
 npm run lint                # eslint
-SBOX_DB=/abs/sandbox-harness.sqlite node src/server/dist/app.js
+APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
 The original test suite covered the request repo and state machine, the cells repo,

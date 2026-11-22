@@ -54,11 +54,11 @@ The wizard never leaves the chat spinner running forever.
 - A chat transport error shows an inline **Retry**. A failed send is replayed with the
   same text, without appending a duplicate user bubble; if events had already arrived,
   Retry rehydrates instead so the server does not process the message twice.
-- A live driver turn is capped by `SBOX_TURN_TIMEOUT_MS` (default ten minutes). The
+- A live driver turn is capped by `APS_TURN_TIMEOUT_MS` (default ten minutes). The
   engine emits `error`, appends the error to the transcript, kills the child, emits
   `done`, and writes `engine.timeout` with capped stderr.
 - Setup turns use the normal default-model chain, so they start from
-  `SBOX_DEFAULT_MODEL` (OpenCode defaults to `opencode-go/deepseek-v4.1-flash`) unless the
+  `APS_DEFAULT_MODEL` (OpenCode defaults to `opencode-go/deepseek-v4.1-flash`) unless the
   wizard's model field or the CLI overrides it.
 - Harness MCP tools are exposed directly (`codemode: false`), so the chat shows each
   `get_cell_draft`/`update_cell_draft` call as a tool card instead of one opaque
@@ -80,7 +80,7 @@ The wizard never leaves the chat spinner running forever.
 - OpenCode inherits `question: 'deny'` for every brain session. `opencode run` is
   non-interactive, so allowing that tool makes the model wait for an answer that cannot
   arrive; the setup chat then looks dead while the turn is still running.
-- Harness MCP calls to the brain are capped by `SBOX_MCP_TIMEOUT_MS` (default 15
+- Harness MCP calls to the brain are capped by `APS_MCP_TIMEOUT_MS` (default 15
   seconds) and return an MCP error result instead of waiting forever.
 
 ## Validation
@@ -117,7 +117,7 @@ The merge bucket use case is documented in `docs/07-process-segments.md` and
 renders `ClarifyChat` against `setupSessionId(draftId)`, and calls `POST /clarify/stop`
 and `DELETE /api/cell-drafts/:id` on close. `ClarifyChat.onDone` refetches the draft and
 updates the form after each turn. The MCP server exposes `get_cell_draft` and
-`update_cell_draft` in `setup` scope, with the draft id passed as `SBOX_SETUP_DRAFT_ID`.
+`update_cell_draft` in `setup` scope, with the draft id passed as `APS_SETUP_DRAFT_ID`.
 
 ## API
 

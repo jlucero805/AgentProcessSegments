@@ -181,7 +181,7 @@ describes and the server tests are untouched.
 operator wants it on a VPS as a systemd service, on a host that already uses
 herdr-core for interactive terminals.
 
-**Decision.** Ship a systemd user unit (`deploy/sandbox-harness.service`) and a runbook
+**Decision.** Ship a systemd user unit (`deploy/agent-process-segments.service`) and a runbook
 (`deploy/vps.md`), with `loginctl enable-linger` for boot. A user unit keeps the
 `claude` login, git config, and ssh keys of the account that owns the clone, and keeps
 the brain in its own cgroup instead of inside a herdr pane. The system-wide variant is
@@ -268,7 +268,7 @@ additive.
 `config.ts` is environment-driven and owns paths, ports, and the harness.
 
 **Decision.** Store app settings in
-`$XDG_CONFIG_HOME/sandbox-harness/config.json` (override `SBOX_CONFIG`). Validate with a
+`$XDG_CONFIG_HOME/agent-process-segments/config.json` (override `APS_CONFIG`). Validate with a
 zod schema, strip unknown keys, write atomically, fall back to defaults with a warning
 for invalid files, and expose `GET/PATCH /api/config` plus a Config page. The file is
 created on the first save.
@@ -319,7 +319,7 @@ to interject at any workflow step and also wants to talk to the cell master.
 
 **Decision.** Render the same `ClarifyChat` for every non-terminal state; terminal states
 show a read-only transcript. Add a session `scope` (`request`, `kb`, `master`) to the
-harness contract and pass it to the MCP server as `SBOX_SESSION_SCOPE`. The master is a
+harness contract and pass it to the MCP server as `APS_SESSION_SCOPE`. The master is a
 reserved `__master__` session with `MASTER_TOOLS` (board and KB reads only). The
 scheduler appends prod/review/cycle/skip notes to that transcript without a model turn,
 and the Config page embeds the chat under the activity log.
@@ -361,7 +361,7 @@ want to configure every segment and expand the cron loop to start planning, impl
 review, create follow-ups, and advance on rules.
 
 **Decision.** Store six ordered segments in
-`$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS` overrides) as the global
+`$XDG_CONFIG_HOME/agent-process-segments/process.json` (`APS_PROCESS` overrides) as the global
 default. A cell can store a full copy of the same shape in `cells.process_json`; its
 master uses that policy, while cells without one inherit the global default. Each cell
 also has `master_interval_minutes` (null inherits the global cadence), its own timer, and
@@ -401,11 +401,11 @@ read-only/advisory. D42 later removed the no-cell view.
 browser terminal must not share state, cwd, or the process with a harness agent session.
 
 **Decision.** Add a desktop-only **Terminal** action. A server-owned `node-pty` session
-runs in `SBOX_TERMINAL_CWD` (default: the brain’s cwd), with xterm.js in the SPA. Hiding
+runs in `APS_TERMINAL_CWD` (default: the brain’s cwd), with xterm.js in the SPA. Hiding
 the panel or closing the WebSocket **detaches**; the shell and up to 200 KB of scrollback
 remain and are reattached on reopen. The session strip lists every shell with a status
 dot and an explicit close that kills it. Up to four sessions exist at once.
-`SBOX_TERMINAL=0` disables creation and `SBOX_TERMINAL_CWD` moves the start directory.
+`APS_TERMINAL=0` disables creation and `APS_TERMINAL_CWD` moves the start directory.
 
 **Cost.** A direct shell is more powerful than the agent tools. The route has no auth of
 its own, so the brain must stay loopback-only or behind an authenticated tunnel. The UI
@@ -434,8 +434,8 @@ already running. Usage tracking records the resolved model on each completed tur
 wastes space and can capture sensitive content.
 
 **Decision.** Add an error-only `ErrorLogger` that appends one JSON record per explicit
-failure to `$XDG_STATE_HOME/sandbox-harness/errors.log` (`SBOX_ERROR_LOG`,
-`SBOX_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Inject it as `ErrorSink` into startup,
+failure to `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
+`APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Inject it as `ErrorSink` into startup,
 stores, engine, master service/scheduler, HTTP 5xx handling, and terminal open. Expected
 4xx responses, normal lifecycle logs, prompts, transcripts, bodies, and tokens are not
 written. The logger swallows its own failures so logging can never break a request.
@@ -493,7 +493,7 @@ rewrites in-repo links to `?help=<slug>` deep links.
 
 **Cost.** Adding a page takes a manifest line and a restart. The overlay reads files at
 request time, so a missing `docs/` directory yields an empty manifest and a graceful
-unavailable state. `SBOX_DOCS_DIR` must point at the clone's docs on deploy.
+unavailable state. `APS_DOCS_DIR` must point at the clone's docs on deploy.
 
 ## D35. Turn and tool waits are bounded
 
@@ -502,9 +502,9 @@ can call the brain through MCP with no deadline. Both look like an eternal “Ag
 working…” in the wizard, and neither writes an error because nothing has failed yet.
 
 **Decision.** Apply three bounded waits. The engine arms a per-turn watchdog
-(`SBOX_TURN_TIMEOUT_MS`, default ten minutes) that emits an error, kills the child, writes
+(`APS_TURN_TIMEOUT_MS`, default ten minutes) that emits an error, kills the child, writes
 `engine.timeout`, and finishes with `done` even if the harness is still inside
-`prepare()`. The MCP client races every brain call against `SBOX_MCP_TIMEOUT_MS`
+`prepare()`. The MCP client races every brain call against `APS_MCP_TIMEOUT_MS`
 (default 15 seconds) and returns an `isError` tool result. The cell wizard gives draft
 sync five seconds and renders an inline error with Retry instead of an indefinite
 spinner; chat transport errors also get an inline retry.
@@ -575,7 +575,7 @@ to the setup model.
 through the opaque Code Mode `execute` tool. A simple setup turn could take minutes with
 no visible intermediate work.
 
-**Decision.** Add a brain-level `SBOX_DEFAULT_MODEL`; when the harness is OpenCode it
+**Decision.** Add a brain-level `APS_DEFAULT_MODEL`; when the harness is OpenCode it
 defaults to `opencode-go/deepseek-v4.1-flash`. Requests and cells still override it, and
 `GET /api/models` exposes the default so the wizard can show it. Set `codemode: false` on
 the harness MCP server so tools are called directly and appear as tool cards. The setup
@@ -585,7 +585,7 @@ and the last tool.
 
 **Cost.** Setup may make several small model/tool round trips instead of one large update,
 but each is visible and the form changes as it goes. A missing default model id must be
-overridden with `SBOX_DEFAULT_MODEL` or an empty string on other providers.
+overridden with `APS_DEFAULT_MODEL` or an empty string on other providers.
 
 ## D40. Bounded master selection instead of whole-board cycles
 
@@ -673,23 +673,23 @@ as "Unassigned".
 
 ## D44. The agent harness is a per-cell setting
 
-**Context.** Both the Claude Code and OpenCode adapters existed, but `SBOX_HARNESS`
+**Context.** Both the Claude Code and OpenCode adapters existed, but `APS_HARNESS`
 selected one process-wide. An operator who uses Claude at work and OpenCode at home could
 not run both kinds of workspace against one brain, and every model/effort readout assumed
 a single adapter.
 
-**Decision.** `cells.harness` is nullable; NULL inherits `SBOX_HARNESS`. Request, cell
-master, and summary sessions resolve their adapter through their cell, while setup, KB,
-and unassigned sessions use the process default. A cached `HarnessRegistry` owns one
-adapter per id. `session.json` stores `{harness, sessionId, usage}`, and an id from
-another adapter is treated as absent, so a harness switch starts fresh without losing the
-transcript or usage baseline. The engine tracks the harness on each cached child; changing
-the cell kills the old child and spawns the new adapter. Model catalogs are per harness,
-and `GET /api/models?harness=` / `?cellId=` reports that adapter's list,
-`supportsEffort`, and default model. `SBOX_DEFAULT_MODEL` applies to the
-process-default harness only; the non-default adapter keeps its implicit default.
-`PATCH /api/cells/:id` clears `model` and `effort` on a harness change, then reapplies any
-values supplied in the same request.
+**Decision.** `cells.harness` is nullable; NULL inherits `APS_HARNESS` (legacy
+`SBOX_HARNESS` still works). Request, cell master, and summary sessions resolve their
+adapter through their cell, while setup, KB, and unassigned sessions use the process
+default. A cached `HarnessRegistry` owns one adapter per id. `session.json` stores
+`{harness, sessionId, usage}`, and an id from another adapter is treated as absent, so a
+harness switch starts fresh without losing the transcript or usage baseline. The engine
+tracks the harness on each cached child; changing the cell kills the old child and spawns
+the new adapter. Model catalogs are per harness, and `GET /api/models?harness=` /
+`?cellId=` reports that adapter's list, `supportsEffort`, and default model.
+`APS_DEFAULT_MODEL` applies to the process-default harness only; the non-default adapter
+keeps its implicit default. `PATCH /api/cells/:id` clears `model` and `effort` on a
+harness change, then reapplies any values supplied in the same request.
 
 **Cost.** A brain can hold two live child-process shapes and two model caches, and the
 operator has one more per-cell field to understand. In exchange, mixed Claude/OpenCode
@@ -715,3 +715,25 @@ and reports one `usage.prune` error through the error sink on failure. It never 
 long-range totals requires daily rollups, which are deferred. A very large first prune
 takes several short statements rather than one long transaction, but still completes in
 one run. `VACUUM` is left to an operator who can stop the brain first.
+
+## D46. APS names are canonical, SBOX names stay as aliases
+
+**Context.** The product renamed from Sandbox Harness to Agent Process Segments. Runtime
+identifiers (environment variables, XDG directories, the SQLite filename, and the systemd
+unit) still carried the old name, but a live install already had data, sessions, and
+worktrees under those paths.
+
+**Decision.** `APS_*` is canonical and `SBOX_*` remains a deprecated alias. `readEnv`
+returns `APS_<name>` whenever it is defined (including an empty string) and only then
+falls back to `SBOX_<name>`. Default paths use the new names, but choose an existing
+`agent-process-segments` location first, then an existing legacy `sandbox-harness` one,
+then the new location; explicit env paths always win. Startup never moves data. An
+operator-invoked `npm run migrate:paths` moves the default data, config, and state
+directories and the SQLite file (with WAL/SHM), never overwrites an existing destination,
+and is idempotent. The unit template moves to `deploy/agent-process-segments.service`.
+
+**Cost.** Two names exist for one release, and a partial upgrade can keep using legacy
+paths until the operator migrates. Moving a data directory also moves git worktrees,
+whose metadata may need `git worktree repair`; the script warns instead of guessing. A
+rollback to an older binary needs a unit or drop-in that passes the migrated paths under
+the `SBOX_*` names.

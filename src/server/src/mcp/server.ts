@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { HARNESS_IDS } from '../domain/harness.js';
 import { EFFORT_LEVELS, STATES } from '../domain/request.js';
+import { readEnv } from '../env.js';
 import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
 import { errorMessage } from '../util/errors.js';
 
@@ -358,22 +359,44 @@ export function buildMcpServer(options: McpOptions): McpServer {
   return server;
 }
 
-async function main(): Promise<void> {
-  const brainUrl = process.env.SBOX_BRAIN_URL ?? 'http://127.0.0.1:7391';
-  const requestId = process.env.SBOX_REQUEST_ID ?? '';
-  const rawScope = process.env.SBOX_SESSION_SCOPE;
+export interface McpEnv {
+  brainUrl: string;
+  requestId: string;
+  scope?: SessionScope;
+  draftId?: string;
+  timeoutMs: number;
+}
+
+/**
+ * Reads the environment a harness passes to this stdio server. `APS_*` is
+ * canonical; `SBOX_*` keeps generated configs from an older brain working.
+ */
+export function readMcpEnv(env: NodeJS.ProcessEnv = process.env): McpEnv {
+  const rawScope = readEnv(env, 'SESSION_SCOPE');
   const scope =
     rawScope === 'request' || rawScope === 'kb' || rawScope === 'master' || rawScope === 'setup'
       ? rawScope
       : undefined;
-  const draftId = process.env.SBOX_SETUP_DRAFT_ID;
-  const timeout = Number(process.env.SBOX_MCP_TIMEOUT_MS ?? 15_000);
-  const server = buildMcpServer({
-    brainUrl,
-    requestId,
+  const rawTimeout = Number(readEnv(env, 'MCP_TIMEOUT_MS') ?? DEFAULT_MCP_TIMEOUT_MS);
+
+  return {
+    brainUrl: readEnv(env, 'BRAIN_URL') ?? 'http://127.0.0.1:7391',
+    requestId: readEnv(env, 'REQUEST_ID') ?? '',
     scope,
-    draftId,
-    timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 15_000,
+    draftId: readEnv(env, 'SETUP_DRAFT_ID'),
+    timeoutMs:
+      Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : DEFAULT_MCP_TIMEOUT_MS,
+  };
+}
+
+async function main(): Promise<void> {
+  const env = readMcpEnv();
+  const server = buildMcpServer({
+    brainUrl: env.brainUrl,
+    requestId: env.requestId,
+    scope: env.scope,
+    draftId: env.draftId,
+    timeoutMs: env.timeoutMs,
   });
   await server.connect(new StdioServerTransport());
 }

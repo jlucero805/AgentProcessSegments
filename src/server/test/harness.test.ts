@@ -61,10 +61,13 @@ describe('ClaudeHarness', () => {
       expect.arrayContaining(['harness', 'user', 'local', 'project']),
     );
     expect(config.mcpServers.harness.env).toEqual({
-      SBOX_BRAIN_URL: 'http://brain:7391',
-      SBOX_REQUEST_ID: 'req-1',
-      SBOX_SESSION_SCOPE: 'request',
+      APS_BRAIN_URL: 'http://brain:7391',
+      APS_REQUEST_ID: 'req-1',
+      APS_SESSION_SCOPE: 'request',
     });
+    expect(Object.keys(config.mcpServers.harness.env).some((key) => key.startsWith('SBOX_'))).toBe(
+      false,
+    );
 
     const allowed = command.args[command.args.indexOf('--allowedTools') + 1];
     expect(allowed).toContain('Bash');
@@ -117,7 +120,7 @@ describe('ClaudeHarness', () => {
     expect(allowed).not.toContain('mcp__user__*');
 
     const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
-    expect(config.mcpServers.harness.env.SBOX_SESSION_SCOPE).toBe('master');
+    expect(config.mcpServers.harness.env.APS_SESSION_SCOPE).toBe('master');
     expect(config.mcpServers.user).toBeUndefined();
   });
 
@@ -148,7 +151,7 @@ describe('ClaudeHarness', () => {
     expect(command.args).not.toContain('--plugin-dir');
 
     const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
-    expect(config.mcpServers.harness.env.SBOX_REQUEST_ID).toBe('');
+    expect(config.mcpServers.harness.env.APS_REQUEST_ID).toBe('');
     expect(config.mcpServers.user).toBeUndefined();
   });
 });
@@ -196,7 +199,7 @@ describe('OpencodeHarness', () => {
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
     expect(config.mcp.harness.type).toBe('local');
     expect(config.mcp.harness.codemode).toBe(false);
-    expect(config.mcp.harness.environment.SBOX_REQUEST_ID).toBe('req-2');
+    expect(config.mcp.harness.environment.APS_REQUEST_ID).toBe('req-2');
     expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
     expect(config.mcp.disabled.enabled).toBe(false);
     // Request sessions keep the user's permission posture, minus interactive questions.
@@ -257,7 +260,7 @@ describe('OpencodeHarness', () => {
       webfetch: 'deny',
       external_directory: 'deny',
     });
-    expect(config.mcp.harness.environment.SBOX_REQUEST_ID).toBe('');
+    expect(config.mcp.harness.environment.APS_REQUEST_ID).toBe('');
     expect(config.mcp.user).toBeUndefined();
   });
 
@@ -388,7 +391,7 @@ describe('OpencodeHarness', () => {
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
     expect(config.permission).toMatchObject({ edit: 'deny', bash: 'deny' });
-    expect(config.mcp.harness.environment.SBOX_SESSION_SCOPE).toBe('master');
+    expect(config.mcp.harness.environment.APS_SESSION_SCOPE).toBe('master');
     expect(config.mcp.user).toBeUndefined();
     expect(config.plugin).toBeUndefined();
     expect(config.agent).toBeUndefined();

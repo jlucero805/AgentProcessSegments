@@ -8,9 +8,10 @@ contract; these are additions or deviations, and the D references point at
 ## 1. Harness seam with `claude` as the default
 
 **Chosen.** The engine depends on `AgentHarness` through a cached registry.
-`SBOX_HARNESS=claude|opencode` sets the process default, and each cell may override it.
-`SBOX_CLAUDE_BIN` and `SBOX_OPENCODE_BIN` point at each binary; the legacy
-`SBOX_HARNESS_BIN` is the default adapter's fallback and loses to the specific value.
+`APS_HARNESS=claude|opencode` sets the process default (legacy `SBOX_HARNESS` still
+works), and each cell may override it. `APS_CLAUDE_BIN` and `APS_OPENCODE_BIN` point at
+each binary; the legacy `APS_HARNESS_BIN` is the default adapter's fallback and loses to
+the specific value.
 
 **Alternative.** Hardwire OpenCode because it is what this host has authenticated.
 
@@ -164,7 +165,7 @@ cell has its own timer and master chat.
 
 **Chosen.** Server-owned PTY sessions with xterm.js in the SPA, a visible session strip,
 detach-on-hide with scrollback replay, explicit session close, desktop-only trigger,
-maximize/restore, `SBOX_TERMINAL=0` kill switch, and a configurable starting cwd.
+maximize/restore, `APS_TERMINAL=0` kill switch, and a configurable starting cwd.
 
 **Alternatives.** A command runner without a PTY (breaks interactive tools), killing the
 shell when the panel hides, reusing the agent’s child process (violates isolation), or a

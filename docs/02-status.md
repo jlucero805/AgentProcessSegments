@@ -30,8 +30,8 @@ built and vended by the brain; real-CLI verification is still pending.
   from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
   event history are cell-scoped. The Config page edits the global schedule/template, and
   the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
-- Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
-  (`SBOX_PROCESS` override): six ordered segments with purpose, enabled, idle minutes,
+- Process configuration lives in `$XDG_CONFIG_HOME/agent-process-segments/process.json`
+  (`APS_PROCESS` override): six ordered segments with purpose, enabled, idle minutes,
   per-cycle cap, per-segment concurrency, prompt, ready marker, advance target, and
   follow-up policy. It is zod-validated and written atomically. Five-segment files are
   upgraded by inserting Merge, and missing `maxConcurrent` fields default to null.
@@ -53,10 +53,10 @@ built and vended by the brain; real-CLI verification is still pending.
   `working`) and default model/effort (a request’s own values win). The Cell master drawer
   shows the selected cell’s ticker, policy, activity, and chat.
 - Desktop terminal: a sidebar **Terminal** action attaches to a server-owned PTY
-  (`node-pty`) in `SBOX_TERMINAL_CWD`, independent of every agent session. Hiding the
+  (`node-pty`) in `APS_TERMINAL_CWD`, independent of every agent session. Hiding the
   panel only detaches; sessions stay listed with a status dot, the sidebar shows a session
   count, and reopening replays scrollback. An explicit tab close kills the shell. Up to
-  four sessions; `SBOX_TERMINAL=0` disables it. The UI hides the action below `md`, but the
+  four sessions; `APS_TERMINAL=0` disables it. The UI hides the action below `md`, but the
   session API is live, so the brain must stay behind a trusted boundary.
 - Live master verification: a stalled dispatch request was prodded by the real OpenCode
   agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
@@ -74,16 +74,16 @@ built and vended by the brain; real-CLI verification is still pending.
   `GET /api/docs/assets/*`. Mermaid fences render as lazy-loaded, dark-theme SVG diagrams;
   the original fenced source still powers Copy as Markdown and appears as the fallback
   when Mermaid fails. `?help=<slug>` deep-links a page and back/forward move between
-  pages. The manifest is an explicit code list; docs are read from `SBOX_DOCS_DIR`
+  pages. The manifest is an explicit code list; docs are read from `APS_DOCS_DIR`
   (default `<cwd>/docs`) and traversal is rejected. A GitHub icon beside the Help row
   opens the public source repository in a new tab.
 - Engine: one persistent child per request, buffered live turns with reattach,
   transcript and session persistence, `--resume` on later spawns, agent status
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
-  terminal transitions. Every turn has a `SBOX_TURN_TIMEOUT_MS` watchdog (default 10
+  terminal transitions. Every turn has an `APS_TURN_TIMEOUT_MS` watchdog (default 10
   minutes) that emits an error, kills a silent child, records `engine.timeout`, and
   finishes with `done`. Early exits and timeouts include capped child stderr. The turn
-  model falls back to `SBOX_DEFAULT_MODEL`; OpenCode defaults to
+  model falls back to `APS_DEFAULT_MODEL`; OpenCode defaults to
   `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
 - Usage tracking: both parsers normalize token counts and harness-reported cost into a
   `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
@@ -99,21 +99,21 @@ built and vended by the brain; real-CLI verification is still pending.
   tool output.
 - Worktrees: `sbox/<id>` branch per request, reuse of an existing checkout, branch kept
   on removal, scratch fallback when git is unavailable.
-- MCP server (`src/mcp/server.ts`): stdio server scoped by `SBOX_REQUEST_ID`, proxying
+- MCP server (`src/server/src/mcp/server.ts`): stdio server scoped by `APS_REQUEST_ID`, proxying
   to the loopback API. Request sessions get `update_request`, `get_request`,
   `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and
   `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool. Brain calls have a
-  `SBOX_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
+  `APS_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
   stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
   probe behind one interface, with a cached registry of `claude` and `opencode` adapters.
-  `SBOX_HARNESS` sets the process default; each cell can store its own `harness`, and
-  requests, cell masters, and summary sessions resolve through that cell. Setup, KB, and
-  unassigned sessions use the default. Claude runs one long-lived `claude -p` stream-json
-  child; OpenCode runs `opencode run --format json --auto --standalone` per turn, injects
-  config through `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes
-  `opencode models`. Session ids are pinned to their adapter in `session.json`; model
-  catalogs are per harness.
+  `APS_HARNESS` (legacy `SBOX_HARNESS`) sets the process default; each cell can store
+  its own `harness`, and requests, cell masters, and summary sessions resolve through
+  that cell. Setup, KB, and unassigned sessions use the default. Claude runs one
+  long-lived `claude -p` stream-json child; OpenCode runs
+  `opencode run --format json --auto --standalone` per turn, injects config through
+  `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes `opencode models`. Session
+  ids are pinned to their adapter in `session.json`; model catalogs are per harness.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
@@ -183,8 +183,8 @@ built and vended by the brain; real-CLI verification is still pending.
   on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
-- Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
-  master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
+- Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
+  the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), and the usage retention window (`retentionDays`),
   validated with zod and written atomically. Older files with only `master` keep their
   values and gain the default summary and usage blocks. `GET/PATCH /api/config` expose
@@ -192,16 +192,17 @@ built and vended by the brain; real-CLI verification is still pending.
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
-  `docs/07-process-segments.md`. The files on this host are
-  `/root/.config/sandbox-harness/config.json` and `process.json`.
+  `docs/07-process-segments.md`. The files on this host are still at
+  `/root/.config/sandbox-harness/config.json` and `process.json` until the VPS cutover
+  runs `npm run migrate:paths`; the brain keeps using that legacy location automatically.
 - Usage retention: `usage.retentionDays` (default 90, `0` keeps history forever) is
   edited on the Config page and stored in `config.json`. A startup + hourly job deletes
   `usage_events` older than the window in 1000-row batches, yields between batches,
   joins overlapping runs, and records only `usage.prune` failures. It stops during
   shutdown.
 - Error log: explicit failure paths append NDJSON to
-  `$XDG_STATE_HOME/sandbox-harness/errors.log` (`SBOX_ERROR_LOG`,
-  `SBOX_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
+  `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
+  `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
   process files, unexpected HTTP 5xx, engine turn/exit/timeout failures, master
   turn/cycle failures, and PTY open failures. Normal logs and expected 4xx responses are
   not persisted. See `docs/10-error-log.md`.
@@ -211,7 +212,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 318 vitest cases, all passing: 214 server across 23 files and 104 web across 18 files,
+- 344 vitest cases, all passing: 239 server across 25 files and 105 web across 18 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -221,7 +222,7 @@ built and vended by the brain; real-CLI verification is still pending.
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
   Anthropic account was needed; the mock API answered the Messages stream and the
   `StructuredOutput` probe tool.
-- Deployment: a systemd user unit in `deploy/sandbox-harness.service` and a VPS runbook
+- Deployment: a systemd user unit in `deploy/agent-process-segments.service` and a VPS runbook
   in `deploy/vps.md`. Verified on this host: enabled and active, bound to
   `127.0.0.1:7391`, SPA and API served with `/api` winning over the SPA fallback, a
   `kill -9` of the main process triggered `Restart=on-failure`, and a clean restart kept
@@ -255,8 +256,8 @@ built and vended by the brain; real-CLI verification is still pending.
   each turn's config, `--archived` keeps brain sessions out of the user's list, and
   `--auto` is the request-session permission posture (the KB session gets explicit deny
   rules).
-- `SBOX_HARNESS` selects the substrate; `SBOX_HARNESS_BIN` overrides the binary.
-  `SBOX_CLAUDE_BIN` remains the Claude-specific override.
+- `APS_HARNESS` selects the substrate; `APS_HARNESS_BIN` overrides the binary.
+  `APS_CLAUDE_BIN` remains the Claude-specific override.
 - `GET /api/models` adds `harness` and `supportsEffort` alongside the spec's
   `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert (OpenCode).
 - `GET /clarify` adds `active` alongside `started`/`transcript` so a reconnecting client
@@ -264,7 +265,7 @@ built and vended by the brain; real-CLI verification is still pending.
 - `POST /clarify/send` marks the request started when it is the first message, even if
   `/clarify/start` was skipped.
 - Sessions carry a scope (`request`, `kb`, or `master`) to the harness MCP server via
-  `SBOX_SESSION_SCOPE`. `__kb__` and `__master__` are reserved sessions with no request
+  `APS_SESSION_SCOPE`. `__kb__` and `__master__` are reserved sessions with no request
   row; both are read-only, and the master gets board read tools. The internal
   `__summary__:<cellId>` generator also uses the read-only master scope but is not
   exposed as a chat.

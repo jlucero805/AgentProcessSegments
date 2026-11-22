@@ -43,7 +43,7 @@ export function makeProcess() {
 }
 
 export function makeProcessResponse() {
-  return { ...makeProcess(), path: '/tmp/sandbox-harness/process.json' };
+  return { ...makeProcess(), path: '/tmp/agent-process-segments/process.json' };
 }
 
 export function makeUsageTotals(overrides: Partial<UsageTotals> = {}): UsageTotals {

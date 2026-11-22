@@ -365,8 +365,10 @@ master uses that policy, while cells without one inherit the global default. Eac
 also has `master_interval_minutes` (null inherits the global cadence), its own timer, and
 its own reserved chat session (`__master__:<cellId>`). Each segment has a label, purpose,
 enabled flag, idle threshold, per-cycle cap, prompt, exact ready marker, legal target
-state, and follow-up marker. The master walks enabled segments in array order. `intake`
-uses `engine.start`; other segments use `engine.send` with the configured prompt. A marker
+state, and follow-up marker. The master evaluates enabled segments by pipeline position
+from right to left (`finalize` first, `intake` last), not in stored array order, so
+finishing work is not starved by a backlog of planning. `intake` uses `engine.start`;
+other segments use `engine.send` with the configured prompt. A marker
 advances only through a legal transition. `intake` and `finalize` cannot auto-advance.
 Follow-up lines create requests in the same cell and are deduplicated per source request
 in `master_events`.

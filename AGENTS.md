@@ -167,8 +167,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 11. **Process segments are data.** `process.json` is the global template. A cell can
     store its own snapshot in `cells.process_json` and an optional
     `master_interval_minutes`; its master uses that policy and ticker, or the global
-    template and interval when absent. The master walks enabled segments in order, uses
-    the segment prompt, and advances only on the exact marker through `canTransition`. Do
+    template and interval when absent. The master evaluates enabled segments from the
+    right of the pipeline to the left (`finalize` first, `intake` last), uses the segment
+    prompt, and advances only on the exact marker through `canTransition`. Do
     not hardcode a prod/review rule in a route or UI.
 12. **Master chats and notes are per cell.** `masterSessionId(cellId)` returns
     `__master__:<cellId>`; unassigned work uses `__master__`. Notes from a cell cycle go

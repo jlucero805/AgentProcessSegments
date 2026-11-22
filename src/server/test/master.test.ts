@@ -24,6 +24,7 @@ interface Fixture {
   sent: Array<{ id: string; text: string }>;
   started: string[];
   startTexts: Array<{ id: string; text: string }>;
+  turns: Array<{ action: 'start' | 'send'; id: string }>;
   service: MasterService;
 }
 
@@ -48,16 +49,19 @@ function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessC
   const sent: Array<{ id: string; text: string }> = [];
   const started: string[] = [];
   const startTexts: Array<{ id: string; text: string }> = [];
+  const turns: Array<{ action: 'start' | 'send'; id: string }> = [];
   const turn = () => ({ promise: Promise.resolve() }) as unknown as LiveTurn;
   const engine = {
     hasLive: vi.fn(() => false),
     start: vi.fn(async (id: string, text = '') => {
       started.push(id);
       startTexts.push({ id, text });
+      turns.push({ action: 'start', id });
       return turn();
     }),
     send: vi.fn(async (id: string, text: string) => {
       sent.push({ id, text });
+      turns.push({ action: 'send', id });
       return turn();
     }),
     transcript: vi.fn(() => [
@@ -70,7 +74,7 @@ function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessC
     ? ({ get: () => processConfig } as unknown as ProcessStore)
     : undefined;
   const service = new MasterService({ repo, cells, engine, settings, events, process });
-  return { db, repo, cells, events, settings, engine, sent, started, startTexts, service };
+  return { db, repo, cells, events, settings, engine, sent, started, startTexts, turns, service };
 }
 
 function dispatchRequest(
@@ -255,6 +259,34 @@ describe('MasterService', () => {
     expect(fixture.repo.require(request.id).state).toBe('dispatch');
     expect(fixture.sent[0]?.text).toContain('Continue grooming');
     expect(fixture.events.list().some((event) => event.action === 'advance')).toBe(true);
+  });
+
+  it('runs finishing segments before planning and intake work', async () => {
+    const process = processFor((config) => {
+      for (const id of ['intake', 'plan', 'implement'] as const) {
+        const item = segment(config, id);
+        item.enabled = true;
+        item.idleMinutes = 1;
+      }
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Pipeline');
+    const implementing = dispatchRequest(fixture, 'Implementing', cell.id);
+    const planning = fixture.repo.create({ title: 'Planning', cellId: cell.id });
+    fixture.repo.setClarifyStarted(planning.id, true);
+    age(fixture, planning.id, 2 * 60_000);
+    const raw = fixture.repo.create({ title: 'Raw request', cellId: cell.id });
+    age(fixture, raw.id, 2 * 60_000);
+
+    const result = await fixture.service.runOnce();
+
+    expect(result.prodded).toBe(2);
+    expect(result.started).toBe(1);
+    expect(fixture.turns).toEqual([
+      { action: 'send', id: implementing.id },
+      { action: 'send', id: planning.id },
+      { action: 'start', id: raw.id },
+    ]);
   });
 
   it('uses a cell’s own process instead of the global template', async () => {

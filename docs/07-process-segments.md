@@ -125,8 +125,11 @@ Each cell also has its own **ticker** and **master chat**:
 }
 ```
 
-The array order is the evaluation order inside a cycle. Every segment id must appear
-exactly once.
+Every segment id must appear exactly once. The array order is the display and storage
+order; inside a cycle the master evaluates enabled segments by pipeline position from
+right to left: `finalize`, `merge`, `review`, `implement`, `plan`, then `intake`.
+Finishing work gets the first turns, and the earlier segments run when no later work is
+due, so a steady backlog of planning cannot starve the right side of the pipeline.
 
 ## Segment semantics
 

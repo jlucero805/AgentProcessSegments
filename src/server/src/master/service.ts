@@ -5,7 +5,13 @@ import { canTransition, DEFAULT_MAX_CONCURRENT, isTerminal, type Request, type S
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
 import type { ErrorSink } from '../logging/errors.js';
-import { SEGMENT_STATES, type ProcessConfig, type SegmentConfig } from '../process/definition.js';
+import {
+  SEGMENT_IDS,
+  SEGMENT_STATES,
+  type ProcessConfig,
+  type SegmentConfig,
+  type SegmentId,
+} from '../process/definition.js';
 import { DEFAULT_SEGMENT_PROMPTS, defaultProcess } from '../process/defaults.js';
 import { parseFollowUps } from '../process/follow-ups.js';
 import type { ProcessStore } from '../process/store.js';
@@ -34,6 +40,22 @@ function bucketKey(cellId: string | null): string {
   return cellId ?? '';
 }
 
+/** Pipeline position, with the finishing stages later than the planning stages. */
+const SEGMENT_RANK = new Map<SegmentId, number>(
+  SEGMENT_IDS.map((id, index) => [id, index] as const),
+);
+
+/**
+ * Later stages run first so a steady supply of planning work cannot starve
+ * implementation, review, merge, or finalize. When the right side has nothing
+ * due, the cycle falls through to the earlier segments.
+ */
+function evaluationOrder(process: ProcessConfig): SegmentConfig[] {
+  return [...process.segments].sort(
+    (a, b) => (SEGMENT_RANK.get(b.id) ?? 0) - (SEGMENT_RANK.get(a.id) ?? 0),
+  );
+}
+
 function emptyResult(now: number): MasterResult {
   return {
     ranAt: now,
@@ -60,8 +82,9 @@ function addResult(total: MasterResult, next: MasterResult): void {
 }
 
 /**
- * Deterministic process automation: walks the configured segments, starts or prods
- * due requests, records follow-up requests, and advances on exact markers.
+ * Deterministic process automation: walks the configured segments right-to-left,
+ * starts or prods due requests, records follow-up requests, and advances on exact
+ * markers. Finishing work takes precedence over starting more left-side work.
  *
  * Every cell runs its own bucket with its own policy and its own master chat; the
  * unassigned bucket uses the global template and global master chat.
@@ -198,7 +221,7 @@ export class MasterService {
     let blockedAtCapacity = false;
     let blockedSegment: SegmentConfig | null = null;
 
-    for (const segment of process.segments) {
+    for (const segment of evaluationOrder(process)) {
       if (!segment.enabled) continue;
       const queue = this.segmentQueue(segment, bucket.cellId);
       result.dispatch += queue.length;

@@ -36,7 +36,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 240 vitest cases: 158 server across 19 files and 82 web across 16 files, all green.
+- 256 vitest cases: 173 server across 21 files and 83 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -49,7 +49,9 @@ digests.
   and stop/interject, one thread across workflow segments, a Config page with XDG
   settings and a structured process editor, configurable global and per-cell process
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
-  a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
+  a first-class Cell master detail with prompts/activity/chat, configurable per-cell
+  scorecards over a trailing window (persisted reports, read-only summary session,
+  polling scheduler with catch-up and backoff), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps and
   model/effort defaults, an optional single-worker Merge step with per-segment caps, an
   in-app Help docs viewer, a desktop-only maximizable PTY terminal independent of agent
@@ -69,7 +71,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 158 server + 82 web
+npm test                       # 173 server + 83 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -138,10 +140,12 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 
 1. **Transition table is data.** Add states in `domain/request.ts`; never branch on
    state elsewhere without going through `canTransition`.
-2. **`__kb__` and `__master__` are sentinel session ids with no rows.** A cell master
-   uses `__master__:<cellId>`; the bare id is the global/unassigned chat. Routes
-   special-case them before touching the request repository. All reserved sessions are
-   read-only; the master scope gets board read tools in addition to the KB tools.
+2. **`__kb__`, `__master__`, and `__summary__` are sentinel session ids with no rows.**
+   A cell master uses `__master__:<cellId>`; the bare id is the global/unassigned chat.
+   The internal `__summary__:<cellId>` generator writes scorecards and is not exposed as
+   a chat. Routes special-case them before touching the request repository. All reserved
+   sessions are read-only; the master scope gets board read tools in addition to the KB
+   tools.
 3. **MCP tool names must match the harness allowlist.** Registering a tool does not
    grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, `MASTER_TOOLS`, or `SETUP_TOOLS` in
    `clarify/harness.ts` or the Claude agent cannot call it under auto-approve. OpenCode
@@ -229,6 +233,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     request nor its cell names a model. OpenCode defaults to
     `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
     Expose the default through `GET /api/models` so the wizard can show it.
+30. **Scorecards are observational and separate from the master.** The summary service
+    gathers facts, writes one `cell_summaries` row, and never transitions requests or
+    writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
+    read-only master tool scope. Keep the schedule in `summary` settings, throttle
+    generations to one at a time, and back off failures instead of scanning every 30 s.
 
 ## Extension recipes
 
@@ -244,6 +253,12 @@ annotation, add the `mcp__harness__<name>` string to the engine allowlist, then 
 **Add a column.** Add it to `BASE_SCHEMA` and to `COLUMNS` in `db.ts`. Indexes go after
 the migrations. Add a legacy-database test in `test/db.test.ts`, because that ordering is
 where it broke before.
+
+**Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
+`collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points
+the model at the snapshot; do not let it invent a number that is not in the JSON. If the
+fact needs history the database does not have, scope a durable activity log instead of
+reading transcripts.
 
 **Change the agent contract.** Extend each harness parser with a fixture test, then
 route the new event through `Engine.broadcast`. Nothing in a parser may touch a process

@@ -20,6 +20,9 @@ import type {
   SegmentConfig,
   SkillInfo,
   State,
+  Summary,
+  SummaryConfig,
+  SummaryStatus,
   TerminalSessionInfo,
   TerminalStatus,
 } from './types';
@@ -287,8 +290,11 @@ export const api = {
   getConfig(): Promise<ConfigResponse> {
     return request('/api/config');
   },
-  patchConfig(master: Partial<MasterConfig>): Promise<ConfigResponse> {
-    return request('/api/config', { method: 'PATCH', body: JSON.stringify({ master }) });
+  patchConfig(input: {
+    master?: Partial<MasterConfig>;
+    summary?: Partial<SummaryConfig>;
+  }): Promise<ConfigResponse> {
+    return request('/api/config', { method: 'PATCH', body: JSON.stringify(input) });
   },
   getProcess(): Promise<ProcessResponse> {
     return request('/api/process');
@@ -316,5 +322,17 @@ export const api = {
   },
   getMasterEvents(options: { cellId?: string; limit?: number } = {}): Promise<MasterEvent[]> {
     return request(withQuery('/api/master/events', options));
+  },
+  getSummaries(options: { cellId?: string; limit?: number } = {}): Promise<Summary[]> {
+    return request(withQuery('/api/summaries', options));
+  },
+  getLatestSummary(cellId: string): Promise<Summary | null> {
+    return request(withQuery('/api/summaries/latest', { cellId }));
+  },
+  getSummaryStatus(cellId?: string): Promise<SummaryStatus> {
+    return request(withQuery('/api/summaries/status', { cellId }));
+  },
+  runSummary(cellId: string): Promise<Summary> {
+    return request(withQuery('/api/summaries/run', { cellId }), { method: 'POST' });
   },
 };

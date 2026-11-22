@@ -582,3 +582,28 @@ and the last tool.
 **Cost.** Setup may make several small model/tool round trips instead of one large update,
 but each is visible and the form changes as it goes. A missing default model id must be
 overridden with `SBOX_DEFAULT_MODEL` or an empty string on other providers.
+
+## D40. Scorecards use a dedicated read-only session and derived facts
+
+**Context.** Operators need a periodic report of what happened on a cell without reading
+every ticket or transcript. Reusing `__master__:<cellId>` for generation would let a
+six-hourly model turn collide with a human message in the master chat, and it would mix
+long reports into the scheduler's activity notes. The database has request timestamps
+and `master_events`, but no general transition history, so some terminal timing must be
+approximated.
+
+**Decision.** Add a global `summary` policy (default every 6 hours over 6 hours) and a
+30-second polling scheduler. It gathers a deterministic JSON snapshot first and asks a
+dedicated internal `__summary__:<cellId>` session for the markdown narrative. That
+session uses the existing read-only master tool scope and the cell's model/effort
+defaults, and it is never exposed as a chat. Reports are stored in `cell_summaries`, so
+the UI reads a row instead of re-running a model turn. Generations are serialized and
+coalesced per cell; a failure backs off for `min(interval, 30 min)`. "Completed" and
+"dropped" in a window are derived from `state` plus `updated_at`, and every report says
+so.
+
+**Cost.** A scorecard costs one model turn per cell per interval, and a failed harness
+is retried with backoff rather than every scan. The report cannot replay a request that
+moved through a state and back; a durable activity log is scoped separately. The global
+policy cannot yet vary per cell, and unassigned work has no scorecard, both deliberate
+follow-ups.

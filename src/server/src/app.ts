@@ -19,6 +19,9 @@ import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
 import { SkillCatalog } from './skills/catalog.js';
+import { SummaryRepository } from './summary/repository.js';
+import { SummaryScheduler } from './summary/scheduler.js';
+import { SummaryService } from './summary/service.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -64,6 +67,23 @@ export async function main(): Promise<void> {
       errors,
     });
     const master = new MasterScheduler(masterService, settings, cells, errors);
+    const summaries = new SummaryRepository(db);
+    const summaryService = new SummaryService({
+      repo,
+      cells,
+      engine,
+      settings,
+      events: masterEvents,
+      summaries,
+      errors,
+    });
+    const summary = new SummaryScheduler({
+      service: summaryService,
+      settings,
+      cells,
+      summaries,
+      errors,
+    });
 
     const app = await buildServer({
       repo,
@@ -76,6 +96,8 @@ export async function main(): Promise<void> {
       settings,
       master,
       masterEvents,
+      summary,
+      summaries,
       process: processStore,
       skills,
       docs,
@@ -84,9 +106,13 @@ export async function main(): Promise<void> {
     });
     master.start();
     await app.listen({ host: config.host, port: config.port });
+    // Catch-up generations may call the harness MCP server, so start after the
+    // HTTP brain is accepting connections.
+    summary.start();
 
     const shutdown = async () => {
       master.stop();
+      summary.stop();
       // Keep-alive sockets from a closed client can hold `close()` open forever.
       const force = setTimeout(() => process.exit(0), 3000);
       force.unref();

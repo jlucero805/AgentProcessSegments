@@ -108,6 +108,35 @@ describe('MasterDetail', () => {
       createdAt: 1,
     };
     const urls: string[] = [];
+    const scorecard = {
+      id: 's1',
+      cellId: 'c1',
+      windowStart: Date.now() - 360 * 60_000,
+      windowEnd: Date.now(),
+      windowMinutes: 360,
+      content: '# Quiet window\n\nNo activity.',
+      stats: {
+        windowStart: Date.now() - 360 * 60_000,
+        windowEnd: Date.now(),
+        windowMinutes: 360,
+        cell: { id: 'c1', name: 'Alpha' },
+        requests: {
+          total: 0,
+          byState: {},
+          created: 0,
+          updated: 0,
+          completed: 0,
+          dropped: 0,
+          stalled: [],
+          unchecked: 0,
+          agentStatus: {},
+        },
+        activity: {},
+        previous: { created: 0, completed: 0, dropped: 0, activity: {} },
+      },
+      createdAt: Date.now(),
+    };
+    const capturedScorecard: { ran?: boolean } = {};
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -122,6 +151,12 @@ describe('MasterDetail', () => {
               autoReview: true,
               includeUnassigned: true,
               prompt: 'prod',
+            },
+            summary: {
+              enabled: true,
+              intervalMinutes: 360,
+              windowMinutes: 360,
+              prompt: 'summary prompt',
             },
             path: '/tmp/config.json',
           });
@@ -139,6 +174,23 @@ describe('MasterDetail', () => {
         }
         if (url === '/api/cells') return jsonResponse([cell]);
         if (url.startsWith('/api/master/events')) return jsonResponse([]);
+        if (url === '/api/summaries/latest?cellId=c1') return jsonResponse(scorecard);
+        if (url === '/api/summaries?cellId=c1&limit=5') return jsonResponse([scorecard]);
+        if (url === '/api/summaries/status?cellId=c1') {
+          return jsonResponse({
+            enabled: true,
+            intervalMinutes: 360,
+            windowMinutes: 360,
+            running: false,
+            nextRunAt: Date.now() + 300_000,
+            lastRunAt: Date.now() - 60_000,
+            lastError: null,
+          });
+        }
+        if (url === '/api/summaries/run?cellId=c1') {
+          capturedScorecard.ran = true;
+          return jsonResponse(scorecard);
+        }
         if (url === '/api/requests/__master__%3Ac1/clarify') {
           return jsonResponse({
             started: true,
@@ -162,7 +214,12 @@ describe('MasterDetail', () => {
 
     expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
     expect(await screen.findByText('cell note')).toBeInTheDocument();
+    expect(await screen.findByText('No activity.')).toBeInTheDocument();
     expect(urls).toContain('/api/master/status?cellId=c1');
     expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
+    expect(urls).toContain('/api/summaries/status?cellId=c1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run scorecard now' }));
+    await waitFor(() => expect(capturedScorecard.ran).toBe(true));
   });
 });

@@ -25,6 +25,7 @@ describe('db migrations', () => {
       }>
     ).map((row) => row.name);
     expect(tables).toContain('master_events');
+    expect(tables).toContain('cell_summaries');
     db.close();
   });
 
@@ -62,6 +63,12 @@ describe('db migrations', () => {
     );
     expect(indexes).toContain('idx_requests_cell');
     expect(indexes).toContain('idx_requests_state');
+    expect(indexes).toContain('idx_cell_summaries_cell_created');
+    expect(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string;
+      }>).map((row) => row.name),
+    ).toContain('cell_summaries');
     db.close();
   });
 

@@ -31,6 +31,12 @@ export type {
 } from '../../server/src/master/types';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { SkillInfo } from '../../server/src/skills/types';
+export type {
+  Summary,
+  SummaryConfig,
+  SummaryStats,
+  SummaryStatus,
+} from '../../server/src/summary/types';
 export type { TerminalSessionInfo } from '../../server/src/terminal/types';
 export type { ModelOption } from '../../server/src/clarify/models';
 export type {
@@ -57,6 +63,7 @@ import type { AgentStatus, Effort, Request, State, TranscriptMsg } from '../../s
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
 import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
+import type { SummaryConfig } from '../../server/src/summary/types';
 
 export interface ModelsResult {
   models: ModelOption[];
@@ -70,6 +77,7 @@ export interface ModelsResult {
 
 export interface AppConfig {
   master: MasterConfig;
+  summary: SummaryConfig;
 }
 
 export interface ConfigResponse extends AppConfig {

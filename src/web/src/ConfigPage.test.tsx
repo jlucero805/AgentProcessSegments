@@ -2,7 +2,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigPage } from './ConfigPage';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
-import type { Cell, MasterConfig, MasterEvent, MasterStatus, SegmentConfig } from './types';
+import type {
+  Cell,
+  MasterConfig,
+  MasterEvent,
+  MasterStatus,
+  SegmentConfig,
+  SummaryConfig,
+} from './types';
 
 const master: MasterConfig = {
   enabled: true,
@@ -11,6 +18,13 @@ const master: MasterConfig = {
   autoReview: true,
   includeUnassigned: true,
   prompt: 'prod prompt',
+};
+
+const scorecard: SummaryConfig = {
+  enabled: true,
+  intervalMinutes: 360,
+  windowMinutes: 360,
+  prompt: 'summary prompt',
 };
 
 const status: MasterStatus = {
@@ -43,7 +57,7 @@ const event: MasterEvent = {
 };
 
 interface Captured {
-  config?: { master?: Partial<MasterConfig> };
+  config?: { master?: Partial<MasterConfig>; summary?: Partial<SummaryConfig> };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
   ran?: boolean;
@@ -58,11 +72,12 @@ function installFetch(): Captured {
       captured.config = JSON.parse(String(init.body)) as Captured['config'];
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
+        summary: { ...scorecard, ...captured.config?.summary },
         path: '/tmp/sandbox-harness/config.json',
       });
     }
     if (url === '/api/config') {
-      return jsonResponse({ master, path: '/tmp/sandbox-harness/config.json' });
+      return jsonResponse({ master, summary: scorecard, path: '/tmp/sandbox-harness/config.json' });
     }
     if (url === '/api/process' && init?.method === 'PATCH') {
       captured.process = JSON.parse(String(init.body)) as Captured['process'];
@@ -111,14 +126,19 @@ describe('ConfigPage', () => {
 
     const interval = await screen.findByRole('spinbutton', { name: /interval/i });
     expect(interval).toHaveValue(5);
+    expect(screen.getByRole('spinbutton', { name: /every/i })).toHaveValue(360);
     expect(screen.getByText('/tmp/sandbox-harness/config.json')).toBeInTheDocument();
 
     fireEvent.change(interval, { target: { value: '8' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /window/i }), {
+      target: { value: '180' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     await waitFor(() => expect(captured.config).toBeDefined());
     expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
+    expect(captured.config?.summary).toMatchObject({ intervalMinutes: 360, windowMinutes: 180 });
   });
 
   it('toggles the master switch', async () => {

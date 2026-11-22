@@ -100,6 +100,33 @@ describe('api client', () => {
     expect((init.headers as Record<string, string>)['content-type']).toBe('application/json');
   });
 
+  it('calls the scorecard routes with cell filters and patches both settings blocks', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse([]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.getSummaries({ cellId: 'c1', limit: 5 });
+    await api.getLatestSummary('c1');
+    await api.getSummaryStatus('c1');
+    await api.runSummary('c1');
+    await api.patchConfig({ summary: { intervalMinutes: 60 } });
+
+    const calls = fetchMock.mock.calls.map((call) => ({
+      url: String(call[0]),
+      init: call[1],
+    }));
+    expect(calls[0]?.url).toBe('/api/summaries?cellId=c1&limit=5');
+    expect(calls[1]?.url).toBe('/api/summaries/latest?cellId=c1');
+    expect(calls[2]?.url).toBe('/api/summaries/status?cellId=c1');
+    expect(calls[3]?.url).toBe('/api/summaries/run?cellId=c1');
+    expect(calls[3]?.init?.method).toBe('POST');
+    expect(calls[4]?.url).toBe('/api/config');
+    expect(calls[4]?.init?.body).toBe(
+      JSON.stringify({ summary: { intervalMinutes: 60 } }),
+    );
+  });
+
   it('surfaces the first validation issue when there is no message', async () => {
     vi.stubGlobal(
       'fetch',

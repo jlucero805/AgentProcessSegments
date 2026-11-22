@@ -69,7 +69,6 @@ Path: `SBOX_CONFIG` or `$XDG_CONFIG_HOME/sandbox-harness/config.json`
     "intervalMinutes": 5,
     "idleMinutes": 10,
     "autoReview": true,
-    "includeUnassigned": true,
     "prompt": "…prod instructions…"
   }
 }
@@ -79,7 +78,7 @@ Path: `SBOX_CONFIG` or `$XDG_CONFIG_HOME/sandbox-harness/config.json`
   defaults with a warning instead of crashing the brain.
 - `GET /api/config` returns the effective config and the file path; `PATCH /api/config`
   merges, validates, writes atomically, and tells the scheduler to reschedule.
-- The Config page edits master fields, shows the path, and has a "Run master now" action.
+- The Config page edits master defaults, shows the path, and lists per-cell switches.
 
 ## 4. Cell masters
 
@@ -99,13 +98,15 @@ Every interval (default 5 minutes), for each enabled cell:
 4. If `autoReview` is on and the prod turn's final agent text contains
    `READY FOR REVIEW`, transition `dispatch → review`.
 
-Cells get `master_enabled` (default 1). Unassigned dispatch requests are handled by the
-global master when `includeUnassigned` is on. A per-cell cadence override is future work;
-the cadence is global for now.
+Cells get `master_enabled` (default 1). Masters exist only for cells: requests without a
+cell stay manual until assigned. A per-cell cadence override is future work; the cadence
+is global for now.
 
 Endpoints: `GET /api/master/status` (last run, next run, counts),
-`POST /api/master/run` (one cycle now), `GET /api/master/events?cellId=…&limit=…`.
-The Master page shows the switch, cadence, last run, event log, and a manual run button.
+`POST /api/master/run?cellId=…` (one cell cycle now),
+`GET /api/master/events?cellId=…&limit=…`.
+The Master page shows the switch, cadence, event log, and per-cell switches; the Cell
+master drawer owns the per-cell manual run and chat.
 
 Safety: master turns are ordinary request turns, one at a time per request; terminal
 states dispose the session as before; disabling the master stops scheduling immediately.

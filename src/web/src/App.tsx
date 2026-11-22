@@ -34,10 +34,12 @@ function readRoute(): {
   const raw = params.get('page');
   const page: Page =
     raw === 'kb' || raw === 'skills' || raw === 'config' ? raw : 'board';
-  const masterOpen = params.get('master') === '1';
+  const cellId = params.get('cell');
+  // Only a real cell owns a master; the "all cells" filter cannot open one.
+  const masterOpen = params.get('master') === '1' && cellId !== null;
   return {
     page,
-    cellId: params.get('cell'),
+    cellId,
     detailId: masterOpen ? null : params.get('request'),
     masterOpen,
     helpSlug: params.get('help') || null,
@@ -261,6 +263,7 @@ export function App() {
             value={cellId}
             onChange={(id) => {
               setCellId(id);
+              if (!id) setMasterOpen(false);
               setNavOpen(false);
             }}
             onCreate={() => {
@@ -293,17 +296,19 @@ export function App() {
               Terminal{terminalCount > 0 ? ` (${terminalCount})` : ''}
             </Button>
           ) : null}
-          <Button
-            variant="secondary"
-            className="w-full"
-            onClick={() => {
-              setDetailId(null);
-              setMasterOpen(true);
-              setNavOpen(false);
-            }}
-          >
-            Cell master
-          </Button>
+          {cellId ? (
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={() => {
+                setDetailId(null);
+                setMasterOpen(true);
+                setNavOpen(false);
+              }}
+            >
+              Cell master
+            </Button>
+          ) : null}
           <Button
             variant="primary"
             className="w-full"
@@ -396,7 +401,6 @@ export function App() {
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
           {page === 'config' ? (
             <ConfigPage
-              commands={commands}
               onError={setError}
               onEditCell={(cell) => {
                 setEditingCell(cell);
@@ -419,7 +423,7 @@ export function App() {
         />
       ) : null}
 
-      {masterOpen ? (
+      {masterOpen && cellId ? (
         <MasterDetail
           cellId={cellId}
           commands={commands}

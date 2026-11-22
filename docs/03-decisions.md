@@ -283,17 +283,19 @@ implementation sessions prodded to record decisions and keep moving, and complet
 moved to Review.
 
 **Decision.** A server-side scheduler runs a master cycle (default every 5 minutes).
-Each enabled cell's `dispatch` queue, plus unassigned work when configured, is filtered
-to idle requests older than the idle threshold and not prodded within the interval. The
+Each enabled cell's selected queue is filtered to idle requests older than the idle
+threshold and not prodded within the interval. Requests without a cell have no master.
+The
 prod is an ordinary `engine.send` turn using the configured prompt. If the reply contains
 `READY FOR REVIEW` and auto-review is on, the request moves `dispatch → review`. Every
 prod/review/cycle/skip is stored in `master_events`; status, history, and a manual run are
 exposed, and the Config page owns the policy and per-cell switches.
 
-**Cost.** One prod at a time per cell, sequentially inside that cell; a hung turn delays
-the rest of that cell’s cycle. D27 later made cadence and policy per cell and replaced
-the single prod rule with configurable segments. The review move relies on the marker
-rather than an LLM judgment. Prods are ordinary agent turns, so they cost tokens.
+**Cost.** Turns run inside the cell’s concurrency budget, so a hung turn can still hold
+one slot until it finishes. D27 later made cadence and policy per cell, D41 made the
+selected batch concurrent, and D42 removed unassigned work from the master entirely. The
+review move relies on the marker rather than an LLM judgment. Prods are ordinary agent
+turns, so they cost tokens.
 
 ## D23. Chat queue is client-side; stop keeps the session
 
@@ -385,14 +387,13 @@ the cron is doing, see the prompt it uses, and chat with it as a first-class obj
 
 **Decision.** Add a `Cell master` button above `+ New request`. It opens a dedicated
 drawer with status, the cell’s own ticker/last/next run, the enabled segment loop and
-prompts, filtered activity, and the cell’s `__master__:<cellId>` chat. With no cell
-selected it shows the global template, the unassigned ticker, and the global chat.
-`?master=1` restores the drawer. Config remains the editor; the drawer is the
-observability surface.
+prompts, filtered activity, and the cell’s `__master__:<cellId>` chat. The control is
+only available when a cell is selected; `?master=1` restores the drawer only with a
+`cell` query. Config remains the editor; the drawer is the observability surface.
 
 **Cost.** The drawer polls status and events every 10 seconds while open. Each cell’s
-chat is separate; unassigned work keeps the global chat. The chat remains
-read-only/advisory.
+chat is separate; there is no global chat for unassigned work. The chat remains
+read-only/advisory. D42 later removed the no-cell view.
 
 ## D29. The desktop terminal is a direct PTY
 
@@ -422,8 +423,8 @@ is reached; it records a `skip`/cycle event and a master-chat note. The engine r
 turn’s model/effort from the request first, then the cell defaults. A per-cell master
 chat also inherits the cell defaults.
 
-**Cost.** Concurrency is per cell; unassigned work uses the default cap of 3 until a cell
-is attached. Changing a cell model affects the next spawned turn, not a child that is
+**Cost.** Concurrency is per cell; unassigned requests have no master and consume no
+master slot. Changing a cell model affects the next spawned turn, not a child that is
 already running. Token/cost tracking is backlogged in `docs/09-backlog.md`.
 
 ## D31. Persist only errors, through one sink
@@ -615,9 +616,27 @@ already bounds the batch by the cell’s spare concurrency and each segment’s
 `maxPerCycle`/`maxConcurrent`; segment selection now counts candidates already chosen for
 that batch, so a merge segment capped at one worker contributes only one request. Results,
 follow-ups, and transitions are collected per candidate and aggregated after the batch.
-Different cells remain independent scheduler keys, and a global `runOnce` still walks
-buckets in order.
+Different cells remain independent scheduler keys; manual runs are per cell.
 
 **Cost.** A cycle can have several live model turns at once, using more provider
 throughput and tokens. The cell cap now matters for real parallel fan-out rather than just
 admission control. A segment cap of one still serializes merge work as intended.
+
+## D42. Unassigned work has no master
+
+**Context.** The scheduler treated unassigned requests as a pseudo-cell, giving them a
+global ticker, the global process template, a `__master__` chat, and a fallback
+concurrency cap. That made "no cell" a second automation scope and let a global run
+compete with the cell that actually owned a request.
+
+**Decision.** Masters exist only for real cells. Remove `includeUnassigned`, the empty
+scheduler key, `runUnassigned`, the global `runOnce` batch, the bare `__master__` session,
+and the no-cell master drawer. `POST /api/master/run` requires a `cellId`. Unassigned
+requests stay on the board and remain manually editable/chat-able; assigning one to a
+cell opts it into that cell's master. Before each start/prod, the service re-reads the
+request and skips it if it is missing, live, or no longer in the bucket's cell.
+
+**Cost.** New requests are created unassigned, so they no longer get intake automation
+until someone assigns a cell. Troubleshooting scripts that called the global run endpoint
+must name a cell. Historical `master_events` with a null cell id stay readable and render
+as "Unassigned".

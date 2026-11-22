@@ -11,12 +11,12 @@ interface TimerState {
 }
 
 const REFRESH_MS = 30_000;
-const ALL_KEY = '__all__';
 
 /**
- * One timer per cell plus one for unassigned work. Intervals come from the cell
+ * One timer per cell with its master enabled. Intervals come from the cell
  * (`masterIntervalMinutes`) or fall back to the global scheduler interval. A periodic
- * refresh picks up cells created or deleted through another client.
+ * refresh picks up cells created or deleted through another client. Unassigned
+ * requests have no master and never get a timer.
  */
 export class MasterScheduler {
   private readonly timers = new Map<string, TimerState>();
@@ -66,12 +66,6 @@ export class MasterScheduler {
           run: () => this.service.runCell(cell.id),
         });
       }
-      if (master.includeUnassigned) {
-        desired.set('', {
-          intervalMs: master.intervalMinutes * 60_000,
-          run: () => this.service.runUnassigned(),
-        });
-      }
     }
 
     for (const [key, state] of this.timers) {
@@ -89,7 +83,7 @@ export class MasterScheduler {
         const current = this.timers.get(key);
         if (current) current.nextRunAt = Date.now() + intervalMs;
         void this.runKey(key, run).catch((error: unknown) => {
-          this.errors?.error('master.cycle', error, { cellId: key || null });
+          this.errors?.error('master.cycle', error, { cellId: key });
         });
       }, intervalMs);
       timer.unref?.();
@@ -97,12 +91,8 @@ export class MasterScheduler {
     }
   }
 
-  async runNow(cellId?: string | null): Promise<MasterResult> {
-    if (cellId === undefined) return this.runKey(ALL_KEY, () => this.service.runOnce());
-    const key = cellId ?? '';
-    return this.runKey(key, () =>
-      cellId === null ? this.service.runUnassigned() : this.service.runCell(cellId),
-    );
+  async runNow(cellId: string): Promise<MasterResult> {
+    return this.runKey(cellId, () => this.service.runCell(cellId));
   }
 
   status(): MasterStatus {
@@ -119,16 +109,15 @@ export class MasterScheduler {
     };
   }
 
-  statusFor(cellId: string | null): MasterStatus {
+  statusFor(cellId: string): MasterStatus {
     const master = this.settings.get().master;
-    const cell = cellId === null ? null : this.cells.get(cellId);
-    const key = cellId ?? '';
-    const timer = this.timers.get(key);
+    const cell = this.cells.get(cellId);
+    const timer = this.timers.get(cellId);
     const last = this.service.lastFor(cellId);
     return {
-      enabled: master.enabled && (cellId === null || cell?.masterEnabled === true),
+      enabled: master.enabled && cell?.masterEnabled === true,
       intervalMinutes: cell?.masterIntervalMinutes ?? master.intervalMinutes,
-      running: this.active.has(key),
+      running: this.active.has(cellId),
       nextRunAt: timer?.nextRunAt ?? null,
       lastRunAt: last?.at ?? null,
       lastResult: last?.result ?? null,

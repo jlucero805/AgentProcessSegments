@@ -7,8 +7,8 @@ the file underneath is ordinary JSON.
 
 There are two layers:
 
-1. **Global default** — `process.json`, used for unassigned work and as the template for
-   new cells.
+1. **Global default** — `process.json`, inherited by cells without their own policy and
+   used as the template for new cells.
 2. **Cell policy** — a full copy of the same shape stored on the cell. Once a cell has
    one, its master uses it instead of the global default. Existing cells without a
    policy keep inheriting the global default.
@@ -21,9 +21,10 @@ Each cell also has its own **ticker** and **master chat**:
 
 - `masterIntervalMinutes` on the cell overrides the global scheduler interval; null
   inherits it.
-- The scheduler keeps one timer per enabled cell plus one for unassigned work.
-- Scheduler notes for a cell go to `__master__:<cellId>`; unassigned work uses the global
-  `__master__` chat. The Cell master drawer opens the chat for the selected cell.
+- The scheduler keeps one timer per enabled cell. Requests without a cell have no master
+  and no timer.
+- Scheduler notes for a cell go to `__master__:<cellId>`. The Cell master drawer opens the
+  chat for the selected cell.
 
 ## File and path
 
@@ -252,8 +253,8 @@ POST  /api/master/run?cellId=…         run that cell's cycle now
 `PATCH` with `process: null` makes the cell inherit the global default again. An empty
 `masterIntervalMinutes` inherits the global scheduler interval.
 
-Per-cell master chats use the reserved `__master__:<cellId>` session; unassigned work
-uses `__master__`.
+Per-cell master chats use the reserved `__master__:<cellId>` session. Unassigned
+requests have no master chat.
 
 ## Merge bucket (single worker)
 

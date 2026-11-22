@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
-import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
+import { KB_SESSION_ID } from '../src/clarify/engine.js';
 
 let harness: Harness | null = null;
 
@@ -129,22 +129,21 @@ describe('turn engine', () => {
     expect(h.harness.sessions[1]?.sessionId).toBe('sess-stop');
   });
 
-  it('runs the master chat read-only and appends scheduler notes', async () => {
+  it('runs a cell master chat read-only and appends scheduler notes', async () => {
     const h = fresh(() => defaultScript());
+    const session = '__master__:cell-1';
 
-    const turn = await h.engine.startMaster('what are you doing?');
+    const turn = await h.engine.startMaster('what are you doing?', session);
     await turn.promise;
     await settle();
 
     expect(h.harness.sessions[0]).toMatchObject({ scope: 'master', requestId: '' });
-    const transcript = h.engine.transcript(MASTER_SESSION_ID);
+    const transcript = h.engine.transcript(session);
     expect(transcript.some((message) => message.text.includes('cell master'))).toBe(true);
 
-    h.engine.note(MASTER_SESSION_ID, 'Master cycle: 0 queued, 0 prodded');
+    h.engine.note(session, 'Master cycle: 0 queued, 0 prodded');
     expect(
-      h.engine.transcript(MASTER_SESSION_ID).some((message) =>
-        message.text.includes('Master cycle'),
-      ),
+      h.engine.transcript(session).some((message) => message.text.includes('Master cycle')),
     ).toBe(true);
   });
 
@@ -160,7 +159,7 @@ describe('turn engine', () => {
     expect(h.engine.transcript(session).some((message) => message.text.includes('cell master'))).toBe(
       true,
     );
-    expect(h.engine.transcript(MASTER_SESSION_ID)).toHaveLength(0);
+    expect(h.engine.transcript('__master__')).toHaveLength(0);
 
     h.engine.note(session, 'Cell cycle: 1 prodded');
     expect(

@@ -351,6 +351,10 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   </Select>
                 </Field>
               </div>
+              <p className="text-[11px] text-zinc-600">
+                Requests without a cell stay manual; assign one to let its master automate
+                this request.
+              </p>
               <Field label="Acceptance criteria">
                 <Textarea
                   rows={2}

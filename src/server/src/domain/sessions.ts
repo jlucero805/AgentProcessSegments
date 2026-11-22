@@ -18,13 +18,13 @@ export function setupDraftId(id: string): string | null {
   return draftId === '' ? null : draftId;
 }
 
-/** One master chat per cell; the global id is used for unassigned work. */
-export function masterSessionId(cellId: string | null | undefined): string {
-  return cellId ? `${MASTER_SESSION_ID}:${cellId}` : MASTER_SESSION_ID;
+/** One master chat per cell. Unassigned work has no master and therefore no session. */
+export function masterSessionId(cellId: string): string {
+  return `${MASTER_SESSION_ID}:${cellId}`;
 }
 
 export function isMasterSession(id: string): boolean {
-  return id === MASTER_SESSION_ID || id.startsWith(`${MASTER_SESSION_ID}:`);
+  return masterCellId(id) !== null;
 }
 
 export function masterCellId(id: string): string | null {

@@ -8,7 +8,6 @@ import {
   type Cell,
   type CellDetail,
   type CommandInfo,
-  type MasterConfig,
   type MasterEvent,
   type MasterResult,
   type MasterStatus,
@@ -24,7 +23,7 @@ import {
 } from './ui';
 
 interface MasterDetailProps {
-  cellId?: string | null;
+  cellId: string;
   onClose: () => void;
   onConfigure: (cell: CellDetail | null) => void;
   onError: (message: string) => void;
@@ -37,7 +36,6 @@ function clock(ts: number | null | undefined): string {
 
 /** The cell master as a first-class thread: cron policy, activity, and chat. */
 export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }: MasterDetailProps) {
-  const [master, setMaster] = useState<MasterConfig | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [cell, setCell] = useState<CellDetail | null>(null);
   const [status, setStatus] = useState<MasterStatus | null>(null);
@@ -48,19 +46,17 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
 
   const load = useCallback(async () => {
     try {
-      const [config, globalProcess, masterStatus, cellList, eventList] = await Promise.all([
-        api.getConfig(),
+      const [globalProcess, masterStatus, cellList, eventList] = await Promise.all([
         api.getProcess(),
-        api.getMasterStatus(cellId ?? undefined),
+        api.getMasterStatus(cellId),
         api.getCells(),
-        api.getMasterEvents({ cellId: cellId ?? undefined, limit: 30 }),
+        api.getMasterEvents({ cellId, limit: 30 }),
       ]);
-      const selected = cellId ? cellList.find((item) => item.id === cellId) ?? null : null;
+      const selected = cellList.find((item) => item.id === cellId) ?? null;
       const effective = selected?.process ?? {
         version: globalProcess.version,
         segments: globalProcess.segments,
       };
-      setMaster(config.master);
       setCell(selected);
       setProcess(effective);
       setStatus(masterStatus);
@@ -85,7 +81,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   async function runNow() {
     setRunning(true);
     try {
-      const result = await api.runMaster(cellId ?? undefined);
+      const result = await api.runMaster(cellId);
       setLastResult(result);
       await load();
     } catch (error) {
@@ -113,7 +109,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       </header>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {!master || !process || !status ? (
+        {!process || !status ? (
           <div className="flex h-40 items-center justify-center gap-2 text-sm text-zinc-500">
             <Spinner /> Loading master...
           </div>
@@ -162,9 +158,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                     }× concurrency · ${cell.model ?? 'CLI model'} · ${
                       cell.effort ?? 'default effort'
                     }`
-                  : master.includeUnassigned
-                    ? 'Global template · includes unassigned requests'
-                    : 'Global template · cell-assigned requests only'}
+                  : 'This cell no longer exists.'}
               </p>
               <ul className="space-y-2">
                 {process.segments.map((segment) => (

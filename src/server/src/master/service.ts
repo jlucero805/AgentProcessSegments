@@ -1,7 +1,7 @@
 import type { Engine, LiveTurn } from '../clarify/engine.js';
 import { masterSessionId } from '../clarify/engine.js';
 import type { CellRepository } from '../cells/repository.js';
-import { canTransition, DEFAULT_MAX_CONCURRENT, isTerminal, type Request, type State } from '../domain/request.js';
+import { canTransition, isTerminal, type Request, type State } from '../domain/request.js';
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
 import type { ErrorSink } from '../logging/errors.js';
@@ -20,7 +20,7 @@ import type { SettingsStore } from '../settings.js';
 import { errorMessage } from '../util/errors.js';
 
 interface Bucket {
-  cellId: string | null;
+  cellId: string;
   label: string;
   maxConcurrent: number;
 }
@@ -43,10 +43,6 @@ export interface MasterServiceDeps {
   /** Optional so tests and old callers keep the legacy derived policy. */
   process?: ProcessStore | undefined;
   errors?: ErrorSink;
-}
-
-function bucketKey(cellId: string | null): string {
-  return cellId ?? '';
 }
 
 /** Pipeline position, with the finishing stages later than the planning stages. */
@@ -79,17 +75,6 @@ function emptyResult(now: number): MasterResult {
   };
 }
 
-function addResult(total: MasterResult, next: MasterResult): void {
-  total.cells += next.cells;
-  total.dispatch += next.dispatch;
-  total.started += next.started;
-  total.prodded += next.prodded;
-  total.reviewed += next.reviewed;
-  total.advanced += next.advanced;
-  total.followUps += next.followUps;
-  total.skipped += next.skipped;
-}
-
 /**
  * Deterministic process automation: walks the configured segments right-to-left,
  * selects at most the cell's spare concurrency for the cycle, starts or prods
@@ -97,8 +82,8 @@ function addResult(total: MasterResult, next: MasterResult): void {
  * exact markers. Finishing work takes precedence over starting more left-side
  * work, and a cycle never reads or notes the whole board.
  *
- * Every cell runs its own bucket with its own policy and its own master chat; the
- * unassigned bucket uses the global template and global master chat.
+ * Every cell runs its own bucket with its own policy and its own master chat.
+ * Unassigned requests have no bucket: they stay manual until assigned to a cell.
  */
 export class MasterService {
   lastRunAt: number | null = null;
@@ -108,7 +93,7 @@ export class MasterService {
 
   constructor(private readonly deps: MasterServiceDeps) {}
 
-  private note(cellId: string | null, text: string): void {
+  private note(cellId: string, text: string): void {
     this.deps.engine.note(masterSessionId(cellId), text);
   }
 
@@ -120,7 +105,7 @@ export class MasterService {
     return this.deps.process?.get() ?? defaultProcess(this.deps.settings.get().master);
   }
 
-  private segmentQueue(segment: SegmentConfig, cellId: string | null): Request[] {
+  private segmentQueue(segment: SegmentConfig, cellId: string): Request[] {
     const requests =
       segment.id === 'intake'
         ? this.deps.repo.list({ view: 'intake', cellId })
@@ -232,7 +217,7 @@ export class MasterService {
     source: Request,
     text: string,
     segment: SegmentConfig,
-    cellId: string | null,
+    cellId: string,
   ): number {
     if (!segment.followUps.enabled) return 0;
     const titles = parseFollowUps(text, segment.followUps.marker);
@@ -242,9 +227,9 @@ export class MasterService {
       this.deps.repo.create({
         title,
         body: `Follow-up from "${source.title}" (${source.id}).\n\nCreated by the ${segment.label} segment.`,
-        cellId: source.cellId,
+        cellId,
       });
-      this.record({ cellId: source.cellId, requestId: source.id, action: 'followup', detail: title });
+      this.record({ cellId, requestId: source.id, action: 'followup', detail: title });
       this.note(cellId, `Created follow-up "${title}" from "${source.title}".`);
       created += 1;
     }
@@ -255,19 +240,20 @@ export class MasterService {
     request: Request,
     segment: SegmentConfig,
     text: string,
-    cellId: string | null,
+    cellId: string,
   ): Promise<State | null> {
     const target = segment.advanceTo;
     if (!target || !segment.readyMarker || !text.includes(segment.readyMarker)) return null;
 
     const current = this.deps.repo.get(request.id);
-    if (!current || current.state !== SEGMENT_STATES[segment.id]) return null;
+    if (!current || current.cellId !== cellId) return null;
+    if (current.state !== SEGMENT_STATES[segment.id]) return null;
     if (!canTransition(current.state, target)) return null;
 
     this.deps.repo.transition(request.id, target);
     if (isTerminal(target)) await this.deps.engine.dispose(request.id);
     this.record({
-      cellId: current.cellId,
+      cellId,
       requestId: request.id,
       action: target === 'review' ? 'review' : 'advance',
       detail: `agent reported ${segment.readyMarker}`,
@@ -286,7 +272,7 @@ export class MasterService {
 
   private async runCandidate(
     bucket: Bucket,
-    request: Request,
+    candidate: Request,
     segment: SegmentConfig,
   ): Promise<CandidateOutcome> {
     const outcome: CandidateOutcome = {
@@ -297,6 +283,19 @@ export class MasterService {
       followUps: 0,
       skipped: 0,
     };
+
+    // Selection uses a queue snapshot. Re-read before turning so a request moved
+    // to another cell cannot be prodded by the cell that used to own it.
+    const request = this.deps.repo.get(candidate.id);
+    if (
+      !request ||
+      request.cellId !== bucket.cellId ||
+      this.deps.engine.hasLive(request.id) ||
+      request.agentStatus === 'working'
+    ) {
+      outcome.skipped = 1;
+      return outcome;
+    }
 
     try {
       const turn = await this.runTurn(segment, request);
@@ -352,10 +351,7 @@ export class MasterService {
   private async runBucket(bucket: Bucket): Promise<MasterResult> {
     const now = Date.now();
     const globalProcess = this.process();
-    const process =
-      bucket.cellId === null
-        ? globalProcess
-        : (this.deps.cells.getProcess(bucket.cellId) ?? globalProcess);
+    const process = this.deps.cells.getProcess(bucket.cellId) ?? globalProcess;
     const result = emptyResult(now);
     result.cells = 1;
 
@@ -408,22 +404,20 @@ export class MasterService {
       );
     }
 
-    if (bucket.cellId !== null || result.dispatch > 0) {
-      this.record({
-        cellId: bucket.cellId,
-        requestId: null,
-        action: 'cycle',
-        detail: JSON.stringify({
-          cell: bucket.label,
-          dispatch: result.dispatch,
-          started: result.started,
-          prodded: result.prodded,
-          advanced: result.advanced,
-          followUps: result.followUps,
-          skipped: result.skipped,
-        }),
-      });
-    }
+    this.record({
+      cellId: bucket.cellId,
+      requestId: null,
+      action: 'cycle',
+      detail: JSON.stringify({
+        cell: bucket.label,
+        dispatch: result.dispatch,
+        started: result.started,
+        prodded: result.prodded,
+        advanced: result.advanced,
+        followUps: result.followUps,
+        skipped: result.skipped,
+      }),
+    });
 
     if (
       result.dispatch > 0 ||
@@ -439,7 +433,7 @@ export class MasterService {
       );
     }
 
-    this.lastByCell.set(bucketKey(bucket.cellId), { at: now, result });
+    this.lastByCell.set(bucket.cellId, { at: now, result });
     this.lastRunAt = now;
     this.lastResult = result;
     return result;
@@ -449,43 +443,7 @@ export class MasterService {
     return this.runBucket(this.bucketForCell(cellId));
   }
 
-  async runUnassigned(): Promise<MasterResult> {
-    return this.runBucket({
-      cellId: null,
-      label: 'Unassigned',
-      maxConcurrent: DEFAULT_MAX_CONCURRENT,
-    });
-  }
-
-  async runOnce(): Promise<MasterResult> {
-    const master = this.deps.settings.get().master;
-    const buckets: Bucket[] = this.deps.cells
-      .list()
-      .filter((cell) => cell.masterEnabled)
-      .map((cell) => ({
-        cellId: cell.id,
-        label: cell.name,
-        maxConcurrent: cell.maxConcurrent,
-      }));
-    if (master.includeUnassigned) {
-      buckets.push({
-        cellId: null,
-        label: 'Unassigned',
-        maxConcurrent: DEFAULT_MAX_CONCURRENT,
-      });
-    }
-
-    const now = Date.now();
-    const total = emptyResult(now);
-    for (const bucket of buckets) {
-      addResult(total, await this.runBucket(bucket));
-    }
-    this.lastRunAt = now;
-    this.lastResult = total;
-    return total;
-  }
-
-  lastFor(cellId: string | null): { at: number; result: MasterResult } | null {
-    return this.lastByCell.get(bucketKey(cellId)) ?? null;
+  lastFor(cellId: string): { at: number; result: MasterResult } | null {
+    return this.lastByCell.get(cellId) ?? null;
   }
 }

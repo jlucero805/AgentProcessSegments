@@ -28,6 +28,21 @@ const DOCS: Record<string, unknown> = {
   },
 };
 
+function makeCell(id = 'c1', name = 'Alpha'): CellDetail {
+  const process = makeProcessResponse();
+  return {
+    id,
+    name,
+    masterEnabled: true,
+    masterIntervalMinutes: 3,
+    maxConcurrent: 3,
+    model: null,
+    effort: null,
+    process: { version: process.version, segments: process.segments },
+    createdAt: 1,
+  };
+}
+
 function installFetch(request: Request, transcript: unknown[] = [], cells: CellDetail[] = []) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
@@ -60,7 +75,6 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
           intervalMinutes: 5,
           idleMinutes: 10,
           autoReview: true,
-          includeUnassigned: true,
           prompt: 'prod',
         },
         path: '/tmp/config.json',
@@ -77,7 +91,7 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
     if (url === '/api/requests/__master__/clarify/stream') {
       return jsonResponse({ active: false });
     }
-    if (url === '/api/master/status') {
+    if (url.startsWith('/api/master/status')) {
       return jsonResponse({
         enabled: true,
         intervalMinutes: 5,
@@ -164,14 +178,28 @@ describe('App', () => {
   });
 
   it('opens the cell master detail from the sidebar', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [makeCell()]);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cell master' }));
+
+    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
+    expect(screen.getByText('Cron loop')).toBeInTheDocument();
+    expect(window.location.search).toContain('cell=c1');
+    expect(window.location.search).toContain('master=1');
+  });
+
+  it('does not open a master for all cells', async () => {
+    window.history.replaceState(null, '', '/?master=1');
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Cell master' }));
 
-    expect(await screen.findByText('Process automation')).toBeInTheDocument();
-    expect(screen.getByText('Cron loop')).toBeInTheDocument();
-    expect(window.location.search).toContain('master=1');
+    expect(await screen.findByText('All cells')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cell master' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Process automation')).not.toBeInTheDocument();
+    expect(window.location.search).not.toContain('master=1');
   });
 
   it('opens the cell policy from the cell master drawer', async () => {

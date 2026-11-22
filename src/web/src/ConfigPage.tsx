@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
-import { ClarifyChat } from './ClarifyChat';
-import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
+import { ACTION_TONES, eventDetail } from './masterView';
 import { ProcessEditor } from './ProcessEditor';
 import {
-  MASTER_SESSION_ID,
   timeAgo,
   type CellDetail,
-  type CommandInfo,
   type MasterConfig,
   type MasterEvent,
-  type MasterResult,
-  type MasterStatus,
   type ProcessConfig,
   type SegmentConfig,
 } from './types';
@@ -28,36 +23,27 @@ import {
 
 interface ConfigPageProps {
   onError: (message: string) => void;
-  commands: CommandInfo[];
   onEditCell?: (cell: CellDetail) => void;
 }
 
-function clock(ts: number | null | undefined): string {
-  return ts ? new Date(ts).toLocaleTimeString() : '—';
-}
-
-/** Edits the persisted master policy and shows its live status and activity. */
-export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
+/** Edits the global master defaults, process template, and per-cell switches. */
+export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
   const [processPath, setProcessPath] = useState('');
-  const [status, setStatus] = useState<MasterStatus | null>(null);
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
-  const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
   const [processSaved, setProcessSaved] = useState(false);
-  const [running, setRunning] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [config, processConfig, masterStatus, cellList, eventList] = await Promise.all([
+      const [config, processConfig, cellList, eventList] = await Promise.all([
         api.getConfig(),
         api.getProcess(),
-        api.getMasterStatus(),
         api.getCells(),
         api.getMasterEvents({ limit: 20 }),
       ]);
@@ -65,10 +51,8 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       setPath(config.path);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
-      setStatus(masterStatus);
       setCells(cellList);
       setEvents(eventList);
-      setLastResult(masterStatus.lastResult);
     } catch (error) {
       onError(describeError(error));
     }
@@ -128,7 +112,6 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       const config = await api.patchConfig(master);
       setMaster(config.master);
       setPath(config.path);
-      setStatus(await api.getMasterStatus());
       setSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -149,24 +132,6 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setProcessSaving(false);
-    }
-  }
-
-  async function runNow() {
-    setRunning(true);
-    try {
-      const result = await api.runMaster();
-      setLastResult(result);
-      const [nextStatus, nextEvents] = await Promise.all([
-        api.getMasterStatus(),
-        api.getMasterEvents({ limit: 20 }),
-      ]);
-      setStatus(nextStatus);
-      setEvents(nextEvents);
-    } catch (error) {
-      onError(describeError(error));
-    } finally {
-      setRunning(false);
     }
   }
 
@@ -192,8 +157,9 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       <div>
         <h1 className="text-lg font-semibold text-zinc-100">Cell master</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          The master walks the process segments on a cadence, starts or prods due work,
-          records follow-up requests, and advances on exact markers.
+          Each cell runs its own master on a cadence, starts or prods due work, records
+          follow-up requests, and advances on exact markers. Requests without a cell stay
+          manual until you assign one.
         </p>
       </div>
 
@@ -206,24 +172,15 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
           onChange={(event) => set('enabled', event.target.checked)}
         />
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Interval (minutes)" hint="how often to review">
-            <Input
-              type="number"
-              min={1}
-              max={1440}
-              value={master.intervalMinutes}
-              onChange={(event) => set('intervalMinutes', Number(event.target.value))}
-            />
-          </Field>
-          <div className="flex items-end pb-1">
-            <Checkbox
-              label="Include requests without a cell"
-              checked={master.includeUnassigned}
-              onChange={(event) => set('includeUnassigned', event.target.checked)}
-            />
-          </div>
-        </div>
+        <Field label="Interval (minutes)" hint="how often each cell is reviewed">
+          <Input
+            type="number"
+            min={1}
+            max={1440}
+            value={master.intervalMinutes}
+            onChange={(event) => set('intervalMinutes', Number(event.target.value))}
+          />
+        </Field>
 
         <p className="text-[11px] text-zinc-600">
           Idle thresholds, prompts, markers, and advancement are per segment below.
@@ -246,36 +203,11 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
         saving={processSaving}
         saved={processSaved}
         title="Global process template"
-        description="Used by unassigned work and cells without their own policy; new cells start with a copy that can diverge."
+        description="Inherited by cells without their own policy; new cells start with a copy that can diverge."
         onChange={setSegment}
         onFollowUp={setFollowUp}
         onSave={() => void saveProcess()}
       />
-
-      <Card className="space-y-3 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <SectionTitle>Master</SectionTitle>
-            <p className="mt-1 text-sm text-zinc-400">
-              {status?.enabled
-                ? `Global cadence every ${status.intervalMinutes} min`
-                : 'Disabled'}
-              {status?.running ? ' · running' : ''}
-            </p>
-            <p className="mt-1 text-[11px] text-zinc-600">cells may set their own interval</p>
-            <p className="mt-1 text-[11px] text-zinc-600">
-              last {status?.lastRunAt ? `${timeAgo(status.lastRunAt)} ago` : 'never'} ·
-              next {clock(status?.nextRunAt)}
-            </p>
-          </div>
-          <Button variant="secondary" disabled={running || status?.running} onClick={() => void runNow()}>
-            {running ? <Spinner /> : 'Run master now'}
-          </Button>
-        </div>
-        {lastResult ? (
-          <p className="text-[11px] text-zinc-500">Last cycle: {resultSummary(lastResult)}.</p>
-        ) : null}
-      </Card>
 
       <Card className="space-y-3 p-4">
         <SectionTitle>Cells</SectionTitle>
@@ -337,25 +269,6 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
             ))}
           </ul>
         )}
-      </Card>
-
-      <Card className="overflow-hidden p-0">
-        <div className="border-b border-zinc-800 px-4 py-3">
-          <SectionTitle>Global master chat</SectionTitle>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            Notes for unassigned work and this global template. Each cell has its own chat
-            in the Cell master drawer when that cell is selected.
-          </p>
-        </div>
-        <div className="h-96">
-          <ClarifyChat
-            requestId={MASTER_SESSION_ID}
-            started
-            commands={commands}
-            onError={onError}
-            placeholder="Ask the master what it is doing…"
-          />
-        </div>
       </Card>
     </div>
   );

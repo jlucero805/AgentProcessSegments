@@ -138,10 +138,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 
 1. **Transition table is data.** Add states in `domain/request.ts`; never branch on
    state elsewhere without going through `canTransition`.
-2. **`__kb__` and `__master__` are sentinel session ids with no rows.** A cell master
-   uses `__master__:<cellId>`; the bare id is the global/unassigned chat. Routes
-   special-case them before touching the request repository. All reserved sessions are
-   read-only; the master scope gets board read tools in addition to the KB tools.
+2. **`__kb__` and `__master__:<cellId>` are sentinel session ids with no rows.** A cell
+   master uses `__master__:<cellId>`; the bare `__master__` is not a session and
+   unassigned work has no master. Routes special-case reserved sessions before touching
+   the request repository. All reserved sessions are read-only; the master scope gets
+   board read tools in addition to the KB tools.
 3. **MCP tool names must match the harness allowlist.** Registering a tool does not
    grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, `MASTER_TOOLS`, or `SETUP_TOOLS` in
    `clarify/harness.ts` or the Claude agent cannot call it under auto-approve. OpenCode
@@ -172,8 +173,8 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     prompt, and advances only on the exact marker through `canTransition`. Do
     not hardcode a prod/review rule in a route or UI.
 12. **Master chats and notes are per cell.** `masterSessionId(cellId)` returns
-    `__master__:<cellId>`; unassigned work uses `__master__`. Notes from a cell cycle go
-    only to that cell’s session.
+    `__master__:<cellId>`. Unassigned requests have no master and no chat; notes from a
+    cell cycle go only to that cell’s session.
 13. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
     finishes with the partial transcript; it does not clear `session.json`, so the next
     message resumes. Stop clears the client queue; normal completion drains it in order.
@@ -192,7 +193,8 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 18. **Concurrency is per cell, and cycles are bounded.** The master counts `working`
     requests in the cell and stops starting turns at `max_concurrent` (default 3). Each
     cycle selects at most that spare capacity, latest segments first and oldest request
-    first inside a segment; it must not scan or note every queue. Unassigned work uses 3.
+    first inside a segment; it must not scan or note every queue. Unassigned requests
+    are manual-only and never enter a bucket.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
 20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage

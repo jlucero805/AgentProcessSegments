@@ -16,7 +16,8 @@ const REFRESH_MS = 30_000;
  * One timer per cell with its master enabled. Intervals come from the cell
  * (`masterIntervalMinutes`) or fall back to the global scheduler interval. A periodic
  * refresh picks up cells created or deleted through another client. Unassigned
- * requests have no master and never get a timer.
+ * requests have no master and never get a timer. A cell's timer and manual Run now
+ * share one key, so a tick during an active cycle is skipped and retried next interval.
  */
 export class MasterScheduler {
   private readonly timers = new Map<string, TimerState>();
@@ -80,6 +81,10 @@ export class MasterScheduler {
       if (existing) clearInterval(existing.timer);
       const nextRunAt = Date.now() + intervalMs;
       const timer = setInterval(() => {
+        // Advance the cadence before running. When this tick lands during an
+        // active cycle for the same cell, `runKey` returns that run instead of
+        // starting another one, so the tick is dropped and the cell tries again
+        // on the next interval.
         const current = this.timers.get(key);
         if (current) current.nextRunAt = Date.now() + intervalMs;
         void this.runKey(key, run).catch((error: unknown) => {

@@ -8,6 +8,7 @@ import { openDb, type Db } from '../src/db.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
 import { MasterService } from '../src/master/service.js';
+import type { MasterResult } from '../src/master/types.js';
 import { defaultProcess, READY_FOR_IMPLEMENTATION } from '../src/process/defaults.js';
 import type { ProcessConfig } from '../src/process/definition.js';
 import type { ProcessStore } from '../src/process/store.js';
@@ -673,6 +674,59 @@ describe('MasterScheduler', () => {
       expect(scheduler.statusFor(cell.id).nextRunAt).toBeNull();
       await vi.advanceTimersByTimeAsync(2 * 60_000);
       expect(runCell).toHaveBeenCalledTimes(1);
+
+      scheduler.stop();
+      cells.list();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips a tick while a cell run is still in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const settings = new SettingsStore(path.join(base, 'config.json'));
+      const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+      const cell = cells.create('Alpha', null, 2);
+      let release!: (value: MasterResult) => void;
+      let calls = 0;
+      const runCell = vi.fn(() => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<MasterResult>((resolve) => {
+            release = resolve;
+          });
+        }
+        return Promise.resolve(emptyResult());
+      });
+      const scheduler = new MasterScheduler(
+        {
+          runCell,
+          lastRunAt: null,
+          lastResult: null,
+          lastFor: vi.fn(() => null),
+        } as unknown as MasterService,
+        settings,
+        cells,
+      );
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+      expect(scheduler.status().running).toBe(true);
+      expect(scheduler.statusFor(cell.id).running).toBe(true);
+      const firstNextRunAt = scheduler.statusFor(cell.id).nextRunAt;
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+      expect(scheduler.statusFor(cell.id).running).toBe(true);
+      expect(scheduler.statusFor(cell.id).nextRunAt).toBeGreaterThan(firstNextRunAt ?? 0);
+
+      release(emptyResult());
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(2);
 
       scheduler.stop();
       cells.list();

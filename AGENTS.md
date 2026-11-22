@@ -263,8 +263,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     concurrency, counts already-selected candidates against segment caps, starts the batch
     with `Promise.all`, records the prods, and returns. Completion handling (transcript,
     follow-ups, marker advancement) runs in background promises and mutates the cycle
-    result/events. Do not block the cycle on `turn.promise`; per-cell scheduler coalescing
-    still prevents overlapping dispatch cycles.
+    result/events. Do not block the cycle on `turn.promise`; per-cell scheduler
+    coalescing still prevents overlapping dispatch cycles. A tick that lands during an
+    active cell cycle is skipped and retried on the next interval.
 31. **Scorecards are observational and separate from the master.** The summary service
     gathers facts, writes one `cell_summaries` row, and never transitions requests or
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the

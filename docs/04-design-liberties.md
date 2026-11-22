@@ -118,8 +118,10 @@ transcript heuristics; a per-cell cadence in this pass.
 **Why.** The scheduler is cheap, observable, and cannot invent state transitions without
 the marker. Cost: a cycle starts its selected batch and returns, then completion and
 marker advancement settle in the background; the next tick can refill capacity while
-turns run. The batch shares the cell/model concurrency budget; cadence was global in this
-early pass. Per-cell cadence and an LLM judge were natural next steps.
+turns run. Runs are keyed per cell, so a tick during an active dispatch cycle is dropped
+and retried at the next cadence. The batch shares the cell/model concurrency budget;
+cadence was global in this early pass. Per-cell cadence and an LLM judge were natural
+next steps.
 
 ## 10. One thread and an advisory master chat
 

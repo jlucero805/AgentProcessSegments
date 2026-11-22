@@ -20,9 +20,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - Cell masters: the scheduler keeps one timer per enabled cell (cell interval or the
   global default), and evaluates the configured process segments from right to left so
   finishing work runs before more planning. Requests without a cell have no master and
-  stay manual. Each cycle
-  selects at most the cell’s spare concurrency, latest segments first and oldest request
-  first inside a segment, so it does not read or note the whole board. It starts or
+  stay manual. A cell never dispatches two cycles at once: a tick that lands during an
+  active cycle is skipped and retried on the next interval. Each cycle selects at most
+  the cell’s spare concurrency, latest segments first and oldest request first inside a
+  segment, so it does not read or note the whole board. It starts or
   prods that bounded set concurrently (up to the cell/segment caps), returns without
   waiting for the turns, then settles each completion in the background, recording
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events and advancing on

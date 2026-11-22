@@ -87,7 +87,8 @@ for **All cells**: requests without a cell stay manual until you assign one.
   default.
 - The drawer shows status, last/next run, every segment prompt, recent
   start/prod/advance/followup/skip events, and **that cell’s master chat**.
-- **Run now** executes one cycle for the selected cell.
+- **Run now** executes one cycle for the selected cell. A tick that lands while that
+  cell’s cycle is already active is skipped and retried on the next interval.
 - **Configure** jumps to the Config page or that cell’s policy editor.
 
 Each cell’s master chat is a separate reserved session, so one cell’s notes and

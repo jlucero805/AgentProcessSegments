@@ -179,6 +179,8 @@ the master carry work from an unplanned request through implementation:
 4. Optionally enable `review` and `finalize`.
 
 Each cell’s ticker drives its own cycle; a cell interval overrides the global cadence.
+A cell has at most one dispatch cycle in flight: if a tick lands while that cell is
+already active, it is skipped and the cell tries again on its next interval.
 Lower a segment’s `idleMinutes` to move through that segment sooner; the same request is
 not handled twice inside that window.
 

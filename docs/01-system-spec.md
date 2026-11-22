@@ -65,8 +65,9 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   `@fastify/websocket`, `better-sqlite3`, `zod`, `@modelcontextprotocol/sdk`. Tests:
   `vitest`. Build: `tsc`.
 - **Web** (`src/web`, Vite, React 18, TS): `@assistant-ui/react` for chat,
-  `react-markdown`, `diff`, `clsx`, `tailwind-merge`; Tailwind v3 with preflight on,
-  `darkMode: 'class'`, dark by default, plus a hand-rolled shadcn-style kit (`ui.tsx`).
+  `react-markdown`, `mermaid` (lazy-loaded for Help diagrams), `diff`, `clsx`,
+  `tailwind-merge`; Tailwind v3 with preflight on, `darkMode: 'class'`, dark by default,
+  plus a hand-rolled shadcn-style kit (`ui.tsx`).
 - **Monorepo:** npm workspaces (`src/server`, `src/web`). Root scripts: `build` (web
   then server), `typecheck`, `test` (server), `lint` (eslint), `dev` (both).
 

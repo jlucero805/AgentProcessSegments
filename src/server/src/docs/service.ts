@@ -65,7 +65,7 @@ const MANIFEST: ManifestEntry[] = [
     slug: 'deploy-vps',
     title: 'VPS deployment',
     group: 'Operations',
-    description: 'systemd user unit, Tailscale, settings, and backup notes.',
+    description: 'VPS install, systemd user unit, Tailscale Serve, settings, and operations.',
     source: 'deploy/vps.md',
   },
   {

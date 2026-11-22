@@ -58,6 +58,14 @@ describe('docs service', () => {
     expect(docs.read('')).toBeNull();
   });
 
+  it('documents the VPS Tailscale Serve commands', () => {
+    const markdown = docs.read('deploy-vps')?.markdown ?? '';
+    expect(markdown).toContain(
+      'sudo tailscale serve --bg --https=443 http://127.0.0.1:7391',
+    );
+    expect(markdown).toContain('sudo tailscale serve reset');
+  });
+
   it('serves only screenshots under docs/screenshots', () => {
     const asset = docs.asset('board.png');
     expect(asset?.type).toBe('image/png');

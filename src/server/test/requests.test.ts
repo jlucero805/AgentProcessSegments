@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RequestError } from '../src/requests/repository.js';
 import { createHarness, type Harness } from './helpers.js';
 
@@ -121,5 +121,19 @@ describe('request repository', () => {
 
     repo.setBranch(request.id, 'sbox/abc');
     expect(repo.require(request.id).branch).toBe('sbox/abc');
+  });
+
+  it('does not count unseen-badge changes as activity', () => {
+    const { repo } = fresh();
+    const request = repo.create({ title: 't' });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(request.updatedAt + 60_000);
+
+    try {
+      repo.setUnchecked(request.id, true);
+      repo.setUnchecked(request.id, false);
+      expect(repo.require(request.id).updatedAt).toBe(request.updatedAt);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

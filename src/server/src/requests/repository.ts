@@ -135,12 +135,18 @@ export class RequestRepository {
   constructor(private readonly db: Db) {}
 
   /** One place for `updated_at` and column encoding so every write behaves the same. */
-  private write(id: string, assignments: Array<[column: string, value: unknown]>): void {
+  private write(
+    id: string,
+    assignments: Array<[column: string, value: unknown]>,
+    touchUpdatedAt = true,
+  ): void {
     if (assignments.length === 0) return;
     const sets = assignments.map(([column]) => `${column} = ?`);
     const values = assignments.map(([, value]) => encodeValue(value));
-    sets.push('updated_at = ?');
-    values.push(Date.now());
+    if (touchUpdatedAt) {
+      sets.push('updated_at = ?');
+      values.push(Date.now());
+    }
     this.db.prepare(`UPDATE requests SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);
   }
 
@@ -266,7 +272,9 @@ export class RequestRepository {
   }
 
   setUnchecked(id: string, unchecked: boolean): void {
-    this.write(id, [['unchecked', unchecked]]);
+    // Unread state is presentation-only: opening a request must not make it look
+    // freshly active, because the master uses `updated_at` as its idle clock.
+    this.write(id, [['unchecked', unchecked]], false);
   }
 
   setBranch(id: string, branch: string | null): void {

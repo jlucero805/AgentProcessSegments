@@ -168,6 +168,17 @@ describe('MasterService', () => {
     expect(fixture.sent).toHaveLength(0);
   });
 
+  it('does not treat viewing a request as activity', async () => {
+    const fixture = setup();
+    const request = dispatchRequest(fixture, 'Viewed');
+
+    // What POST /api/requests/:id/seen does when the drawer opens.
+    fixture.repo.setUnchecked(request.id, false);
+
+    const result = await fixture.service.runOnce();
+    expect(result.prodded).toBe(1);
+  });
+
   it('does not prod the same request twice inside the interval', async () => {
     const fixture = setup({ autoReview: false });
     const cell = fixture.cells.create('Gap');

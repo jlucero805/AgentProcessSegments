@@ -172,8 +172,18 @@ async function main() {
 
   const cycle = await call('POST', `/api/master/run?cellId=${encodeURIComponent(cell.id)}`);
   assert.equal(cycle.prodded, 1, 'master prodded the dispatch request');
-  assert.equal(cycle.advanced, 1, 'master advanced to review');
-  assert.equal(cycle.followUps, 1, 'master created one follow-up');
+  assert.equal(cycle.dispatch, 1, 'master selected the dispatch request');
+
+  await waitFor(async () => {
+    const current = await call('GET', `/api/requests/${request.id}`);
+    const events = await call('GET', `/api/master/events?cellId=${encodeURIComponent(cell.id)}`);
+    const cellRequests = await call('GET', `/api/requests?cellId=${encodeURIComponent(cell.id)}`);
+    return (
+      current.state === 'review' &&
+      events.some((event) => event.action === 'followup') &&
+      cellRequests.some((item) => item.title === 'E2E follow-up')
+    );
+  }, 'master background settlement');
 
   const reviewed = await call('GET', `/api/requests/${request.id}`);
   assert.equal(reviewed.state, 'review');

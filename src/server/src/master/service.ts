@@ -79,23 +79,13 @@ function emptyResult(now: number): MasterResult {
   };
 }
 
-function addResult(total: MasterResult, next: MasterResult): void {
-  total.cells += next.cells;
-  total.dispatch += next.dispatch;
-  total.started += next.started;
-  total.prodded += next.prodded;
-  total.reviewed += next.reviewed;
-  total.advanced += next.advanced;
-  total.followUps += next.followUps;
-  total.skipped += next.skipped;
-}
-
 /**
  * Deterministic process automation: walks the configured segments right-to-left,
  * selects at most the cell's spare concurrency for the cycle, starts or prods
- * the selected batch concurrently, records follow-up requests, and advances on
- * exact markers. Finishing work takes precedence over starting more left-side
- * work, and a cycle never reads or notes the whole board.
+ * the selected batch concurrently, and returns without waiting for the turns.
+ * Completion handlers create follow-ups and advance on exact markers later.
+ * Finishing work takes precedence over starting more left-side work, and a
+ * cycle never reads or notes the whole board.
  *
  * Every cell runs its own bucket with its own policy and its own master chat; the
  * unassigned bucket uses the global template and global master chat.
@@ -284,10 +274,32 @@ export class MasterService {
     return { cellId, label: cell.name, maxConcurrent: cell.maxConcurrent };
   }
 
-  private async runCandidate(
+  private applyOutcome(
+    result: MasterResult,
+    outcome: CandidateOutcome,
+    aggregate?: MasterResult,
+  ): void {
+    result.started += outcome.started;
+    result.prodded += outcome.prodded;
+    result.advanced += outcome.advanced;
+    result.reviewed += outcome.reviewed;
+    result.followUps += outcome.followUps;
+    result.skipped += outcome.skipped;
+    if (!aggregate) return;
+    aggregate.started += outcome.started;
+    aggregate.prodded += outcome.prodded;
+    aggregate.advanced += outcome.advanced;
+    aggregate.reviewed += outcome.reviewed;
+    aggregate.followUps += outcome.followUps;
+    aggregate.skipped += outcome.skipped;
+  }
+
+  private async startCandidate(
     bucket: Bucket,
     request: Request,
     segment: SegmentConfig,
+    result: MasterResult,
+    aggregate?: MasterResult,
   ): Promise<CandidateOutcome> {
     const outcome: CandidateOutcome = {
       started: 0,
@@ -314,6 +326,50 @@ export class MasterService {
       if (starting) outcome.started = 1;
       else outcome.prodded = 1;
 
+      // Stay light: the cycle ends after starting the batch. The completion
+      // handler creates follow-ups and applies the marker later.
+      void this.settleCandidate(bucket, request, segment, turn, result, aggregate);
+    } catch (error) {
+      outcome.skipped = 1;
+      const message = errorMessage(error);
+      this.deps.errors?.error('master.turn', error, {
+        cellId: bucket.cellId,
+        requestId: request.id,
+        segment: segment.id,
+      });
+      this.record({
+        cellId: bucket.cellId,
+        requestId: request.id,
+        action: 'skip',
+        detail: message,
+      });
+      this.note(
+        bucket.cellId,
+        `Could not run "${request.title}" in ${segment.label}: ${message}`,
+      );
+    }
+
+    return outcome;
+  }
+
+  private async settleCandidate(
+    bucket: Bucket,
+    request: Request,
+    segment: SegmentConfig,
+    turn: LiveTurn,
+    result: MasterResult,
+    aggregate?: MasterResult,
+  ): Promise<void> {
+    const outcome: CandidateOutcome = {
+      started: 0,
+      prodded: 0,
+      advanced: 0,
+      reviewed: 0,
+      followUps: 0,
+      skipped: 0,
+    };
+
+    try {
       await turn.promise;
       // finishTurn persists the transcript in its finally block, one tick
       // after the promise settles.
@@ -342,14 +398,14 @@ export class MasterService {
       });
       this.note(
         bucket.cellId,
-        `Could not run "${request.title}" in ${segment.label}: ${message}`,
+        `Could not finish "${request.title}" in ${segment.label}: ${message}`,
       );
     }
 
-    return outcome;
+    this.applyOutcome(result, outcome, aggregate);
   }
 
-  private async runBucket(bucket: Bucket): Promise<MasterResult> {
+  private async runBucket(bucket: Bucket, aggregate?: MasterResult): Promise<MasterResult> {
     const now = Date.now();
     const globalProcess = this.process();
     const process =
@@ -362,27 +418,28 @@ export class MasterService {
     const selection = this.selectCandidates(process, bucket, now);
     result.dispatch = selection.candidates.length;
     result.skipped = selection.skipped;
+    if (aggregate) {
+      aggregate.cells += 1;
+      aggregate.dispatch += result.dispatch;
+      aggregate.skipped += result.skipped;
+    }
     const blockedAtCapacity = selection.blockedAtCapacity;
     const blockedSegment = selection.blockedSegment;
 
-    // Prod the selected batch together. Selection already bounded the batch by
-    // the cell and segment caps, so these turns can run concurrently.
+    // Start the selected batch together, then return. Completion handling runs
+    // in the background so the next tick can refill capacity.
     const outcomes = await Promise.all(
       selection.candidates.map(({ request, segment }) =>
-        this.runCandidate(bucket, request, segment),
+        this.startCandidate(bucket, request, segment, result, aggregate),
       ),
     );
     for (const outcome of outcomes) {
-      result.started += outcome.started;
-      result.prodded += outcome.prodded;
-      result.advanced += outcome.advanced;
-      result.reviewed += outcome.reviewed;
-      result.followUps += outcome.followUps;
-      result.skipped += outcome.skipped;
+      this.applyOutcome(result, outcome, aggregate);
     }
 
     if (blockedAtCapacity) {
       result.skipped += 1;
+      if (aggregate) aggregate.skipped += 1;
       this.record({
         cellId: bucket.cellId,
         requestId: null,
@@ -396,6 +453,7 @@ export class MasterService {
     }
     if (blockedSegment) {
       result.skipped += 1;
+      if (aggregate) aggregate.skipped += 1;
       this.record({
         cellId: bucket.cellId,
         requestId: null,
@@ -441,7 +499,7 @@ export class MasterService {
 
     this.lastByCell.set(bucketKey(bucket.cellId), { at: now, result });
     this.lastRunAt = now;
-    this.lastResult = result;
+    if (!aggregate) this.lastResult = result;
     return result;
   }
 
@@ -478,7 +536,7 @@ export class MasterService {
     const now = Date.now();
     const total = emptyResult(now);
     for (const bucket of buckets) {
-      addResult(total, await this.runBucket(bucket));
+      await this.runBucket(bucket, total);
     }
     this.lastRunAt = now;
     this.lastResult = total;

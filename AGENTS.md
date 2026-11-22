@@ -234,10 +234,12 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     request nor its cell names a model. OpenCode defaults to
     `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
     Expose the default through `GET /api/models` so the wizard can show it.
-30. **The master prods a batch concurrently.** `runBucket` selects up to the cell’s spare
-    concurrency, counts already-selected candidates against segment caps, then starts the
-    batch with `Promise.all`. Do not return to a serial candidate loop; per-cell scheduler
-    coalescing still prevents overlapping cycles.
+30. **The master starts a batch and returns.** `runBucket` selects up to the cell’s spare
+    concurrency, counts already-selected candidates against segment caps, starts the batch
+    with `Promise.all`, records the prods, and returns. Completion handling (transcript,
+    follow-ups, marker advancement) runs in background promises and mutates the cycle
+    result/events. Do not block the cycle on `turn.promise`; per-cell scheduler coalescing
+    still prevents overlapping dispatch cycles.
 
 ## Extension recipes
 

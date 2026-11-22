@@ -22,8 +22,9 @@ built and vended by the brain; real-CLI verification is still pending.
   segments from right to left so finishing work runs before more planning. Each cycle
   selects at most the cell’s spare concurrency, latest segments first and oldest request
   first inside a segment, so it does not read or note the whole board. It starts or
-  prods that bounded set concurrently (up to the cell/segment caps), records
-  `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events, and advances on
+  prods that bounded set concurrently (up to the cell/segment caps), returns without
+  waiting for the turns, then settles each completion in the background, recording
+  `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events and advancing on
   exact markers through legal transitions. A segment can also create follow-up requests
   from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
   event history are cell-scoped. The Config page edits the global schedule/template, and

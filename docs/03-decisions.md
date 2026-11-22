@@ -610,14 +610,18 @@ advisory and does not call tools to prod.
 turn sequentially. A slow turn delayed every other selected request in the same cycle,
 even though the cell had capacity for them.
 
-**Decision.** `runBucket` starts all selected candidates with `Promise.all`. Selection
-already bounds the batch by the cell’s spare concurrency and each segment’s
-`maxPerCycle`/`maxConcurrent`; segment selection now counts candidates already chosen for
-that batch, so a merge segment capped at one worker contributes only one request. Results,
-follow-ups, and transitions are collected per candidate and aggregated after the batch.
-Different cells remain independent scheduler keys, and a global `runOnce` still walks
-buckets in order.
+**Decision.** `runBucket` starts all selected candidates with `Promise.all`, records the
+prod immediately, and returns without waiting for the turns. Completion handling —
+transcript read, follow-ups, and marker advancement — runs in a background promise per
+candidate and mutates the cycle’s result/event history as it finishes. Selection already
+bounds the batch by the cell’s spare concurrency and each segment’s
+`maxPerCycle`/`maxConcurrent`; segment selection counts candidates already chosen for the
+batch, so a merge segment capped at one worker contributes only one request. Different
+cells remain independent scheduler keys, and a global `runOnce` still walks buckets in
+order.
 
-**Cost.** A cycle can have several live model turns at once, using more provider
-throughput and tokens. The cell cap now matters for real parallel fan-out rather than just
-admission control. A segment cap of one still serializes merge work as intended.
+**Cost.** The scheduler’s “running” flag now means “dispatching”, not “waiting for agents”.
+Several model turns can be live at once, using more provider throughput and tokens; the
+next tick refills only the capacity reported by `countWorking`. Background completion
+failures are logged and recorded as skip events, but the original cycle response has
+already returned. A segment cap of one still serializes merge work as intended.

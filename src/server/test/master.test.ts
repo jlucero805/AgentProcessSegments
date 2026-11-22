@@ -130,6 +130,12 @@ function requestInState(
   return fixture.repo.require(request.id);
 }
 
+/** Let background turn settlements run after the light cycle returns. */
+async function settleMaster(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 describe('MasterService', () => {
   it('prods an idle dispatch request and moves it to Review on the marker', async () => {
     const fixture = setup();
@@ -137,6 +143,7 @@ describe('MasterService', () => {
     const request = dispatchRequest(fixture, 'Build it', cell.id);
 
     const result = await fixture.service.runOnce();
+    await settleMaster();
 
     expect(result).toMatchObject({ prodded: 1, reviewed: 1, dispatch: 1 });
     expect(fixture.sent).toEqual([{ id: request.id, text: expect.stringContaining('cell master') }]);
@@ -233,7 +240,7 @@ describe('MasterService', () => {
     expect(fixture.repo.require(planningNew.id).state).toBe('clarify');
   });
 
-  it('starts the whole selected batch before waiting for any turn', async () => {
+  it('starts the whole selected batch and returns before any turn settles', async () => {
     const fixture = setup({ includeUnassigned: false });
     const cell = fixture.cells.create('Parallel', null, null, { maxConcurrent: 4 });
     dispatchRequest(fixture, 'One', cell.id);
@@ -258,14 +265,15 @@ describe('MasterService', () => {
       },
     );
 
-    const run = fixture.service.runOnce();
-    await new Promise((resolve) => setImmediate(resolve));
+    const result = await fixture.service.runOnce();
 
+    expect(result.dispatch).toBe(3);
+    expect(result.prodded).toBe(3);
     expect(pending).toHaveLength(3);
     expect(peak).toBe(3);
 
     for (const release of pending) release();
-    await run;
+    await settleMaster();
   });
 
   it('does not prod the same request twice inside the interval', async () => {
@@ -354,6 +362,7 @@ describe('MasterService', () => {
     ]);
 
     const result = await fixture.service.runOnce();
+    await settleMaster();
 
     expect(result.advanced).toBe(1);
     expect(fixture.repo.require(request.id).state).toBe('dispatch');
@@ -510,6 +519,7 @@ describe('MasterService', () => {
     ]);
 
     const first = await fixture.service.runOnce();
+    await settleMaster();
     expect(first.followUps).toBe(2);
     const created = fixture.repo
       .list()

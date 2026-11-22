@@ -51,8 +51,9 @@ The most common policies:
 Each tick handles at most the cell’s spare concurrency, taking the latest pipeline
 segments first and the oldest request in each segment first. The selected batch is prodded
 concurrently; per-segment caps still bound how many from one segment can join the batch.
-Work beyond that budget waits for the next tick, so a busy board does not flood the
-cell-master chat with notes.
+The cycle returns once the turns are started, and their follow-ups/advancement settle in
+the background, so the next tick can refill freed capacity. Work beyond that budget waits
+for the next tick, so a busy board does not flood the cell-master chat with notes.
 
 The full field reference is in `docs/07-process-segments.md`.
 

@@ -19,6 +19,7 @@ import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
 import { SkillCatalog } from './skills/catalog.js';
+import { UsageRepository } from './usage/repository.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -31,6 +32,7 @@ export async function main(): Promise<void> {
     const cells = new CellRepository(db);
     const drafts = new CellDraftStore();
     const kb = new KbRepository(db);
+    const usage = new UsageRepository(db);
     const plugins = new PluginManager(config.pluginsDir);
     const settings = new SettingsStore(config.configPath, errors);
     const processStore = new ProcessStore(
@@ -43,6 +45,7 @@ export async function main(): Promise<void> {
       repo,
       harness,
       config,
+      usage,
       pluginDirs: () => plugins.installedPluginDirs(),
       errors,
       cellDefaults: (cellId) => {
@@ -70,6 +73,7 @@ export async function main(): Promise<void> {
       cells,
       drafts,
       kb,
+      usage,
       engine,
       models,
       plugins,

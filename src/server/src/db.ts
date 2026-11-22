@@ -58,6 +58,24 @@ CREATE TABLE IF NOT EXISTS master_events (
   detail     TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS usage_events (
+  id                 TEXT PRIMARY KEY,
+  turn_id            TEXT NOT NULL,
+  session_id         TEXT NOT NULL,
+  scope              TEXT NOT NULL,
+  cell_id            TEXT,
+  request_id         TEXT,
+  model              TEXT,
+  effort             TEXT,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
+  cost_usd           REAL,
+  created_at         INTEGER NOT NULL
+);
 `;
 
 /**
@@ -108,6 +126,14 @@ export function migrate(db: Db): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_kb_entries_request ON kb_entries(request_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_created ON master_events(created_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_request ON master_events(request_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_created ON usage_events(created_at)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_usage_events_cell_created ON usage_events(cell_id, created_at)',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_usage_events_request_created ON usage_events(request_id, created_at)',
+  );
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_turn ON usage_events(turn_id)');
 }
 
 /** A persisted `working` cannot survive a restart, because no child does. */

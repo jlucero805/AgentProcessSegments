@@ -46,6 +46,7 @@ async function makeApp(
     kb: h.kb,
     engine: h.engine,
     models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
+    usage: h.usage,
     plugins: h.plugins,
     settings,
     master,
@@ -332,6 +333,79 @@ describe('http api', () => {
     const events = await call('GET', '/api/master/events?limit=10');
     expect(events.status).toBe(200);
     expect(Array.isArray(events.json())).toBe(true);
+  });
+
+  it('returns usage totals, filters, buckets, and validation errors', async () => {
+    const { h } = await makeApp();
+    const empty = await call('GET', '/api/usage');
+    expect(empty.status).toBe(200);
+    expect(empty.json()).toMatchObject({
+      range: { from: null, to: null },
+      totals: { turns: 0, totalTokens: 0, costUsd: null, unknownCostTurns: 0 },
+      series: [],
+      byModel: [],
+      byCell: [],
+      byRequest: [],
+    });
+
+    const base = Date.UTC(2026, 0, 1, 10);
+    const cell = h.cells.create('Metered cell');
+    const request = h.repo.create({ title: 'Metered request', cellId: cell.id });
+    h.usage.record({
+      turnId: 'turn-1',
+      sessionId: request.id,
+      scope: 'request',
+      cellId: cell.id,
+      requestId: request.id,
+      model: 'model-a',
+      effort: 'high',
+      inputTokens: 100,
+      outputTokens: 25,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 5,
+      reasoningTokens: 0,
+      costUsd: 0.01,
+      createdAt: base,
+    });
+    h.usage.record({
+      turnId: 'turn-2',
+      sessionId: request.id,
+      scope: 'request',
+      cellId: cell.id,
+      requestId: request.id,
+      model: 'model-b',
+      effort: null,
+      inputTokens: 50,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 2,
+      costUsd: null,
+      createdAt: base + 2 * 60 * 60 * 1000,
+    });
+
+    const filtered = await call(
+      'GET',
+      `/api/usage?cellId=${cell.id}&from=${base}&to=${base + 24 * 60 * 60 * 1000}&bucket=hour`,
+    );
+    expect(filtered.status).toBe(200);
+    expect(filtered.json()).toMatchObject({
+      totals: { turns: 2, totalTokens: 197, unknownCostTurns: 1 },
+      byModel: [{ key: 'model-a' }, { key: 'model-b' }],
+      byCell: [{ key: cell.id, label: 'Metered cell' }],
+      byRequest: [{ key: request.id, label: 'Metered request' }],
+    });
+    expect(filtered.json().totals.costUsd).toBeCloseTo(0.01);
+    expect(filtered.json().series).toHaveLength(24);
+
+    const unknown = await call('GET', '/api/usage?cellId=missing&requestId=missing');
+    expect(unknown.status).toBe(200);
+    expect(unknown.json().totals.turns).toBe(0);
+    expect(unknown.json().series).toEqual([]);
+
+    expect((await call('GET', '/api/usage?bucket=week')).status).toBe(400);
+    expect((await call('GET', '/api/usage?limit=0')).status).toBe(400);
+    expect((await call('GET', '/api/usage?from=10&to=5')).status).toBe(400);
   });
 
   it('creates a cell with its own process and can replace it', async () => {

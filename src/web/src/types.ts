@@ -34,6 +34,16 @@ export type { SkillInfo } from '../../server/src/skills/types';
 export type { TerminalSessionInfo } from '../../server/src/terminal/types';
 export type { ModelOption } from '../../server/src/clarify/models';
 export type {
+  UsageBucket,
+  UsageEventInput,
+  UsageFilter,
+  UsageGroup,
+  UsageResponse,
+  UsageScope,
+  UsageTotals,
+} from '../../server/src/usage/types';
+export { USAGE_BUCKETS, USAGE_BUCKET_MS, usageBucketStart } from '../../server/src/usage/types';
+export type {
   CellDetail,
   FollowUpPolicy,
   ProcessConfig,

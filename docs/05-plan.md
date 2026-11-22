@@ -208,4 +208,6 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **40. Parallel master batches** — select up to spare cell concurrency, respect
   segment caps across the batch, prod with `Promise.all`, aggregate outcomes, tests and
   docs.
-- [ ] **Backlog 41. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **41. Usage tracking** — one `usage_events` row per completed turn from both
+  harnesses, `GET /api/usage` totals/series/groups, overall **Usage** page, request Usage
+  card, unknown-cost handling, tests and docs.

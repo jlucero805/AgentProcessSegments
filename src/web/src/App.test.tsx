@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { jsonResponse, makeProcessResponse, makeRequest } from './test/fixtures';
+import { jsonResponse, makeProcessResponse, makeRequest, makeUsageResponse } from './test/fixtures';
 import type { CellDetail, Request } from './types';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -88,6 +88,7 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
       });
     }
     if (url.startsWith('/api/master/events')) return jsonResponse([]);
+    if (url.startsWith('/api/usage')) return jsonResponse(makeUsageResponse());
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);
     if (url === `/api/requests/${request.id}/clarify`) {
       return jsonResponse({ started: request.clarifyStarted, transcript });
@@ -163,6 +164,17 @@ describe('App', () => {
     expect(screen.getByPlaceholderText('Message this thread…')).toBeInTheDocument();
   });
 
+  it('shows the request usage card in the drawer', async () => {
+    const request = makeRequest({ id: 'a', title: 'Metered card', clarifyStarted: true });
+    installFetch(request);
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('Metered card'));
+
+    expect(await screen.findByText('Unpriced')).toBeInTheDocument();
+    expect((await screen.findAllByText('≥ $0.0120 · 1 unpriced')).length).toBeGreaterThan(0);
+  });
+
   it('opens the cell master detail from the sidebar', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
 
@@ -202,6 +214,16 @@ describe('App', () => {
     expect(await screen.findByText('Edit cell')).toBeInTheDocument();
     expect((await screen.findAllByText('Drawer plan purpose')).length).toBeGreaterThan(0);
     expect(screen.queryByText('GLOBAL PROCESS TEMPLATE')).not.toBeInTheDocument();
+  });
+
+  it('opens the usage page and records it in the URL', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Usage'));
+
+    expect(await screen.findByText('Cost over time')).toBeInTheDocument();
+    expect(window.location.search).toContain('page=usage');
   });
 
   it('opens the config page and records it in the URL', async () => {

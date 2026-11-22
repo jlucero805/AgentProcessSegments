@@ -1,0 +1,99 @@
+/**
+ * Pure usage contract shared by the brain and the SPA. Keep this module free of
+ * Node imports so Vite can bundle it through `src/web/src/types.ts`.
+ */
+
+export const USAGE_SCOPES = ['request', 'master', 'kb', 'setup'] as const;
+export type UsageScope = (typeof USAGE_SCOPES)[number];
+
+export const USAGE_BUCKETS = ['hour', 'day'] as const;
+export type UsageBucket = (typeof USAGE_BUCKETS)[number];
+
+export const USAGE_BUCKET_MS: Record<UsageBucket, number> = {
+  hour: 60 * 60 * 1000,
+  day: 24 * 60 * 60 * 1000,
+};
+
+export interface UsageEventInput {
+  turnId: string;
+  sessionId: string;
+  scope: UsageScope;
+  cellId: string | null;
+  requestId: string | null;
+  model: string | null;
+  effort: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  /** The harness-reported cost, or null when no complete cost was reported. */
+  costUsd: number | null;
+  createdAt?: number;
+}
+
+export interface UsageEvent extends Required<UsageEventInput> {
+  id: string;
+}
+
+export interface UsageFilter {
+  cellId?: string | undefined;
+  requestId?: string | undefined;
+  from?: number | undefined;
+  to?: number | undefined;
+  bucket?: UsageBucket | undefined;
+  limit?: number | undefined;
+}
+
+export interface UsageTotals {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  /** Sum of known costs. Null when no turn has a known cost. */
+  costUsd: number | null;
+  /** Turns where the harness reported no cost. */
+  unknownCostTurns: number;
+}
+
+export interface UsageGroup extends UsageTotals {
+  key: string;
+  label: string;
+}
+
+export interface UsageBucketRow extends UsageTotals {
+  bucketStart: number;
+}
+
+export interface UsageResponse {
+  range: { from: number | null; to: number | null };
+  totals: UsageTotals;
+  series: UsageBucketRow[];
+  byModel: UsageGroup[];
+  byCell: UsageGroup[];
+  byRequest: UsageGroup[];
+}
+
+export function totalTokens(tokens: {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+}): number {
+  return (
+    tokens.inputTokens +
+    tokens.outputTokens +
+    tokens.cacheReadTokens +
+    tokens.cacheWriteTokens +
+    tokens.reasoningTokens
+  );
+}
+
+/** UTC-aligned bucket start for an epoch-ms timestamp. */
+export function usageBucketStart(timestamp: number, bucket: UsageBucket): number {
+  return Math.floor(timestamp / USAGE_BUCKET_MS[bucket]) * USAGE_BUCKET_MS[bucket];
+}

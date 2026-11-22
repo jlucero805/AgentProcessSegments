@@ -18,6 +18,7 @@ import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
 import { PluginManager } from '../src/plugins/manager.js';
 import { RequestRepository } from '../src/requests/repository.js';
+import { UsageRepository } from '../src/usage/repository.js';
 
 export function testConfig(): Config {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-test-'));
@@ -50,8 +51,19 @@ export function textLine(text: string): string {
   });
 }
 
-export function resultLine(text = 'ok'): string {
-  return line({ type: 'result', subtype: 'success', is_error: false, result: text });
+export function resultLine(
+  text = 'ok',
+  usage?: Record<string, number>,
+  totalCostUsd?: number,
+): string {
+  return line({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    result: text,
+    ...(usage ? { usage } : {}),
+    ...(totalCostUsd === undefined ? {} : { total_cost_usd: totalCostUsd }),
+  });
 }
 
 export function defaultScript(): string[] {
@@ -150,6 +162,7 @@ export interface Harness {
   repo: RequestRepository;
   cells: CellRepository;
   kb: KbRepository;
+  usage: UsageRepository;
   plugins: PluginManager;
   harness: FakeHarness;
   engine: Engine;
@@ -166,14 +179,16 @@ export function createHarness(
   const kb = new KbRepository(db);
   const plugins = new PluginManager(config.pluginsDir);
   const agentHarness = new FakeHarness(script);
+  const usage = new UsageRepository(db);
   const engine = new Engine({
     repo,
     harness: agentHarness,
     config,
+    usage,
     pluginDirs: () => plugins.installedPluginDirs(),
     ...(cellDefaults ? { cellDefaults } : {}),
   });
-  return { config, db, repo, cells, kb, plugins, harness: agentHarness, engine };
+  return { config, db, repo, cells, kb, usage, plugins, harness: agentHarness, engine };
 }
 
 /** Let queued microtasks (and the turn's finally block) run. */

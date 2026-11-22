@@ -44,8 +44,108 @@ describe('turn engine', () => {
     expect(h.harness.process?.messages[0]).toContain('Groom me');
   });
 
-  it('includes enabled intake instructions in the first clarification turn', async () => {
-    const h = fresh(() => defaultScript());
+  it('records one usage row with the resolved request model and cell', async () => {
+    const h = fresh(() => [
+      initLine('sess-usage'),
+      resultLine('done', {
+        input_tokens: 100,
+        output_tokens: 40,
+        cache_read_input_tokens: 10,
+        cache_creation_input_tokens: 5,
+      }, 0.0123),
+    ]);
+    const cell = h.cells.create('Alpha');
+    const request = h.repo.create({ title: 'Metered', cellId: cell.id });
+    h.repo.edit(request.id, { model: 'request-model', effort: 'high' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    const rows = h.db.prepare('SELECT * FROM usage_events').all() as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      turn_id: turn.turnId,
+      session_id: request.id,
+      scope: 'request',
+      cell_id: cell.id,
+      request_id: request.id,
+      model: 'request-model',
+      effort: 'high',
+      input_tokens: 100,
+      output_tokens: 40,
+      cache_read_tokens: 10,
+      cache_write_tokens: 5,
+      reasoning_tokens: 0,
+      cost_usd: 0.0123,
+    });
+  });
+
+  it('records master, KB, and setup turns without a request id', async () => {
+    const h = fresh(() => [
+      initLine('sess-usage'),
+      resultLine('done', { input_tokens: 3, output_tokens: 2 }, 0.001),
+    ]);
+
+    const master = await h.engine.startMaster('status?', '__master__:cell-1');
+    await master.promise;
+    await settle();
+    const kb = await h.engine.startKb('search');
+    await kb.promise;
+    await settle();
+    const setup = await h.engine.startSetup('defaults', '__setup__:draft-1');
+    await setup.promise;
+    await settle();
+
+    const rows = h.db
+      .prepare('SELECT session_id, scope, cell_id, request_id FROM usage_events ORDER BY created_at, rowid')
+      .all() as Array<Record<string, unknown>>;
+    expect(rows).toEqual([
+      { session_id: '__master__:cell-1', scope: 'master', cell_id: 'cell-1', request_id: null },
+      { session_id: '__kb__', scope: 'kb', cell_id: null, request_id: null },
+      { session_id: '__setup__:draft-1', scope: 'setup', cell_id: null, request_id: null },
+    ]);
+  });
+
+  it('does not record cancelled, timed-out, or usage-less turns', async () => {
+    const h = fresh(() => [initLine('sess-usage')]);
+    const request = h.repo.create({ title: 'Cancelled' });
+
+    const turn = await h.engine.start(request.id);
+    await settle();
+    h.engine.cancel(request.id);
+    await turn.promise;
+    await settle();
+    expect(h.usage.query({}).totals.turns).toBe(0);
+
+    const noUsage = await h.engine.send(request.id, 'again');
+    h.harness.process?.emit(initLine('sess-usage'));
+    h.harness.process?.emit(resultLine());
+    await noUsage.promise;
+    await settle();
+    expect(h.usage.query({}).totals.turns).toBe(0);
+  });
+
+  it('keeps the turn alive when a usage insert fails', async () => {
+    const h = fresh(() => [
+      initLine('sess-usage'),
+      resultLine('done', { input_tokens: 4, output_tokens: 1 }, 0.001),
+    ]);
+    const request = h.repo.create({ title: 'Write failure' });
+    h.usage.record = () => {
+      throw new Error('disk full');
+    };
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(turn.events.some((event) => event.t === 'done')).toBe(true);
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
+    expect(h.engine.transcript(request.id).some((message) => message.kind === 'text')).toBe(true);
+  });
+
+  it('includes enabled intake instructions in the first clarification turn', async () => {    const h = fresh(() => defaultScript());
     const request = h.repo.create({ title: 'Repo context' });
 
     const turn = await h.engine.start(
@@ -379,5 +479,6 @@ describe('turn engine', () => {
     expect(
       h.engine.transcript(request.id).some((message) => message.text.includes('timed out after')),
     ).toBe(true);
+    expect(h.usage.query({}).totals.turns).toBe(0);
   });
 });

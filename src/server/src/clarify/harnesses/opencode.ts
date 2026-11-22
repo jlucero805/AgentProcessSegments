@@ -12,7 +12,9 @@ import {
   type HarnessSession,
   type McpServerMap,
   type TurnParserLike,
-} from '../harness.js';import type { ModelOption } from '../models.js';
+  type TurnUsage,
+} from '../harness.js';
+import type { ModelOption } from '../models.js';
 import type { AgentProcess } from '../transport.js';
 import { LineProcess } from './line-process.js';
 import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
@@ -242,9 +244,21 @@ export class OpencodeProcess extends LineProcess {
 export class OpencodeTurnParser implements TurnParserLike {
   sessionId: string | null = null;
   finished = false;
+  usage: TurnUsage | null = null;
 
   private readonly toolIndex = new Map<string, number>();
   private readonly resultEmitted = new Set<string>();
+  private readonly tokens = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+  };
+  private sawUsage = false;
+  private sawCost = false;
+  private costComplete = true;
+  private costTotal = 0;
 
   constructor(readonly transcript: TranscriptMsg[]) {}
 
@@ -326,6 +340,7 @@ export class OpencodeTurnParser implements TurnParserLike {
   }
 
   private onStepFinish(part: Record<string, unknown>): ClarifyEvent[] {
+    this.accumulateUsage(part);
     const reason = typeof part.reason === 'string' ? part.reason : 'unknown';
     if (reason === 'tool-calls') return [];
     this.finished = true;
@@ -333,9 +348,50 @@ export class OpencodeTurnParser implements TurnParserLike {
     return [{ t: 'error', message: `agent stopped: ${reason}` }];
   }
 
+  private accumulateUsage(part: Record<string, unknown>): void {
+    const tokens = isRecord(part.tokens) ? part.tokens : {};
+    const cache = isRecord(tokens.cache) ? tokens.cache : {};
+    const cost = reportedCost(part.cost);
+    const hasTokens =
+      Object.keys(tokens).length > 0 ||
+      typeof tokens['input'] === 'number' ||
+      typeof tokens['output'] === 'number' ||
+      typeof tokens['reasoning'] === 'number';
+    if (!hasTokens && cost === null) return;
+
+    this.sawUsage = true;
+    this.tokens.inputTokens += tokenCount(tokens['input']);
+    this.tokens.outputTokens += tokenCount(tokens['output']);
+    this.tokens.reasoningTokens += tokenCount(tokens['reasoning']);
+    this.tokens.cacheReadTokens += tokenCount(cache['read']);
+    this.tokens.cacheWriteTokens += tokenCount(cache['write']);
+
+    if (cost === null) {
+      this.costComplete = false;
+    } else {
+      this.sawCost = true;
+      this.costTotal += cost;
+    }
+
+    this.usage = {
+      ...this.tokens,
+      costUsd: this.sawCost && this.costComplete ? this.costTotal : null,
+    };
+  }
+
   finalize(): TranscriptMsg[] {
     return this.transcript;
   }
+}
+
+function tokenCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+}
+
+function reportedCost(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function errorText(event: Record<string, unknown>): string {

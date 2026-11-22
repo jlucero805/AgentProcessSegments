@@ -1,7 +1,32 @@
 import type { ClarifyEvent, TranscriptMsg } from '../domain/request.js';
 import { asRecord } from '../util/json.js';
+import type { TurnUsage } from './harness.js';
 
 const TOOL_RESULT_CAP = 8_000;
+
+function tokenCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+}
+
+function reportedCost(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function readUsage(event: Record<string, unknown>): TurnUsage | null {
+  const usage = asRecord(event['usage']);
+  const costUsd = reportedCost(event['total_cost_usd']);
+  if (Object.keys(usage).length === 0 && costUsd === null) return null;
+  return {
+    inputTokens: tokenCount(usage['input_tokens']),
+    outputTokens: tokenCount(usage['output_tokens']),
+    cacheReadTokens: tokenCount(usage['cache_read_input_tokens']),
+    cacheWriteTokens: tokenCount(usage['cache_creation_input_tokens']),
+    reasoningTokens: 0,
+    costUsd,
+  };
+}
 
 function truncate(text: string, cap = TOOL_RESULT_CAP): string {
   return text.length <= cap ? text : `${text.slice(0, cap)}\n… (${text.length - cap} chars truncated)`;
@@ -34,6 +59,7 @@ export class TurnParser {
   readonly transcript: TranscriptMsg[];
   sessionId: string | null = null;
   finished = false;
+  usage: TurnUsage | null = null;
   resultText = '';
   isError = false;
 
@@ -87,6 +113,7 @@ export class TurnParser {
       this.finished = true;
       this.isError = event['is_error'] === true || event['subtype'] === 'error';
       this.resultText = typeof event['result'] === 'string' ? event['result'] : '';
+      this.usage = readUsage(event);
       this.flushText();
       return [];
     }

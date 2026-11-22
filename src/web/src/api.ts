@@ -22,6 +22,8 @@ import type {
   State,
   TerminalSessionInfo,
   TerminalStatus,
+  UsageFilter,
+  UsageResponse,
 } from './types';
 
 export class ApiError extends Error {
@@ -316,5 +318,17 @@ export const api = {
   },
   getMasterEvents(options: { cellId?: string; limit?: number } = {}): Promise<MasterEvent[]> {
     return request(withQuery('/api/master/events', options));
+  },
+  getUsage(filters: UsageFilter = {}): Promise<UsageResponse> {
+    return request(
+      withQuery('/api/usage', {
+        cellId: filters.cellId,
+        requestId: filters.requestId,
+        from: filters.from,
+        to: filters.to,
+        bucket: filters.bucket,
+        limit: filters.limit,
+      }),
+    );
   },
 };

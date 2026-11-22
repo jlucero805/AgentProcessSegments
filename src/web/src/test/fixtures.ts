@@ -1,4 +1,4 @@
-import type { MasterConfig, Request } from '../types';
+import type { MasterConfig, Request, UsageResponse, UsageTotals } from '../types';
 import { defaultProcess } from '../../../server/src/process/defaults';
 
 const fixtureMaster: MasterConfig = {
@@ -45,6 +45,43 @@ export function makeProcess() {
 
 export function makeProcessResponse() {
   return { ...makeProcess(), path: '/tmp/sandbox-harness/process.json' };
+}
+
+export function makeUsageTotals(overrides: Partial<UsageTotals> = {}): UsageTotals {
+  return {
+    turns: 2,
+    inputTokens: 120,
+    outputTokens: 40,
+    cacheReadTokens: 10,
+    cacheWriteTokens: 5,
+    reasoningTokens: 2,
+    totalTokens: 177,
+    costUsd: 0.012,
+    unknownCostTurns: 1,
+    ...overrides,
+  };
+}
+
+export function makeUsageResponse(overrides: Partial<UsageResponse> = {}): UsageResponse {
+  return {
+    range: { from: null, to: null },
+    totals: makeUsageTotals(),
+    series: [
+      { bucketStart: 1, ...makeUsageTotals({ turns: 1, costUsd: 0.01, unknownCostTurns: 0 }) },
+      { bucketStart: 2, ...makeUsageTotals({ turns: 1, costUsd: null, unknownCostTurns: 1 }) },
+    ],
+    byModel: [
+      { key: 'model-a', label: 'Model A', ...makeUsageTotals({ turns: 1, costUsd: 0.012, unknownCostTurns: 0 }) },
+      { key: 'model-b', label: 'Model B', ...makeUsageTotals({ turns: 1, costUsd: null, unknownCostTurns: 1 }) },
+    ],
+    byCell: [
+      { key: 'cell-1', label: 'Alpha', ...makeUsageTotals() },
+    ],
+    byRequest: [
+      { key: 'req-1', label: 'A request', ...makeUsageTotals() },
+    ],
+    ...overrides,
+  };
 }
 
 export function jsonResponse(body: unknown, status = 200): Response {  return new Response(JSON.stringify(body), {

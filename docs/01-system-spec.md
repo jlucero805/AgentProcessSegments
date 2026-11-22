@@ -117,6 +117,17 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 `id` (uuid PK), `request_id`, `title`, `content`, `created_at`; index
 `idx_kb_entries_request`. Re-indexing a request replaces its prior entry.
 
+### `usage_events`
+
+`id` (uuid PK), `turn_id` (unique engine turn id), `session_id`, `scope`
+(`request|master|kb|setup`), `cell_id`, `request_id`, `model`, `effort`,
+`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`,
+`reasoning_tokens`, `cost_usd` (nullable harness-reported cost), `created_at`.
+One row is written after a completed turn that reported usage; cancelled, timed-out,
+and usage-less turns write nothing. Unknown cost stays null, never zero. Indexes:
+`idx_usage_events_created`, `idx_usage_events_cell_created`,
+`idx_usage_events_request_created`, and unique `idx_usage_events_turn`.
+
 ### Domain (`src/server/domain/request.ts`)
 
 - `STATES = clarify | dispatch | review | finalize | done | dropped`.
@@ -144,6 +155,9 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
   delete of requests.
 - `kb/repository.ts`: `store({requestId,title,content})` replaces the prior entry for
   that request, plus `list`, `getByRequest`, and a literal LIKE `search`.
+- `usage/repository.ts`: `record(input)` writes one event per completed turn and
+  `query(filter)` returns totals, UTC bucket series, and model/cell/request groups.
+  Cost is the harness-reported value only; an unreported cost remains null.
 
 ---
 
@@ -193,6 +207,14 @@ object per line.
   unused.
 - When `webDir` exists, `@fastify/static` serves the SPA at `/` with an `index.html`
   fallback for non-`/api`, non-`/ws` GETs.
+
+### Usage
+
+- `GET /api/usage?cellId=…&requestId=…&from=…&to=…&bucket=hour|day&limit=…`
+  returns `{range, totals, series[], byModel[], byCell[], byRequest[]}`. Bounds are
+  epoch milliseconds (`from` inclusive, `to` exclusive). Series buckets are UTC-aligned
+  and zero-filled when both bounds are supplied. Totals separate known cost from
+  `unknownCostTurns`; a model with no reported cost is unknown, not zero.
 
 ### NDJSON event shape
 

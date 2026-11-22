@@ -129,4 +129,119 @@ describe('OpenCode stream parser', () => {
     expect(parser.push(line({ type: 'step_start', part: { type: 'step-start' } }))).toEqual([]);
     expect(parser.finished).toBe(false);
   });
+
+  it('captures usage and cost from a completed step', () => {
+    const parser = new OpencodeTurnParser([]);
+    parser.push(
+      line({
+        type: 'step_finish',
+        part: {
+          type: 'step-finish',
+          reason: 'stop',
+          cost: 0.0025,
+          tokens: {
+            input: 40,
+            output: 12,
+            reasoning: 3,
+            cache: { read: 5, write: 2 },
+          },
+        },
+      }),
+    );
+
+    expect(parser.finished).toBe(true);
+    expect(parser.usage).toEqual({
+      inputTokens: 40,
+      outputTokens: 12,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 2,
+      reasoningTokens: 3,
+      costUsd: 0.0025,
+    });
+  });
+
+  it('sums usage across tool and final steps', () => {
+    const parser = new OpencodeTurnParser([]);
+    parser.push(
+      line({
+        type: 'step_finish',
+        part: {
+          reason: 'tool-calls',
+          cost: 0.001,
+          tokens: { input: 10, output: 5, cache: { read: 1, write: 0 } },
+        },
+      }),
+    );
+    expect(parser.finished).toBe(false);
+
+    parser.push(
+      line({
+        type: 'step_finish',
+        part: {
+          reason: 'stop',
+          cost: 0.002,
+          tokens: { input: 20, output: 8, reasoning: 2, cache: { read: 3, write: 4 } },
+        },
+      }),
+    );
+
+    expect(parser.finished).toBe(true);
+    expect(parser.usage).toEqual({
+      inputTokens: 30,
+      outputTokens: 13,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 4,
+      reasoningTokens: 2,
+      costUsd: 0.003,
+    });
+  });
+
+  it('marks cost unknown when any contributing step omits it', () => {
+    const parser = new OpencodeTurnParser([]);
+    parser.push(
+      line({
+        type: 'step_finish',
+        part: { reason: 'tool-calls', tokens: { input: 10, output: 5 } },
+      }),
+    );
+    parser.push(
+      line({
+        type: 'step_finish',
+        part: { reason: 'stop', cost: 0.002, tokens: { input: 20, output: 8 } },
+      }),
+    );
+
+    expect(parser.usage).toEqual({
+      inputTokens: 30,
+      outputTokens: 13,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: null,
+    });
+  });
+
+  it('ignores usage-less steps and malformed token values', () => {
+    const parser = new OpencodeTurnParser([]);
+    parser.push(line({ type: 'step_finish', part: { reason: 'tool-calls' } }));
+    expect(parser.usage).toBeNull();
+
+    parser.push(
+      line({
+        type: 'step_finish',
+        part: {
+          reason: 'stop',
+          tokens: { input: 'bad', output: -4, cache: { read: 'bad' } },
+        },
+      }),
+    );
+    expect(parser.usage).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: null,
+    });
+  });
 });

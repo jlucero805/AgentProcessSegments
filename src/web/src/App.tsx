@@ -9,12 +9,13 @@ import { KbEntries } from './KbEntries';
 import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
 import { SkillsPage } from './SkillsPage';
+import { UsagePage } from './UsagePage';
 import { api, describeError } from './api';
 import { mergeSlashCommands } from './slash';
 import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
 
-type Page = 'board' | 'kb' | 'skills' | 'config';
+type Page = 'board' | 'kb' | 'skills' | 'usage' | 'config';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -33,7 +34,7 @@ function readRoute(): {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('page');
   const page: Page =
-    raw === 'kb' || raw === 'skills' || raw === 'config' ? raw : 'board';
+    raw === 'kb' || raw === 'skills' || raw === 'usage' || raw === 'config' ? raw : 'board';
   const masterOpen = params.get('master') === '1';
   return {
     page,
@@ -244,6 +245,9 @@ export function App() {
           <NavButton active={page === 'board'} onClick={() => go('board')}>
             Floor
           </NavButton>
+          <NavButton active={page === 'usage'} onClick={() => go('usage')}>
+            Usage
+          </NavButton>
           <NavButton active={page === 'kb'} onClick={() => go('kb')}>
             Knowledge base
           </NavButton>
@@ -394,6 +398,7 @@ export function App() {
           ) : null}
           {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
+          {page === 'usage' ? <UsagePage onError={setError} /> : null}
           {page === 'config' ? (
             <ConfigPage
               commands={commands}

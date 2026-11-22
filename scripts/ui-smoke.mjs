@@ -90,7 +90,7 @@ async function openMenu(step) {
 try {
   await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('sandbox harness'),
+    () => document.body.innerText.toLowerCase().includes('agent process segments'),
     { timeout: 15_000 },
   );
 
@@ -256,7 +256,7 @@ try {
   await page.waitForFunction(
     () =>
       document.body.innerText.toLowerCase().includes('getting started') &&
-      document.body.innerText.toLowerCase().includes('sandbox harness'),
+      document.body.innerText.toLowerCase().includes('agent process segments'),
     { timeout: 10_000 },
   );
   if (!mobile) {

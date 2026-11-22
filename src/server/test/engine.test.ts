@@ -183,7 +183,7 @@ describe('turn engine', () => {
     });
     expect(
       h.engine.transcript(session).some((message) =>
-        message.text.includes('setup assistant for one Sandbox Harness cell'),
+        message.text.includes('setup assistant for one Agent Process Segments cell'),
       ),
     ).toBe(true);
     expect(

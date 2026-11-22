@@ -226,9 +226,9 @@ export function App() {
         <div className="flex items-start justify-between px-2 pt-1">
           <div>
             <h1 className="text-sm font-semibold tracking-tight text-zinc-100">
-              Sandbox Harness
+              Agent Process Segments
             </h1>
-            <p className="text-[11px] text-zinc-600">process segments for agents</p>
+            <p className="text-[11px] text-zinc-600">headless agent orchestration</p>
           </div>
           <button
             type="button"
@@ -376,7 +376,7 @@ export function App() {
           >
             ☰
           </button>
-          <span className="text-sm font-semibold text-zinc-100">Sandbox Harness</span>
+          <span className="text-sm font-semibold text-zinc-100">Agent Process Segments</span>
         </header>
 
         <div className="min-h-0 flex-1 overflow-hidden">

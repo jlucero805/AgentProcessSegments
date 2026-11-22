@@ -5,6 +5,9 @@ six ordered segments, each with a purpose, a prompt, an idle threshold, an optio
 ready marker, and an optional follow-up rule. The SPA edits it as structured controls;
 the file underneath is ordinary JSON.
 
+`Agent Process Segments` is the product name; a *process segment* is one stage in a
+cell's pipeline.
+
 There are two layers:
 
 1. **Global default** — `process.json`, used for unassigned work and as the template for

@@ -196,7 +196,7 @@ the clone and the `claude` login:
 ```ini
 # /etc/systemd/system/sandbox-harness.service
 [Unit]
-Description=Sandbox Harness brain
+Description=Agent Process Segments brain
 After=network-online.target
 Wants=network-online.target
 

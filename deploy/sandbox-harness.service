@@ -1,4 +1,4 @@
-# systemd user unit for the Sandbox Harness brain.
+# systemd user unit for the Agent Process Segments brain.
 #
 # Install (single-user VPS):
 #   mkdir -p ~/.config/systemd/user
@@ -14,7 +14,7 @@
 # widen the bind.
 
 [Unit]
-Description=Sandbox Harness brain
+Description=Agent Process Segments brain
 Documentation=https://github.com/jlucero805/AgentProcessSegments
 After=network-online.target
 Wants=network-online.target

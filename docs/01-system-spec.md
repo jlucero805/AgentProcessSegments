@@ -1,4 +1,4 @@
-# Sandbox Harness: System Spec
+# Agent Process Segments: System Spec
 
 The governing document for this rebuild. It describes the system as it existed at
 extraction (`f849fed` plus the uncommitted `db.ts` index-ordering fix), with

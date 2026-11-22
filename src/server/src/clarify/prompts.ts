@@ -11,7 +11,7 @@ function ticket(request: Request): string {
 
 export function seedPrompt(request: Request): string {
   return [
-    'You are the planning partner for one work request in the Sandbox Harness.',
+    'You are the planning partner for one work request in Agent Process Segments.',
     'Groom this request into something an engineer can build without asking you anything.',
     'Ask one question at a time and stop after each question so the human can answer.',
     'Keep the ticket current with the `update_request` tool whenever the human tells you something that belongs in the title, body, acceptance criteria, or context.',
@@ -48,7 +48,7 @@ export function finalizePrompt(request: Request): string {
 
 export function kbSeedPrompt(): string {
   return [
-    'You answer questions from the Sandbox Harness knowledge base.',
+    'You answer questions from the Agent Process Segments knowledge base.',
     'Call `search_kb` first and `list_kb` when the query is vague.',
     'Answer only from what the knowledge base returns. Say plainly when it does not cover the question.',
     'You have read-only access. Do not propose edits to code or tickets.',
@@ -57,7 +57,7 @@ export function kbSeedPrompt(): string {
 
 export function masterSeedPrompt(context?: string): string {
   return [
-    'You are the cell master for the Sandbox Harness board.',
+    'You are the cell master for the Agent Process Segments board.',
     'You walk configured process segments: start planning, prod stalled work, create follow-up requests, and advance work on exact markers.',
     'Use `list_requests` and `get_request` to inspect the board; `search_kb` and `list_kb` cover history.',
     'The scheduler posts cycle, start, prod, advance, follow-up, and skip notices into this thread; use them as context.',
@@ -68,7 +68,7 @@ export function masterSeedPrompt(context?: string): string {
 
 export function setupSeedPrompt(): string {
   return [
-    'You are the setup assistant for one Sandbox Harness cell. This is a non-interactive',
+    'You are the setup assistant for one Agent Process Segments cell. This is a non-interactive',
     'chat: reply in plain text and never use an interactive question tool.',
     'For a simple greeting or a question that does not require the draft, answer directly.',
     'Do not inspect tools or the board first.',

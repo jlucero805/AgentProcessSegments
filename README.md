@@ -1,8 +1,13 @@
-# Sandbox Harness
+# Agent Process Segments
+
+Formerly Sandbox Harness.
 
 A local Node/TypeScript brain that drives headless Claude Code sessions through a
 request workflow. One origin serves the API, an optional SPA, and the websocket, so a
 single port is all a tunnel needs.
+
+`Agent Process Segments` is the product name; a *process segment* is one stage in a
+cell's pipeline.
 
 This repository is a rebuild from the system spec at commit `f849fed`. It targets the
 same data model, state machine, HTTP surface, and wire contracts.
@@ -104,7 +109,7 @@ prompts, activity, and chat.
 
 These screenshots use a staged demo board in an isolated temp database, not live data.
 
-![Sandbox Harness board with staged tasks across Requests, Plan, Implement, Review, and Finalize](docs/screenshots/board.png)
+![Agent Process Segments board with staged tasks across Requests, Plan, Implement, Review, and Finalize](docs/screenshots/board.png)
 
 ![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
 

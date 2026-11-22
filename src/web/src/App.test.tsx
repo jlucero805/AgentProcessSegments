@@ -236,7 +236,8 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(screen.getAllByText('Sandbox Harness').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Agent Process Segments').length).toBeGreaterThan(0);
+    expect(screen.getByText('headless agent orchestration')).toBeInTheDocument();
     expect(screen.getByText('Knowledge base')).toBeInTheDocument();
     expect(screen.getByText('Skills')).toBeInTheDocument();
     expect(screen.getByText('All cells')).toBeInTheDocument();

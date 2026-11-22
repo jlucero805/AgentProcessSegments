@@ -1,8 +1,10 @@
 # Agent handoff
 
-You are picking up a rebuild of the Sandbox Harness brain. Read this file first, then
-`docs/01-system-spec.md`. Code beats docs when they disagree; when code is wrong against
-the spec, say so rather than silently following either.
+Formerly Sandbox Harness.
+
+You are picking up a rebuild of the Agent Process Segments brain. Read this file first,
+then `docs/01-system-spec.md`. Code beats docs when they disagree; when code is wrong
+against the spec, say so rather than silently following either.
 
 ## What this is
 

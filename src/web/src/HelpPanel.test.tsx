@@ -19,7 +19,7 @@ const gettingStarted: DocContent = {
   ...PAGES[0]!,
   updatedAt: 1,
   markdown: [
-    '# Sandbox Harness',
+    '# Agent Process Segments',
     '',
     'Intro paragraph.',
     '',

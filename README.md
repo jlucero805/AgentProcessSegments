@@ -18,8 +18,10 @@ The intended setup is one always-on Linux VPS running the headless brain and age
 processes, with the SPA exposed only through a Tailscale tailnet. A phone or laptop joins
 the tailnet, opens the SPA, and sends manual prompts while the VPS keeps working. The
 brain binds loopback; Tailscale Serve is the audience gate. On the VPS,
-`sudo tailscale serve --bg 7391` publishes the loopback port to the tailnet; only devices
-on that tailnet can reach it.
+`sudo tailscale serve --bg --https=443 http://127.0.0.1:7391` publishes the loopback
+port to the tailnet; only devices on that tailnet can reach it. The full install, HTTPS,
+verification, and reset steps are in
+[`deploy/vps.md#tailscale`](deploy/vps.md#tailscale).
 
 ```mermaid
 flowchart TB
@@ -170,7 +172,7 @@ main routes over a real socket.
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
 - `docs/13-cell-wizard.md` cell creation chat and policy setup
-- `deploy/vps.md` systemd unit and VPS runbook
+- `deploy/vps.md` VPS, systemd, and Tailscale runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
 ## Layout

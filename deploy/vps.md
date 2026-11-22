@@ -160,12 +160,76 @@ systemctl --user daemon-reload
 systemctl --user restart sandbox-harness
 ```
 
+## Tailscale
+
+Serve publishes the loopback port to your tailnet. The brain stays bound to
+`127.0.0.1:7391`; Tailscale terminates TLS and is the audience gate. Do not use
+Tailscale Funnel for this service.
+
+Before the first Serve command, confirm the tailnet has MagicDNS and HTTPS enabled. In
+the Tailscale admin console, open **DNS** and enable **MagicDNS** and **HTTPS
+Certificates**. Serve cannot issue the `*.ts.net` certificate until HTTPS is enabled.
+Also confirm TCP 443 is free on the VPS:
+
+```bash
+ss -tlnp | grep ':443'    # no output means 443 is free
+```
+
+Install Tailscale and join the tailnet:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+tailscale status
+```
+
+Publish the brain. `--bg` keeps the Serve configuration across reboots and Tailscale
+restarts, and the proxy target stays on loopback:
+
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:7391
+```
+
+`sudo tailscale serve --bg 7391` is the shorthand for the same mapping. Verify it:
+
+```bash
+tailscale serve status
+# https://<host>.<tailnet>.ts.net (tailnet only)
+# |-- / proxy http://127.0.0.1:7391
+
+curl -fsS https://<host>.<tailnet>.ts.net/health
+# {"ok":true}
+```
+
+Open `https://<host>.<tailnet>.ts.net/` from another device on the tailnet. If 443 is
+already in use, publish on 8443 instead and include the port in the URL:
+
+```bash
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:7391
+# browse https://<host>.<tailnet>.ts.net:8443/
+```
+
+Remove the mapping with `sudo tailscale serve reset`; this clears all Serve entries on
+the node. `tailscale serve status` should then print nothing.
+
+Troubleshooting:
+
+- `tailscale status` shows the node is not logged in: run `sudo tailscale up`.
+- Serve cannot provision a certificate: enable HTTPS Certificates and MagicDNS in the
+  admin console, then retry.
+- The tailnet URL hangs or refuses: confirm the device is on the same tailnet and the
+  tailnet ACL allows TCP 443 to this node.
+- 443 is occupied: find the listener with `ss -tlnp | grep ':443'` and use the 8443
+  variant.
+
 ## Reach it from another machine
 
-Keep the process on loopback and put the gate in front of the port.
+Keep the process on loopback and put the gate in front of the port. The Tailscale setup
+and exact commands are in [Tailscale](#tailscale).
 
-- Tailscale Serve: `sudo tailscale serve --bg 7391`, then browse
-  `https://<host>.<tailnet>.ts.net/`.
+- Tailscale Serve: `sudo tailscale serve --bg --https=443 http://127.0.0.1:7391`, then
+  browse `https://<host>.<tailnet>.ts.net/`. The shorthand
+  `sudo tailscale serve --bg 7391` is equivalent.
 - Any reverse proxy or SSO tunnel: proxy to `http://127.0.0.1:7391`.
 
 Before sharing a tunnel, check that anonymous requests to `/` and `/api` hit the SSO

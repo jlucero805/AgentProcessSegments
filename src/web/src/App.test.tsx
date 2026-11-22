@@ -245,6 +245,47 @@ describe('App', () => {
     expect(screen.getByTestId('column-intake')).toHaveTextContent('Mounted card');
   });
 
+  it('links to the GitHub repository beside Help', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Repo card' }));
+
+    render(<App />);
+
+    const link = screen.getByRole('link', { name: 'GitHub repository' });
+    expect(link).toHaveAttribute('href', 'https://github.com/jlucero805/AgentProcessSegments');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'GitHub repository' })).not.toBeInTheDocument();
+  });
+
+  it('opens the repo link without opening Help', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Repo card' }));
+
+    render(<App />);
+
+    const link = screen.getByRole('link', { name: 'GitHub repository' });
+    // jsdom cannot open a new tab; block the default navigation we are not testing.
+    link.addEventListener('click', (event) => event.preventDefault());
+    fireEvent.click(link);
+
+    expect(screen.queryByRole('dialog', { name: 'Documentation' })).not.toBeInTheDocument();
+    expect(window.location.search).not.toContain('help=');
+  });
+
+  it('closes the mobile menu from the repo link', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Nav card' }));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-open', 'true');
+
+    const link = screen.getByRole('link', { name: 'GitHub repository' });
+    link.addEventListener('click', (event) => event.preventDefault());
+    fireEvent.click(link);
+
+    expect(screen.getByTestId('sidebar')).toHaveAttribute('data-open', 'false');
+  });
+
   it('opens the docs from the sidebar and restores focus on close', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
 

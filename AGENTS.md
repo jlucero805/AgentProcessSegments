@@ -38,7 +38,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 247 vitest cases: 164 server across 19 files and 83 web across 16 files, all green.
+- 250 vitest cases: 164 server across 19 files and 86 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -71,7 +71,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 164 server + 83 web
+npm test                       # 164 server + 86 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)

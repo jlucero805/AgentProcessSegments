@@ -135,8 +135,9 @@ The brain binds `127.0.0.1:7391` unless `SBOX_HOST` / `SBOX_PORT` say otherwise.
 widen the bind. A tunnel is the audience gate, not the process.
 
 The sidebar **Help** row renders the operator docs in-app from the same origin, including
-the screenshots, with grouped navigation and `?help=<slug>` deep links. The brain reads
-them from `SBOX_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
+the screenshots, with grouped navigation and `?help=<slug>` deep links. A GitHub icon
+beside it links to the public source repository in a new tab. The brain reads the docs
+from `SBOX_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
 build.
 
 Agent turns are bounded by `SBOX_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
@@ -234,7 +235,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 247 vitest cases: 164 server cases (state machine, migrations including
+`npm test` runs 250 vitest cases: 164 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
@@ -242,10 +243,10 @@ real git clones, process definitions/store/follow-ups, per-cell policies/tickers
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, docs
 manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal session
 lifecycle, and the HTTP API
-over a real socket) and 83 web cases (shared contract re-exports, NDJSON client, chat
-folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
-board, create modal, composer, cell bar, cell creation, config/process editor, master
-detail, and the app shell with the drawer and chat mounted under jsdom).
+over a real socket) and 86 web cases (shared contract re-exports, NDJSON client, chat
+folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay, the
+source link, board, create modal, composer, cell bar, cell creation, config/process editor,
+master detail, and the app shell with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

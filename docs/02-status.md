@@ -71,7 +71,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - In-app Help: a sidebar **Help** row opens a full-height documentation overlay, grouped
   by manifest order from `GET /api/docs`, with an article, sticky “On this page” anchors,
   “Copy as Markdown”, in-app doc links, external links in a new tab, and screenshots via
-  `GET /api/docs/assets/*`. `?help=<slug>` deep-links a page and back/forward move between
+  `GET /api/docs/assets/*`. Mermaid fences render as lazy-loaded, dark-theme SVG diagrams;
+  the original fenced source still powers Copy as Markdown and appears as the fallback
+  when Mermaid fails. `?help=<slug>` deep-links a page and back/forward move between
   pages. The manifest is an explicit code list; docs are read from `SBOX_DOCS_DIR`
   (default `<cwd>/docs`) and traversal is rejected. A GitHub icon beside the Help row
   opens the public source repository in a new tab.
@@ -199,7 +201,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 290 vitest cases, all passing: 197 server across 22 files and 93 web across 17 files,
+- 303 vitest cases, all passing: 201 server across 22 files and 102 web across 18 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

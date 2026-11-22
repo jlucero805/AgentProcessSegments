@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 290 vitest cases: 197 server across 22 files and 93 web across 17 files, all green.
+- 303 vitest cases: 201 server across 22 files and 102 web across 18 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and

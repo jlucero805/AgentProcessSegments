@@ -11,6 +11,8 @@ import {
   textFromChildren,
 } from './docs';
 import type { DocContent, DocPage } from './types';
+import { MermaidDiagram } from './MermaidDiagram';
+import { mermaidSource } from './mermaid';
 import { Button, Spinner, cn } from './ui';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'missing' | 'error';
@@ -225,11 +227,15 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
           className="my-4 w-full rounded-lg border border-zinc-800 bg-zinc-900"
         />
       ),
-      pre: ({ children }) => (
-        <pre className="mb-3 overflow-x-auto rounded-lg border border-zinc-800 bg-black/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300 [&>code]:bg-transparent [&>code]:p-0">
-          {children}
-        </pre>
-      ),
+      pre: ({ children, node }) => {
+        const source = mermaidSource(node);
+        if (source !== null) return <MermaidDiagram source={source} />;
+        return (
+          <pre className="mb-3 overflow-x-auto rounded-lg border border-zinc-800 bg-black/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300 [&>code]:bg-transparent [&>code]:p-0">
+            {children}
+          </pre>
+        );
+      },
       code: ({ children }) => (
         <code className="rounded bg-zinc-900 px-1 py-0.5 font-mono text-[12px] text-zinc-200">
           {children}

@@ -92,6 +92,26 @@ Each cell’s master chat is a separate reserved session, so one cell’s notes 
 conversation do not mix with another’s. The chat is advisory: it can read the board and
 KB but cannot mutate requests.
 
+## 4a. Read the scorecard
+
+With a cell selected in the **Cell master** drawer, the **Scorecard** card shows the most
+recent report for that cell: a short markdown summary, throughput, pipeline health,
+automation activity, risks, and a comparison with the prior window. It also shows when
+the report was generated and the window it covers. Expand **Earlier scorecards** for the
+last five.
+
+- **Run scorecard now** generates one immediately. It is allowed even when automatic
+  scorecards are disabled.
+- The schedule lives on the Config page: enable/disable, **Every (minutes)** (default
+  360), **Window (minutes)** (default 360), and the report instructions. Save it with
+  **Save schedule**.
+- The scheduler checks every 30 seconds, writes one report per due cell, and catches up a
+  missing or overdue report after a restart. Generations run one at a time.
+- A failed report leaves no row and shows a warning in the card. Retries back off for
+  `min(interval, 30 min)`.
+- The report is based on request timestamps and master activity events, so terminal
+  timing is approximate. It is read-only and never moves work.
+
 ## 4b. Use the desktop terminal
 
 - On desktop, press **Terminal** in the sidebar. It attaches to a server-owned shell in

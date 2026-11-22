@@ -2,6 +2,7 @@
 export const KB_SESSION_ID = '__kb__';
 export const MASTER_SESSION_ID = '__master__';
 export const SETUP_SESSION_PREFIX = '__setup__:';
+export const SUMMARY_SESSION_PREFIX = '__summary__:';
 
 /** One transient wizard chat; it has no request row and is discarded on close. */
 export function setupSessionId(draftId: string): string {
@@ -30,6 +31,21 @@ export function isMasterSession(id: string): boolean {
 export function masterCellId(id: string): string | null {
   if (!id.startsWith(`${MASTER_SESSION_ID}:`)) return null;
   const cellId = id.slice(MASTER_SESSION_ID.length + 1);
+  return cellId === '' ? null : cellId;
+}
+
+/** One internal scorecard generator per cell; never exposed as a chat. */
+export function summarySessionId(cellId: string): string {
+  return `${SUMMARY_SESSION_PREFIX}${cellId}`;
+}
+
+export function isSummarySession(id: string): boolean {
+  return id.startsWith(SUMMARY_SESSION_PREFIX);
+}
+
+export function summaryCellId(id: string): string | null {
+  if (!id.startsWith(SUMMARY_SESSION_PREFIX)) return null;
+  const cellId = id.slice(SUMMARY_SESSION_PREFIX.length);
   return cellId === '' ? null : cellId;
 }
 

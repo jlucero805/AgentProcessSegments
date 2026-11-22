@@ -14,6 +14,7 @@ import {
   type MasterStatus,
   type ProcessConfig,
   type SegmentConfig,
+  type SummaryConfig,
 } from './types';
 import {
   Badge,
@@ -24,6 +25,7 @@ import {
   Input,
   SectionTitle,
   Spinner,
+  Textarea,
 } from './ui';
 
 interface ConfigPageProps {
@@ -39,6 +41,7 @@ function clock(ts: number | null | undefined): string {
 /** Edits the persisted master policy and shows its live status and activity. */
 export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
+  const [summary, setSummary] = useState<SummaryConfig | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
   const [processPath, setProcessPath] = useState('');
@@ -62,6 +65,7 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
         api.getMasterEvents({ limit: 20 }),
       ]);
       setMaster(config.master);
+      setSummary(config.summary);
       setPath(config.path);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
@@ -80,6 +84,14 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
 
   const set = <K extends keyof MasterConfig>(key: K, value: MasterConfig[K]) => {
     setMaster((current) => (current ? { ...current, [key]: value } : current));
+    setSaved(false);
+  };
+
+  const setScorecard = <K extends keyof SummaryConfig>(
+    key: K,
+    value: SummaryConfig[K],
+  ) => {
+    setSummary((current) => (current ? { ...current, [key]: value } : current));
     setSaved(false);
   };
 
@@ -122,11 +134,12 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   };
 
   async function save() {
-    if (!master) return;
+    if (!master || !summary) return;
     setSaving(true);
     try {
-      const config = await api.patchConfig(master);
+      const config = await api.patchConfig({ master, summary });
       setMaster(config.master);
+      setSummary(config.summary);
       setPath(config.path);
       setStatus(await api.getMasterStatus());
       setSaved(true);
@@ -179,7 +192,7 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
     }
   }
 
-  if (!master || !process) {
+  if (!master || !summary || !process) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
         <Spinner /> Loading settings...
@@ -238,6 +251,56 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
             </Button>
           </div>
         </div>
+      </Card>
+
+      <Card className="space-y-5 p-4">
+        <div>
+          <SectionTitle>Scorecards</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            Each cell gets a periodic report of the work in its trailing window. Run one
+            now from the Cell master drawer.
+          </p>
+        </div>
+
+        <Checkbox
+          label="Automatic scorecards enabled"
+          checked={summary.enabled}
+          onChange={(event) => setScorecard('enabled', event.target.checked)}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Every (minutes)" hint="how often to write a report">
+            <Input
+              type="number"
+              min={1}
+              max={10080}
+              value={summary.intervalMinutes}
+              onChange={(event) => setScorecard('intervalMinutes', Number(event.target.value))}
+            />
+          </Field>
+          <Field label="Window (minutes)" hint="how far back each report looks">
+            <Input
+              type="number"
+              min={1}
+              max={10080}
+              value={summary.windowMinutes}
+              onChange={(event) => setScorecard('windowMinutes', Number(event.target.value))}
+            />
+          </Field>
+        </div>
+
+        <Field label="Report instructions" hint="the facts are added automatically">
+          <Textarea
+            rows={5}
+            value={summary.prompt}
+            onChange={(event) => setScorecard('prompt', event.target.value)}
+          />
+        </Field>
+
+        <p className="text-[11px] text-zinc-600">
+          6 hours = 360 minutes. Saved with the schedule above. A failed report is retried
+          with backoff.
+        </p>
       </Card>
 
       <ProcessEditor

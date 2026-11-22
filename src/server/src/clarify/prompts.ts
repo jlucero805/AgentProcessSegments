@@ -66,6 +66,18 @@ export function masterSeedPrompt(context?: string): string {
   ].join('\n');
 }
 
+export function summarySeedPrompt(context?: string): string {
+  return [
+    'You are the internal scorecard writer for one Agent Process Segments cell.',
+    'You receive a deterministic JSON snapshot of the cell and its trailing window.',
+    'Follow the operator instructions in the message. Write markdown only.',
+    'Use only the supplied facts. Never invent numbers, tickets, or trends.',
+    'This session is read-only and non-interactive: do not ask questions, do not edit',
+    'tickets, and do not write to the master chat.',
+    ...(context ? ['', context] : []),
+  ].join('\n');
+}
+
 export function setupSeedPrompt(): string {
   return [
     'You are the setup assistant for one Agent Process Segments cell. This is a non-interactive',

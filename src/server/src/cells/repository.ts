@@ -155,6 +155,7 @@ export class CellRepository {
   remove(id: string): void {
     const remove = this.db.transaction((cellId: string) => {
       this.db.prepare('UPDATE requests SET cell_id = NULL WHERE cell_id = ?').run(cellId);
+      this.db.prepare('DELETE FROM cell_summaries WHERE cell_id = ?').run(cellId);
       return this.db.prepare('DELETE FROM cells WHERE id = ?').run(cellId).changes;
     });
     if (remove(id) === 0) throw new CellNotFoundError(id);

@@ -15,7 +15,10 @@ import { defaultProcess } from '../src/process/defaults.js';
 import { ProcessStore } from '../src/process/store.js';
 import { SettingsStore } from '../src/settings.js';
 import { SkillCatalog } from '../src/skills/catalog.js';
-import { createHarness, resultLine, settle, type Harness } from './helpers.js';
+import { SummaryRepository } from '../src/summary/repository.js';
+import { SummaryScheduler } from '../src/summary/scheduler.js';
+import { SummaryService } from '../src/summary/service.js';
+import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 
 interface Open {
   h: Harness;
@@ -39,6 +42,20 @@ async function makeApp(
     settings,
     h.cells,
   );
+  const summaries = new SummaryRepository(h.db);
+  const summary = new SummaryScheduler({
+    service: new SummaryService({
+      repo: h.repo,
+      cells: h.cells,
+      engine: h.engine,
+      settings,
+      events: masterEvents,
+      summaries,
+    }),
+    settings,
+    cells: h.cells,
+    summaries,
+  });
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
@@ -50,6 +67,8 @@ async function makeApp(
     settings,
     master,
     masterEvents,
+    summary,
+    summaries,
     process,
     skills,
     config: { ...h.config, ...config },
@@ -332,6 +351,65 @@ describe('http api', () => {
     const events = await call('GET', '/api/master/events?limit=10');
     expect(events.status).toBe(200);
     expect(Array.isArray(events.json())).toBe(true);
+  });
+
+  it('serves scorecard settings, runs a report, and lists history', async () => {
+    const { h } = await makeApp({}, () => [
+      initLine('scorecard-session'),
+      textLine('# Scorecard\n\nQuiet window.'),
+      resultLine(),
+    ]);
+
+    const config = await call('GET', '/api/config');
+    expect(config.status).toBe(200);
+    expect(config.json().summary).toMatchObject({
+      enabled: true,
+      intervalMinutes: 360,
+      windowMinutes: 360,
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      summary: { intervalMinutes: 120, windowMinutes: 60 },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().summary).toMatchObject({ intervalMinutes: 120, windowMinutes: 60 });
+    expect(patched.json().master.intervalMinutes).toBe(5);
+
+    const empty = await call('PATCH', '/api/config', {});
+    expect(empty.status).toBe(400);
+
+    const cell = h.cells.create('Alpha');
+    const status = await call('GET', `/api/summaries/status?cellId=${cell.id}`);
+    expect(status.status).toBe(200);
+    expect(status.json()).toMatchObject({
+      enabled: true,
+      intervalMinutes: 120,
+      windowMinutes: 60,
+      running: false,
+      lastRunAt: null,
+    });
+
+    const run = await call('POST', `/api/summaries/run?cellId=${cell.id}`);
+    expect(run.status).toBe(200);
+    expect(run.json().cellId).toBe(cell.id);
+    expect(run.json().content).toContain('Quiet window');
+    expect(run.json().stats.cell.name).toBe('Alpha');
+
+    const latest = await call('GET', `/api/summaries/latest?cellId=${cell.id}`);
+    expect(latest.status).toBe(200);
+    expect(latest.json().id).toBe(run.json().id);
+
+    const list = await call('GET', `/api/summaries?cellId=${cell.id}&limit=5`);
+    expect(list.status).toBe(200);
+    expect(list.json()).toHaveLength(1);
+
+    const all = await call('GET', '/api/summaries');
+    expect(all.status).toBe(200);
+    expect(all.json()).toHaveLength(1);
+
+    expect((await call('GET', '/api/summaries/latest')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest?cellId=missing')).status).toBe(404);
+    expect((await call('GET', '/api/summaries?limit=0')).status).toBe(400);
   });
 
   it('creates a cell with its own process and can replace it', async () => {

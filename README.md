@@ -199,6 +199,8 @@ src/server/src
   master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
   master/scheduler.ts per-cell timers, unassigned timer, manual run, coalesced cycles
+  summary/            per-cell scorecard policy, deterministic stats, read-only generation,
+                      polling scheduler, persisted report history
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo
   logging/errors.ts   structured error-only NDJSON log with size rotation
@@ -235,18 +237,19 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 250 vitest cases: 164 server cases (state machine, migrations including
+`npm test` runs 266 vitest cases: 179 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
-the generic master pipeline, segment caps and merge, turn watchdogs/stderr, docs
-manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal session
-lifecycle, and the HTTP API
-over a real socket) and 86 web cases (shared contract re-exports, NDJSON client, chat
-folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay, the
-source link, board, create modal, composer, cell bar, cell creation, config/process editor,
-master detail, and the app shell with the drawer and chat mounted under jsdom).
+the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
+stats/generation/scheduling, docs manifest/traversal/HTTP, error-log format/rotation,
+skill discovery, terminal session lifecycle, and the HTTP API
+over a real socket) and 87 web cases (shared contract re-exports, NDJSON client, chat
+folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
+the source link, board, create modal, composer, cell bar, cell creation, config/process
+editor, master detail and scorecard, and the app shell with the drawer and chat mounted
+under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

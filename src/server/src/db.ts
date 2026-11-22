@@ -58,6 +58,17 @@ CREATE TABLE IF NOT EXISTS master_events (
   detail     TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cell_summaries (
+  id             TEXT PRIMARY KEY,
+  cell_id        TEXT NOT NULL,
+  window_start   INTEGER NOT NULL,
+  window_end     INTEGER NOT NULL,
+  window_minutes INTEGER NOT NULL,
+  content        TEXT NOT NULL,
+  stats_json     TEXT NOT NULL,
+  created_at     INTEGER NOT NULL
+);
 `;
 
 /**
@@ -108,6 +119,9 @@ export function migrate(db: Db): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_kb_entries_request ON kb_entries(request_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_created ON master_events(created_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_request ON master_events(request_id)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_cell_summaries_cell_created ON cell_summaries(cell_id, created_at)',
+  );
 }
 
 /** A persisted `working` cannot survive a restart, because no child does. */

@@ -55,4 +55,44 @@ describe('SettingsStore', () => {
     expect(saved.master.intervalMinutes).toBe(3);
     expect(saved.master).not.toHaveProperty('surprise');
   });
+
+  it('keeps a legacy master block and adds the default summary policy', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        master: {
+          enabled: false,
+          intervalMinutes: 17,
+          idleMinutes: 30,
+          autoReview: false,
+          includeUnassigned: false,
+          prompt: 'legacy master prompt',
+        },
+      }),
+    );
+
+    const settings = new SettingsStore(file).get();
+
+    expect(settings.master).toMatchObject({ enabled: false, intervalMinutes: 17 });
+    expect(settings.summary).toEqual(DEFAULT_SETTINGS.summary);
+  });
+
+  it('patches summary independently of master', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const saved = store.patch({
+      summary: { intervalMinutes: 720, windowMinutes: 180, enabled: false },
+    });
+
+    expect(saved.summary).toMatchObject({
+      enabled: false,
+      intervalMinutes: 720,
+      windowMinutes: 180,
+      prompt: DEFAULT_SETTINGS.summary.prompt,
+    });
+    expect(saved.master).toEqual(DEFAULT_SETTINGS.master);
+    expect(JSON.parse(readFileSync(file, 'utf8')).summary.windowMinutes).toBe(180);
+    expect(new SettingsStore(file).get().summary.windowMinutes).toBe(180);
+  });
 });

@@ -147,6 +147,16 @@ built and vended by the brain; real-CLI verification is still pending.
   master chat. `?master=1` restores it. **Configure** in that drawer opens the cell editor
   with the cell's saved policy (falling back to the global template only when the cell has
   none).
+- Cell scorecards: a configurable summary cron writes a persisted markdown report per
+  cell over a trailing window (default every 6 hours over 6 hours). The scheduler scans
+  every 30 seconds, catches up a missing/overdue report once, serializes generations, and
+  backs off a failed cell for `min(interval, 30 min)`. Facts are gathered before the
+  model call: request counts by state/status, created/updated/completed/dropped, stalled
+  work, `master_events` activity, follow-up titles, skip reasons, and the prior window.
+  Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
+  master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
+  latest scorecard, history, and **Run scorecard now**, and the Config page edits the
+  schedule/prompt. See `docs/08-user-workflows.md`.
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
   scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
   transcript without a model turn. The Config page and the Cell master drawer embed the
@@ -160,8 +170,10 @@ built and vended by the brain; real-CLI verification is still pending.
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
-  scheduler switch, interval, and unassigned-work flag, validated with zod and written
-  atomically. `GET/PATCH /api/config` expose it. `process.json` is the global process
+  master switch, interval, unassigned-work flag, and the scorecard policy
+  (`enabled`, `intervalMinutes`, `windowMinutes`, `prompt`), validated with zod and
+  written atomically. Older files with only `master` keep their values and gain the
+  default summary block. `GET/PATCH /api/config` expose both blocks. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
@@ -179,7 +191,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 250 vitest cases, all passing: 164 server across 19 files and 86 web across 16 files,
+- 266 vitest cases, all passing: 179 server across 21 files and 87 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -233,7 +245,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `/clarify/start` was skipped.
 - Sessions carry a scope (`request`, `kb`, or `master`) to the harness MCP server via
   `SBOX_SESSION_SCOPE`. `__kb__` and `__master__` are reserved sessions with no request
-  row; both are read-only, and the master gets board read tools.
+  row; both are read-only, and the master gets board read tools. The internal
+  `__summary__:<cellId>` generator also uses the read-only master scope but is not
+  exposed as a chat.
 - App settings live in an XDG config file, separate from the environment path config. The
   file is created on the first save; environment values still win for paths and ports.
 
@@ -285,12 +299,16 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master:{…}}
+PATCH  /api/config                        {master?:{…}, summary?:{…}}
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]
 POST   /api/master/run[?cellId=…]
 GET    /api/master/events?cellId=…&limit=…
+GET    /api/summaries[?cellId=…&limit=…]
+GET    /api/summaries/latest?cellId=…
+POST   /api/summaries/run?cellId=…
+GET    /api/summaries/status[?cellId=…]
 GET    /api/terminal
 GET    /api/terminals
 POST   /api/terminals                     {cols?, rows?}

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
+import { summarySessionId } from '../src/domain/sessions.js';
 
 let harness: Harness | null = null;
 
@@ -166,6 +167,32 @@ describe('turn engine', () => {
     expect(
       h.engine.transcript(session).some((message) => message.text.includes('Cell cycle')),
     ).toBe(true);
+  });
+
+  it('runs the summary generator read-only in its own session', async () => {
+    const h = createHarness(
+      () => defaultScript(),
+      () => ({ model: 'cell-model', effort: 'high' }),
+    );
+    harness = h;
+    const request = h.repo.create({ title: 'Tracked work' });
+    const session = summarySessionId('cell-1');
+
+    const turn = await h.engine.startSummary('facts', session, 'Cell: Alpha');
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions[0]).toMatchObject({
+      scope: 'master',
+      requestId: '',
+      model: 'cell-model',
+      effort: 'high',
+    });
+    expect(
+      h.engine.transcript(session).some((message) => message.text.includes('scorecard writer')),
+    ).toBe(true);
+    expect(h.engine.transcript(MASTER_SESSION_ID)).toHaveLength(0);
+    expect(h.repo.require(request.id).agentStatus).toBe('none');
   });
 
   it('runs a separate setup chat for the cell wizard', async () => {

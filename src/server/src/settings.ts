@@ -3,6 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
+import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -11,6 +12,18 @@ export const DEFAULT_MASTER_PROMPT = [
   'If the implementation is complete, finish your reply with the exact line:',
   'READY FOR REVIEW',
   'Do not ask the human questions. Keep the request moving.',
+].join('\n');
+
+export const DEFAULT_SUMMARY_PROMPT = [
+  'Write a concise markdown scorecard from the facts in this message.',
+  'Use only the supplied numbers; never invent data or estimate activity.',
+  'Use these sections: Summary, Throughput, Pipeline, Automation, Risks, Trend.',
+  'Compare this window with the previous-window totals when they are useful.',
+  'Keep it under 400 words. If the window is quiet, say so in one short paragraph.',
+  'End with this exact line:',
+  SUMMARY_DERIVED_NOTE,
+  'Do not ask questions. Do not edit tickets. Call a read-only board tool only when a',
+  'needed fact is missing from the snapshot.',
 ].join('\n');
 
 // Compile-time guard: the runtime schema and the shared contract cannot drift.
@@ -23,9 +36,17 @@ const masterSchema = z.object({
   prompt: z.string().min(1).max(8000),
 }) satisfies z.ZodType<MasterConfig>;
 
-const settingsSchema = z.object({ master: masterSchema });
+const summarySchema = z.object({
+  enabled: z.boolean(),
+  intervalMinutes: z.number().int().min(1).max(7 * 24 * 60),
+  windowMinutes: z.number().int().min(1).max(7 * 24 * 60),
+  prompt: z.string().min(1).max(8000),
+}) satisfies z.ZodType<SummaryConfig>;
+
+const settingsSchema = z.object({ master: masterSchema, summary: summarySchema });
 
 export type MasterSettings = MasterConfig;
+export type SummarySettings = SummaryConfig;
 export type AppSettings = z.infer<typeof settingsSchema>;
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -37,9 +58,22 @@ export const DEFAULT_SETTINGS: AppSettings = {
     includeUnassigned: true,
     prompt: DEFAULT_MASTER_PROMPT,
   },
+  summary: {
+    enabled: true,
+    intervalMinutes: 6 * 60,
+    windowMinutes: 6 * 60,
+    prompt: DEFAULT_SUMMARY_PROMPT,
+  },
 };
 
-export const settingsPatchSchema = z.object({ master: masterSchema.partial() });
+export const settingsPatchSchema = z
+  .object({
+    master: masterSchema.partial().optional(),
+    summary: summarySchema.partial().optional(),
+  })
+  .refine((value) => value.master !== undefined || value.summary !== undefined, {
+    message: 'at least one settings block is required',
+  });
 
 /**
  * Persistent app settings, separate from the brain's environment/path config.
@@ -65,6 +99,7 @@ export class SettingsStore {
     const current = this.get();
     const next = settingsSchema.parse({
       master: { ...current.master, ...(parsed.master ?? {}) },
+      summary: { ...current.summary, ...(parsed.summary ?? {}) },
     });
     this.write(next);
     this.cached = next;
@@ -86,7 +121,17 @@ export class SettingsStore {
     }
 
     try {
-      const result = settingsSchema.safeParse(JSON.parse(raw));
+      const parsed: unknown = JSON.parse(raw);
+      const source =
+        typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+      // Files written before the summary block existed carry only `master`.
+      // Merge each present block over the defaults so an upgrade does not
+      // silently reset operator customizations.
+      const candidate = {
+        master: source?.['master'] ?? DEFAULT_SETTINGS.master,
+        summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
+      };
+      const result = settingsSchema.safeParse(candidate);
       if (!result.success) {
         this.errors?.error('settings.invalid', new Error(result.error.message), {
           path: this.path,

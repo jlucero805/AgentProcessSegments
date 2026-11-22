@@ -18,6 +18,22 @@ export interface MasterEventInput {
   detail: string;
 }
 
+export interface ActivityWindow {
+  counts: Record<MasterAction, number>;
+  followUpTitles: string[];
+  skipReasons: string[];
+}
+
+const MASTER_ACTIONS: readonly MasterAction[] = [
+  'cycle',
+  'start',
+  'prod',
+  'review',
+  'advance',
+  'followup',
+  'skip',
+];
+
 function toEvent(row: MasterEventRow): MasterEvent {
   return {
     id: row.id,
@@ -56,6 +72,40 @@ export class MasterEventRepository {
             )
             .all(options.cellId, limit) as MasterEventRow[]);
     return rows.map(toEvent);
+  }
+
+  /** Counts and capped details for one cell inside `[since, until)`. */
+  activityWindow(cellId: string, since: number, until: number): ActivityWindow {
+    const counts = Object.fromEntries(MASTER_ACTIONS.map((action) => [action, 0])) as Record<
+      MasterAction,
+      number
+    >;
+    const rows = this.db
+      .prepare(
+        `SELECT action, COUNT(*) AS count
+           FROM master_events
+          WHERE cell_id = ? AND created_at >= ? AND created_at < ?
+          GROUP BY action`,
+      )
+      .all(cellId, since, until) as Array<{ action: MasterAction; count: number }>;
+    for (const row of rows) counts[row.action] = row.count;
+
+    const detail = (action: MasterAction, limit: number): string[] =>
+      (
+        this.db
+          .prepare(
+            `SELECT detail FROM master_events
+              WHERE cell_id = ? AND action = ? AND created_at >= ? AND created_at < ?
+              ORDER BY created_at DESC LIMIT ?`,
+          )
+          .all(cellId, action, since, until, limit) as Array<{ detail: string }>
+      ).map((row) => row.detail);
+
+    return {
+      counts,
+      followUpTitles: detail('followup', 20),
+      skipReasons: detail('skip', 10),
+    };
   }
 
   lastTurnAt(requestId: string): number | null {

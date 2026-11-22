@@ -3,12 +3,27 @@ import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
-import { KB_SESSION_ID, MASTER_SESSION_ID, isSetupSession, masterCellId, setupDraftId } from '../domain/sessions.js';
+import {
+  KB_SESSION_ID,
+  MASTER_SESSION_ID,
+  isSetupSession,
+  masterCellId,
+  setupDraftId,
+  summaryCellId,
+} from '../domain/sessions.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
-import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPrompt, setupSeedPrompt } from './prompts.js';
+import {
+  dispatchPrompt,
+  finalizePrompt,
+  kbSeedPrompt,
+  masterSeedPrompt,
+  seedPrompt,
+  setupSeedPrompt,
+  summarySeedPrompt,
+} from './prompts.js';
 import type { AgentProcess } from './transport.js';
 import { ensureWorktree, removeWorktree } from './worktree.js';
 
@@ -172,6 +187,20 @@ export class Engine {
         ? 'Report the current board state and what this cell master has been doing.'
         : text
       : `${masterSeedPrompt(context)}\n\n---\n\n${text}`;
+    return this.beginTurn(sessionId, message, null);
+  }
+
+  /** Internal scorecard generator. Read-only and separate from the master chat. */
+  async startSummary(
+    text: string,
+    sessionId: string,
+    context?: string,
+  ): Promise<LiveTurn> {
+    const existing = this.turns.get(sessionId);
+    if (existing) return existing;
+    const message = this.readSession(sessionId)
+      ? text
+      : `${summarySeedPrompt(context)}\n\n---\n\n${text}`;
     return this.beginTurn(sessionId, message, null);
   }
 
@@ -401,7 +430,7 @@ export class Engine {
       if (worktree.branch !== request.branch) this.repo.setBranch(id, worktree.branch);
     }
 
-    const cellId = request?.cellId ?? masterCellId(id);
+    const cellId = request?.cellId ?? masterCellId(id) ?? summaryCellId(id);
     const defaults = cellId ? (this.deps.cellDefaults?.(cellId) ?? null) : null;
     const draftId = isSetupSession(id) ? (setupDraftId(id) ?? undefined) : undefined;
 

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
+import { markdownComponents } from './Thread';
 import {
   masterSessionId,
   timeAgo,
@@ -13,6 +15,8 @@ import {
   type MasterResult,
   type MasterStatus,
   type ProcessConfig,
+  type Summary,
+  type SummaryStatus,
 } from './types';
 import {
   Badge,
@@ -35,6 +39,18 @@ function clock(ts: number | null | undefined): string {
   return ts ? new Date(ts).toLocaleTimeString() : '—';
 }
 
+function duration(minutes: number): string {
+  return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
+}
+
+function Scorecard({ summary }: { summary: Summary }) {
+  return (
+    <div className="break-words rounded-lg border border-zinc-800 bg-black/20 p-3">
+      <ReactMarkdown components={markdownComponents}>{summary.content}</ReactMarkdown>
+    </div>
+  );
+}
+
 /** The cell master as a first-class thread: cron policy, activity, and chat. */
 export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }: MasterDetailProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
@@ -45,15 +61,31 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [running, setRunning] = useState(false);
+  const [latestSummary, setLatestSummary] = useState<Summary | null>(null);
+  const [summaryHistory, setSummaryHistory] = useState<Summary[]>([]);
+  const [summaryStatus, setSummaryStatus] = useState<SummaryStatus | null>(null);
+  const [summaryRunning, setSummaryRunning] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [config, globalProcess, masterStatus, cellList, eventList] = await Promise.all([
+      const [
+        config,
+        globalProcess,
+        masterStatus,
+        cellList,
+        eventList,
+        latest,
+        history,
+        scorecardStatus,
+      ] = await Promise.all([
         api.getConfig(),
         api.getProcess(),
         api.getMasterStatus(cellId ?? undefined),
         api.getCells(),
         api.getMasterEvents({ cellId: cellId ?? undefined, limit: 30 }),
+        cellId ? api.getLatestSummary(cellId) : Promise.resolve(null),
+        cellId ? api.getSummaries({ cellId, limit: 5 }) : Promise.resolve([]),
+        cellId ? api.getSummaryStatus(cellId) : Promise.resolve(null),
       ]);
       const selected = cellId ? cellList.find((item) => item.id === cellId) ?? null : null;
       const effective = selected?.process ?? {
@@ -67,6 +99,9 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       setCells(cellList);
       setEvents(eventList);
       setLastResult(masterStatus.lastResult);
+      setLatestSummary(latest);
+      setSummaryHistory(history);
+      setSummaryStatus(scorecardStatus);
     } catch (error) {
       onError(describeError(error));
     }
@@ -92,6 +127,19 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       onError(describeError(error));
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function runSummary() {
+    if (!cellId) return;
+    setSummaryRunning(true);
+    try {
+      setLatestSummary(await api.runSummary(cellId));
+      await load();
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setSummaryRunning(false);
     }
   }
 
@@ -203,6 +251,77 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                 ))}
               </ul>
             </Card>
+
+            {cellId ? (
+              <Card className="space-y-3 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <SectionTitle>Scorecard</SectionTitle>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {summaryStatus?.enabled
+                        ? `Every ${duration(summaryStatus.intervalMinutes)} over the last ${duration(
+                            summaryStatus.windowMinutes,
+                          )}`
+                        : 'Automatic scorecards disabled'}
+                      {summaryStatus?.running ? ' · running' : ''}
+                    </p>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      last {summaryStatus?.lastRunAt ? `${timeAgo(summaryStatus.lastRunAt)} ago` : 'never'} ·
+                      next {clock(summaryStatus?.nextRunAt)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={summaryRunning || summaryStatus?.running}
+                    onClick={() => void runSummary()}
+                  >
+                    {summaryRunning ? <Spinner /> : 'Run scorecard now'}
+                  </Button>
+                </div>
+
+                {summaryStatus?.lastError ? (
+                  <p className="rounded-lg border border-amber-900/70 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-300">
+                    Last attempt failed: {summaryStatus.lastError}
+                  </p>
+                ) : null}
+
+                {latestSummary ? (
+                  <>
+                    <p className="text-[11px] text-zinc-600">
+                      Generated {timeAgo(latestSummary.createdAt)} ago · window{' '}
+                      {duration(latestSummary.windowMinutes)} ·{' '}
+                      {new Date(latestSummary.windowStart).toLocaleString()} –{' '}
+                      {new Date(latestSummary.windowEnd).toLocaleTimeString()}
+                    </p>
+                    <Scorecard summary={latestSummary} />
+                    {summaryHistory.length > 1 ? (
+                      <details className="rounded-lg border border-zinc-800 px-3 py-2">
+                        <summary className="cursor-pointer text-[11px] text-zinc-500">
+                          Earlier scorecards ({summaryHistory.length - 1})
+                        </summary>
+                        <ul className="mt-2 space-y-2">
+                          {summaryHistory.slice(1).map((summary) => (
+                            <li key={summary.id} className="border-t border-zinc-800 pt-2">
+                              <p className="mb-1 text-[11px] text-zinc-600">
+                                {new Date(summary.createdAt).toLocaleString()} ·{' '}
+                                {duration(summary.windowMinutes)}
+                              </p>
+                              <Scorecard summary={summary} />
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-500">
+                    No scorecard yet. The scheduler writes one for this cell on its cadence,
+                    or you can run one now.
+                  </p>
+                )}
+              </Card>
+            ) : null}
 
             <Card className="space-y-3 p-4">
               <SectionTitle>Activity</SectionTitle>

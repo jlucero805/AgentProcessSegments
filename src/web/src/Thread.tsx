@@ -9,7 +9,7 @@ import type { CommandInfo } from './types';
 import { Composer } from './Composer';
 import { cn } from './ui';
 
-const markdownComponents: Components = {
+export const markdownComponents: Components = {
   p: ({ children }) => (
     <p className="mb-1.5 text-sm leading-relaxed text-zinc-300 last:mb-0">{children}</p>
   ),

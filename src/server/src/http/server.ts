@@ -30,6 +30,8 @@ import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
 import { SkillCatalog } from '../skills/catalog.js';
+import type { SummaryRepository } from '../summary/repository.js';
+import type { SummaryScheduler } from '../summary/scheduler.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
 import { errorMessage } from '../util/errors.js';
 
@@ -44,6 +46,8 @@ export interface ServerDeps {
   settings: SettingsStore;
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
+  summary: SummaryScheduler;
+  summaries: SummaryRepository;
   process: ProcessStore;
   skills?: SkillCatalog;
   docs?: DocsService;
@@ -172,6 +176,12 @@ const masterEventsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
+const summariesQuerySchema = z.object({
+  cellId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+const summaryCellQuerySchema = z.object({ cellId: z.string().min(1) });
+const summaryStatusQuerySchema = z.object({ cellId: z.string().min(1).optional() });
 const skillsQuerySchema = z.object({ requestId: z.string().optional() });
 const terminalCreateSchema = z.object({
   cols: z.number().int().min(20).max(500).optional(),
@@ -301,6 +311,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     settings,
     master,
     masterEvents,
+    summary,
+    summaries,
     process: processStore,
     skills,
     errorLog,
@@ -623,6 +635,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       },
     );
     master.refresh();
+    summary.refresh();
     return reply.code(201).send(created);
   });
 
@@ -645,6 +658,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();
+    summary.refresh();
     return cells.require(id);
   });
 
@@ -652,6 +666,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { id } = request.params as { id: string };
     cells.remove(id);
     master.refresh();
+    summary.refresh();
     return reply.code(204).send();
   });
 
@@ -705,6 +720,27 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/master/events', async (request) => {
     const query = masterEventsQuerySchema.parse(request.query);
     return masterEvents.list(query);
+  });
+
+  app.get('/api/summaries', async (request) => {
+    const query = summariesQuerySchema.parse(request.query);
+    if (query.cellId) cells.require(query.cellId);
+    return summaries.list(query);
+  });
+  app.get('/api/summaries/latest', async (request) => {
+    const query = summaryCellQuerySchema.parse(request.query);
+    cells.require(query.cellId);
+    return summaries.latest(query.cellId);
+  });
+  app.get('/api/summaries/status', async (request) => {
+    const query = summaryStatusQuerySchema.parse(request.query);
+    if (query.cellId) cells.require(query.cellId);
+    return query.cellId ? summary.statusFor(query.cellId) : summary.status();
+  });
+  app.post('/api/summaries/run', async (request) => {
+    const query = summaryCellQuerySchema.parse(request.query);
+    cells.require(query.cellId);
+    return summary.runNow(query.cellId);
   });
 
   await app.register(fastifyWebsocket);

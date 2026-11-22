@@ -14,6 +14,7 @@ import { MasterEventRepository } from './master/events.js';
 import { MasterScheduler } from './master/scheduler.js';
 import { MasterService } from './master/service.js';
 import { PluginManager } from './plugins/manager.js';
+import { PricingRepository } from './pricing/repository.js';
 import { defaultProcess } from './process/defaults.js';
 import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
@@ -36,6 +37,7 @@ export async function main(): Promise<void> {
     const drafts = new CellDraftStore();
     const kb = new KbRepository(db);
     const usage = new UsageRepository(db);
+    const pricing = new PricingRepository(db);
     const plugins = new PluginManager(config.pluginsDir);
     const settings = new SettingsStore(config.configPath, errors);
     const processStore = new ProcessStore(
@@ -97,6 +99,7 @@ export async function main(): Promise<void> {
       drafts,
       kb,
       usage,
+      pricing,
       engine,
       models,
       plugins,

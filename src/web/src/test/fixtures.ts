@@ -1,4 +1,4 @@
-import type { MasterConfig, Request, UsageResponse, UsageTotals } from '../types';
+import type { MasterConfig, ModelPrice, Request, UsageResponse, UsageTotals } from '../types';
 import { defaultProcess } from '../../../server/src/process/defaults';
 
 const fixtureMaster: MasterConfig = {
@@ -56,7 +56,29 @@ export function makeUsageTotals(overrides: Partial<UsageTotals> = {}): UsageTota
     reasoningTokens: 2,
     totalTokens: 177,
     costUsd: 0.012,
+    estimatedCostUsd: 0.004,
+    totalCostUsd: 0.016,
+    reportedCostTurns: 1,
+    estimatedCostTurns: 1,
+    unpricedTurns: 0,
     unknownCostTurns: 1,
+    ...overrides,
+  };
+}
+
+export function makePrice(overrides: Partial<ModelPrice> = {}): ModelPrice {
+  return {
+    id: 'price-1',
+    model: 'model-a',
+    effectiveFrom: Date.UTC(2026, 0, 1),
+    inputUsdPerMtok: 3,
+    outputUsdPerMtok: 15,
+    cacheReadUsdPerMtok: 0.3,
+    cacheWriteUsdPerMtok: 3.75,
+    reasoningUsdPerMtok: 15,
+    source: 'https://example.com/pricing',
+    note: null,
+    createdAt: Date.now(),
     ...overrides,
   };
 }
@@ -66,12 +88,62 @@ export function makeUsageResponse(overrides: Partial<UsageResponse> = {}): Usage
     range: { from: null, to: null },
     totals: makeUsageTotals(),
     series: [
-      { bucketStart: 1, ...makeUsageTotals({ turns: 1, costUsd: 0.01, unknownCostTurns: 0 }) },
-      { bucketStart: 2, ...makeUsageTotals({ turns: 1, costUsd: null, unknownCostTurns: 1 }) },
+      {
+        bucketStart: 1,
+        ...makeUsageTotals({
+          turns: 1,
+          costUsd: 0.01,
+          estimatedCostUsd: null,
+          totalCostUsd: 0.01,
+          reportedCostTurns: 1,
+          estimatedCostTurns: 0,
+          unpricedTurns: 0,
+          unknownCostTurns: 0,
+        }),
+      },
+      {
+        bucketStart: 2,
+        ...makeUsageTotals({
+          turns: 1,
+          costUsd: null,
+          estimatedCostUsd: 0.004,
+          totalCostUsd: 0.004,
+          reportedCostTurns: 0,
+          estimatedCostTurns: 1,
+          unpricedTurns: 0,
+          unknownCostTurns: 1,
+        }),
+      },
     ],
     byModel: [
-      { key: 'model-a', label: 'Model A', ...makeUsageTotals({ turns: 1, costUsd: 0.012, unknownCostTurns: 0 }) },
-      { key: 'model-b', label: 'Model B', ...makeUsageTotals({ turns: 1, costUsd: null, unknownCostTurns: 1 }) },
+      {
+        key: 'model-a',
+        label: 'Model A',
+        ...makeUsageTotals({
+          turns: 1,
+          costUsd: 0.012,
+          estimatedCostUsd: null,
+          totalCostUsd: 0.012,
+          reportedCostTurns: 1,
+          estimatedCostTurns: 0,
+          unpricedTurns: 0,
+          unknownCostTurns: 0,
+        }),
+      },
+      {
+        key: 'model-b',
+        label: 'Model B',
+        ...makeUsageTotals({
+          turns: 1,
+          costUsd: null,
+          estimatedCostUsd: 0.004,
+          totalCostUsd: 0.004,
+          reportedCostTurns: 0,
+          estimatedCostTurns: 1,
+          unpricedTurns: 0,
+          unknownCostTurns: 1,
+        }),
+      },
     ],
     byCell: [
       { key: 'cell-1', label: 'Alpha', ...makeUsageTotals() },

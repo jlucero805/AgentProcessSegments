@@ -88,6 +88,20 @@ CREATE TABLE IF NOT EXISTS usage_events (
   cost_usd           REAL,
   created_at         INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS model_pricing (
+  id                       TEXT PRIMARY KEY,
+  model                    TEXT NOT NULL,
+  effective_from           INTEGER NOT NULL,
+  input_usd_per_mtok       REAL NOT NULL,
+  output_usd_per_mtok      REAL NOT NULL,
+  cache_read_usd_per_mtok  REAL NOT NULL,
+  cache_write_usd_per_mtok REAL NOT NULL,
+  reasoning_usd_per_mtok   REAL NOT NULL,
+  source                   TEXT NOT NULL,
+  note                     TEXT,
+  created_at               INTEGER NOT NULL
+);
 `;
 
 /**
@@ -150,6 +164,9 @@ export function migrate(db: Db): void {
     'CREATE INDEX IF NOT EXISTS idx_usage_events_request_created ON usage_events(request_id, created_at)',
   );
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_turn ON usage_events(turn_id)');
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_model_effective ON model_pricing(model, effective_from)',
+  );
 }
 
 /** A persisted `working` cannot survive a restart, because no child does. */

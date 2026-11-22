@@ -212,3 +212,7 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **41. Usage tracking** — one `usage_events` row per completed turn from both
   harnesses, `GET /api/usage` totals/series/groups, overall **Usage** page, request Usage
   card, unknown-cost handling, tests and docs.
+- [x] **42. Auditable model pricing** — effective-dated `model_pricing` rows with five
+  per-million rates and a source, `/api/pricing` list/create/delete, Config page editor,
+  query-time estimates for harness-unreported turns, reported/estimated/unpriced totals,
+  tests and docs.

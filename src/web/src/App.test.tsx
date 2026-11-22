@@ -224,7 +224,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByText('Metered card'));
 
     expect(await screen.findByText('Unpriced')).toBeInTheDocument();
-    expect((await screen.findAllByText('≥ $0.0120 · 1 unpriced')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('≈ $0.0160')).length).toBeGreaterThan(0);
   });
 
   it('opens the cell master detail from the sidebar', async () => {

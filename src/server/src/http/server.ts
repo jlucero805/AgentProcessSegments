@@ -24,6 +24,7 @@ import type { ErrorSink } from '../logging/errors.js';
 import type { MasterEventRepository } from '../master/events.js';
 import type { MasterScheduler } from '../master/scheduler.js';
 import { PluginError, type PluginManager } from '../plugins/manager.js';
+import { PriceConflictError, type PricingRepository } from '../pricing/repository.js';
 import { processSchema, segmentSchema } from '../process/defaults.js';
 import type { ProcessStore } from '../process/store.js';
 import type { CellDraftStore } from '../cells/drafts.js';
@@ -46,6 +47,7 @@ export interface ServerDeps {
   engine: Engine;
   models: HarnessModelCatalog;
   usage: UsageRepository;
+  pricing: PricingRepository;
   plugins: PluginManager;
   settings: SettingsStore;
   master: MasterScheduler;
@@ -209,6 +211,18 @@ const usageQuerySchema = z
       });
     }
   });
+const priceRateSchema = z.number().finite().nonnegative().max(1_000_000);
+const priceInputSchema = z.object({
+  model: z.string().trim().min(1).max(200),
+  effectiveFrom: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  inputUsdPerMtok: priceRateSchema,
+  outputUsdPerMtok: priceRateSchema,
+  cacheReadUsdPerMtok: priceRateSchema,
+  cacheWriteUsdPerMtok: priceRateSchema,
+  reasoningUsdPerMtok: priceRateSchema,
+  source: z.string().trim().min(1).max(2000),
+  note: z.string().trim().max(1000).nullable().optional(),
+});
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
 const masterRunQuerySchema = z.object({ cellId: z.string().min(1) });
 const summariesQuerySchema = z.object({
@@ -343,6 +357,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     engine,
     models,
     usage,
+    pricing,
     plugins,
     settings,
     master,
@@ -372,6 +387,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     if (error instanceof PluginError) {
       const status = error.code === 'NOT_FOUND' ? 404 : 400;
       return reply.code(status).send({ error: error.code.toLowerCase(), message: error.message });
+    }
+    if (error instanceof PriceConflictError) {
+      return reply.code(409).send({ error: 'price_exists', message: error.message });
     }
     if (error instanceof TerminalError) {
       return reply.code(400).send({ error: 'terminal', message: error.message });
@@ -819,6 +837,17 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/usage', async (request) => {
     const query = usageQuerySchema.parse(request.query);
     return usage.query(query);
+  });
+
+  app.get('/api/pricing', async () => ({ prices: pricing.list() }));
+  app.post('/api/pricing', async (request, reply) => {
+    const input = priceInputSchema.parse(request.body);
+    return reply.code(201).send(pricing.create(input));
+  });
+  app.delete('/api/pricing/:id', async (request, reply) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(request.params);
+    if (!pricing.remove(id)) return reply.code(404).send({ error: 'not_found' });
+    return reply.code(204).send();
   });
 
   await app.register(fastifyWebsocket);

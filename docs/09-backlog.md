@@ -6,14 +6,17 @@ can be picked up without re-deciding the shape.
 ## Usage tracking follow-ups
 
 Token/cost tracking is built: `usage_events`, parser normalization, engine capture,
-`GET /api/usage`, the **Usage** page, and the request Usage card. Deferred work:
+`GET /api/usage`, the **Usage** page, and the request Usage card. Estimated pricing is
+built too: `model_pricing`, `/api/pricing`, the Config page editor, and query-time
+estimates that never overwrite a harness-reported cost. Deferred work:
 
 - **Retention and pruning.** `usage_events` grows one row per completed turn. Add a
   validated retention setting, a bounded boot/daily purge, and a documented decision
   about historical totals (prune-only or rollups).
 - **Budget alerts.** Add per-cell/global daily or monthly USD caps, advisory alerts from
   the usage aggregates, one deduplicated alert per period, and conservative wording when
-  `unknownCostTurns > 0`. Enforcement is a separate decision.
-- **Estimated pricing.** Add an auditable `pricing` table keyed by model and effective
-  date. Never overwrite harness-reported cost; a model with no effective price stays
-  unknown.
+  `unpricedTurns > 0`. Enforcement is a separate decision. Decide whether caps compare
+  reported cost only or reported plus estimated cost.
+- **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
+  context-length tiers, currencies other than USD, and a per-turn applied-price audit
+  view. The current table is exact-model, flat, USD-only, and operator-maintained.

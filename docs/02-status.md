@@ -65,8 +65,9 @@ built and vended by the brain; real-CLI verification is still pending.
   multi-term literal LIKE search (`%`, `_`, and `\` escaped) ranked by title/body term
   hits and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
-  clarify snapshot, dispatch, finalize, index, models, usage, KB, cells, docs, websocket
-  echo, and optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch,
+  clarify snapshot, dispatch, finalize, index, models, usage, pricing, KB, cells, docs,
+  websocket echo, and optional SPA vend with an `index.html` fallback. Clarify
+  start/send, dispatch,
   and finalize accept `?detach=1` to start a turn and return immediately.
 - In-app Help: a sidebar **Help** row opens a full-height documentation overlay, grouped
   by manifest order from `GET /api/docs`, with an article, sticky “On this page” anchors,
@@ -87,10 +88,16 @@ built and vended by the brain; real-CLI verification is still pending.
   `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
 - Usage tracking: both parsers normalize token counts and harness-reported cost into a
   `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
-  master, KB, and setup sessions. `GET /api/usage` returns totals, UTC bucket series,
-  and model/cell/request groups. The **Usage** page shows the overall and per-cell
-  timeline; the request drawer shows a compact per-request card. Unknown cost stays
-  null and renders as unknown, never zero.
+  master, KB, and setup sessions. `GET /api/usage` returns reported, estimated, and total
+  cost plus UTC bucket series and model/cell/request groups. The **Usage** page shows the
+  overall and per-cell timeline with reported-versus-estimated chart segments; the request
+  drawer shows a compact per-request card. Unknown cost stays null and renders as
+  unknown, never zero.
+- Model pricing: an operator-maintained `model_pricing` table stores effective-dated USD
+  rates for input, output, cache read, cache write, and reasoning tokens. The Config page
+  lists, adds, and removes rows with a source citation; `GET/POST /api/pricing` and
+  `DELETE /api/pricing/:id` expose the same data. Estimates apply only to harness-
+  unreported turns whose exact model has an effective row, so reported cost always wins.
 - Cell wizard failure handling: draft sync shows an inline error with Retry after 5 s
   instead of an endless “Starting setup chat…” spinner. Chat transport errors get an
   inline retry that remounts the setup chat without closing the wizard.
@@ -205,7 +212,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 318 vitest cases, all passing: 214 server across 23 files and 104 web across 18 files,
+- 340 vitest cases, all passing: 225 server across 24 files and 115 web across 19 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -324,6 +331,9 @@ GET    /api/summaries/latest?cellId=…
 POST   /api/summaries/run?cellId=…
 GET    /api/summaries/status[?cellId=…]
 GET    /api/usage[?cellId=…][&requestId=…][&from=…][&to=…][&bucket=hour|day][&limit=…]
+GET    /api/pricing
+POST   /api/pricing                       {model,effectiveFrom,rates,source,note?}
+DELETE /api/pricing/:id
 GET    /api/terminal
 GET    /api/terminals
 POST   /api/terminals                     {cols?, rows?}

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
+import { PricingRepository } from '../src/pricing/repository.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { UsageRepository } from '../src/usage/repository.js';
 import type { UsageEventInput } from '../src/usage/types.js';
@@ -15,6 +16,7 @@ let db: Db | null = null;
 function setup(): {
   db: Db;
   usage: UsageRepository;
+  pricing: PricingRepository;
   cells: CellRepository;
   requests: RequestRepository;
 } {
@@ -22,8 +24,22 @@ function setup(): {
   return {
     db,
     usage: new UsageRepository(db),
+    pricing: new PricingRepository(db),
     cells: new CellRepository(db),
     requests: new RequestRepository(db),
+  };
+}
+
+function price(model: string, effectiveFrom: number, inputUsdPerMtok = 1) {
+  return {
+    model,
+    effectiveFrom,
+    inputUsdPerMtok,
+    outputUsdPerMtok: 2,
+    cacheReadUsdPerMtok: 0.5,
+    cacheWriteUsdPerMtok: 3,
+    reasoningUsdPerMtok: 4,
+    source: 'test',
   };
 }
 
@@ -223,6 +239,187 @@ describe('usage repository', () => {
     expect(result.series).toHaveLength(2);
     expect(result.byModel).toHaveLength(2);
     expect(result.byModel.map((row) => row.key)).toEqual(['model-4', 'model-3']);
+  });
+
+  it('estimates only unreported turns and leaves unmatched models unpriced', () => {
+    const h = setup();
+    h.pricing.create(price('model-a', BASE));
+    h.usage.record(
+      event({
+        model: 'model-a',
+        costUsd: 0.25,
+        createdAt: BASE,
+      }),
+    );
+    h.usage.record(
+      event({
+        turnId: randomUUID(),
+        model: 'model-a',
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: null,
+        createdAt: BASE + 1,
+      }),
+    );
+    h.usage.record(
+      event({
+        turnId: randomUUID(),
+        model: 'model-b',
+        inputTokens: 100,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: null,
+        createdAt: BASE + 2,
+      }),
+    );
+
+    const result = h.usage.query({});
+    expect(result.totals).toMatchObject({
+      turns: 3,
+      reportedCostTurns: 1,
+      estimatedCostTurns: 1,
+      unpricedTurns: 1,
+      unknownCostTurns: 2,
+    });
+    expect(result.totals.costUsd).toBeCloseTo(0.25);
+    expect(result.totals.estimatedCostUsd).toBeCloseTo(1);
+    expect(result.totals.totalCostUsd).toBeCloseTo(1.25);
+
+    const modelA = result.byModel.find((row) => row.key === 'model-a');
+    expect(modelA).toMatchObject({ turns: 2, estimatedCostTurns: 1, unpricedTurns: 0 });
+    expect(modelA?.costUsd).toBeCloseTo(0.25);
+    expect(modelA?.estimatedCostUsd).toBeCloseTo(1);
+    expect(modelA?.totalCostUsd).toBeCloseTo(1.25);
+
+    const modelB = result.byModel.find((row) => row.key === 'model-b');
+    expect(modelB).toMatchObject({ turns: 1, estimatedCostTurns: 0, unpricedTurns: 1 });
+    expect(modelB?.estimatedCostUsd).toBeNull();
+    expect(modelB?.totalCostUsd).toBeNull();
+  });
+
+  it('applies the price effective at each turn completion time', () => {
+    const h = setup();
+    h.pricing.create(price('model-a', BASE, 1));
+    h.pricing.create(price('model-a', BASE + 2 * HOUR, 3));
+    h.pricing.create(price('model-a', BASE + 4 * HOUR, 99));
+
+    const tokens = {
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: null,
+    };
+    h.usage.record(event({ ...tokens, createdAt: BASE + HOUR }));
+    h.usage.record(event({ ...tokens, turnId: randomUUID(), createdAt: BASE + 3 * HOUR }));
+
+    const result = h.usage.query({});
+    expect(result.totals.estimatedCostUsd).toBeCloseTo(4);
+    expect(result.totals.totalCostUsd).toBeCloseTo(4);
+    expect(result.byModel[0]?.estimatedCostTurns).toBe(2);
+
+    const beforeFirst = h.usage.query({ from: BASE - HOUR, to: BASE + HOUR / 2 });
+    expect(beforeFirst.totals.turns).toBe(0);
+    expect(beforeFirst.totals.estimatedCostUsd).toBeNull();
+  });
+
+  it('keeps a turn unpriced when only a future price exists', () => {
+    const h = setup();
+    h.pricing.create(price('model-a', BASE + DAY));
+    h.usage.record(event({ costUsd: null, createdAt: BASE }));
+
+    const result = h.usage.query({});
+    expect(result.totals).toMatchObject({
+      turns: 1,
+      reportedCostTurns: 0,
+      estimatedCostTurns: 0,
+      unpricedTurns: 1,
+      costUsd: null,
+      estimatedCostUsd: null,
+      totalCostUsd: null,
+    });
+  });
+
+  it('recomputes historical estimates when a backdated price is added', () => {
+    const h = setup();
+    h.usage.record(
+      event({
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: null,
+        createdAt: BASE,
+      }),
+    );
+
+    expect(h.usage.query({}).totals.estimatedCostUsd).toBeNull();
+
+    h.pricing.create(price('model-a', BASE, 5));
+    expect(h.usage.query({}).totals.estimatedCostUsd).toBeCloseTo(5);
+    expect(h.db.prepare('SELECT cost_usd FROM usage_events').get()).toEqual({ cost_usd: null });
+  });
+
+  it('treats a zero-rate estimate as a known zero cost', () => {
+    const h = setup();
+    h.pricing.create({
+      ...price('model-a', BASE, 0),
+      outputUsdPerMtok: 0,
+      cacheReadUsdPerMtok: 0,
+      cacheWriteUsdPerMtok: 0,
+      reasoningUsdPerMtok: 0,
+    });
+    h.usage.record(event({ costUsd: null, createdAt: BASE }));
+
+    const result = h.usage.query({});
+    expect(result.totals).toMatchObject({
+      turns: 1,
+      reportedCostTurns: 0,
+      estimatedCostTurns: 1,
+      unpricedTurns: 0,
+      costUsd: null,
+    });
+    expect(result.totals.estimatedCostUsd).toBe(0);
+    expect(result.totals.totalCostUsd).toBe(0);
+  });
+
+  it('includes estimates in bucket and request groups', () => {
+    const h = setup();
+    const request = h.requests.create({ title: 'Estimated ticket' });
+    h.pricing.create(price('model-a', BASE));
+    h.usage.record(
+      event({
+        requestId: request.id,
+        sessionId: request.id,
+        inputTokens: 2_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: null,
+        createdAt: BASE,
+      }),
+    );
+
+    const dayStart = Math.floor(BASE / DAY) * DAY;
+    const result = h.usage.query({ from: dayStart, to: dayStart + DAY, bucket: 'day' });
+    expect(result.series).toHaveLength(1);
+    expect(result.series[0]?.estimatedCostUsd).toBeCloseTo(2);
+    expect(result.series[0]?.totalCostUsd).toBeCloseTo(2);
+    expect(result.byRequest[0]).toMatchObject({
+      key: request.id,
+      label: 'Estimated ticket',
+      estimatedCostTurns: 1,
+      unpricedTurns: 0,
+    });
+    expect(result.byRequest[0]?.totalCostUsd).toBeCloseTo(2);
   });
 
   it('rejects a duplicate turn id', () => {

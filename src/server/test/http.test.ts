@@ -71,6 +71,7 @@ async function makeApp(
       opencode: { probeModels: async () => null, fallbackModels: HARDCODED_MODELS },
     }),
     usage: h.usage,
+    pricing: h.pricing,
     plugins: h.plugins,
     settings,
     master,
@@ -500,6 +501,92 @@ describe('http api', () => {
     expect(
       (await call('GET', `/api/usage?from=0&to=${10_001 * 60 * 60 * 1000}&bucket=hour`)).status,
     ).toBe(400);
+  });
+
+  it('manages effective-dated model pricing and estimates unreported usage', async () => {
+    const { h } = await makeApp();
+    const empty = await call('GET', '/api/pricing');
+    expect(empty.status).toBe(200);
+    expect(empty.json()).toEqual({ prices: [] });
+
+    const base = Date.UTC(2026, 0, 1, 10);
+    const input = {
+      model: 'model-a',
+      effectiveFrom: base,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      cacheReadUsdPerMtok: 0.5,
+      cacheWriteUsdPerMtok: 3,
+      reasoningUsdPerMtok: 4,
+      source: 'https://example.com/pricing',
+      note: 'list price',
+    };
+
+    expect((await call('POST', '/api/pricing', { ...input, inputUsdPerMtok: -1 })).status).toBe(400);
+    expect((await call('POST', '/api/pricing', { ...input, source: '' })).status).toBe(400);
+    expect((await call('POST', '/api/pricing', { ...input, effectiveFrom: 1.5 })).status).toBe(400);
+
+    const created = await call('POST', '/api/pricing', input);
+    expect(created.status).toBe(201);
+    expect(created.json()).toMatchObject({
+      model: 'model-a',
+      effectiveFrom: base,
+      inputUsdPerMtok: 1,
+      source: 'https://example.com/pricing',
+    });
+    expect((await call('POST', '/api/pricing', input)).status).toBe(409);
+    expect((await call('GET', '/api/pricing')).json().prices).toHaveLength(1);
+
+    h.usage.record({
+      turnId: 'turn-reported',
+      sessionId: 'request-1',
+      scope: 'request',
+      cellId: null,
+      requestId: null,
+      model: 'model-a',
+      effort: null,
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 0.25,
+      createdAt: base,
+    });
+    h.usage.record({
+      turnId: 'turn-estimated',
+      sessionId: 'request-1',
+      scope: 'request',
+      cellId: null,
+      requestId: null,
+      model: 'model-a',
+      effort: null,
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: null,
+      createdAt: base + 1,
+    });
+
+    const usage = await call('GET', '/api/usage');
+    expect(usage.status).toBe(200);
+    expect(usage.json().totals).toMatchObject({
+      turns: 2,
+      reportedCostTurns: 1,
+      estimatedCostTurns: 1,
+      unpricedTurns: 0,
+      unknownCostTurns: 1,
+    });
+    expect(usage.json().totals.costUsd).toBeCloseTo(0.25);
+    expect(usage.json().totals.estimatedCostUsd).toBeCloseTo(1);
+    expect(usage.json().totals.totalCostUsd).toBeCloseTo(1.25);
+
+    const id = created.json().id as string;
+    expect((await call('DELETE', `/api/pricing/${id}`)).status).toBe(204);
+    expect((await call('DELETE', `/api/pricing/${id}`)).status).toBe(404);
+    expect((await call('GET', '/api/usage')).json().totals.estimatedCostUsd).toBeNull();
   });
 
   it('creates a cell with its own process and can replace it', async () => {

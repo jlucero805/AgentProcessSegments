@@ -42,6 +42,11 @@ export type {
 export type { TerminalSessionInfo } from '../../server/src/terminal/types';
 export type { ModelOption } from '../../server/src/clarify/models';
 export type {
+  ModelPrice,
+  ModelPriceInput,
+  ModelPricesResponse,
+} from '../../server/src/pricing/types';
+export type {
   UsageBucket,
   UsageFilter,
   UsageGroup,

@@ -137,7 +137,9 @@ describe('HelpPanel', () => {
   it('renders the unavailable state when the build has no docs', async () => {
     installFetch([]);
     render(<HelpPanel slug="getting-started" onNavigate={vi.fn()} onClose={vi.fn()} />);
-    expect(await screen.findByText('Documentation is not available')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Documentation is not available in this build'),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
   });
 });

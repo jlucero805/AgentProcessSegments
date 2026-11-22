@@ -352,7 +352,9 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
           ) : null}
           {manifest === 'error' ? (
             <div className="mx-auto max-w-xl p-6">
-              <h2 className="text-lg font-semibold text-zinc-100">Documentation is not available</h2>
+              <h2 className="text-lg font-semibold text-zinc-100">
+                Documentation is not available in this build
+              </h2>
               <p className="mt-2 text-sm text-zinc-400">
                 This build does not ship the docs directory. Set <code>SBOX_DOCS_DIR</code> to the
                 repository&apos;s <code>docs</code> folder and restart the brain.

@@ -31,6 +31,7 @@ export type {
 } from '../../server/src/master/types';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { SkillInfo } from '../../server/src/skills/types';
+export type { TerminalSessionInfo } from '../../server/src/terminal/types';
 export type { ModelOption } from '../../server/src/clarify/models';
 export type {
   CellDetail,
@@ -78,6 +79,7 @@ export interface ProcessResponse extends ProcessConfig {
 export interface TerminalStatus {
   available: boolean;
   cwd: string;
+  sessions?: number;
 }
 
 export interface ClarifyState {

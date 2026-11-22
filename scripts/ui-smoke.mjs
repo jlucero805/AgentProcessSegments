@@ -214,13 +214,23 @@ try {
   );
 
   if (!mobile) {
-    await clickText('Terminal');
-    await page.waitForSelector('button[aria-label="Close terminal"]', { timeout: 5_000 });
+    await page.click('button[aria-label="Terminal"]');
+    await page.waitForSelector('button[aria-label="Hide terminal panel"]', { timeout: 5_000 });
+    await page.waitForSelector('button[aria-label="Close terminal 1"]', { timeout: 5_000 });
     await page.click('button[aria-label="Maximize terminal"]');
     await page.waitForSelector('button[aria-label="Restore terminal"]', { timeout: 5_000 });
     await page.click('button[aria-label="Restore terminal"]');
-    await page.click('button[aria-label="Close terminal"]');
-    await page.waitForSelector('button[aria-label="Close terminal"]', { hidden: true, timeout: 5_000 });
+    await page.click('button[aria-label="Hide terminal panel"]');
+    await page.waitForSelector('button[aria-label="Hide terminal panel"]', {
+      hidden: true,
+      timeout: 5_000,
+    });
+
+    // Hiding must detach, not kill. Reopening should reuse the same session.
+    await page.click('button[aria-label="Terminal"]');
+    await page.waitForSelector('button[aria-label="Close terminal 1"]', { timeout: 5_000 });
+    await page.click('button[aria-label="Close terminal 1"]');
+    await page.click('button[aria-label="Hide terminal panel"]');
   }
 
   await openMenu('config');

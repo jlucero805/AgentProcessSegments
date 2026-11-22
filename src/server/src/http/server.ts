@@ -28,7 +28,7 @@ import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
 import { SkillCatalog } from '../skills/catalog.js';
-import { TerminalService } from '../terminal/service.js';
+import { TerminalService, TerminalError } from '../terminal/service.js';
 import { errorMessage } from '../util/errors.js';
 
 export interface ServerDeps {
@@ -134,6 +134,10 @@ const masterEventsQuerySchema = z.object({
 });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
 const skillsQuerySchema = z.object({ requestId: z.string().optional() });
+const terminalCreateSchema = z.object({
+  cols: z.number().int().min(20).max(500).optional(),
+  rows: z.number().int().min(5).max(200).optional(),
+});
 
 interface Stream {
   emit: (event: ClarifyEvent) => void;
@@ -279,6 +283,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       const status = error.code === 'NOT_FOUND' ? 404 : 400;
       return reply.code(status).send({ error: error.code.toLowerCase(), message: error.message });
     }
+    if (error instanceof TerminalError) {
+      return reply.code(400).send({ error: 'terminal', message: error.message });
+    }
     app.log.error(error);
     errorLog?.error('http.request', error, {
       requestId: request.id,
@@ -290,6 +297,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/health', async () => ({ ok: true }));
   app.get('/api/terminal', async () => terminal.status());
+  app.get('/api/terminals', async () => terminal.list());
+  app.post('/api/terminals', async (request, reply) => {
+    const input = terminalCreateSchema.parse(request.body ?? {});
+    try {
+      return reply.code(201).send(terminal.create(input));
+    } catch (error) {
+      errorLog?.error('terminal.create', error);
+      throw error;
+    }
+  });
+  app.delete('/api/terminals/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!terminal.close(id)) return reply.code(404).send({ error: 'not_found' });
+    return reply.code(204).send();
+  });
 
   app.get('/api/requests', async (request) => {
     const query = listQuerySchema.parse(request.query);
@@ -575,36 +597,41 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/ws/terminal', { websocket: true }, (socket, request) => {
-    let terminalHandle: ReturnType<TerminalService['open']> | null = null;
+    const query = request.query as { sessionId?: string; cols?: string; rows?: string };
+    const sessionId = typeof query.sessionId === 'string' ? query.sessionId : '';
     const send = (value: unknown): void => {
       if (socket.readyState === 1) socket.send(JSON.stringify(value));
     };
-    const close = (): void => {
-      terminalHandle?.kill();
-      terminalHandle = null;
-    };
 
-    try {
-      const query = request.query as { cols?: string; rows?: string };
-      terminalHandle = terminal.open({
-        cols: Number(query.cols),
-        rows: Number(query.rows),
-        onData: (data) => send({ t: 'data', data }),
-        onExit: (code) => {
-          send({ t: 'exit', code });
-          if (socket.readyState === 1) socket.close(1000, 'shell exited');
-        },
-      });
-      send({
-        t: 'ready',
-        pid: terminalHandle.pid,
-        shell: terminalHandle.shell,
-        cwd: terminalHandle.cwd,
-      });
-    } catch (error) {
-      errorLog?.error('terminal.open', error);
-      send({ t: 'error', message: errorMessage(error) });
-      socket.close(1008, errorMessage(error));
+    const attachment = sessionId ? terminal.attach(sessionId, (event) => {
+      if (event.t === 'closed') {
+        send({ t: 'closed' });
+        if (socket.readyState === 1) socket.close(1000, 'terminal closed');
+        return;
+      }
+      send(event);
+      if (event.t === 'exit' && socket.readyState === 1) {
+        socket.close(1000, 'shell exited');
+      }
+    }) : null;
+
+    if (!attachment) {
+      errorLog?.error('terminal.attach', new Error('terminal not found'), { sessionId });
+      send({ t: 'error', message: 'terminal session not found' });
+      socket.close(1008, 'terminal not found');
+      return;
+    }
+
+    terminal.resize(
+      sessionId,
+      Number(query.cols ?? 100),
+      Number(query.rows ?? 30),
+    );
+    send({ t: 'ready', session: attachment.session });
+    if (attachment.buffer !== '') send({ t: 'buffer', data: attachment.buffer });
+    if (!attachment.session.alive) {
+      send({ t: 'exit', code: attachment.session.exitCode });
+      if (socket.readyState === 1) socket.close(1000, 'shell exited');
       return;
     }
 
@@ -617,16 +644,16 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
           rows?: number;
         };
         if (message.type === 'input' && typeof message.data === 'string') {
-          terminalHandle?.write(message.data);
+          terminal.write(sessionId, message.data);
         } else if (message.type === 'resize') {
-          terminalHandle?.resize(Number(message.cols), Number(message.rows));
+          terminal.resize(sessionId, Number(message.cols), Number(message.rows));
         }
       } catch {
         // Malformed frame; ignore it rather than tearing down the shell.
       }
     });
-    socket.on('close', close);
-    socket.on('error', close);
+    socket.on('close', () => attachment.detach());
+    socket.on('error', () => attachment.detach());
   });
 
   if (existsSync(config.webDir)) {

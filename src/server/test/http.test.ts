@@ -93,11 +93,22 @@ describe('http api', () => {
     expect(response.json()).toEqual({ ok: true });
   });
 
-  it('reports terminal availability without starting a shell', async () => {
+  it('reports terminal availability and manages visible sessions', async () => {
     const { h } = await makeApp();
-    const response = await call('GET', '/api/terminal');
-    expect(response.status).toBe(200);
-    expect(response.json()).toMatchObject({ available: true, cwd: h.config.terminalCwd });
+    const status = await call('GET', '/api/terminal');
+    expect(status.status).toBe(200);
+    expect(status.json()).toMatchObject({ available: true, cwd: h.config.terminalCwd });
+
+    const created = await call('POST', '/api/terminals', { cols: 80, rows: 24 });
+    expect(created.status).toBe(201);
+    expect(created.json().alive).toBe(true);
+    const list = await call('GET', '/api/terminals');
+    expect(list.json()).toHaveLength(1);
+
+    const closed = await call('DELETE', `/api/terminals/${created.json().id}`);
+    expect(closed.status).toBe(204);
+    expect((await call('GET', '/api/terminals')).json()).toEqual([]);
+    expect((await call('DELETE', '/api/terminals/ghost')).status).toBe(404);
   });
 
   it('creates, reads, and lists requests', async () => {

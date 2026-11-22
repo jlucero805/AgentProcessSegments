@@ -17,6 +17,7 @@ import type {
   SegmentConfig,
   SkillInfo,
   State,
+  TerminalSessionInfo,
   TerminalStatus,
 } from './types';
 
@@ -255,6 +256,15 @@ export const api = {
   },
   getTerminalStatus(): Promise<TerminalStatus> {
     return request('/api/terminal');
+  },
+  getTerminals(): Promise<TerminalSessionInfo[]> {
+    return request('/api/terminals');
+  },
+  createTerminal(input: { cols?: number; rows?: number } = {}): Promise<TerminalSessionInfo> {
+    return request('/api/terminals', { method: 'POST', body: JSON.stringify(input) });
+  },
+  closeTerminal(id: string): Promise<void> {
+    return request(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   patchProcess(segments: SegmentConfig[]): Promise<ProcessResponse> {
     return request('/api/process', { method: 'PATCH', body: JSON.stringify({ segments }) });

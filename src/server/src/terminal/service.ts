@@ -1,21 +1,21 @@
 import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { spawn, type IPty } from 'node-pty';
+import type { TerminalEvent, TerminalSessionInfo } from './types.js';
+
+export type { TerminalEvent, TerminalSessionInfo } from './types.js';
 
 export interface TerminalOpenOptions {
   cols?: number;
   rows?: number;
-  onData: (data: string) => void;
-  onExit?: (code: number, signal?: number) => void;
 }
 
-export interface TerminalHandle {
-  readonly pid: number;
-  readonly shell: string;
-  readonly cwd: string;
-  write(data: string): void;
-  resize(cols: number, rows: number): void;
-  kill(): void;
+export interface TerminalAttachment {
+  session: TerminalSessionInfo;
+  /** Bounded scrollback, oldest first. */
+  buffer: string;
+  detach: () => void;
 }
 
 export class TerminalError extends Error {
@@ -26,6 +26,14 @@ export class TerminalError extends Error {
 }
 
 const MAX_SESSIONS = 4;
+const MAX_BUFFER = 200_000;
+
+interface Session {
+  info: Omit<TerminalSessionInfo, 'attached'>;
+  pty: IPty;
+  buffer: string;
+  listeners: Set<(event: TerminalEvent) => void>;
+}
 
 function directoryOrHome(cwd: string): string {
   try {
@@ -50,24 +58,35 @@ function clamp(value: number | undefined, min: number, max: number, fallback: nu
 }
 
 /**
- * Desktop terminal sessions. One PTY per browser socket, independent of the
- * harness agent sessions. Intentionally small: a shell in a configured cwd.
+ * Server-owned PTY sessions. A browser WebSocket attaches and detaches; hiding the
+ * panel or losing the connection never kills the shell. Sessions stay visible in the
+ * terminal list until an explicit close or the brain exits.
  */
 export class TerminalService {
-  private readonly active = new Set<IPty>();
+  private readonly sessions = new Map<string, Session>();
 
   constructor(
     private readonly enabled: boolean,
     private readonly cwd: string,
   ) {}
 
-  status(): { available: boolean; cwd: string } {
-    return { available: this.enabled, cwd: directoryOrHome(this.cwd) };
+  status(): { available: boolean; cwd: string; sessions: number } {
+    return {
+      available: this.enabled,
+      cwd: directoryOrHome(this.cwd),
+      sessions: this.sessions.size,
+    };
   }
 
-  open(options: TerminalOpenOptions): TerminalHandle {
+  list(): TerminalSessionInfo[] {
+    return [...this.sessions.values()]
+      .map((session) => this.info(session))
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  create(options: TerminalOpenOptions = {}): TerminalSessionInfo {
     if (!this.enabled) throw new TerminalError('terminal is disabled');
-    if (this.active.size >= MAX_SESSIONS) {
+    if (this.sessions.size >= MAX_SESSIONS) {
       throw new TerminalError(`too many terminals (max ${MAX_SESSIONS})`);
     }
 
@@ -84,34 +103,99 @@ export class TerminalService {
         COLORTERM: 'truecolor',
       },
     });
-    this.active.add(pty);
 
-    pty.onData((data) => options.onData(data));
-    pty.onExit(({ exitCode, signal }) => {
-      this.active.delete(pty);
-      options.onExit?.(exitCode, signal);
+    const id = randomUUID();
+    const now = Date.now();
+    const session: Session = {
+      info: {
+        id,
+        pid: pty.pid,
+        shell,
+        cwd,
+        createdAt: now,
+        lastActivityAt: now,
+        alive: true,
+        exitCode: null,
+      },
+      pty,
+      buffer: '',
+      listeners: new Set(),
+    };
+    this.sessions.set(id, session);
+
+    pty.onData((data) => {
+      session.info.lastActivityAt = Date.now();
+      session.buffer = `${session.buffer}${data}`.slice(-MAX_BUFFER);
+      this.emit(session, { t: 'data', data });
+    });
+    pty.onExit(({ exitCode }) => {
+      session.info.alive = false;
+      session.info.exitCode = exitCode;
+      this.emit(session, { t: 'exit', code: exitCode });
     });
 
+    return this.info(session);
+  }
+
+  attach(id: string, listener: (event: TerminalEvent) => void): TerminalAttachment | null {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    session.listeners.add(listener);
+    session.info.lastActivityAt = Date.now();
     return {
-      pid: pty.pid,
-      shell,
-      cwd,
-      write: (data) => pty.write(data),
-      resize: (cols, rows) => {
-        try {
-          pty.resize(clamp(cols, 20, 500, 100), clamp(rows, 5, 200, 30));
-        } catch {
-          // The child may have exited between an input and a resize.
-        }
-      },
-      kill: () => {
-        this.active.delete(pty);
-        try {
-          pty.kill();
-        } catch {
-          // Already gone.
-        }
+      session: this.info(session),
+      buffer: session.buffer,
+      detach: () => {
+        session.listeners.delete(listener);
       },
     };
+  }
+
+  write(id: string, data: string): void {
+    const session = this.sessions.get(id);
+    if (!session || !session.info.alive) return;
+    session.info.lastActivityAt = Date.now();
+    session.pty.write(data);
+  }
+
+  resize(id: string, cols: number, rows: number): void {
+    const session = this.sessions.get(id);
+    if (!session || !session.info.alive) return;
+    try {
+      session.pty.resize(clamp(cols, 20, 500, 100), clamp(rows, 5, 200, 30));
+    } catch {
+      // The child may have exited between an input and a resize.
+    }
+  }
+
+  close(id: string): boolean {
+    const session = this.sessions.get(id);
+    if (!session) return false;
+    this.sessions.delete(id);
+    this.emit(session, { t: 'closed' });
+    try {
+      session.pty.kill();
+    } catch {
+      // Already gone.
+    }
+    return true;
+  }
+
+  closeAll(): void {
+    for (const id of [...this.sessions.keys()]) this.close(id);
+  }
+
+  private info(session: Session): TerminalSessionInfo {
+    return { ...session.info, attached: session.listeners.size };
+  }
+
+  private emit(session: Session, event: TerminalEvent): void {
+    for (const listener of [...session.listeners]) {
+      try {
+        listener(event);
+      } catch {
+        // A broken client must not take down the PTY or other clients.
+      }
+    }
   }
 }

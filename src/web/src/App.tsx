@@ -74,6 +74,7 @@ export function App() {
   const [cellModalOpen, setCellModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
   const [terminalAvailable, setTerminalAvailable] = useState(false);
+  const [terminalCount, setTerminalCount] = useState(0);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMaximized, setTerminalMaximized] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -101,10 +102,24 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    api
-      .getTerminalStatus()
-      .then((status) => setTerminalAvailable(status.available))
-      .catch(() => setTerminalAvailable(false));
+    let mounted = true;
+    const load = () =>
+      api
+        .getTerminalStatus()
+        .then((status) => {
+          if (!mounted) return;
+          setTerminalAvailable(status.available);
+          setTerminalCount(status.sessions ?? 0);
+        })
+        .catch(() => {
+          if (mounted) setTerminalAvailable(false);
+        });
+    void load();
+    const timer = window.setInterval(() => void load(), 15_000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
   }, []);
 
   const refreshBoard = useCallback(() => setBoardKey((key) => key + 1), []);
@@ -220,13 +235,14 @@ export function App() {
             <Button
               variant="secondary"
               className="hidden w-full md:inline-flex"
+              aria-label="Terminal"
               onClick={() => {
                 setTerminalOpen(true);
                 setTerminalMaximized(false);
                 setNavOpen(false);
               }}
             >
-              Terminal
+              Terminal{terminalCount > 0 ? ` (${terminalCount})` : ''}
             </Button>
           ) : null}
           <Button
@@ -358,6 +374,7 @@ export function App() {
               setTerminalOpen(false);
               setTerminalMaximized(false);
             }}
+            onError={setError}
           />
         </Suspense>
       ) : null}

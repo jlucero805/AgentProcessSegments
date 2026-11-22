@@ -127,12 +127,13 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 
 ### `cells`
 
-`id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`,
-`harness` (null inherits the process default), `model`, `effort`, nullable
-`monthly_budget_usd`, `process_json`, `created_at`. A request inherits its cell's
-harness unless it sets its own `requests.harness`; a cell master and summary use its
-cell's harness. `monthly_budget_usd` is the advisory monthly spend
-budget in USD; NULL means no cell budget. See the budget contract below.
+`id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`
+(default 3), `harness` (null inherits the process default), `model`, `effort`, nullable
+`monthly_budget_usd`, `autocompact_percent` (default 80, range 1–99), `process_json`,
+`created_at`. A request inherits its cell's harness unless it sets its own
+`requests.harness`; a cell master and summary use its cell's harness.
+`monthly_budget_usd` is the advisory monthly spend budget in USD; NULL means no cell
+budget. See the budget contract below.
 
 ### `budget_alerts`
 
@@ -211,8 +212,9 @@ retained window.
   and branch setters. `RequestError` maps to HTTP 404 or 409.
 - `cells/repository.ts`: `list` by name, `get`, `create`, `rename`, `delete` in a
   transaction that nulls requests' `cell_id` before deleting the cell, plus policy,
-  model/effort, and `monthlyBudgetUsd` updates. No cascade delete of requests. Deleting a
-  cell also reconciles its unacknowledged budget alerts away.
+  harness, model/effort, monthly budget, and auto-compaction percentage updates. No
+  cascade delete of requests. Deleting a cell also reconciles its unacknowledged budget
+  alerts away.
 - `kb/repository.ts`: `store({requestId,title,content})` replaces the prior entry for
   that request, plus `list`, `getByRequest`, and a literal LIKE `search`.
 - `usage/repository.ts`: `record(input)` writes one event per completed turn and
@@ -265,7 +267,8 @@ object per line.
 - `GET /api/commands` returns installed plugins' slash commands and skills as
   `[{command, description, plugin}]`
 - `GET /api/cells`, `POST /api/cells {name, harness?, model?, effort?, process?}`,
-  `PATCH /api/cells/:id {…}`, `DELETE /api/cells/:id`
+  `PATCH /api/cells/:id {…}`, `DELETE /api/cells/:id`. Cell writes also accept
+  `autocompactPercent`, an integer 1–99.
 - `GET /ws` is a websocket skeleton (echo plus hello), reserved for an event bridge and
   unused.
 - When `webDir` exists, `@fastify/static` serves the SPA at `/` with an `index.html`
@@ -328,6 +331,12 @@ defaults.
   `dispatchPrompt` says stop clarifying and build on an isolated branch, do not push,
   do not open a change request. `finalizePrompt` asks for a KB digest. `kbSeedPrompt`
   answers from the KB through `search_kb` and `list_kb`.
+- **Auto-compaction:** request sessions compact at the cell's `autocompactPercent`
+  (default 80). OpenCode gets `compaction.auto: true` and
+  `compaction.buffer: "<100 - percent>%"`; Claude gets
+  `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` and `autoCompactEnabled: true`. Claude cannot raise
+  its built-in threshold, so higher cell values fall back to Claude's default. KB,
+  master, setup, and summary sessions keep their own compaction behavior.
 - **Agent status:** `working` on turn start, `idle` on end, `unchecked` when a turn
   finishes, cleared by `/seen`. Boot reconciles a stale `working` to `idle`.
 - **Per-request git worktree:** `agentCwd` resolves the session cwd to a worktree off
@@ -533,7 +542,9 @@ interface Cell {
   id: string; name: string; masterEnabled: boolean;
   masterIntervalMinutes: number | null; maxConcurrent: number;
   harness: HarnessId | null; model: string | null; effort: string | null;
-  monthlyBudgetUsd: number | null; createdAt: number;
+  monthlyBudgetUsd: number | null;
+  autocompactPercent: number; // 1–99, default 80
+  createdAt: number;
 }
 
 interface KbEntry {
@@ -559,7 +570,8 @@ interface EditInput {
 // POST /api/requests/:id/index        { digest?: string | null; index?: boolean }
 // POST /api/kb                        { requestId: string; title: string; content: string }
 // POST /api/plugins                   { url: string; subdir?: string; name?: string }
-// POST /api/cells {name, harness?, model?, effort?}; PATCH /api/cells/:id {…}
+// POST /api/cells {name, harness?, model?, effort?, autocompactPercent?}
+// PATCH /api/cells/:id {…}
 
 interface ModelOption { id: string; label: string; }
 interface ModelsResult { models: ModelOption[]; source: 'probe' | 'fallback'; effortLevels: string[];

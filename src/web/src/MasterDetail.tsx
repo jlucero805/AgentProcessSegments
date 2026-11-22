@@ -204,7 +204,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                       cell.maxConcurrent
                     }× concurrency · ${cell.model ?? 'CLI model'} · ${
                       cell.effort ?? 'default effort'
-                    }`
+                    } · compact ${cell.autocompactPercent}%`
                   : 'This cell no longer exists.'}
               </p>
               <ul className="space-y-2">

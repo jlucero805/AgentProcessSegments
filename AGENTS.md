@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 377 vitest cases: 264 server across 27 files and 113 web across 19 files, all green.
+- 390 vitest cases: 274 server across 27 files and 116 web across 20 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -55,12 +55,12 @@ digests.
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
   polling scheduler with catch-up and backoff), a cell creation flow that
-  defines the policy up front with an editable setup chat, per-cell concurrency caps and
-  model/effort defaults, advisory overall/per-cell spend budgets with durable alerts and
-  an in-app banner, an optional single-worker Merge step with per-segment caps, an
-  in-app Help docs viewer, a desktop-only maximizable PTY terminal independent of agent
-  sessions, bounded turn/MCP waits with stderr diagnostics, a systemd user
-  unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
+  defines the policy up front with an editable setup chat, per-cell concurrency caps,
+  model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
+  budgets with durable alerts and an in-app banner, an optional single-worker Merge step
+  with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
+  terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
+  a systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, and a GitHub Actions CI workflow template in
@@ -77,7 +77,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 264 server + 113 web
+npm test                       # 274 server + 116 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -278,6 +278,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     id and usage, and an id from another adapter is never resumed. A cross-harness
     request skips the cell's model and effort defaults, and a patch that changes the
     effective harness clears a stale request model unless a replacement is supplied.
+33. **Auto-compaction is harness-native and per cell.** A request session compacts at
+    its cell’s `autocompactPercent` (default 80, range 1–99); unassigned requests use 80.
+    Pass it into OpenCode as `compaction.buffer: "<100 - percent>%"` with `auto: true`,
+    and into Claude as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
+    `autoCompactEnabled: true`. Note that Claude cannot raise its built-in threshold.
+    KB, master, setup, and summary sessions keep the harness/global behavior.
 
 ## Extension recipes
 

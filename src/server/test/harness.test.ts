@@ -94,6 +94,44 @@ describe('ClaudeHarness', () => {
     expect(command.env).toMatchObject({ CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' });
   });
 
+  it('sets the request auto-compaction threshold and leaves other scopes alone', async () => {
+    const { home, cwd, dir } = workspace();
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    const requestCommand = await harness.prepare({
+      scope: 'request',
+      requestId: 'req-1',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      autocompactPercent: 60,
+      pluginDirs: [],
+    });
+    expect(requestCommand.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe('60');
+    expect(requestCommand.args).toEqual(
+      expect.arrayContaining([
+        '--settings',
+        JSON.stringify({ autoCompactEnabled: true }),
+      ]),
+    );
+
+    const masterCommand = await harness.prepare({
+      scope: 'master',
+      requestId: '',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      autocompactPercent: 60,
+      pluginDirs: [],
+    });
+    expect(masterCommand.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined();
+    expect(masterCommand.args).not.toContain('--settings');
+  });
+
   it('gives the master read-only board tools and no user servers', async () => {
     const { home, cwd, dir } = workspace();
     writeFileSync(
@@ -204,6 +242,72 @@ describe('OpencodeHarness', () => {
     expect(config.mcp.disabled.enabled).toBe(false);
     // Request sessions keep the user's permission posture, minus interactive questions.
     expect(config.permission).toEqual({ bash: 'ask', question: 'deny' });
+  });
+
+  it('writes request compaction from the cell percentage', async () => {
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({
+        compaction: { keep: { tokens: 12_000 }, prune: true, reserved: 9_000 },
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-compact',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      autocompactPercent: 60,
+      pluginDirs: [],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.compaction).toEqual({
+      keep: { tokens: 12_000 },
+      prune: true,
+      auto: true,
+      buffer: '40%',
+    });
+
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-default',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      autocompactPercent: 80,
+      pluginDirs: [],
+    });
+    const defaultConfig = JSON.parse(
+      readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'),
+    );
+    expect(defaultConfig.compaction.buffer).toBe('20%');
+
+    await harness.prepare({
+      scope: 'master',
+      requestId: '',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      autocompactPercent: 60,
+      pluginDirs: [],
+    });
+    const master = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(master.compaction).toEqual({
+      keep: { tokens: 12_000 },
+      prune: true,
+      reserved: 9_000,
+    });
   });
 
   it('denies the interactive question tool for every non-interactive scope', async () => {

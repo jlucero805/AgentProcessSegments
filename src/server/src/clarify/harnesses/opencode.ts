@@ -137,6 +137,23 @@ export class OpencodeHarness implements AgentHarness {
       config.permission = { ...current, question: 'deny' };
     }
 
+    if (
+      requestScope &&
+      session.autocompactPercent !== null &&
+      session.autocompactPercent !== undefined
+    ) {
+      // Request sessions compact at the cell's threshold. `buffer` is the share
+      // of the context window kept free, so 80% used leaves a 20% buffer.
+      const compaction: Record<string, unknown> = isRecord(config.compaction)
+        ? { ...config.compaction }
+        : {};
+      // The v2 percentage `buffer` supersedes the deprecated token `reserved`.
+      delete compaction.reserved;
+      compaction.auto = true;
+      compaction.buffer = `${100 - session.autocompactPercent}%`;
+      config.compaction = compaction;
+    }
+
     if (requestScope) {
       const assets = readPluginAssets(session.pluginDirs);
       if (Object.keys(assets.commands).length > 0) {

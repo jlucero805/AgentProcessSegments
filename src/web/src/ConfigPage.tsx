@@ -552,7 +552,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                     {cell.maxConcurrent}× · {cell.harness ?? 'brain default'} ·{' '}
                     {cell.monthlyBudgetUsd === null
                       ? 'no budget'
-                      : `${moneyLabel(cell.monthlyBudgetUsd)}/mo`}
+                      : `${moneyLabel(cell.monthlyBudgetUsd)}/mo`}{' '}
+                    · {cell.autocompactPercent}% compact
                   </span>
                   {onEditCell ? (
                     <Button

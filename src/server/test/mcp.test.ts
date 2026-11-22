@@ -159,17 +159,24 @@ describe('harness mcp server', () => {
       body: { maxConcurrent: 2 },
     });
 
+    await call('update_cell_draft', { autocompactPercent: 65 });
+    expect(calls[2]).toMatchObject({
+      method: 'PATCH',
+      path: '/api/cell-drafts/draft-1',
+      body: { autocompactPercent: 65 },
+    });
+
     await call('update_cell_draft', {
       segmentUpdates: [{ id: 'review', enabled: true }],
     });
-    expect(calls[2]).toMatchObject({
+    expect(calls[3]).toMatchObject({
       method: 'PATCH',
       path: '/api/cell-drafts/draft-1',
       body: { segmentUpdates: [{ id: 'review', enabled: true }] },
     });
 
     await call('update_cell_draft', { harness: 'opencode' });
-    expect(calls[3]).toMatchObject({
+    expect(calls[4]).toMatchObject({
       method: 'PATCH',
       path: '/api/cell-drafts/draft-1',
       body: { harness: 'opencode' },

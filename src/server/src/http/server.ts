@@ -121,6 +121,7 @@ const cellSchema = z.object({
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
   monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
+  autocompactPercent: z.number().int().min(1).max(99).optional(),
 });
 const cellDraftSchema = z.object({
   name: z.string().min(1),
@@ -130,6 +131,7 @@ const cellDraftSchema = z.object({
   harness: z.enum(HARNESS_IDS).nullable().optional(),
   model: z.string().nullable(),
   effort: z.enum(EFFORT_LEVELS).nullable(),
+  autocompactPercent: z.number().int().min(1).max(99),
 });
 const followUpUpdateSchema = z.object({
   enabled: z.boolean().optional(),
@@ -153,6 +155,7 @@ const cellDraftPatchSchema = z
     harness: z.enum(HARNESS_IDS).nullable().optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+    autocompactPercent: z.number().int().min(1).max(99).optional(),
   })
   .refine(
     (value) =>
@@ -169,6 +172,7 @@ const cellPatchSchema = z
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
     monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
+    autocompactPercent: z.number().int().min(1).max(99).optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
@@ -181,10 +185,11 @@ const cellPatchSchema = z
       value.model !== undefined ||
       value.effort !== undefined ||
       value.monthlyBudgetUsd !== undefined ||
+      value.autocompactPercent !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, autocompactPercent, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -711,6 +716,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       ...(input.harness !== undefined ? { harness: input.harness } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.autocompactPercent !== undefined
+        ? { autocompactPercent: input.autocompactPercent }
+        : {}),
       process,
     });
   });
@@ -738,6 +746,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         model: input.model,
         effort: input.effort,
         monthlyBudgetUsd: input.monthlyBudgetUsd,
+        autocompactPercent: input.autocompactPercent,
       },
     );
     master.refresh();
@@ -772,6 +781,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         body.model !== undefined ? body.model : current.model,
         body.effort !== undefined ? body.effort : current.effort,
       );
+    }
+    if (body.autocompactPercent !== undefined) {
+      cells.setAutocompactPercent(id, body.autocompactPercent);
     }
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();

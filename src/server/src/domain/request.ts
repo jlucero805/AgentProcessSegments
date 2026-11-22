@@ -32,6 +32,9 @@ export type Effort = (typeof EFFORT_LEVELS)[number];
 /** Default cap when a cell has no explicit concurrency limit. */
 export const DEFAULT_MAX_CONCURRENT = 3;
 
+/** Default context-window percentage at which a request session auto-compacts. */
+export const DEFAULT_AUTOCOMPACT_PERCENT = 80;
+
 export interface Request {
   id: string;
   title: string;
@@ -74,6 +77,8 @@ export interface Cell {
   effort: Effort | null;
   /** Advisory monthly spend budget in USD; null means no cell budget. */
   monthlyBudgetUsd: number | null;
+  /** Context-window percentage at which a request session auto-compacts. */
+  autocompactPercent: number;
   createdAt: number;
 }
 

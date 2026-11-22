@@ -29,10 +29,11 @@ advance targets, and set cell/segment limits before the cell exists.
 - Before each turn, the modal syncs its current fields to `PUT /api/cell-drafts/:id`, so
   the agent starts from what you see.
 - `get_cell_draft` returns the current draft; `update_cell_draft` can change the name,
-  limits, harness, model/effort, a few segments via `segmentUpdates`, or the complete `segments`
-  array. `segmentUpdates` is a list of `{ id, ...fields }`; the server merges each into
-  the current segment (including partial `followUps`) and validates the full process. Use
-  it for simple edits instead of rebuilding all six segments.
+  limits, harness, model/effort, auto-compaction percentage, a few segments via
+  `segmentUpdates`, or the complete `segments` array. `segmentUpdates` is a list of
+  `{ id, ...fields }`; the server merges each into the current segment (including partial
+  `followUps`) and validates the full process. Use it for simple edits instead of
+  rebuilding all six segments.
 - The setup session gets only `Read` plus `get_cell_draft`/`update_cell_draft`. It cannot
   inspect the board/KB, mutate tickets, spawn requests, or write the KB.
 - The prompt and tool description include the safe flow contract: intake and Finalize

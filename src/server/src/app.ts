@@ -59,7 +59,14 @@ export async function main(): Promise<void> {
       errors,
       cellConfig: (cellId) => {
         const cell = cells.get(cellId);
-        return cell ? { model: cell.model, effort: cell.effort, harness: cell.harness } : null;
+        return cell
+          ? {
+              model: cell.model,
+              effort: cell.effort,
+              harness: cell.harness,
+              autocompactPercent: cell.autocompactPercent,
+            }
+          : null;
       },
     });
     const models = new HarnessModelCatalog({

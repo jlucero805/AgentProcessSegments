@@ -241,7 +241,8 @@ src/server/src
   domain/budget.ts    pure budget contract: settings, UTC month, status, alert types
   requests/           RequestRepository: CRUD, edit, guarded transitions
   cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
-                      interval, concurrency cap, model/effort defaults, and budget
+                      interval, concurrency cap, model/effort defaults, auto-compaction
+                      threshold, and budget
   usage/              usage ledger queries plus budget status and durable alerts
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
@@ -304,20 +305,20 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 377 vitest cases: 264 server cases (state machine, migrations including
+`npm test` runs 390 vitest cases: 274 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, engine turns over a fake harness, worktree isolation
 against a real git repo, the MCP tool surface, harness config/MCP/plugin mapping, model
 probing, the plugin manager against real git clones, process definitions/store/follow-ups,
-per-cell policies/tickers/limits, the generic master pipeline, segment caps and merge,
-turn watchdogs/stderr, scorecard stats/generation/scheduling, budget status/alerts, docs
-manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal session
-lifecycle, and the HTTP API over a real socket) and 113 web cases (shared contract
-re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
-docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
-cell creation, config/process editor, budget banner, master detail and scorecard, the
-usage page and formatters, and the app shell with the drawer and chat mounted under
-jsdom).
+per-cell policies/tickers/limits/auto-compaction, the generic master pipeline, segment
+caps and merge, turn watchdogs/stderr, scorecard stats/generation/scheduling, budget
+status/alerts, docs manifest/traversal/HTTP, error-log format/rotation, skill discovery,
+terminal session lifecycle, and the HTTP API over a real socket) and 116 web cases
+(shared contract re-exports, NDJSON client, chat folding, slash/skill resolution,
+request-form mapping, docs helpers and Help overlay, the source link, board, create modal,
+composer, cell bar, cell creation, config/process editor, budget banner, master detail and
+scorecard, the usage page and formatters, and the app shell with the drawer and chat
+mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

@@ -46,6 +46,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [monthlyBudget, setMonthlyBudget] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState<Effort | ''>('');
+  const [autocompactPercent, setAutocompactPercent] = useState('80');
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
   const [supportsEffort, setSupportsEffort] = useState(true);
@@ -84,6 +85,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     );
     setModel(cell?.model ?? '');
     setEffort(cell?.effort ?? '');
+    setAutocompactPercent(String(cell?.autocompactPercent ?? 80));
     setProcess(cell?.process ?? null);
     // Always refresh the policy for an existing cell. The caller may hold a
     // snapshot from before another screen saved the cell, and the bug report
@@ -178,6 +180,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     let timeoutTimer: number | undefined;
     const minutes = interval.trim() === '' ? null : Number(interval);
     const concurrency = Number(maxConcurrent);
+    const compact = Number(autocompactPercent);
 
     setDraftStatus((current) => (current === 'ready' ? current : 'syncing'));
 
@@ -209,6 +212,8 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
           harness: harness || null,
           model: model || null,
           effort: effort || null,
+          autocompactPercent:
+            Number.isInteger(compact) && compact >= 1 && compact <= 99 ? compact : 80,
         }),
         timeout,
       ])
@@ -250,6 +255,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     harness,
     model,
     effort,
+    autocompactPercent,
     syncAttempt,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -265,6 +271,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
       setHarness(draft.harness ?? '');
       setModel(draft.model ?? '');
       setEffort(draft.effort ?? '');
+      setAutocompactPercent(String(draft.autocompactPercent ?? 80));
       setProcess(draft.process);
     } catch {
       // The draft may already be gone if the modal closed during the turn.
@@ -353,6 +360,11 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
       );
       return;
     }
+    const compact = Number(autocompactPercent);
+    if (!Number.isInteger(compact) || compact < 1 || compact > 99) {
+      onError('Auto-compact must be a whole number from 1 to 99.');
+      return;
+    }
     setSaving(true);
     try {
       const fields = {
@@ -364,6 +376,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         monthlyBudgetUsd: budgetValue,
         model: model || null,
         effort: effort || null,
+        autocompactPercent: compact,
       };
       const saved = cell
         ? await api.patchCell(cell.id, fields)
@@ -476,6 +489,19 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
           ) : (
             <Input value="—" disabled readOnly />
           )}
+        </Field>
+
+        <Field
+          label="Auto-compact at (%)"
+          hint="context used before the agent summarizes; Claude may cap this at its own default"
+        >
+          <Input
+            type="number"
+            min={1}
+            max={99}
+            value={autocompactPercent}
+            onChange={(event) => setAutocompactPercent(event.target.value)}
+          />
         </Field>
 
         <div className="space-y-1 rounded-xl border border-zinc-800 bg-zinc-950/40 p-2">

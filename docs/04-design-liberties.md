@@ -233,6 +233,23 @@ state keeps the transition table, board, and API honest. Cost: arbitrary extra s
 still require a new state and UI column; the wizard can recommend them but not invent
 them. The `maxConcurrent` field is generic, so other segments can be serialized now.
 
+## 18. Auto-compaction is harness-native and configured per cell
+
+**Chosen.** A cell stores `autocompact_percent` (default 80, range 1–99). Request
+sessions translate it into the harness's own compaction controls: OpenCode gets
+`compaction.auto: true` and `compaction.buffer: "<100 - percent>%"`; Claude gets
+`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` and `autoCompactEnabled: true`. Unassigned requests
+use 80. KB, master, setup, and summary sessions keep their existing behavior.
+
+**Alternatives.** Brain-side token accounting plus transcript summarization; a global
+setting only; a per-request override.
+
+**Why.** Both harnesses already compact and account for their model context windows.
+Reusing their thresholds is small, observable, and avoids a second source of truth.
+Token/usage accounting is separate and already built. Cost: Claude cannot
+raise its built-in threshold, so cell values above that default collapse to Claude's
+default; a global default and per-request overrides remain follow-ups if operators ask.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

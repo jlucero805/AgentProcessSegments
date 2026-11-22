@@ -11,6 +11,7 @@ export interface CellDraft {
   harness: HarnessId | null;
   model: string | null;
   effort: Effort | null;
+  autocompactPercent: number;
   process: ProcessConfig;
   updatedAt: number;
 }

@@ -5,6 +5,7 @@ import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import { isHarnessId, resolveHarness as resolveHarnessOrder, type HarnessId } from '../domain/harness.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
+import { DEFAULT_AUTOCOMPACT_PERCENT } from '../domain/request.js';
 import {
   KB_SESSION_ID,
   isSetupSession,
@@ -64,6 +65,7 @@ export interface LiveTurn {
   readonly harnessId: HarnessId;
   readonly model: string | null;
   readonly effort: Effort | null;
+  readonly autocompactPercent: number | null;
 }
 
 interface StoredSession {
@@ -103,10 +105,17 @@ export interface EngineDeps {
   config: Config;
   usage: UsageRepository;
   pluginDirs?: () => string[];
-  /** Cell-level model/effort/harness defaults; a request's own values win. */
+  /** Cell-level model/effort/harness and compaction defaults; request values win. */
   cellConfig?: (
     cellId: string,
-  ) => { model: string | null; effort: Effort | null; harness: HarnessId | null } | null;
+  ) =>
+    | {
+        model: string | null;
+        effort: Effort | null;
+        harness: HarnessId | null;
+        autocompactPercent?: number;
+      }
+    | null;
   /** Error-only sink; ordinary transcript/turn logs are not persisted here. */
   errors?: ErrorSink;
 }
@@ -332,7 +341,10 @@ export class Engine {
   private turnMeta(
     id: string,
     request: Request | null,
-  ): Pick<LiveTurn, 'scope' | 'requestId' | 'cellId' | 'harnessId' | 'model' | 'effort'> {
+  ): Pick<
+    LiveTurn,
+    'scope' | 'requestId' | 'cellId' | 'harnessId' | 'model' | 'effort' | 'autocompactPercent'
+  > {
     const scope: UsageScope = request
       ? 'request'
       : id === KB_SESSION_ID
@@ -365,6 +377,10 @@ export class Engine {
       effort:
         harnessId === 'claude'
           ? (request?.effort ?? (inheritsCell ? cell?.effort ?? null : null))
+          : null,
+      autocompactPercent:
+        scope === 'request'
+          ? (cell?.autocompactPercent ?? DEFAULT_AUTOCOMPACT_PERCENT)
           : null,
     };
   }
@@ -611,6 +627,7 @@ export class Engine {
       sessionId: this.readSession(id, harnessId),
       model: turn.model,
       effort: turn.effort,
+      autocompactPercent: turn.autocompactPercent,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });
     const proc = harness.spawn(command);

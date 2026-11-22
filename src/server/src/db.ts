@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS cells (
   model                    TEXT,
   effort                   TEXT,
   monthly_budget_usd       REAL,
+  autocompact_percent      INTEGER NOT NULL DEFAULT 80,
   process_json             TEXT,
   created_at               INTEGER NOT NULL
 );
@@ -137,6 +138,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['cells', 'model', 'TEXT'],
   ['cells', 'effort', 'TEXT'],
   ['cells', 'monthly_budget_usd', 'REAL'],
+  ['cells', 'autocompact_percent', 'INTEGER NOT NULL DEFAULT 80'],
   ['cells', 'process_json', 'TEXT'],
 ];
 

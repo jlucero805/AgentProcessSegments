@@ -176,7 +176,14 @@ export function createHarness(
   script: (text: string) => string[] = defaultScript,
   cellConfig?: (
     cellId: string,
-  ) => { model: string | null; effort: Effort | null; harness: HarnessId | null } | null,
+  ) =>
+    | {
+        model: string | null;
+        effort: Effort | null;
+        harness: HarnessId | null;
+        autocompactPercent?: number;
+      }
+    | null,
 ): Harness {
   const config = testConfig();
   const db = openDb(config.dbPath);
@@ -201,7 +208,12 @@ export function createHarness(
       ((cellId) => {
         const cell = cells.get(cellId);
         return cell
-          ? { model: cell.model, effort: cell.effort, harness: cell.harness }
+          ? {
+              model: cell.model,
+              effort: cell.effort,
+              harness: cell.harness,
+              autocompactPercent: cell.autocompactPercent,
+            }
           : null;
       }),
   });

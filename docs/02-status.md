@@ -51,8 +51,15 @@ built and vended by the brain; real-CLI verification is still pending.
   have no master chat and stay manual until assigned. Segment
   caps are enforced in addition to the cell cap. Cells also
   store a max-concurrency cap (default 3, pauses new work while that many requests are
-  `working`) and default model/effort (a request’s own values win). The Cell master drawer
-  shows the selected cell’s ticker, policy, activity, and chat.
+  `working`), default model/effort (a request’s own values win), and an auto-compaction
+  threshold. The Cell master drawer shows the selected cell’s ticker, policy, activity,
+  and chat.
+- Per-cell auto-compaction: `cells.autocompact_percent` defaults to 80 and accepts 1–99.
+  Every request session passes it to the harness: OpenCode gets `compaction.auto` plus a
+  percentage `buffer`, and Claude gets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
+  `autoCompactEnabled`. Unassigned requests use 80; KB, master, setup, and summary
+  sessions keep the harness/global behavior. No brain-side transcript summarization or
+  token accounting is involved.
 - Desktop terminal: a sidebar **Terminal** action attaches to a server-owned PTY
   (`node-pty`) in `APS_TERMINAL_CWD`, independent of every agent session. Hiding the
   panel only detaches; sessions stay listed with a status dot, the sidebar shows a session
@@ -226,7 +233,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 377 vitest cases, all passing: 264 server across 27 files and 113 web across 19 files,
+- 390 vitest cases, all passing: 274 server across 27 files and 116 web across 20 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

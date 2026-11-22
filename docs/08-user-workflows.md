@@ -15,9 +15,12 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
    the chosen adapter; changing it later starts that cell’s next turn on a fresh session.
 4. Optionally set **Master interval (minutes)**. Empty inherits the global cadence; a
    value gives this cell its own ticker.
-5. Set **Max concurrent requests** (default 3), **default model**, and **default
-   difficulty**. The master pauses new work when that many requests in the cell are
-   already `working`; a request’s own model/effort wins. Effort is disabled for OpenCode.
+5. Set **Max concurrent requests** (default 3), **default model**, **default
+   difficulty**, and **Auto-compact at (%)** (default 80). The master pauses new work
+   when that many requests in the cell are already `working`; a request’s own
+   model/effort wins. Effort is disabled for OpenCode. Auto-compaction applies to
+   request sessions in this cell; Claude cannot raise its built-in threshold, so values
+   above its default fall back to that default.
 6. The process editor opens with a full copy of the global default from
    `process.json`. Adjust the five segments:
    - **Requests** (intake): start clarification for unplanned work.

@@ -7,10 +7,11 @@ import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
 import { KB_SESSION_ID, isMasterSession, isSetupSession, masterCellId } from '../clarify/engine.js';
 import { isVirtualSessionId } from '../clarify/engine.js';
-import type { ModelCatalog } from '../clarify/models.js';
+import type { HarnessModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
+import { HARNESS_IDS, isHarnessId, type HarnessId } from '../domain/harness.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -39,7 +40,7 @@ export interface ServerDeps {
   drafts: CellDraftStore;
   kb: KbRepository;
   engine: Engine;
-  models: ModelCatalog;
+  models: HarnessModelCatalog;
   plugins: PluginManager;
   settings: SettingsStore;
   master: MasterScheduler;
@@ -105,6 +106,7 @@ const cellSchema = z.object({
   process: processSchema.optional(),
   masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
   maxConcurrent: z.number().int().min(1).max(50).optional(),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
 });
@@ -113,6 +115,7 @@ const cellDraftSchema = z.object({
   process: processSchema,
   masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable(),
   maxConcurrent: z.number().int().min(1).max(50),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
   model: z.string().nullable(),
   effort: z.enum(EFFORT_LEVELS).nullable(),
 });
@@ -135,6 +138,7 @@ const cellDraftPatchSchema = z
     segmentUpdates: z.array(segmentUpdateSchema).optional(),
     masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
     maxConcurrent: z.number().int().min(1).max(50).optional(),
+    harness: z.enum(HARNESS_IDS).nullable().optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
   })
@@ -149,6 +153,7 @@ const cellPatchSchema = z
     masterEnabled: z.boolean().optional(),
     masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
     maxConcurrent: z.number().int().min(1).max(50).optional(),
+    harness: z.enum(HARNESS_IDS).nullable().optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
     process: processSchema.nullable().optional(),
@@ -159,12 +164,13 @@ const cellPatchSchema = z
       value.masterEnabled !== undefined ||
       value.masterIntervalMinutes !== undefined ||
       value.maxConcurrent !== undefined ||
+      value.harness !== undefined ||
       value.model !== undefined ||
       value.effort !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -525,14 +531,42 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return done;
   });
 
-  app.get('/api/models', async (request) => {
-    const query = z.object({ refresh: z.string().optional() }).parse(request.query);
-    const catalog = await models.list(query.refresh === '1');
+  app.get('/api/models', async (request, reply) => {
+    const query = z
+      .object({
+        refresh: z.string().optional(),
+        harness: z.string().optional(),
+        cellId: z.string().optional(),
+      })
+      .parse(request.query);
+
+    if (query.harness !== undefined && query.cellId !== undefined) {
+      return reply.code(400).send({
+        error: 'bad_harness',
+        message: 'use harness or cellId, not both',
+      });
+    }
+
+    let harness: HarnessId = config.harness;
+    if (query.harness !== undefined) {
+      if (!isHarnessId(query.harness)) {
+        return reply.code(400).send({
+          error: 'bad_harness',
+          message: `unknown harness ${query.harness}`,
+        });
+      }
+      harness = query.harness;
+    } else if (query.cellId !== undefined) {
+      const cell = cells.require(query.cellId);
+      harness = cell.harness ?? config.harness;
+    }
+
+    const catalog = await models.list(harness, query.refresh === '1');
     return {
       ...catalog,
-      harness: config.harness,
-      supportsEffort: config.harness === 'claude',
-      defaultModel: config.defaultModel,
+      harness,
+      supportsEffort: harness === 'claude',
+      defaultModel: config.defaultModels[harness],
     };
   });
 
@@ -559,7 +593,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.put('/api/cell-drafts/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const input = cellDraftSchema.parse(request.body);
-    return drafts.put({ id, ...input });
+    return drafts.put({ id, ...input, harness: input.harness ?? null });
   });
 
   app.patch('/api/cell-drafts/:id', async (request, reply) => {
@@ -593,6 +627,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         ? { masterIntervalMinutes: input.masterIntervalMinutes }
         : {}),
       ...(input.maxConcurrent !== undefined ? { maxConcurrent: input.maxConcurrent } : {}),
+      ...(input.harness !== undefined ? { harness: input.harness } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       process,
@@ -618,6 +653,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       input.masterIntervalMinutes ?? null,
       {
         maxConcurrent: input.maxConcurrent,
+        harness: input.harness,
         model: input.model,
         effort: input.effort,
       },
@@ -635,6 +671,15 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       cells.setMasterInterval(id, body.masterIntervalMinutes);
     }
     if (body.maxConcurrent !== undefined) cells.setMaxConcurrent(id, body.maxConcurrent);
+    if (body.harness !== undefined) {
+      const current = cells.require(id);
+      if (body.harness !== current.harness) {
+        cells.setHarness(id, body.harness);
+        // The old adapter's model/effort are not meaningful here. Clear them
+        // first; the explicit model/effort block below reapplies any caller values.
+        cells.setAgentDefaults(id, null, null);
+      }
+    }
     if (body.model !== undefined || body.effort !== undefined) {
       const current = cells.require(id);
       cells.setAgentDefaults(

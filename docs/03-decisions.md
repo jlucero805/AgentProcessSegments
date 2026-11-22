@@ -621,3 +621,28 @@ buckets in order.
 **Cost.** A cycle can have several live model turns at once, using more provider
 throughput and tokens. The cell cap now matters for real parallel fan-out rather than just
 admission control. A segment cap of one still serializes merge work as intended.
+
+## D42. The agent harness is a per-cell setting
+
+**Context.** Both the Claude Code and OpenCode adapters existed, but `SBOX_HARNESS`
+selected one process-wide. An operator who uses Claude at work and OpenCode at home could
+not run both kinds of workspace against one brain, and every model/effort readout assumed
+a single adapter.
+
+**Decision.** `cells.harness` is nullable; NULL inherits `SBOX_HARNESS`. Request and cell
+master sessions resolve their adapter through their cell, while setup, KB, and unassigned
+sessions use the process default. A cached `HarnessRegistry` owns one adapter per id.
+`session.json` stores `{harness, sessionId}`, and an id from another adapter is treated as
+absent, so a harness switch starts fresh without losing the normalized transcript. The
+engine also tracks the harness on each cached child; changing the cell kills the old child
+and spawns the new adapter. Model catalogs are per harness, and
+`GET /api/models?harness=` / `?cellId=` reports that adapter's list,
+`supportsEffort`, and default model. `SBOX_DEFAULT_MODEL` applies to the
+process-default harness only; the non-default adapter keeps its own implicit default.
+`PATCH /api/cells/:id` clears `model`/`effort` when it changes the harness and the caller
+did not supply replacements.
+
+**Cost.** A brain can now hold two live child-process shapes and two model caches, and the
+operator has one more per-cell field to understand. In exchange, mixed Claude/OpenCode
+workspaces share one board, scheduler, KB, and process policy, and no cross-adapter
+session id or model id leaks through a harness change.

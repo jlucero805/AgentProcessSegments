@@ -1,3 +1,5 @@
+import type { HarnessId } from './harness.js';
+
 export const STATES = ['clarify', 'dispatch', 'review', 'merge', 'finalize', 'done', 'dropped'] as const;
 export type State = (typeof STATES)[number];
 
@@ -63,6 +65,8 @@ export interface Cell {
   masterIntervalMinutes: number | null;
   /** Cap on requests currently working in this cell. */
   maxConcurrent: number;
+  /** Agent substrate for this cell; null inherits the process default. */
+  harness: HarnessId | null;
   /** Cell-level defaults; a request's own model/effort wins. */
   model: string | null;
   effort: Effort | null;

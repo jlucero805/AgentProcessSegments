@@ -17,6 +17,7 @@ describe('CellModal', () => {
           process?: { segments?: unknown[] };
           masterIntervalMinutes?: number | null;
           maxConcurrent?: number;
+          harness?: string | null;
           model?: string | null;
           effort?: string | null;
         }
@@ -49,6 +50,7 @@ describe('CellModal', () => {
             masterEnabled: true,
             masterIntervalMinutes: null,
             maxConcurrent: 3,
+            harness: null,
             model: null,
             effort: null,
             process: baseProcess(),
@@ -92,7 +94,80 @@ describe('CellModal', () => {
     expect(created?.maxConcurrent).toBe(3);
     expect(created?.model).toBe('m1');
     expect(created?.effort).toBe('high');
+    expect(created?.harness).toBeNull();
     expect(created?.process?.segments).toHaveLength(6);
+  });
+
+  it('switches the model catalog and effort control with the harness', async () => {
+    const modelUrls: string[] = [];
+    let created: { harness?: string | null; model?: string | null } | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/process') return jsonResponse(makeProcessResponse());
+        if (url.startsWith('/api/models')) {
+          modelUrls.push(url);
+          if (url.includes('harness=opencode')) {
+            return jsonResponse({
+              models: [{ id: 'open-model', label: 'Open model' }],
+              source: 'fallback',
+              effortLevels: ['low', 'medium', 'high'],
+              harness: 'opencode',
+              supportsEffort: false,
+              defaultModel: 'open-model',
+            });
+          }
+          return jsonResponse({
+            models: [{ id: 'claude-model', label: 'Claude model' }],
+            source: 'fallback',
+            effortLevels: ['low', 'medium', 'high'],
+            harness: 'claude',
+            supportsEffort: true,
+            defaultModel: null,
+          });
+        }
+        if (url === '/api/cells' && init?.method === 'POST') {
+          created = JSON.parse(String(init.body)) as typeof created;
+          return jsonResponse(
+            {
+              id: 'c3',
+              name: 'Open cell',
+              masterEnabled: true,
+              masterIntervalMinutes: null,
+              maxConcurrent: 3,
+              harness: 'opencode',
+              model: null,
+              effort: null,
+              process: baseProcess(),
+              createdAt: 3,
+            },
+            201,
+          );
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <CellModal open cell={null} commands={[]} onClose={() => {}} onSaved={() => {}} onError={() => {}} />,
+    );
+    expect(await screen.findByText('Claude model')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: /agent harness/i }), {
+      target: { value: 'opencode' },
+    });
+    expect(await screen.findByText('Open model')).toBeInTheDocument();
+    expect(modelUrls).toContain('/api/models?harness=opencode');
+    expect(screen.queryByRole('combobox', { name: /default difficulty/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /default difficulty/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
+      target: { value: 'Open cell' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
+    await waitFor(() => expect(created).toBeDefined());
+    expect(created?.harness).toBe('opencode');
   });
 
   it('shows an inline error and Retry when the setup draft cannot sync', async () => {
@@ -164,6 +239,7 @@ describe('CellModal', () => {
       masterEnabled: true,
       masterIntervalMinutes: 7,
       maxConcurrent: 3,
+      harness: null,
       model: null,
       effort: null,
       process: stale,

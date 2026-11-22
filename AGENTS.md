@@ -8,8 +8,8 @@ the spec, say so rather than silently following either.
 
 A local Node/TS service that drives headless agent sessions through
 Intake → Plan → Implement → Review → Finalize. The agent substrate is swappable
-(`SBOX_HARNESS=claude` is the default; `opencode` is supported). One port serves
-`/api`, `/ws`, and the built SPA. Requests live in SQLite, one persistent agent session
+(`SBOX_HARNESS=claude` is the default; `opencode` is supported) and selectable per cell,
+so one brain can mix both. One port serves `/api`, `/ws`, and the built SPA. Requests live in SQLite, one persistent agent session
 per request, one git worktree per request, and a knowledge base fed by human-approved
 digests.
 
@@ -50,8 +50,9 @@ digests.
   settings and a structured process editor, configurable global and per-cell process
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
-  defines the policy up front with an editable setup chat, per-cell concurrency caps and
-  model/effort defaults, an optional single-worker Merge step with per-segment caps, an
+  defines the policy up front with an editable setup chat, per-cell concurrency caps,
+  per-cell harness plus model/effort defaults, an optional single-worker Merge step with
+  per-segment caps, an
   in-app Help docs viewer, a desktop-only maximizable PTY terminal independent of agent
   sessions, bounded turn/MCP waits with stderr diagnostics, a systemd user
   unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
@@ -228,14 +229,19 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 28. **NDJSON POSTs must declare JSON.** `streamNdjson` sets
     `content-type: application/json` whenever it sends a body. A browser string body
     otherwise becomes `text/plain` and Fastify rejects the chat action validation.
-29. **Model defaults are brain-level.** `SBOX_DEFAULT_MODEL` applies when neither the
-    request nor its cell names a model. OpenCode defaults to
-    `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
-    Expose the default through `GET /api/models` so the wizard can show it.
+29. **Model defaults are per harness.** A request or cell model wins. Otherwise
+    `SBOX_DEFAULT_MODEL` applies to the process-default harness, OpenCode gets
+    `opencode-go/deepseek-v4.1-flash`, and Claude gets none. Do not silently fall back to
+    OpenCode's slower free tier. Expose the resolved default through `GET /api/models`.
 30. **The master prods a batch concurrently.** `runBucket` selects up to the cell’s spare
     concurrency, counts already-selected candidates against segment caps, then starts the
     batch with `Promise.all`. Do not return to a serial candidate loop; per-cell scheduler
     coalescing still prevents overlapping cycles.
+31. **Harness choice is per cell and pinned per session.** `cells.harness` NULL
+    inherits `config.harness`. Requests and cell masters resolve their adapter through
+    the cell; setup, KB, and unassigned sessions use the process default.
+    `session.json` stores the harness with the session id, and an id from another
+    adapter is never resumed.
 
 ## Extension recipes
 
@@ -257,9 +263,11 @@ route the new event through `Engine.broadcast`. Nothing in a parser may touch a 
 or disk.
 
 **Add a harness.** Implement `AgentHarness` in `clarify/harnesses/<id>.ts` (`prepare`,
-`spawn`, `createParser`, `probeModels`, `fallbackModels`), register it in
-`clarify/harnesses/index.ts` behind `SBOX_HARNESS`, and add prepare plus parser tests in
-`test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`.
+`spawn`, `createParser`, `probeModels`, `fallbackModels`), add it to `HARNESS_IDS` in
+`domain/harness.ts`, register it in the cached registry in `clarify/harnesses/index.ts`,
+and add prepare plus parser tests in `test/harness.test.ts` and a stream test. Keep
+per-session files inside `session.dir`, and pin `session.json` to the adapter id so a
+harness switch cannot resume the wrong session.
 
 **Add or change a process segment.** Update `process/definition.ts`, `process/defaults.ts`
 (defaults plus prompt), the UI labels, and `test/process.test.ts`. Advancement must be a
@@ -269,11 +277,11 @@ by mutating the global file.
 
 ## Next units, in order
 
-1. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
+2. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
    it with a token that has the `workflow` scope.
-2. **Optional chaining.** A segment can advance a request but the next segment waits for
+3. **Optional chaining.** A segment can advance a request but the next segment waits for
    its idle window; add a `chain` flag only if operators want same-cycle handoff.
-3. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic
+4. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic
    recall still needs an embedding provider.
 
 ## Conventions

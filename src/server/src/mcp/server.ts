@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { HARNESS_IDS } from '../domain/harness.js';
 import { EFFORT_LEVELS, STATES } from '../domain/request.js';
 import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
 import { errorMessage } from '../util/errors.js';
@@ -211,12 +212,13 @@ function registerDraftTools(server: McpServer, api: BrainApi, draftId: string): 
     {
       title: 'Update the cell draft',
       description:
-        'Change the draft name, limits, model/effort, or its process. For a few segment edits, send `segmentUpdates` with only the ids and fields to change; use the complete `segments` array only for a wholesale rewrite. Process flow contract:\n' +
+        'Change the draft name, limits, harness, model/effort, or its process. For a few segment edits, send `segmentUpdates` with only the ids and fields to change; use the complete `segments` array only for a wholesale rewrite. Process flow contract:\n' +
         SEGMENT_FLOW_GUIDE,
       inputSchema: {
         name: z.string().min(1).optional(),
         maxConcurrent: z.number().int().min(1).max(50).optional(),
         masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
+        harness: z.enum(HARNESS_IDS).nullable().optional(),
         model: z.string().nullable().optional(),
         effort: z.enum(EFFORT_LEVELS).nullable().optional(),
         segmentUpdates: z.array(z.unknown()).optional(),

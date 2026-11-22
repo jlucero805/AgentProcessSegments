@@ -167,6 +167,13 @@ describe('harness mcp server', () => {
       path: '/api/cell-drafts/draft-1',
       body: { segmentUpdates: [{ id: 'review', enabled: true }] },
     });
+
+    await call('update_cell_draft', { harness: 'opencode' });
+    expect(calls[3]).toMatchObject({
+      method: 'PATCH',
+      path: '/api/cell-drafts/draft-1',
+      body: { harness: 'opencode' },
+    });
   });
 
   it('returns the flow contract when a draft update is rejected', async () => {

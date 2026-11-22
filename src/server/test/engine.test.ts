@@ -1,6 +1,9 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
+import { requestDir } from '../src/config.js';
 
 let harness: Harness | null = null;
 
@@ -240,7 +243,10 @@ describe('turn engine', () => {
 
   it('uses the configured default model when no request or cell model is set', async () => {
     const h = fresh(() => defaultScript());
-    h.config.defaultModel = 'opencode-go/deepseek-v4.1-flash';
+    h.config.defaultModels = {
+      ...h.config.defaultModels,
+      claude: 'opencode-go/deepseek-v4.1-flash',
+    };
     const request = h.repo.create({ title: 'Default model' });
 
     const turn = await h.engine.start(request.id);
@@ -252,10 +258,87 @@ describe('turn engine', () => {
     });
   });
 
+  it('routes each request through its cell harness', async () => {
+    const h = fresh((text) => [initLine('sess-routed'), textLine(`heard: ${text}`), resultLine()]);
+    const claudeCell = h.cells.create('Claude cell', null, null, { harness: 'claude' });
+    const openCell = h.cells.create('Open cell', null, null, { harness: 'opencode' });
+    const claudeRequest = h.repo.create({ title: 'Claude work', cellId: claudeCell.id });
+    const openRequest = h.repo.create({ title: 'Open work', cellId: openCell.id });
+
+    const first = await h.engine.start(claudeRequest.id);
+    await first.promise;
+    await settle();
+    expect(h.harness.sessions).toHaveLength(1);
+    expect(h.opencode.sessions).toHaveLength(0);
+
+    const second = await h.engine.start(openRequest.id);
+    await second.promise;
+    await settle();
+    expect(h.harness.sessions).toHaveLength(1);
+    expect(h.opencode.sessions).toHaveLength(1);
+    expect(h.opencode.sessions[0]?.requestId).toBe(openRequest.id);
+    expect(h.opencode.sessions[0]?.model).toBe('opencode-go/deepseek-v4.1-flash');
+  });
+
+  it('routes a cell master and the default sessions through the expected adapters', async () => {
+    const h = fresh(() => defaultScript());
+    const openCell = h.cells.create('Open cell', null, null, { harness: 'opencode' });
+
+    const master = await h.engine.startMaster('status', `__master__:${openCell.id}`);
+    await master.promise;
+    await settle();
+    expect(h.opencode.sessions).toHaveLength(1);
+    expect(h.opencode.sessions[0]).toMatchObject({ scope: 'master' });
+
+    const kb = await h.engine.startKb('what is in the kb?');
+    await kb.promise;
+    await settle();
+    expect(h.harness.sessions).toHaveLength(1);
+    expect(h.harness.sessions[0]).toMatchObject({ scope: 'kb' });
+  });
+
+  it('discards the old process and session when a cell harness changes', async () => {
+    const h = fresh((text) => [initLine('sess-open'), textLine(`heard: ${text}`), resultLine()]);
+    const cell = h.cells.create('Switching', null, null, { harness: 'opencode' });
+    const request = h.repo.create({ title: 'Switch me', cellId: cell.id });
+
+    const first = await h.engine.start(request.id);
+    await first.promise;
+    await settle();
+    expect(h.opencode.sessions).toHaveLength(1);
+    expect(h.opencode.process?.killed).toBe(false);
+
+    h.cells.setHarness(cell.id, 'claude');
+    const second = await h.engine.send(request.id, 'continue');
+    await second.promise;
+    await settle();
+
+    expect(h.opencode.process?.killed).toBe(true);
+    expect(h.harness.sessions).toHaveLength(1);
+    // The OpenCode session id must not be replayed through Claude.
+    expect(h.harness.sessions[0]?.sessionId).toBeNull();
+    expect(h.engine.transcript(request.id).length).toBeGreaterThan(0);
+  });
+
+  it('ignores a legacy session id when the resolved harness differs from the default', async () => {
+    const h = fresh(() => defaultScript());
+    const cell = h.cells.create('Open cell', null, null, { harness: 'opencode' });
+    const request = h.repo.create({ title: 'Legacy session', cellId: cell.id });
+    const dir = requestDir(h.config, request.id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: 'legacy-claude' }));
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+    expect(h.opencode.sessions[0]?.sessionId).toBeNull();
+  });
+
   it('uses cell model and effort defaults, with request overrides winning', async () => {
     const h = createHarness(defaultScript, () => ({
       model: 'cell-model',
       effort: 'high',
+      harness: null,
     }));
     harness = h;
     const cell = h.cells.create('Cell', null, null, {

@@ -7,14 +7,16 @@ contract; these are additions or deviations, and the D references point at
 
 ## 1. Harness seam with `claude` as the default
 
-**Chosen.** The engine depends on `AgentHarness`. `SBOX_HARNESS=claude|opencode`, default
-`claude`; `SBOX_HARNESS_BIN` overrides the binary, and `SBOX_CLAUDE_BIN` still works for
-Claude.
+**Chosen.** The engine depends on `AgentHarness` through a cached registry.
+`SBOX_HARNESS=claude|opencode` sets the process default, and each cell may override it.
+`SBOX_CLAUDE_BIN` and `SBOX_OPENCODE_BIN` point at each binary; the legacy
+`SBOX_HARNESS_BIN` is the default adapter's fallback and loses to the specific value.
 
 **Alternative.** Hardwire OpenCode because it is what this host has authenticated.
 
-**Why.** Preserves the spec's contract and keeps existing request/model choices working.
-Adding a third harness is one adapter plus a config value.
+**Why.** Preserves the spec's contract, keeps existing request/model choices working, and
+lets one brain mix work and home workspaces. Adding a third harness is one adapter plus a
+registry entry.
 
 ## 2. OpenCode is one archived standalone process per turn
 

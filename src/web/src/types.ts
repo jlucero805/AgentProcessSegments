@@ -4,6 +4,8 @@
  * modules must stay free of Node-only imports; `npm run build --workspace src/web`
  * bundles them into the SPA.
  */
+export type { HarnessId } from '../../server/src/domain/harness';
+export { HARNESS_IDS, HARNESS_LABELS } from '../../server/src/domain/harness';
 export type {
   AgentStatus,
   Cell,
@@ -53,6 +55,7 @@ export {
   setupSessionId,
 } from '../../server/src/domain/sessions';
 
+import type { HarnessId } from '../../server/src/domain/harness';
 import type { AgentStatus, Effort, Request, State, TranscriptMsg } from '../../server/src/domain/request';
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
@@ -63,7 +66,7 @@ export interface ModelsResult {
   source: 'probe' | 'fallback';
   effortLevels: readonly string[];
   /** Additive capability fields from the brain. */
-  harness?: string;
+  harness?: HarnessId;
   supportsEffort?: boolean;
   defaultModel?: string | null;
 }
@@ -97,6 +100,7 @@ export interface CellDraft {
   name: string;
   masterIntervalMinutes: number | null;
   maxConcurrent: number;
+  harness: HarnessId | null;
   model: string | null;
   effort: Effort | null;
   process: ProcessConfig;

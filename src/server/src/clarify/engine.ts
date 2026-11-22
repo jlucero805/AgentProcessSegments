@@ -2,12 +2,13 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
+import { isHarnessId, type HarnessId } from '../domain/harness.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID, isSetupSession, masterCellId, setupDraftId } from '../domain/sessions.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { errorMessage } from '../util/errors.js';
-import type { AgentHarness, TurnParserLike } from './harness.js';
+import type { AgentHarness, HarnessRegistry, TurnParserLike } from './harness.js';
 import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPrompt, setupSeedPrompt } from './prompts.js';
 import type { AgentProcess } from './transport.js';
 import { ensureWorktree, removeWorktree } from './worktree.js';
@@ -36,16 +37,24 @@ export interface LiveTurn {
 }
 
 interface StoredSession {
+  harness?: string;
   sessionId: string;
+}
+
+interface ActiveProcess {
+  harnessId: HarnessId;
+  proc: AgentProcess;
 }
 
 export interface EngineDeps {
   repo: RequestRepository;
-  harness: AgentHarness;
+  harnesses: HarnessRegistry;
   config: Config;
   pluginDirs?: () => string[];
-  /** Cell-level model/effort defaults; a request's own values win. */
-  cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null;
+  /** Cell-level model/effort/harness defaults; a request's own values win. */
+  cellConfig?: (
+    cellId: string,
+  ) => { model: string | null; effort: Effort | null; harness: HarnessId | null } | null;
   /** Error-only sink; ordinary transcript/turn logs are not persisted here. */
   errors?: ErrorSink;
 }
@@ -53,8 +62,9 @@ export interface EngineDeps {
 export class Engine {
   private readonly turns = new Map<string, LiveTurn>();
   private readonly parsers = new Map<string, TurnParserLike>();
-  private readonly procs = new Map<string, AgentProcess>();
+  private readonly procs = new Map<string, ActiveProcess>();
   private readonly watchdogs = new Map<string, NodeJS.Timeout>();
+  private readonly sessionHarnesses = new Map<string, HarnessId>();
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -62,12 +72,18 @@ export class Engine {
     return this.deps.repo;
   }
 
-  private get harness(): AgentHarness {
-    return this.deps.harness;
-  }
-
   private get config(): Config {
     return this.deps.config;
+  }
+
+  private resolveHarness(id: string, request: Request | null): HarnessId {
+    const cellId = request?.cellId ?? masterCellId(id);
+    const cell = cellId ? (this.deps.cellConfig?.(cellId) ?? null) : null;
+    return cell?.harness ?? this.deps.harnesses.defaultId;
+  }
+
+  private harnessFor(harnessId: HarnessId): AgentHarness {
+    return this.deps.harnesses.get(harnessId);
   }
 
   hasLive(id: string): boolean {
@@ -84,11 +100,11 @@ export class Engine {
 
     turn.cancelled = true;
     this.clearWatchdog(id);
-    const proc = this.procs.get(id);
+    const active = this.procs.get(id);
     this.procs.delete(id);
-    if (proc) {
-      proc.kill('SIGTERM');
-      const force = setTimeout(() => proc.kill('SIGKILL'), 2_000);
+    if (active) {
+      active.proc.kill('SIGTERM');
+      const force = setTimeout(() => active.proc.kill('SIGKILL'), 2_000);
       force.unref();
     }
     // Finish now even if the harness is still stuck inside `prepare()`. The
@@ -115,7 +131,7 @@ export class Engine {
     if (existing) return existing;
 
     const request = this.repo.setClarifyStarted(id, true);
-    const savedSession = this.readSession(id);
+    const savedSession = this.readSession(id, this.resolveHarness(id, request));
     const base = savedSession
       ? 'Continue grooming this ticket. Ask the next question you need answered.'
       : seedPrompt(request);
@@ -155,7 +171,8 @@ export class Engine {
   async startKb(text: string): Promise<LiveTurn> {
     const existing = this.turns.get(KB_SESSION_ID);
     if (existing) return existing;
-    const message = this.readSession(KB_SESSION_ID) ? text : `${kbSeedPrompt()}\n\n---\n\n${text}`;
+    const saved = this.readSession(KB_SESSION_ID, this.deps.harnesses.defaultId);
+    const message = saved ? text : `${kbSeedPrompt()}\n\n---\n\n${text}`;
     return this.beginTurn(KB_SESSION_ID, message, null);
   }
 
@@ -167,7 +184,8 @@ export class Engine {
   ): Promise<LiveTurn> {
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
-    const message = this.readSession(sessionId)
+    const saved = this.readSession(sessionId, this.resolveHarness(sessionId, null));
+    const message = saved
       ? text.trim() === ''
         ? 'Report the current board state and what this cell master has been doing.'
         : text
@@ -179,7 +197,8 @@ export class Engine {
   async startSetup(text: string, sessionId: string): Promise<LiveTurn> {
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
-    const message = this.readSession(sessionId)
+    const saved = this.readSession(sessionId, this.deps.harnesses.defaultId);
+    const message = saved
       ? text.trim() === ''
         ? 'Suggest sane defaults for the cell I am creating.'
         : text
@@ -223,7 +242,11 @@ export class Engine {
     };
 
     this.turns.set(id, turn);
-    this.parsers.set(id, this.harness.createParser(this.loadTranscript(id)));
+    // Resolve once per turn: the parser and the spawned child must agree even
+    // if the cell's harness changes while a turn is running.
+    const harnessId = this.resolveHarness(id, request);
+    this.sessionHarnesses.set(id, harnessId);
+    this.parsers.set(id, this.harnessFor(harnessId).createParser(this.loadTranscript(id)));
     if (request) this.repo.setAgentStatus(id, 'working');
     this.armWatchdog(id, turn, request);
 
@@ -294,6 +317,7 @@ export class Engine {
 
     this.turns.delete(id);
     this.parsers.delete(id);
+    this.sessionHarnesses.delete(id);
   }
 
   private broadcast(turn: LiveTurn, event: ClarifyEvent): void {
@@ -323,8 +347,8 @@ export class Engine {
     timeoutMs: number,
   ): void {
     if (turn.done || turn.cancelled) return;
-    const proc = this.procs.get(id);
-    const stderr = proc?.recentStderr().trim() ?? '';
+    const active = this.procs.get(id);
+    const stderr = active?.proc.recentStderr().trim() ?? '';
     const label = timeoutMs < 1_000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1_000)}s`;
     const message = `agent turn timed out after ${label}${stderr ? `\nstderr:\n${stderr}` : ''}`;
     turn.failure = message;
@@ -336,10 +360,10 @@ export class Engine {
       ...(stderr ? { stderr } : {}),
     });
     this.broadcast(turn, { t: 'error', message });
-    if (proc) {
+    if (active) {
       this.procs.delete(id);
-      proc.kill('SIGTERM');
-      const force = setTimeout(() => proc.kill('SIGKILL'), 2_000);
+      active.proc.kill('SIGTERM');
+      const force = setTimeout(() => active.proc.kill('SIGKILL'), 2_000);
       force.unref();
     }
     // A child that is stuck in `prepare()` may never resolve; finish the turn
@@ -355,16 +379,20 @@ export class Engine {
 
     for (const event of parser.push(line)) this.broadcast(turn, event);
 
-    if (parser.sessionId && parser.sessionId !== this.readSession(id)) {
-      this.writeSession(id, parser.sessionId);
+    const harnessId = this.sessionHarnesses.get(id);
+    if (harnessId && parser.sessionId && parser.sessionId !== this.readSession(id, harnessId)) {
+      this.writeSession(id, harnessId, parser.sessionId);
     }
 
     if (parser.finished) turn.resolve();
   }
 
-  private onExit(id: string, code: number | null): void {
-    const proc = this.procs.get(id);
-    const stderr = proc?.recentStderr().trim() ?? '';
+  private onExit(id: string, proc: AgentProcess, code: number | null): void {
+    const active = this.procs.get(id);
+    // A process replaced by a harness switch may exit later; it must not clear
+    // the new child's bookkeeping.
+    if (!active || active.proc !== proc) return;
+    const stderr = active.proc.recentStderr().trim() ?? '';
     this.procs.delete(id);
     const turn = this.turns.get(id);
     // A harness whose process ends after its final event has already finished
@@ -382,8 +410,16 @@ export class Engine {
   }
 
   private async ensureProc(id: string, request: Request | null): Promise<AgentProcess> {
+    const harnessId = this.sessionHarnesses.get(id) ?? this.resolveHarness(id, request);
     const existing = this.procs.get(id);
-    if (existing) return existing;
+    if (existing && existing.harnessId === harnessId) return existing.proc;
+    if (existing) {
+      // The cell moved to another adapter: never write to the old child again.
+      this.procs.delete(id);
+      existing.proc.kill('SIGTERM');
+      const force = setTimeout(() => existing.proc.kill('SIGKILL'), 2_000);
+      force.unref();
+    }
 
     const dir = requestDir(this.config, id);
     const scratch = path.join(dir, 'cwd');
@@ -402,42 +438,50 @@ export class Engine {
     }
 
     const cellId = request?.cellId ?? masterCellId(id);
-    const defaults = cellId ? (this.deps.cellDefaults?.(cellId) ?? null) : null;
+    const cell = cellId ? (this.deps.cellConfig?.(cellId) ?? null) : null;
     const draftId = isSetupSession(id) ? (setupDraftId(id) ?? undefined) : undefined;
+    const harness = this.harnessFor(harnessId);
 
-    const command = await this.harness.prepare({
+    const command = await harness.prepare({
       scope: request ? 'request' : id === KB_SESSION_ID ? 'kb' : draftId ? 'setup' : 'master',
       requestId: request ? id : '',
       ...(draftId ? { draftId } : {}),
       dir,
       cwd,
-      sessionId: this.readSession(id),
-      model: request?.model ?? defaults?.model ?? this.config.defaultModel ?? null,
-      effort: request?.effort ?? defaults?.effort ?? null,
+      sessionId: this.readSession(id, harnessId),
+      model: request?.model ?? cell?.model ?? this.config.defaultModels[harnessId] ?? null,
+      effort: request?.effort ?? cell?.effort ?? null,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });
-    const proc = this.harness.spawn(command);
+    const proc = harness.spawn(command);
 
-    this.procs.set(id, proc);
-    proc.onLine((line) => this.consume(id, line));
-    proc.onExit((code) => this.onExit(id, code));
+    this.procs.set(id, { harnessId, proc });
+    proc.onLine((line) => {
+      const active = this.procs.get(id);
+      if (active?.proc === proc) this.consume(id, line);
+    });
+    proc.onExit((code) => this.onExit(id, proc, code));
     return proc;
   }
 
-  private readSession(id: string): string | null {
+  private readSession(id: string, expectedHarness: HarnessId): string | null {
     try {
       const raw = readFileSync(path.join(requestDir(this.config, id), 'session.json'), 'utf8');
       const parsed = JSON.parse(raw) as Partial<StoredSession>;
+      const stored = isHarnessId(parsed.harness)
+        ? parsed.harness
+        : this.deps.harnesses.defaultId;
+      if (stored !== expectedHarness) return null;
       return typeof parsed.sessionId === 'string' ? parsed.sessionId : null;
     } catch {
       return null;
     }
   }
 
-  private writeSession(id: string, sessionId: string): void {
+  private writeSession(id: string, harness: HarnessId, sessionId: string): void {
     const dir = requestDir(this.config, id);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId }, null, 2));
+    writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ harness, sessionId }, null, 2));
   }
 
   private loadTranscript(id: string): TranscriptMsg[] {
@@ -463,12 +507,13 @@ export class Engine {
   }
 
   async dispose(id: string): Promise<void> {
-    const proc = this.procs.get(id);
+    const active = this.procs.get(id);
     const turn = this.turns.get(id);
     const request = this.repo.get(id);
     this.clearWatchdog(id);
-    proc?.kill();
+    active?.proc.kill();
     this.procs.delete(id);
+    this.sessionHarnesses.delete(id);
 
     if (turn && !turn.done) {
       // A terminal route can dispose a live turn. Finish it so the stream gets

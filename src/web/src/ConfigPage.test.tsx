@@ -28,6 +28,7 @@ const cell: Cell = {
   masterEnabled: true,
   masterIntervalMinutes: null,
   maxConcurrent: 3,
+  harness: 'opencode',
   model: null,
   effort: null,
   createdAt: 1,
@@ -112,6 +113,7 @@ describe('ConfigPage', () => {
     const interval = await screen.findByRole('spinbutton', { name: /interval/i });
     expect(interval).toHaveValue(5);
     expect(screen.getByText('/tmp/sandbox-harness/config.json')).toBeInTheDocument();
+    expect(await screen.findByText(/opencode/)).toBeInTheDocument();
 
     fireEvent.change(interval, { target: { value: '8' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));

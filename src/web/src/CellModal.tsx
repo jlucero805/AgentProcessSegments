@@ -4,10 +4,13 @@ import { ClarifyChat } from './ClarifyChat';
 import { ProcessEditor } from './ProcessEditor';
 import {
   EFFORT_LEVELS,
+  HARNESS_IDS,
+  HARNESS_LABELS,
   setupSessionId,
   type CellDetail,
   type CommandInfo,
   type Effort,
+  type HarnessId,
   type ModelOption,
   type ProcessConfig,
   type SegmentConfig,
@@ -38,6 +41,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [name, setName] = useState('');
   const [interval, setInterval] = useState('');
   const [maxConcurrent, setMaxConcurrent] = useState('3');
+  const [harness, setHarness] = useState<HarnessId | ''>('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState<Effort | ''>('');
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -70,6 +74,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     setName(cell?.name ?? '');
     setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
     setMaxConcurrent(String(cell?.maxConcurrent ?? 3));
+    setHarness(cell?.harness ?? '');
     setModel(cell?.model ?? '');
     setEffort(cell?.effort ?? '');
     setProcess(cell?.process ?? null);
@@ -80,31 +85,6 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     loadingProcessRef.current = true;
     setLoading(true);
     setSaving(false);
-
-    api
-      .getModels()
-      .then((result) => {
-        if (cancelled) return;
-        setModels(Array.isArray(result.models) ? result.models : []);
-        setEfforts(
-          Array.isArray(result.effortLevels) && result.effortLevels.length > 0
-            ? result.effortLevels
-            : EFFORT_LEVELS,
-        );
-        setSupportsEffort(result.supportsEffort !== false);
-        // New cells show the configured brain default instead of an opaque
-        // "CLI default" when the brain has one and the CLI advertises it.
-        if (
-          cell?.model == null &&
-          result.defaultModel &&
-          (result.models ?? []).some((option) => option.id === result.defaultModel)
-        ) {
-          setModel((current) => current || result.defaultModel || '');
-        }
-      })
-      .catch(() => {
-        // Model discovery is optional; the CLI default remains usable.
-      });
 
     const loadProcess = async () => {
       try {
@@ -139,6 +119,46 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
       void api.deleteCellDraft(newDraftId).catch(() => {});
     };
   }, [open, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Models and effort capability follow the selected harness. The change
+  // handler clears a stale model/effort before this fetch resolves.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    api
+      .getModels(false, harness || undefined)
+      .then((result) => {
+        if (cancelled) return;
+        const options = Array.isArray(result.models) ? result.models : [];
+        setModels(options);
+        setEfforts(
+          Array.isArray(result.effortLevels) && result.effortLevels.length > 0
+            ? result.effortLevels
+            : EFFORT_LEVELS,
+        );
+        setSupportsEffort(result.supportsEffort !== false);
+        setModel((current) => {
+          // New cells show the configured brain default when the harness
+          // advertises it; existing cells keep their explicit model. The
+          // harness change handler clears a stale value before this runs.
+          if (
+            !current &&
+            cell?.model == null &&
+            result.defaultModel &&
+            options.some((option) => option.id === result.defaultModel)
+          ) {
+            return result.defaultModel;
+          }
+          return current;
+        });
+      })
+      .catch(() => {
+        // Model discovery is optional; the CLI default remains usable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, key, harness]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the server-side draft in sync so the setup chat can read and edit it.
   useEffect(() => {
@@ -179,6 +199,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
             Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 50
               ? concurrency
               : 3,
+          harness: harness || null,
           model: model || null,
           effort: effort || null,
         }),
@@ -219,6 +240,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     name,
     interval,
     maxConcurrent,
+    harness,
     model,
     effort,
     syncAttempt,
@@ -233,6 +255,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         draft.masterIntervalMinutes ? String(draft.masterIntervalMinutes) : '',
       );
       setMaxConcurrent(String(draft.maxConcurrent));
+      setHarness(draft.harness ?? '');
       setModel(draft.model ?? '');
       setEffort(draft.effort ?? '');
       setProcess(draft.process);
@@ -316,6 +339,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         process,
         masterIntervalMinutes: minutes,
         maxConcurrent: concurrency,
+        harness: harness || null,
         model: model || null,
         effort: effort || null,
       };
@@ -356,6 +380,26 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
             onChange={(event) => setInterval(event.target.value)}
             placeholder="global default"
           />
+        </Field>
+
+        <Field label="Agent harness" hint="empty inherits the brain default">
+          <Select
+            value={harness}
+            onChange={(event) => {
+              const next = event.target.value as HarnessId | '';
+              if (next === harness) return;
+              setHarness(next);
+              setModel('');
+              setEffort('');
+            }}
+          >
+            <option value="">Brain default</option>
+            {HARNESS_IDS.map((id) => (
+              <option key={id} value={id}>
+                {HARNESS_LABELS[id]}
+              </option>
+            ))}
+          </Select>
         </Field>
 
         <div className="grid gap-3 sm:grid-cols-2">

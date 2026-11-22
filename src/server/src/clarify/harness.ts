@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import type { HarnessId } from '../domain/harness.js';
 import type { ClarifyEvent, TranscriptMsg } from '../domain/request.js';
 import type { ModelOption } from './models.js';
 import type { AgentProcess } from './transport.js';
@@ -80,4 +81,10 @@ export interface AgentHarness {
   spawn(command: HarnessCommand): AgentProcess;
   createParser(transcript: TranscriptMsg[]): TurnParserLike;
   probeModels(): Promise<ModelOption[] | null>;
+}
+
+/** One cached adapter per known harness, plus the brain's default. */
+export interface HarnessRegistry {
+  readonly defaultId: HarnessId;
+  get(id: HarnessId): AgentHarness;
 }

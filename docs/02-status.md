@@ -94,10 +94,13 @@ built and vended by the brain; real-CLI verification is still pending.
   `SBOX_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
   stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
-  probe behind one interface. `claude` is the default; `SBOX_HARNESS=opencode` selects
-  the OpenCode adapter, which runs `opencode run --format json --auto --standalone` per
-  turn, injects config through `OPENCODE_CONFIG_DIR`, resumes with `--session`, and
-  probes `opencode models`.
+  probe behind one interface, with a cached registry of `claude` and `opencode` adapters.
+  `SBOX_HARNESS` sets the process default; each cell can store its own `harness`, and
+  requests/masters resolve through that cell. Setup, KB, and unassigned sessions use the
+  default. Claude runs one long-lived `claude -p` stream-json child; OpenCode runs
+  `opencode run --format json --auto --standalone` per turn, injects config through
+  `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes `opencode models`. Session
+  ids are pinned to their adapter in `session.json`; model catalogs are per harness.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
@@ -177,7 +180,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 247 vitest cases, all passing: 164 server across 19 files and 83 web across 16 files,
+- 262 vitest cases, all passing: 177 server across 20 files and 85 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -221,10 +224,12 @@ built and vended by the brain; real-CLI verification is still pending.
   each turn's config, `--archived` keeps brain sessions out of the user's list, and
   `--auto` is the request-session permission posture (the KB session gets explicit deny
   rules).
-- `SBOX_HARNESS` selects the substrate; `SBOX_HARNESS_BIN` overrides the binary.
-  `SBOX_CLAUDE_BIN` remains the Claude-specific override.
+- `SBOX_HARNESS` selects the process default; `cells.harness` overrides it per cell.
+  `SBOX_CLAUDE_BIN` and `SBOX_OPENCODE_BIN` target each adapter; `SBOX_HARNESS_BIN`
+  remains a default-adapter-only fallback, and the adapter-specific value wins.
 - `GET /api/models` adds `harness` and `supportsEffort` alongside the spec's
   `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert (OpenCode).
+  `?harness=` and `?cellId=` select the catalog; no query uses the process default.
 - `GET /clarify` adds `active` alongside `started`/`transcript` so a reconnecting client
   knows whether a live turn can be reattached.
 - `POST /clarify/send` marks the request started when it is the first message, even if
@@ -265,7 +270,7 @@ GET    /api/requests/:id/clarify
 POST   /api/requests/:id/dispatch[?detach=1]             NDJSON or {started}
 POST   /api/requests/:id/finalize[?detach=1]             NDJSON or {started}
 POST   /api/requests/:id/index            {digest?,index?}
-GET    /api/models?refresh=1
+GET    /api/models[?refresh=1&harness=…|cellId=…]
 GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells

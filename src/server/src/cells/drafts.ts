@@ -1,3 +1,4 @@
+import type { HarnessId } from '../domain/harness.js';
 import type { Effort } from '../domain/request.js';
 import type { ProcessConfig } from '../process/definition.js';
 
@@ -7,6 +8,7 @@ export interface CellDraft {
   name: string;
   masterIntervalMinutes: number | null;
   maxConcurrent: number;
+  harness: HarnessId | null;
   model: string | null;
   effort: Effort | null;
   process: ProcessConfig;

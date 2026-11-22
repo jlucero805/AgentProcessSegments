@@ -1,3 +1,4 @@
+import type { HarnessId } from '../domain/harness.js';
 import { EFFORT_LEVELS } from '../domain/request.js';
 
 export interface ModelOption {
@@ -51,5 +52,21 @@ export class ModelCatalog {
       source: 'fallback',
       effortLevels: EFFORT_LEVELS,
     };
+  }
+}
+
+/** One catalog per harness so probe results and caches cannot bleed across adapters. */
+export class HarnessModelCatalog {
+  private readonly catalogs: Record<HarnessId, ModelCatalog>;
+
+  constructor(sources: Record<HarnessId, ModelSource>) {
+    this.catalogs = {
+      claude: new ModelCatalog(sources.claude),
+      opencode: new ModelCatalog(sources.opencode),
+    };
+  }
+
+  list(harness: HarnessId, refresh = false): Promise<ModelsResult> {
+    return this.catalogs[harness].list(refresh);
   }
 }

@@ -44,13 +44,16 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
       const doc = DOCS[slug];
       return doc ? jsonResponse(doc) : jsonResponse({ error: 'not_found' }, 404);
     }
-    if (url === '/api/models') {
+    if (url.startsWith('/api/models')) {
+      const cellId = new URL(url, 'http://localhost').searchParams.get('cellId');
+      const cell = cells.find((item) => item.id === cellId);
+      const harness = cell?.harness ?? 'opencode';
       return jsonResponse({
         models: [],
         source: 'fallback',
         effortLevels: EFFORTS,
-        harness: 'opencode',
-        supportsEffort: false,
+        harness,
+        supportsEffort: harness === 'claude',
       });
     }
     if (url === '/api/config') {
@@ -147,6 +150,34 @@ describe('App', () => {
     await waitFor(() => expect(window.location.search).toContain('page=skills'));
   });
 
+  it('shows the request cell harness in the drawer', async () => {
+    const process = makeProcessResponse();
+    const cell: CellDetail = {
+      id: 'c1',
+      name: 'Open cell',
+      masterEnabled: true,
+      masterIntervalMinutes: null,
+      maxConcurrent: 3,
+      harness: 'opencode',
+      model: null,
+      effort: null,
+      process: { version: process.version, segments: process.segments },
+      createdAt: 1,
+    };
+    const request = makeRequest({ id: 'req-cell', title: 'Cell card', cellId: cell.id });
+    const fetchMock = installFetch(request, [], [cell]);
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('Cell card'));
+
+    expect(await screen.findByText('harness: opencode')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url) === '/api/models?cellId=c1'),
+      ).toBe(true),
+    );
+  });
+
   it('keeps one chat thread across workflow segments', async () => {
     const request = makeRequest({
       id: 'a',
@@ -183,6 +214,7 @@ describe('App', () => {
       masterEnabled: true,
       masterIntervalMinutes: 3,
       maxConcurrent: 3,
+      harness: null,
       model: null,
       effort: null,
       process: {

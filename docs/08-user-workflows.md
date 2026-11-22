@@ -10,12 +10,15 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
 
 1. Open the sidebar and press **New cell** (or the pencil on an existing cell).
 2. Name the cell.
-3. Optionally set **Master interval (minutes)**. Empty inherits the global cadence; a
+3. Optionally set **Agent harness** to Claude Code or OpenCode. **Brain default** inherits
+   `SBOX_HARNESS`. Requests and this cell’s master use the chosen adapter; changing it
+   later starts that cell’s next turn on a fresh session.
+4. Optionally set **Master interval (minutes)**. Empty inherits the global cadence; a
    value gives this cell its own ticker.
-4. Set **Max concurrent requests** (default 3), **default model**, and **default
+5. Set **Max concurrent requests** (default 3), **default model**, and **default
    difficulty**. The master pauses new work when that many requests in the cell are
-   already `working`; a request’s own model/effort wins.
-5. The process editor opens with a full copy of the global default from
+   already `working`; a request’s own model/effort wins. Effort is disabled for OpenCode.
+6. The process editor opens with a full copy of the global default from
    `process.json`. Adjust the five segments:
    - **Requests** (intake): start clarification for unplanned work.
    - **Plan**: groom tickets and advance to Implement.
@@ -23,14 +26,15 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
    - **Review**: check the result; optionally create a draft change request.
    - **Merge**: optional single-worker bucket; rebase, test, push, then advance.
    - **Finalize**: produce the digest; the human still approves KB indexing.
-6. For each segment set the enabled switch, idle threshold, per-cycle cap, optional
+7. For each segment set the enabled switch, idle threshold, per-cycle cap, optional
    segment concurrency (Merge defaults to 1), prompt, ready marker, legal target, and
    follow-up rule.
-7. Press **Create cell**. The policy is stored on the cell as a snapshot.
-8. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
+8. Press **Create cell**. The policy is stored on the cell as a snapshot.
+9. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
 
 Existing cells with no policy inherit the global default. New cells snapshot it so later
-global edits do not silently rewrite every cell.
+global edits do not silently rewrite every cell. Existing cells with no harness inherit
+the process default.
 
 ## 2. Choose how far the cron should push
 
@@ -134,6 +138,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Scheduler switch, interval, unassigned flag | `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`) |
 | Global process template | `$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
+| Per-cell harness | `cells.harness` in SQLite (NULL = `SBOX_HARNESS`) |
 | Requests, cells, KB, events | SQLite (`SBOX_DB`) |
 | Session ids and transcripts | `$SBOX_DATA_DIR/requests/<id>/` |
 | Worktrees | `$SBOX_DATA_DIR/worktrees/<id>` |

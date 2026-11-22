@@ -287,7 +287,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-zinc-600">
                     {cell.masterIntervalMinutes ? `${cell.masterIntervalMinutes}m` : 'global'} ·{' '}
-                    {cell.maxConcurrent}×
+                    {cell.maxConcurrent}× · {cell.harness ?? 'brain default'}
                   </span>
                   {onEditCell ? (
                     <Button

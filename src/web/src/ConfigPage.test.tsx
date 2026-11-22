@@ -30,6 +30,7 @@ const cell: Cell = {
   masterEnabled: true,
   masterIntervalMinutes: null,
   maxConcurrent: 3,
+  harness: 'opencode',
   model: null,
   effort: null,
   createdAt: 1,

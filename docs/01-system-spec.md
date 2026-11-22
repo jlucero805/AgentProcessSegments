@@ -85,7 +85,14 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   - `dataDir` = `SBOX_DATA_DIR` ?? `~/.sandbox-harness` (per-request workdirs)
   - `pluginsDir` = `SBOX_PLUGINS_DIR` ?? `~/.sandbox-harness/plugins`
   - `brainUrl` = `SBOX_BRAIN_URL` ?? `http://127.0.0.1:<port>`, used by the MCP proxy
-  - `claudeBin` = `SBOX_CLAUDE_BIN` ?? `claude`
+  - `harness` = `SBOX_HARNESS` ?? `claude`; must be `claude` or `opencode`
+  - `harnessBins.claude` = `SBOX_CLAUDE_BIN` ?? `claude`;
+    `harnessBins.opencode` = `SBOX_OPENCODE_BIN` ?? `opencode`.
+    `SBOX_HARNESS_BIN` is the legacy fallback for the adapter selected by
+    `SBOX_HARNESS` only; the adapter-specific value wins when both are set.
+  - `defaultModels` = one fallback per adapter. `SBOX_DEFAULT_MODEL` overrides the
+    process-default harness; OpenCode otherwise gets
+    `opencode-go/deepseek-v4.1-flash`, Claude gets null.
 - **Run:** `node src/server/dist/app.js` with `SBOX_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
 
@@ -111,7 +118,9 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 
 ### `cells`
 
-`id` (uuid PK), `name`, `created_at`.
+`id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`,
+`harness` (null inherits the process default), `model`, `effort`, `process_json`,
+`created_at`. Requests inherit the cell harness; a cell master uses its cell's harness.
 
 ### `kb_entries`
 
@@ -196,14 +205,16 @@ object per line.
 
 ### Models, KB, plugins, cells
 
-- `GET /api/models?refresh=1` returns `{models[], source:'probe'|'fallback', effortLevels}`
+- `GET /api/models[?refresh=1][&harness=<id>|&cellId=<id>]` returns
+  `{models[], source:'probe'|'fallback', effortLevels, harness, supportsEffort,
+  defaultModel}`. `harness` and `cellId` are mutually exclusive.
 - `GET /api/kb`, `GET /api/kb?q=…&limit=…`, `POST /api/kb {requestId,title,content}`
 - `GET /api/plugins`, `POST /api/plugins {url, subdir?, name?}`,
   `DELETE /api/plugins/:name`
 - `GET /api/commands` returns installed plugins' slash commands and skills as
   `[{command, description, plugin}]`
-- `GET /api/cells`, `POST /api/cells {name}`, `PATCH /api/cells/:id {name}`,
-  `DELETE /api/cells/:id`
+- `GET /api/cells`, `POST /api/cells {name, harness?, model?, effort?, process?}`,
+  `PATCH /api/cells/:id {…}`, `DELETE /api/cells/:id`
 - `GET /ws` is a websocket skeleton (echo plus hello), reserved for an event bridge and
   unused.
 - When `webDir` exists, `@fastify/static` serves the SPA at `/` with an `index.html`
@@ -229,20 +240,26 @@ object per line.
 
 ## 6. The agent engine
 
-One persistent `claude -p` stream-json child per request, carried across all workflow
-steps and resumed across restarts.
+One persistent child per request, carried across all workflow steps and resumed across
+restarts. The adapter is chosen per session: a request or cell master resolves through
+its cell (`cells.harness`, then `SBOX_HARNESS`), while setup, KB, and unassigned sessions
+use the process default. The same resolved adapter creates the parser and spawns the
+child.
 
-- **Spawn:** `claude -p --input-format stream-json --output-format stream-json
-  --include-partial-messages --verbose --mcp-config <generated>
+- **Spawn:** Claude runs `claude -p --input-format stream-json --output-format
+  stream-json --include-partial-messages --verbose --mcp-config <generated>
   --strict-mcp-config --allowedTools <…> [--model …] [--effort …] [--resume <sid>]`,
   with `cwd` set to the request's worktree and
-  `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` in the environment. The `session_id` from
-  the `system/init` event is captured to `session.json`, then used with `--resume` on
-  later spawns, so memory survives a brain restart.
+  `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` in the environment. OpenCode runs
+  `opencode run --format json --auto --standalone --archived [--model …] [--session …]`.
+  The `session_id` from the adapter's init event is captured to `session.json` with the
+  harness id, then reused only by that adapter on later spawns. An in-flight turn keeps
+  its adapter; changing a cell's harness discards the cached child and session id before
+  the next turn.
 - **Allowed tools:** request sessions get `Write, Read, Edit, Bash, Skill, Glob, Grep`,
-  the harness MCP tools, and the user's own MCP servers, enumerated once per process
-  from `claude mcp list`. The KB session (`__kb__`) is read-only: `Read` plus the KB MCP
-  tools, no plugins, no request scope.
+  the harness MCP tools, and the user's own MCP servers (Claude reads
+  `~/.claude.json`/`.mcp.json`; OpenCode reads its config). The KB session (`__kb__`) is
+  read-only: `Read` plus the KB MCP tools, no plugins, no user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.
   `beginTurn` creates a `LiveTurn` with an event buffer, subscribers, a done flag, and a
   promise. Events are buffered and broadcast to every subscriber. `attach(id, emit)`
@@ -267,14 +284,17 @@ steps and resumed across restarts.
   workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
   terminal transitions.
 - **Workdirs:** `~/.sandbox-harness/requests/<id>/` holds `transcript.json`,
-  `session.json`, and `mcp-config.json`.
+  `session.json` (`{harness, sessionId}`), and the harness-specific config
+  (`mcp-config.json` or `opencode/opencode.json`).
 
 ### Models
 
-`EFFORT_LEVELS = low|medium|high|xhigh|max`. The model list is discovered by probing
-the `claude` CLI, because there is no `claude models` command. Results are cached for
-ten minutes and fall back to `HARDCODED_MODELS` with `source:'fallback'`, a manual list
-to update as models ship.
+`EFFORT_LEVELS = low|medium|high|xhigh|max`. Each harness has its own model catalog and
+ten-minute cache: Claude probes the CLI (there is no `claude models` command) and falls
+back to `HARDCODED_MODELS`; OpenCode probes `opencode models` and has no offline fallback.
+`GET /api/models?harness=<id>` or `?cellId=<id>` returns that adapter's list,
+`supportsEffort` (Claude only), and its default model. No query uses the process default;
+passing both parameters or an unknown harness is a 400.
 
 ### Model and effort guidance
 
@@ -282,8 +302,9 @@ to update as models ship.
 The snapshot below is a default to override, and should be re-verified as models ship.
 Model and effort are per-request (`--model`, `--effort`; null means the brain default,
 then the CLI default) and apply to that request's one persistent session across every
-step. `SBOX_DEFAULT_MODEL` sets the brain default; when the harness is OpenCode and the
-variable is unset, it defaults to `opencode-go/deepseek-v4.1-flash`.
+step. `SBOX_DEFAULT_MODEL` sets the process-default harness's fallback; per-cell model
+overrides win. OpenCode otherwise defaults to `opencode-go/deepseek-v4.1-flash`; Claude
+otherwise has no model default.
 
 **Current family** (id, tier, when to pick it, first-party USD per million in and out):
 
@@ -470,10 +491,11 @@ interface EditInput {
 // POST /api/requests/:id/index        { digest?: string | null; index?: boolean }
 // POST /api/kb                        { requestId: string; title: string; content: string }
 // POST /api/plugins                   { url: string; subdir?: string; name?: string }
-// POST /api/cells {name}; PATCH /api/cells/:id {name}
+// POST /api/cells {name, harness?, model?, effort?}; PATCH /api/cells/:id {…}
 
 interface ModelOption { id: string; label: string; }
-interface ModelsResult { models: ModelOption[]; source: 'probe' | 'fallback'; effortLevels: string[]; }
+interface ModelsResult { models: ModelOption[]; source: 'probe' | 'fallback'; effortLevels: string[];
+  harness: 'claude' | 'opencode'; supportsEffort: boolean; defaultModel: string | null; }
 
 interface PluginInfo  { name: string; description: string; dir: string; }
 interface CommandInfo { command: string; description: string; plugin: string; }

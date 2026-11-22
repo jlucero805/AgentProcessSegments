@@ -1,7 +1,24 @@
 import os from 'node:os';
 import path from 'node:path';
+import { HARNESS_IDS, isHarnessId, type HarnessId } from './domain/harness.js';
 
-export type HarnessId = 'claude' | 'opencode';
+export type { HarnessId };
+
+const IMPLICIT_DEFAULT_MODELS: Record<HarnessId, string | null> = {
+  claude: null,
+  // OpenCode's own default is a slow free tier; prefer the configured fast model.
+  opencode: 'opencode-go/deepseek-v4.1-flash',
+};
+
+function parseHarness(raw: string | undefined): HarnessId {
+  if (raw === undefined || raw === '') return 'claude';
+  if (!isHarnessId(raw)) {
+    throw new Error(
+      `unknown SBOX_HARNESS "${raw}"; expected one of ${HARNESS_IDS.join(', ')}`,
+    );
+  }
+  return raw;
+}
 
 export interface Config {
   host: string;
@@ -13,15 +30,20 @@ export interface Config {
   pluginsDir: string;
   brainUrl: string;
   harness: HarnessId;
+  /** The default adapter's binary; kept for callers that only need one. */
   harnessBin: string;
+  /** One binary per adapter, so a mixed-harness brain can find both CLIs. */
+  harnessBins: Record<HarnessId, string>;
   configPath: string;
   processPath: string;
   errorLogPath: string;
   errorLogMaxBytes: number;
   /** Hard ceiling for one agent turn; a silent child is killed with an error. */
   turnTimeoutMs: number;
-  /** Model used when neither the request nor its cell names one. */
+  /** Model used by the process-default harness when nothing else names one. */
   defaultModel: string | null;
+  /** Default model per adapter; SBOX_DEFAULT_MODEL only overrides the default adapter. */
+  defaultModels: Record<HarnessId, string | null>;
   terminalEnabled: boolean;
   terminalCwd: string;
 }
@@ -30,9 +52,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
   const home = os.homedir();
   const dataDir = env.SBOX_DATA_DIR ?? path.join(home, '.sandbox-harness');
   const port = Number(env.SBOX_PORT ?? 7391);
-  const harness: HarnessId = env.SBOX_HARNESS === 'opencode' ? 'opencode' : 'claude';
-  const defaultBin =
-    harness === 'opencode' ? 'opencode' : (env.SBOX_CLAUDE_BIN ?? 'claude');
+  const harness = parseHarness(env.SBOX_HARNESS);
+  // Adapter-specific binaries win. SBOX_HARNESS_BIN is the legacy fallback for
+  // the default adapter only, never for the other adapter.
+  const legacyBin = env.SBOX_HARNESS_BIN;
+  const harnessBins: Record<HarnessId, string> = {
+    claude:
+      env.SBOX_CLAUDE_BIN ??
+      (harness === 'claude' ? legacyBin : undefined) ??
+      'claude',
+    opencode:
+      env.SBOX_OPENCODE_BIN ??
+      (harness === 'opencode' ? legacyBin : undefined) ??
+      'opencode',
+  };
+
+  const explicitDefault = env.SBOX_DEFAULT_MODEL;
+  const defaultModels: Record<HarnessId, string | null> = {
+    claude:
+      harness === 'claude'
+        ? explicitDefault === undefined
+          ? IMPLICIT_DEFAULT_MODELS.claude
+          : explicitDefault === ''
+            ? null
+            : explicitDefault
+        : IMPLICIT_DEFAULT_MODELS.claude,
+    opencode:
+      harness === 'opencode'
+        ? explicitDefault === undefined
+          ? IMPLICIT_DEFAULT_MODELS.opencode
+          : explicitDefault === ''
+            ? null
+            : explicitDefault
+        : IMPLICIT_DEFAULT_MODELS.opencode,
+  };
 
   return {
     host: env.SBOX_HOST ?? '127.0.0.1',
@@ -45,7 +98,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     pluginsDir: env.SBOX_PLUGINS_DIR ?? path.join(dataDir, 'plugins'),
     brainUrl: env.SBOX_BRAIN_URL ?? `http://127.0.0.1:${port}`,
     harness,
-    harnessBin: env.SBOX_HARNESS_BIN ?? defaultBin,
+    harnessBin: harnessBins[harness],
+    harnessBins,
     configPath:
       env.SBOX_CONFIG ??
       path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'sandbox-harness', 'config.json'),
@@ -69,13 +123,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
       const value = Number(env.SBOX_TURN_TIMEOUT_MS ?? 10 * 60 * 1000);
       return Number.isFinite(value) && value > 0 ? value : 10 * 60 * 1000;
     })(),
-    // OpenCode's own default is a slow free tier. Prefer the configured fast
-    // model when no request or cell overrides it.
-    defaultModel:
-      env.SBOX_DEFAULT_MODEL === ''
-        ? null
-        : (env.SBOX_DEFAULT_MODEL ??
-          (harness === 'opencode' ? 'opencode-go/deepseek-v4.1-flash' : null)),
+    defaultModel: defaultModels[harness],
+    defaultModels,
     // The browser terminal is a direct shell, separate from agent sessions.
     // Disable with SBOX_TERMINAL=0 when the brain is exposed beyond loopback.
     terminalEnabled: env.SBOX_TERMINAL !== '0',

@@ -9,7 +9,13 @@ import {
   OpencodeProcess,
   probeOpencodeModels,
 } from '../src/clarify/harnesses/opencode.js';
-import { HARDCODED_MODELS, ModelCatalog } from '../src/clarify/models.js';
+import { createHarnessRegistry } from '../src/clarify/harnesses/index.js';
+import {
+  HARDCODED_MODELS,
+  HarnessModelCatalog,
+  ModelCatalog,
+} from '../src/clarify/models.js';
+import { loadConfig } from '../src/config.js';
 
 function workspace() {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-harness-'));
@@ -401,6 +407,58 @@ describe('OpencodeHarness', () => {
       { id: 'opencode-go/model-b', label: 'opencode-go/model-b' },
     ]);
     expect(await probeOpencodeModels(path.join(base, 'missing'))).toBeNull();
+  });
+});
+
+describe('HarnessRegistry', () => {
+  it('caches one adapter per harness and keeps the configured default', () => {
+    const { base } = workspace();
+    const config = loadConfig(
+      { SBOX_CLAUDE_BIN: '/opt/claude', SBOX_OPENCODE_BIN: '/opt/opencode' },
+      base,
+    );
+    const registry = createHarnessRegistry(config);
+    expect(registry.defaultId).toBe('claude');
+    expect(registry.get('claude')).toBe(registry.get('claude'));
+    expect(registry.get('opencode')).toBe(registry.get('opencode'));
+    expect(registry.get('claude')).not.toBe(registry.get('opencode'));
+    expect(registry.get('claude').id).toBe('claude');
+    expect(registry.get('opencode').id).toBe('opencode');
+  });
+});
+
+describe('HarnessModelCatalog', () => {
+  it('keeps probe caches and fallback lists separate per harness', async () => {
+    let claudeCalls = 0;
+    let openCalls = 0;
+    const catalogs = new HarnessModelCatalog({
+      claude: {
+        probeModels: async () => {
+          claudeCalls += 1;
+          return [{ id: 'claude-model', label: 'Claude model' }];
+        },
+        fallbackModels: [{ id: 'claude-fallback', label: 'Claude fallback' }],
+      },
+      opencode: {
+        probeModels: async () => {
+          openCalls += 1;
+          return null;
+        },
+        fallbackModels: [{ id: 'open-model', label: 'Open model' }],
+      },
+    });
+
+    const first = await catalogs.list('claude');
+    const second = await catalogs.list('claude');
+    expect(first).toMatchObject({ source: 'probe' });
+    expect(second).toMatchObject({ source: 'probe' });
+    expect(claudeCalls).toBe(1);
+
+    const open = await catalogs.list('opencode');
+    expect(open.source).toBe('fallback');
+    expect(open.models).toEqual([{ id: 'open-model', label: 'Open model' }]);
+    expect(openCalls).toBe(1);
+    expect(claudeCalls).toBe(1);
   });
 });
 

@@ -106,10 +106,14 @@ built and vended by the brain; real-CLI verification is still pending.
   `SBOX_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
   stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
-  probe behind one interface. `claude` is the default; `SBOX_HARNESS=opencode` selects
-  the OpenCode adapter, which runs `opencode run --format json --auto --standalone` per
-  turn, injects config through `OPENCODE_CONFIG_DIR`, resumes with `--session`, and
-  probes `opencode models`.
+  probe behind one interface, with a cached registry of `claude` and `opencode` adapters.
+  `SBOX_HARNESS` sets the process default; each cell can store its own `harness`, and
+  requests, cell masters, and summary sessions resolve through that cell. Setup, KB, and
+  unassigned sessions use the default. Claude runs one long-lived `claude -p` stream-json
+  child; OpenCode runs `opencode run --format json --auto --standalone` per turn, injects
+  config through `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes
+  `opencode models`. Session ids are pinned to their adapter in `session.json`; model
+  catalogs are per harness.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs

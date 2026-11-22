@@ -14,6 +14,7 @@ import { TurnParser } from '../src/clarify/stream.js';
 import type { AgentProcess } from '../src/clarify/transport.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { openDb, type Db } from '../src/db.js';
+import type { HarnessId } from '../src/domain/harness.js';
 import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
 import { PluginManager } from '../src/plugins/manager.js';
@@ -121,13 +122,15 @@ export class FakeAgentProcess implements AgentProcess {
 
 /** Records prepare/spawn calls and uses the real Claude stream parser. */
 export class FakeHarness implements AgentHarness {
-  readonly id = 'claude';
   readonly fallbackModels: readonly ModelOption[] = [];
   readonly sessions: HarnessSession[] = [];
   readonly commands: HarnessCommand[] = [];
   process: FakeAgentProcess | null = null;
 
-  constructor(private readonly respond: (text: string) => string[] = () => []) {}
+  constructor(
+    private readonly respond: (text: string) => string[] = () => [],
+    readonly id: HarnessId = 'claude',
+  ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
     this.sessions.push(session);
@@ -165,12 +168,15 @@ export interface Harness {
   usage: UsageRepository;
   plugins: PluginManager;
   harness: FakeHarness;
+  opencode: FakeHarness;
   engine: Engine;
 }
 
 export function createHarness(
   script: (text: string) => string[] = defaultScript,
-  cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null,
+  cellConfig?: (
+    cellId: string,
+  ) => { model: string | null; effort: Effort | null; harness: HarnessId | null } | null,
 ): Harness {
   const config = testConfig();
   const db = openDb(config.dbPath);
@@ -178,17 +184,39 @@ export function createHarness(
   const cells = new CellRepository(db);
   const kb = new KbRepository(db);
   const plugins = new PluginManager(config.pluginsDir);
-  const agentHarness = new FakeHarness(script);
+  const agentHarness = new FakeHarness(script, 'claude');
+  const opencodeHarness = new FakeHarness(script, 'opencode');
   const usage = new UsageRepository(db);
   const engine = new Engine({
     repo,
-    harness: agentHarness,
+    harnesses: {
+      defaultId: 'claude',
+      get: (id) => (id === 'opencode' ? opencodeHarness : agentHarness),
+    },
     config,
     usage,
     pluginDirs: () => plugins.installedPluginDirs(),
-    ...(cellDefaults ? { cellDefaults } : {}),
+    cellConfig:
+      cellConfig ??
+      ((cellId) => {
+        const cell = cells.get(cellId);
+        return cell
+          ? { model: cell.model, effort: cell.effort, harness: cell.harness }
+          : null;
+      }),
   });
-  return { config, db, repo, cells, kb, usage, plugins, harness: agentHarness, engine };
+  return {
+    config,
+    db,
+    repo,
+    cells,
+    kb,
+    usage,
+    plugins,
+    harness: agentHarness,
+    opencode: opencodeHarness,
+    engine,
+  };
 }
 
 /** Let queued microtasks (and the turn's finally block) run. */

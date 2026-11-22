@@ -10,6 +10,7 @@ const cells: Cell[] = [
     masterEnabled: true,
     masterIntervalMinutes: null,
     maxConcurrent: 3,
+    harness: null,
     model: null,
     effort: null,
     createdAt: 1,

@@ -117,9 +117,9 @@ These screenshots use a staged demo board in an isolated temp database, not live
 
 - Node 20 or newer
 - `git` for per-request worktrees
-- `claude` (default) or `opencode` on `PATH` to run real agent turns; choose with
-  `SBOX_HARNESS`. The core (database, workflows, HTTP, stream parsing) runs and is
-  tested without an agent CLI.
+- `claude` and/or `opencode` on `PATH` to run real agent turns. `SBOX_HARNESS` picks the
+  brain default, and each cell can override it, so one brain can mix both. The core
+  (database, workflows, HTTP, stream parsing) runs and is tested without an agent CLI.
 
 ## Quick start
 
@@ -144,9 +144,13 @@ Agent turns are bounded by `SBOX_TURN_TIMEOUT_MS` (default ten minutes); a live 
 child is killed and produces a visible error, and its recent stderr goes to the error log.
 Harness MCP calls time out after `SBOX_MCP_TIMEOUT_MS` (default 15 seconds).
 
-`SBOX_HARNESS=opencode` swaps the agent substrate; `SBOX_HARNESS_BIN` overrides the
-binary. The default is `claude`. `SBOX_DEFAULT_MODEL` sets the brain fallback model; with
-OpenCode it defaults to `opencode-go/deepseek-v4.1-flash`.
+`SBOX_HARNESS=claude` (the default) or `opencode` sets the brain default. Each cell can
+choose its own harness in the cell editor; a cell with **Brain default** inherits this
+value. `SBOX_CLAUDE_BIN` and `SBOX_OPENCODE_BIN` point at each adapter's binary;
+`SBOX_HARNESS_BIN` remains a legacy fallback for the default adapter only, and the
+adapter-specific value wins when both are set.
+`SBOX_DEFAULT_MODEL` sets the default harness's fallback model. OpenCode also has an
+implicit `opencode-go/deepseek-v4.1-flash` default; Claude has none unless configured.
 
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.

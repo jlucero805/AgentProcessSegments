@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError, streamNdjson } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { TranscriptList } from './TranscriptList';
@@ -11,6 +11,7 @@ import {
   STATE_LABELS,
   type Cell,
   type CommandInfo,
+  type HarnessId,
   type ModelOption,
   type Request,
   type State,
@@ -56,7 +57,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   const [cells, setCells] = useState<Cell[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
-  const [harness, setHarness] = useState<string | null>(null);
+  const [harness, setHarness] = useState<HarnessId | null>(null);
   const [supportsEffort, setSupportsEffort] = useState(true);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [transcript, setTranscript] = useState<TranscriptMsg[]>([]);
@@ -75,20 +76,13 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       setForm(formFromRequest(found));
       setDigest(found.digest ?? '');
 
-      const [clarify, modelResult, commandList, skillList, cellList] = await Promise.all([
+      const [clarify, commandList, skillList, cellList] = await Promise.all([
         api.getClarify(id).catch(() => ({ started: found.clarifyStarted, transcript: [] })),
-        api.getModels().catch(() => null),
         api.getCommands().catch(() => [] as CommandInfo[]),
         api.getSkills(id).catch(() => []),
         api.getCells().catch(() => [] as Cell[]),
       ]);
       setTranscript(clarify.transcript);
-      if (modelResult) {
-        setModels(modelResult.models);
-        setEfforts(modelResult.effortLevels);
-        setHarness(modelResult.harness ?? null);
-        setSupportsEffort(modelResult.supportsEffort !== false);
-      }
       setCommands(mergeSlashCommands(commandList, skillList));
       setCells(cellList);
     } catch (error) {
@@ -116,6 +110,47 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   useEffect(() => {
     api.markSeen(id).catch(() => {});
   }, [id]);
+
+  // The request inherits its cell's harness. Follow a cell change and clear a
+  // model id that the new adapter does not advertise. The first load keeps the
+  // request's explicit model even when a probe falls back to a partial list.
+  const modelContextRef = useRef<string | null | undefined>(undefined);
+  const cellId = form?.cellId ?? '';
+  useEffect(() => {
+    if (!form) return;
+    const previous = modelContextRef.current;
+    modelContextRef.current = cellId;
+    let cancelled = false;
+    api
+      .getModels(false, undefined, cellId || undefined)
+      .then((result) => {
+        if (cancelled) return;
+        const options = Array.isArray(result.models) ? result.models : [];
+        setModels(options);
+        setEfforts(
+          Array.isArray(result.effortLevels) && result.effortLevels.length > 0
+            ? result.effortLevels
+            : EFFORT_LEVELS,
+        );
+        setHarness(result.harness ?? null);
+        setSupportsEffort(result.supportsEffort !== false);
+        setForm((current) =>
+          previous !== undefined &&
+          previous !== cellId &&
+          current &&
+          current.model &&
+          !options.some((option) => option.id === current.model)
+            ? { ...current, model: '' }
+            : current,
+        );
+      })
+      .catch(() => {
+        // Model discovery is optional.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cellId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <K extends keyof RequestFormState>(key: K, value: RequestFormState[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));

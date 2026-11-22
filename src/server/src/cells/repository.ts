@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
+import { isHarnessId, type HarnessId } from '../domain/harness.js';
 import type { Effort } from '../domain/request.js';
 import { DEFAULT_MAX_CONCURRENT } from '../domain/request.js';
 import { normalizeProcess, processSchema } from '../process/defaults.js';
@@ -11,6 +12,7 @@ interface CellRow {
   master_enabled: number;
   master_interval_minutes: number | null;
   max_concurrent: number;
+  harness: HarnessId | null;
   model: string | null;
   effort: Effort | null;
   process_json: string | null;
@@ -41,6 +43,7 @@ function toCell(row: CellRow): CellDetail {
     masterEnabled: row.master_enabled === 1,
     masterIntervalMinutes: row.master_interval_minutes,
     maxConcurrent: row.max_concurrent ?? DEFAULT_MAX_CONCURRENT,
+    harness: isHarnessId(row.harness) ? row.harness : null,
     model: row.model,
     effort: row.effort,
     process: parseProcess(row.process_json),
@@ -73,6 +76,7 @@ export class CellRepository {
     masterIntervalMinutes: number | null = null,
     options: {
       maxConcurrent?: number;
+      harness?: HarnessId | null;
       model?: string | null;
       effort?: Effort | null;
     } = {},
@@ -81,15 +85,16 @@ export class CellRepository {
     this.db
       .prepare(
         `INSERT INTO cells
-           (id, name, master_enabled, master_interval_minutes, max_concurrent, model, effort,
-            process_json, created_at)
-         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+           (id, name, master_enabled, master_interval_minutes, max_concurrent, harness, model,
+            effort, process_json, created_at)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         name,
         masterIntervalMinutes,
         options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT,
+        options.harness ?? null,
         options.model ?? null,
         options.effort ?? null,
         process ? JSON.stringify(process) : null,
@@ -118,6 +123,14 @@ export class CellRepository {
     const result = this.db
       .prepare('UPDATE cells SET max_concurrent = ? WHERE id = ?')
       .run(maxConcurrent, id);
+    if (result.changes === 0) throw new CellNotFoundError(id);
+    return this.require(id);
+  }
+
+  setHarness(id: string, harness: HarnessId | null): CellDetail {
+    const result = this.db
+      .prepare('UPDATE cells SET harness = ? WHERE id = ?')
+      .run(harness, id);
     if (result.changes === 0) throw new CellNotFoundError(id);
     return this.require(id);
   }

@@ -260,6 +260,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
+32. **Harness choice is per cell and pinned per session.** `cells.harness` NULL inherits
+    `config.harness`. Requests, cell masters, and summary sessions resolve their adapter
+    through the cell; setup, KB, and unassigned sessions use the process default.
+    `session.json` stores the harness with the session id and usage, and an id from
+    another adapter is never resumed.
 
 ## Extension recipes
 
@@ -287,9 +292,11 @@ route the new event through `Engine.broadcast`. Nothing in a parser may touch a 
 or disk.
 
 **Add a harness.** Implement `AgentHarness` in `clarify/harnesses/<id>.ts` (`prepare`,
-`spawn`, `createParser`, `probeModels`, `fallbackModels`), register it in
-`clarify/harnesses/index.ts` behind `SBOX_HARNESS`, and add prepare plus parser tests in
-`test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`.
+`spawn`, `createParser`, `probeModels`, `fallbackModels`), add it to `HARNESS_IDS` in
+`domain/harness.ts`, register it in the cached registry in `clarify/harnesses/index.ts`,
+and add prepare plus parser tests in `test/harness.test.ts` and a stream test. Keep
+per-session files inside `session.dir`, and pin `session.json` to the adapter id so a
+harness switch cannot resume the wrong session.
 
 **Add or change a process segment.** Update `process/definition.ts`, `process/defaults.ts`
 (defaults plus prompt), the UI labels, and `test/process.test.ts`. Advancement must be a

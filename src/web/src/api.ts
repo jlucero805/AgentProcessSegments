@@ -7,6 +7,7 @@ import type {
   ConfigResponse,
   DocContent,
   DocPage,
+  HarnessId,
   KbEntry,
   MasterConfig,
   MasterEvent,
@@ -205,8 +206,14 @@ export const api = {
       body: JSON.stringify({ digest, index }),
     });
   },
-  getModels(refresh = false): Promise<ModelsResult> {
-    return request(withQuery('/api/models', refresh ? { refresh: 1 } : {}));
+  getModels(refresh = false, harness?: HarnessId, cellId?: string): Promise<ModelsResult> {
+    return request(
+      withQuery('/api/models', {
+        ...(refresh ? { refresh: 1 } : {}),
+        ...(harness ? { harness } : {}),
+        ...(cellId ? { cellId } : {}),
+      }),
+    );
   },
   getKb(q?: string, limit?: number): Promise<KbEntry[]> {
     return request(withQuery('/api/kb', { q, limit }));
@@ -225,6 +232,7 @@ export const api = {
     process?: ProcessConfig;
     masterIntervalMinutes?: number | null;
     maxConcurrent?: number;
+    harness?: HarnessId | null;
     model?: string | null;
     effort?: string | null;
   }): Promise<CellDetail> {
@@ -240,6 +248,7 @@ export const api = {
       masterEnabled?: boolean;
       masterIntervalMinutes?: number | null;
       maxConcurrent?: number;
+      harness?: HarnessId | null;
       model?: string | null;
       effort?: string | null;
       process?: ProcessConfig | null;

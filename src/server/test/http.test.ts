@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellDraftStore } from '../src/cells/drafts.js';
-import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
+import { HarnessModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { MASTER_SESSION_ID } from '../src/clarify/engine.js';
 import { buildServer } from '../src/http/server.js';
 import { MasterEventRepository } from '../src/master/events.js';
@@ -33,6 +33,10 @@ async function makeApp(
   script?: (text: string) => string[],
 ): Promise<Open> {
   const h = createHarness(script);
+  const merged = { ...h.config, ...config };
+  if (config.defaultModel !== undefined) {
+    merged.defaultModels = { ...merged.defaultModels, [merged.harness]: config.defaultModel };
+  }
   const settings = new SettingsStore(h.config.configPath);
   const process = new ProcessStore(h.config.processPath, () => defaultProcess(settings.get().master));
   const skills = new SkillCatalog({ home: h.config.dataDir, cwd: h.config.dataDir, env: {} });
@@ -62,7 +66,10 @@ async function makeApp(
     drafts: new CellDraftStore(),
     kb: h.kb,
     engine: h.engine,
-    models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
+    models: new HarnessModelCatalog({
+      claude: { probeModels: async () => null, fallbackModels: HARDCODED_MODELS },
+      opencode: { probeModels: async () => null, fallbackModels: HARDCODED_MODELS },
+    }),
     usage: h.usage,
     plugins: h.plugins,
     settings,
@@ -679,6 +686,61 @@ describe('http api', () => {
     expect(body.defaultModel).toBe('opencode-go/deepseek-v4.1-flash');
   });
 
+  it('reports models for an explicit harness or a cell', async () => {
+    await makeApp();
+    const claude = await call('GET', '/api/models?harness=claude');
+    expect(claude.json()).toMatchObject({
+      harness: 'claude',
+      supportsEffort: true,
+      defaultModel: null,
+    });
+
+    const open = await call('GET', '/api/models?harness=opencode');
+    expect(open.json()).toMatchObject({
+      harness: 'opencode',
+      supportsEffort: false,
+      defaultModel: 'opencode-go/deepseek-v4.1-flash',
+    });
+
+    const created = await call('POST', '/api/cells', { name: 'Open cell', harness: 'opencode' });
+    const byCell = await call('GET', `/api/models?cellId=${created.json().id}`);
+    expect(byCell.json()).toMatchObject({ harness: 'opencode', supportsEffort: false });
+
+    const inherited = await call('POST', '/api/cells', { name: 'Inherited cell' });
+    const byInherited = await call('GET', `/api/models?cellId=${inherited.json().id}`);
+    expect(byInherited.json()).toMatchObject({ harness: 'claude', supportsEffort: true });
+
+    expect((await call('GET', '/api/models?harness=claude&cellId=x')).status).toBe(400);
+    expect((await call('GET', '/api/models?harness=gemini')).status).toBe(400);
+    expect((await call('GET', '/api/models?cellId=missing')).status).toBe(404);
+  });
+
+  it('validates a cell harness and clears incompatible model defaults', async () => {
+    await makeApp();
+    const created = await call('POST', '/api/cells', {
+      name: 'Claude cell',
+      harness: 'claude',
+      model: 'claude-opus-5-5',
+      effort: 'high',
+    });
+    expect(created.json()).toMatchObject({ harness: 'claude', model: 'claude-opus-5-5' });
+
+    const switched = await call('PATCH', `/api/cells/${created.json().id}`, { harness: 'opencode' });
+    expect(switched.json()).toMatchObject({ harness: 'opencode', model: null, effort: null });
+
+    const explicit = await call('PATCH', `/api/cells/${created.json().id}`, {
+      harness: 'opencode',
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'low',
+    });
+    expect(explicit.json()).toMatchObject({
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: 'low',
+    });
+
+    expect((await call('POST', '/api/cells', { name: 'Bad', harness: 'gemini' })).status).toBe(400);
+  });
+
   it('reports a live clarify turn and clears it when the turn finishes', async () => {
     const { h } = await makeApp({}, () => []);
     const request = h.repo.create({ title: 'Live snapshot' });
@@ -749,6 +811,7 @@ describe('http api', () => {
     });
     expect(created.status).toBe(200);
     expect(created.json().name).toBe('Draft cell');
+    expect(created.json().harness).toBeNull();
 
     const segments = created.json().process.segments as Array<{ id: string; enabled: boolean }>;
     const intake = segments.find((segment) => segment.id === 'intake');
@@ -781,6 +844,9 @@ describe('http api', () => {
       followUps: { enabled: true, marker: 'FOLLOW-UP:' },
     });
     expect(updatedSegments.find((segment) => segment.id === 'intake')?.enabled).toBe(true);
+
+    const withHarness = await call('PATCH', `/api/cell-drafts/${id}`, { harness: 'opencode' });
+    expect(withHarness.json().harness).toBe('opencode');
 
     const illegal = await call('PATCH', `/api/cell-drafts/${id}`, {
       segmentUpdates: [{ id: 'intake', advanceTo: 'dispatch' }],

@@ -54,15 +54,20 @@ describe('cells', () => {
 
     const cell = cells.create('Strict repo', process, 3, {
       maxConcurrent: 2,
+      harness: 'opencode',
       model: 'cell-model',
       effort: 'high',
     });
     expect(cells.get(cell.id)?.process?.segments[0]?.enabled).toBe(true);
     expect(cells.get(cell.id)?.masterIntervalMinutes).toBe(3);
     expect(cells.get(cell.id)?.maxConcurrent).toBe(2);
+    expect(cells.get(cell.id)?.harness).toBe('opencode');
     expect(cells.get(cell.id)?.model).toBe('cell-model');
     expect(cells.get(cell.id)?.effort).toBe('high');
     expect(cells.getProcess(cell.id)?.segments[0]?.enabled).toBe(true);
+
+    expect(cells.setHarness(cell.id, 'claude').harness).toBe('claude');
+    expect(cells.setHarness(cell.id, null).harness).toBeNull();
 
     const cleared = cells.setProcess(cell.id, null);
     expect(cleared.process).toBeNull();

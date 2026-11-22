@@ -19,6 +19,7 @@ describe('db migrations', () => {
     expect(columns(db, 'requests')).toContain('cell_id');
     expect(columns(db, 'requests')).toContain('agent_status');
     expect(columns(db, 'cells')).toContain('master_enabled');
+    expect(columns(db, 'cells')).toContain('harness');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
@@ -59,6 +60,7 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('process_json');
     expect(columns(db, 'cells')).toContain('master_interval_minutes');
     expect(columns(db, 'cells')).toContain('max_concurrent');
+    expect(columns(db, 'cells')).toContain('harness');
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );

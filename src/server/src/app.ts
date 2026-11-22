@@ -2,8 +2,8 @@ import { pathToFileURL } from 'node:url';
 import { CellRepository } from './cells/repository.js';
 import { CellDraftStore } from './cells/drafts.js';
 import { Engine } from './clarify/engine.js';
-import { createHarness } from './clarify/harnesses/index.js';
-import { ModelCatalog } from './clarify/models.js';
+import { createHarnessRegistry } from './clarify/harnesses/index.js';
+import { HarnessModelCatalog } from './clarify/models.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { DocsService } from './docs/service.js';
@@ -43,20 +43,23 @@ export async function main(): Promise<void> {
       () => defaultProcess(settings.get().master),
       errors,
     );
-    const harness = createHarness(config);
+    const harnesses = createHarnessRegistry(config);
     const engine = new Engine({
       repo,
-      harness,
+      harnesses,
       config,
       usage,
       pluginDirs: () => plugins.installedPluginDirs(),
       errors,
-      cellDefaults: (cellId) => {
+      cellConfig: (cellId) => {
         const cell = cells.get(cellId);
-        return cell ? { model: cell.model, effort: cell.effort } : null;
+        return cell ? { model: cell.model, effort: cell.effort, harness: cell.harness } : null;
       },
     });
-    const models = new ModelCatalog(harness);
+    const models = new HarnessModelCatalog({
+      claude: harnesses.get('claude'),
+      opencode: harnesses.get('opencode'),
+    });
     const skills = new SkillCatalog();
     const docs = new DocsService(config.docsDir);
     const masterEvents = new MasterEventRepository(db);

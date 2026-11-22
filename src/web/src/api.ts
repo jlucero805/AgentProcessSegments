@@ -5,6 +5,8 @@ import type {
   ClarifyState,
   CommandInfo,
   ConfigResponse,
+  DocContent,
+  DocPage,
   KbEntry,
   MasterConfig,
   MasterEvent,
@@ -245,6 +247,12 @@ export const api = {
   },
   getSkills(requestId?: string): Promise<SkillInfo[]> {
     return request(withQuery('/api/skills', { requestId }));
+  },
+  getDocs(): Promise<{ pages: DocPage[] }> {
+    return request('/api/docs');
+  },
+  getDoc(slug: string): Promise<DocContent> {
+    return request(`/api/docs/${encodeURIComponent(slug)}`);
   },
   getCellDraft(id: string): Promise<CellDraft> {
     return request(`/api/cell-drafts/${encodeURIComponent(id)}`);

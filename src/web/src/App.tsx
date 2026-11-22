@@ -1,9 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Board } from './Board';
 import { CellBar } from './CellBar';
 import { CellModal } from './CellModal';
 import { ConfigPage } from './ConfigPage';
 import { CreateModal } from './CreateModal';
+import { HelpPanel } from './HelpPanel';
 import { KbEntries } from './KbEntries';
 import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
@@ -19,14 +20,15 @@ const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
 );
 
-function readInitialRoute(): {
+function readRoute(): {
   page: Page;
   cellId: string | null;
   detailId: string | null;
   masterOpen: boolean;
+  helpSlug: string | null;
 } {
   if (typeof window === 'undefined') {
-    return { page: 'board', cellId: null, detailId: null, masterOpen: false };
+    return { page: 'board', cellId: null, detailId: null, masterOpen: false, helpSlug: null };
   }
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('page');
@@ -38,6 +40,7 @@ function readInitialRoute(): {
     cellId: params.get('cell'),
     detailId: masterOpen ? null : params.get('request'),
     masterOpen,
+    helpSlug: params.get('help') || null,
   };
 }
 
@@ -65,12 +68,13 @@ function NavButton({
 }
 
 export function App() {
-  const [initialRoute] = useState(readInitialRoute);
+  const [initialRoute] = useState(readRoute);
   const [page, setPage] = useState<Page>(initialRoute.page);
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [cellId, setCellId] = useState<string | null>(initialRoute.cellId);
   const [detailId, setDetailId] = useState<string | null>(initialRoute.detailId);
   const [masterOpen, setMasterOpen] = useState(initialRoute.masterOpen);
+  const [helpSlug, setHelpSlug] = useState<string | null>(initialRoute.helpSlug);
   const [cellModalOpen, setCellModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
   const [terminalAvailable, setTerminalAvailable] = useState(false);
@@ -82,6 +86,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [boardKey, setBoardKey] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
+  const helpButtonRef = useRef<HTMLButtonElement | null>(null);
+  const helpWasOpen = useRef(false);
 
   const loadCells = useCallback(async () => {
     try {
@@ -124,21 +130,42 @@ export function App() {
 
   const refreshBoard = useCallback(() => setBoardKey((key) => key + 1), []);
 
-  // Keep the current page, floor, and open request in the URL so a reload (or a
-  // phone switching apps) comes back to the same place.
+  // Keep the current page, floor, request, docs page, and open overlay in the URL
+  // so a reload (or a phone switching apps) comes back to the same place.
   useEffect(() => {
     const params = new URLSearchParams();
     if (page !== 'board') params.set('page', page);
     if (cellId) params.set('cell', cellId);
     if (detailId) params.set('request', detailId);
     if (masterOpen) params.set('master', '1');
+    if (helpSlug) params.set('help', helpSlug);
     const search = params.toString();
     window.history.replaceState(
       null,
       '',
       `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
     );
-  }, [page, cellId, detailId, masterOpen]);
+  }, [page, cellId, detailId, masterOpen, helpSlug]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = readRoute();
+      setPage(route.page);
+      setCellId(route.cellId);
+      setDetailId(route.detailId);
+      setMasterOpen(route.masterOpen);
+      setHelpSlug(route.helpSlug);
+      setNavOpen(false);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // Closing the docs returns focus to the button that opened them.
+  useEffect(() => {
+    if (helpWasOpen.current && !helpSlug) helpButtonRef.current?.focus();
+    helpWasOpen.current = helpSlug !== null;
+  }, [helpSlug]);
 
   useEffect(() => {
     if (!navOpen) return;
@@ -153,8 +180,29 @@ export function App() {
     setPage(next);
     setDetailId(null);
     setMasterOpen(false);
+    setHelpSlug(null);
     setNavOpen(false);
   };
+
+  const openHelp = () => {
+    setHelpSlug((current) => current ?? 'getting-started');
+    setNavOpen(false);
+  };
+
+  const selectHelpPage = (next: string) => {
+    if (next === helpSlug) return;
+    setHelpSlug(next);
+    const params = new URLSearchParams(window.location.search);
+    params.set('help', next);
+    const search = params.toString();
+    window.history.pushState(
+      null,
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}`,
+    );
+  };
+
+  const closeHelp = () => setHelpSlug(null);
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-200">
@@ -285,6 +333,34 @@ export function App() {
               </div>
             </div>
           ) : null}
+          <hr className="my-2 border-zinc-900" />
+          <button
+            ref={helpButtonRef}
+            type="button"
+            aria-label="Help"
+            aria-current={helpSlug ? 'page' : undefined}
+            onClick={openHelp}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+              helpSlug
+                ? 'bg-zinc-800 text-zinc-100'
+                : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200',
+            )}
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              className="h-4 w-4 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+            >
+              <circle cx="8" cy="8" r="6.25" />
+              <path d="M6.1 6.1a1.95 1.95 0 1 1 2.55 1.86c-.4.15-.65.5-.65.93v.38" />
+              <path d="M8 12.05h.01" strokeLinecap="round" strokeWidth="1.8" />
+            </svg>
+            <span>Help</span>
+          </button>
         </div>
       </aside>
 
@@ -365,6 +441,10 @@ export function App() {
         }}
         onError={setError}
       />
+
+      {helpSlug ? (
+        <HelpPanel slug={helpSlug} onNavigate={selectHelpPage} onClose={closeHelp} />
+      ) : null}
 
       {terminalOpen && terminalAvailable ? (
         <Suspense fallback={null}>

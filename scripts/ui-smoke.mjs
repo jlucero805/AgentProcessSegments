@@ -250,6 +250,28 @@ try {
     }
   }
 
+  await openMenu('help');
+  await clickText('Help');
+  await page.waitForSelector('[role="dialog"][aria-label="Documentation"]', { timeout: 10_000 });
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.toLowerCase().includes('getting started') &&
+      document.body.innerText.toLowerCase().includes('sandbox harness'),
+    { timeout: 10_000 },
+  );
+  if (!mobile) {
+    await clickText('Process segments');
+    await page.waitForFunction(
+      () => window.location.search.includes('help=07-process-segments'),
+      { timeout: 5_000 },
+    );
+  }
+  await page.click('button[aria-label="Close help"]');
+  await page.waitForSelector('[role="dialog"][aria-label="Documentation"]', {
+    hidden: true,
+    timeout: 5_000,
+  });
+
   await openMenu('floor');
   await clickText('Floor');
   await page.waitForFunction(

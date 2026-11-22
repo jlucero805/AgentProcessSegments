@@ -8,6 +8,7 @@ export interface Config {
   port: number;
   dbPath: string;
   webDir: string;
+  docsDir: string;
   dataDir: string;
   pluginsDir: string;
   brainUrl: string;
@@ -34,6 +35,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     port,
     dbPath: env.SBOX_DB ?? path.join(cwd, 'sandbox-harness.sqlite'),
     webDir: env.SBOX_WEB_DIR ?? path.join(cwd, 'src', 'web', 'dist'),
+    // The in-app Help surface reads the repo's Markdown and screenshots.
+    docsDir: env.SBOX_DOCS_DIR ?? path.join(cwd, 'docs'),
     dataDir,
     pluginsDir: env.SBOX_PLUGINS_DIR ?? path.join(dataDir, 'plugins'),
     brainUrl: env.SBOX_BRAIN_URL ?? `http://127.0.0.1:${port}`,

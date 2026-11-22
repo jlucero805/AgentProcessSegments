@@ -79,6 +79,18 @@ export interface ProcessResponse extends ProcessConfig {
   path: string;
 }
 
+export interface DocPage {
+  slug: string;
+  title: string;
+  group: string;
+  description?: string;
+}
+
+export interface DocContent extends DocPage {
+  markdown: string;
+  updatedAt: number;
+}
+
 export interface CellDraft {
   id: string;
   name: string;

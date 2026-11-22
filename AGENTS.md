@@ -36,7 +36,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 209 vitest cases: 144 server across 18 files and 65 web across 14 files, all green.
+- 228 vitest cases: 151 server across 19 files and 77 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -50,9 +50,10 @@ digests.
   settings and a structured process editor, configurable global and per-cell process
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
-  defines the policy up front with an advisory setup chat, per-cell concurrency caps and
-  model/effort defaults, an optional single-worker Merge step with per-segment caps, a
-  desktop-only maximizable PTY terminal independent of agent sessions, a systemd user
+  defines the policy up front with an editable setup chat, per-cell concurrency caps and
+  model/effort defaults, an optional single-worker Merge step with per-segment caps, an
+  in-app Help docs viewer, a desktop-only maximizable PTY terminal independent of agent
+  sessions, a systemd user
   unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, and a GitHub Actions CI workflow template in
@@ -68,7 +69,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 144 server + 65 web
+npm test                       # 151 server + 77 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)

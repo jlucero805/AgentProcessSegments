@@ -189,4 +189,7 @@ states dispose the session as before; disabling the master stops scheduling imme
   `maxConcurrent`, single-merge walkthrough, old-process upgrade, tests and docs.
 - [x] **32. Cell wizard chat** — transient `__setup__` chat with a server-backed draft,
   `get_cell_draft`/`update_cell_draft` tools, live form refresh, close cleanup.
-- [ ] **Backlog 33. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **33. In-app Help** — manifest-backed docs API, sidebar Help overlay, grouped nav,
+  markdown with anchors, copy-as-Markdown, `?help` deep links, screenshot assets,
+  traversal guards, and tests.
+- [ ] **Backlog 34. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

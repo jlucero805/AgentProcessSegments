@@ -28,6 +28,8 @@ Environment=SBOX_HOST=127.0.0.1
 Environment=SBOX_PORT=7391
 Environment=SBOX_DB=%h/sandbox-harness/sandbox-harness.sqlite
 Environment=SBOX_WEB_DIR=%h/sandbox-harness/src/web/dist
+# The in-app Help surface reads Markdown and screenshots from here.
+Environment=SBOX_DOCS_DIR=%h/sandbox-harness/docs
 Environment=SBOX_DATA_DIR=%h/.sandbox-harness
 # systemd does not read the shell profile. Keep node, git, claude, and opencode on PATH.
 Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin

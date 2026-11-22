@@ -129,6 +129,11 @@ SBOX_DB=$PWD/sandbox-harness.sqlite node src/server/dist/app.js
 The brain binds `127.0.0.1:7391` unless `SBOX_HOST` / `SBOX_PORT` say otherwise. Do not
 widen the bind. A tunnel is the audience gate, not the process.
 
+The sidebar **Help** row renders the operator docs in-app from the same origin, including
+the screenshots, with grouped navigation and `?help=<slug>` deep links. The brain reads
+them from `SBOX_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
+build.
+
 `SBOX_HARNESS=opencode` swaps the agent substrate; `SBOX_HARNESS_BIN` overrides the
 binary. The default is `claude`.
 
@@ -178,6 +183,7 @@ src/server/src
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   model catalog with a cached probe and harness fallback
   settings.ts         XDG scheduler settings, zod validation, atomic write
+  docs/service.ts     explicit Help manifest, Markdown reads, screenshot assets
   process/            six segment definitions (incl. Merge), defaults, store, follow-up parser
   master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
@@ -190,8 +196,10 @@ src/server/src
 src/web
   vite.config.ts      dev server, proxying /api and /ws to the brain
   src/main.tsx        mounts the app and turns on the dark class
-  src/App.tsx         shell: nav, cell bar, board, detail drawer, pages
-  src/Board.tsx       five columns, drag-to-advance, agent badges
+  src/App.tsx         shell: nav, cell bar, board, detail drawer, pages, Help route
+  src/HelpPanel.tsx   full-height docs overlay: nav rail, markdown, on-this-page
+  src/docs.ts         help slugs, relative link/image rewriting, heading anchors
+  src/Board.tsx       six columns, drag-to-advance, agent badges
   src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, digest
   src/ClarifyChat.tsx    per-request chat, reattach on mount
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
@@ -216,14 +224,15 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 209 vitest cases: 144 server cases (state machine, migrations including
+`npm test` runs 228 vitest cases: 151 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
-the generic master pipeline, segment caps and merge, error-log format/rotation, skill
-discovery, terminal session lifecycle, and the HTTP API over a real socket) and 65 web cases (shared contract
-re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
+the generic master pipeline, segment caps and merge, docs manifest/traversal/HTTP,
+error-log format/rotation, skill discovery, terminal session lifecycle, and the HTTP API
+over a real socket) and 77 web cases (shared contract re-exports, NDJSON client, chat
+folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
 board, create modal, composer, cell bar, cell creation, config/process editor, master
 detail, and the app shell with the drawer and chat mounted under jsdom).
 

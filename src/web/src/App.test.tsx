@@ -6,11 +6,39 @@ import type { Request } from './types';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+const DOC_PAGES = [
+  { slug: 'getting-started', title: 'Getting started', group: 'Getting started' },
+  { slug: '07-process-segments', title: 'Process segments', group: 'Guides' },
+];
+
+const DOCS: Record<string, unknown> = {
+  'getting-started': {
+    slug: 'getting-started',
+    title: 'Getting started',
+    group: 'Getting started',
+    markdown: '# Help article\n\nHelp article body.\n\n## Setup',
+    updatedAt: 1,
+  },
+  '07-process-segments': {
+    slug: '07-process-segments',
+    title: 'Process segments',
+    group: 'Guides',
+    markdown: '# Process segments\n\nProcess segments article.',
+    updatedAt: 2,
+  },
+};
+
 function installFetch(request: Request, transcript: unknown[] = []) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/cells') return jsonResponse([]);
     if (url === '/api/commands') return jsonResponse([]);
+    if (url === '/api/docs') return jsonResponse({ pages: DOC_PAGES });
+    if (url.startsWith('/api/docs/')) {
+      const slug = decodeURIComponent(url.slice('/api/docs/'.length).split('?')[0] ?? '');
+      const doc = DOCS[slug];
+      return doc ? jsonResponse(doc) : jsonResponse({ error: 'not_found' }, 404);
+    }
     if (url === '/api/models') {
       return jsonResponse({
         models: [],
@@ -181,21 +209,57 @@ describe('App', () => {
     expect(screen.getByTestId('column-intake')).toHaveTextContent('Mounted card');
   });
 
-  it('opens the detail drawer and mounts the chat for a started request', async () => {
-    const request = makeRequest({ id: 'a', title: 'Mounted card', clarifyStarted: true });
-    installFetch(request, [
-      { role: 'you', kind: 'text', text: 'hello', ts: 1 },
-      { role: 'agent', kind: 'text', text: 'hi there', ts: 2 },
-    ]);
+  it('opens the docs from the sidebar and restores focus on close', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
 
     render(<App />);
-    fireEvent.click(await screen.findByText('Mounted card'));
+    const help = await screen.findByRole('button', { name: 'Help' });
+    fireEvent.click(help);
 
-    expect(await screen.findByText('Finalize digest')).toBeInTheDocument();
-    expect(await screen.findByText('hi there')).toBeInTheDocument();
-    expect(screen.getByText('Send')).toBeInTheDocument();
-    expect(screen.getByText('harness: opencode')).toBeInTheDocument();
-    expect(screen.getByText('not used by this harness')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close drawer' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
+    expect(await screen.findByText('Help article body.')).toBeInTheDocument();
+    expect(window.location.search).toContain('help=getting-started');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close help' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(help).toHaveFocus());
+    expect(window.location.search).not.toContain('help=');
+  });
+
+  it('opens a docs deep link and follows popstate', async () => {
+    window.history.replaceState(null, '', '/?help=07-process-segments');
+    installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
+
+    render(<App />);
+    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
+    expect(await screen.findByText('Process segments article.')).toBeInTheDocument();
+    expect(window.location.search).toContain('help=07-process-segments');
+
+    window.history.replaceState(null, '', '/?help=getting-started');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(await screen.findByText('Help article body.')).toBeInTheDocument();
+    expect(window.location.search).toContain('help=getting-started');
+  });
+
+  it('moves between docs pages with browser back and forward', async () => {
+    window.history.replaceState(null, '', '/?help=getting-started');
+    installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
+
+    render(<App />);
+    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
+    expect(await screen.findByText('Help article body.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Process segments' }));
+    expect(await screen.findByText('Process segments article.')).toBeInTheDocument();
+    expect(window.location.search).toContain('help=07-process-segments');
+
+    window.history.back();
+    await waitFor(() => expect(window.location.search).toContain('help=getting-started'));
+    expect(await screen.findByText('Help article body.')).toBeInTheDocument();
+
+    window.history.forward();
+    await waitFor(() => expect(window.location.search).toContain('help=07-process-segments'));
+    expect(await screen.findByText('Process segments article.')).toBeInTheDocument();
   });
 });

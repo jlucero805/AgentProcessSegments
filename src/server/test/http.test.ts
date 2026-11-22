@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellDraftStore } from '../src/cells/drafts.js';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
@@ -93,6 +94,59 @@ describe('http api', () => {
     const response = await call('GET', '/health');
     expect(response.status).toBe(200);
     expect(response.json()).toEqual({ ok: true });
+  });
+
+  it('serves the help manifest, an article, and screenshot assets', async () => {
+    const docsDir = path.resolve(fileURLToPath(new URL('../../../docs', import.meta.url)));
+    const server = await makeApp({ docsDir });
+
+    const manifest = await call('GET', '/api/docs');
+    expect(manifest.status).toBe(200);
+    const pages = manifest.json().pages as Array<{ slug: string; title: string; group: string }>;
+    expect(pages[0]).toMatchObject({ slug: 'getting-started', group: 'Getting started' });
+    expect(pages.map((page) => page.slug)).toContain('07-process-segments');
+
+    const article = await call('GET', '/api/docs/07-process-segments');
+    expect(article.status).toBe(200);
+    expect(article.json()).toMatchObject({
+      slug: '07-process-segments',
+      title: 'Process segments',
+      group: 'Guides',
+    });
+    expect(article.json().markdown).toContain('# Process segments');
+    expect(article.json().updatedAt).toBeGreaterThan(0);
+
+    const image = await fetch(`${server.base}/api/docs/assets/board.png`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toBe('image/png');
+    expect((await image.arrayBuffer()).byteLength).toBeGreaterThan(0);
+
+    expect((await call('GET', '/api/docs/nope')).status).toBe(404);
+    expect((await call('GET', '/api/docs/assets/nope.png')).status).toBe(404);
+  });
+
+  it('rejects docs asset traversal and absolute paths', async () => {
+    const docsDir = path.resolve(fileURLToPath(new URL('../../../docs', import.meta.url)));
+    const server = await makeApp({ docsDir });
+
+    for (const pathname of [
+      '/api/docs/assets/%2e%2e%2fREADME.md',
+      '/api/docs/assets/..%2f..%2fREADME.md',
+      '/api/docs/assets/%2Fetc%2Fpasswd',
+      '/api/docs/assets/%2e%2e/%2e%2e/src/server/src/config.ts',
+    ]) {
+      const response = await fetch(`${server.base}${pathname}`);
+      expect({ pathname, status: response.status }).toEqual({ pathname, status: 404 });
+    }
+
+    expect((await call('GET', '/api/docs/..%2fREADME.md')).status).toBe(404);
+  });
+
+  it('returns an empty manifest when the docs directory is missing', async () => {
+    await makeApp();
+    const manifest = await call('GET', '/api/docs');
+    expect(manifest.status).toBe(200);
+    expect(manifest.json()).toEqual({ pages: [] });
   });
 
   it('reports terminal availability and manages visible sessions', async () => {

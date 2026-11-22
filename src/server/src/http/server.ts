@@ -1,7 +1,7 @@
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { ZodError, z } from 'zod';
 import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
@@ -10,6 +10,7 @@ import { isVirtualSessionId } from '../clarify/engine.js';
 import type { ModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
+import { DocsService } from '../docs/service.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -45,6 +46,7 @@ export interface ServerDeps {
   masterEvents: MasterEventRepository;
   process: ProcessStore;
   skills?: SkillCatalog;
+  docs?: DocsService;
   errorLog?: ErrorSink;
   config: Config;
   logger?: boolean;
@@ -294,6 +296,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   } = deps;
   const app = Fastify({ logger: deps.logger ?? false });
   const terminal = new TerminalService(config.terminalEnabled, config.terminalCwd);
+  const docs = deps.docs ?? new DocsService(config.docsDir);
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -323,6 +326,24 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/health', async () => ({ ok: true }));
+
+  app.get('/api/docs', async () => ({ pages: docs.list() }));
+
+  // Serve only docs/screenshots; the service rejects traversal and non-images.
+  app.get('/api/docs/assets/*', async (request, reply) => {
+    const params = request.params as { '*': string };
+    const asset = docs.asset(params['*']);
+    if (!asset) return reply.code(404).send({ error: 'not_found' });
+    return reply.type(asset.type).send(readFileSync(asset.file));
+  });
+
+  app.get('/api/docs/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const doc = docs.read(slug);
+    if (!doc) return reply.code(404).send({ error: 'not_found' });
+    return doc;
+  });
+
   app.get('/api/terminal', async () => terminal.status());
   app.get('/api/terminals', async () => terminal.list());
   app.post('/api/terminals', async (request, reply) => {

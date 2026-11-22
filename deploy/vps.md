@@ -71,6 +71,17 @@ The built brain is exercised by `scripts/smoke.sh`, `scripts/mcp-smoke.mjs`, and
 dedicated `E2E` cell; it never indexes into the KB. Run it with `npm run e2e` (builds
 first). The CI template includes it.
 
+## In-app Help docs
+
+The SPA's sidebar **Help** surface serves the operator docs and screenshots from the same
+brain, so keep the clone's `docs/` directory in place. `SBOX_DOCS_DIR` overrides the docs
+root (default `<cwd>/docs`, and the unit sets it explicitly to
+`%h/sandbox-harness/docs`). The manifest is an explicit code list; add a page there to
+expose it in the nav. The viewer never copies Markdown into the SPA, so a `git pull`
+updates the in-app docs after a restart. `GET /api/docs` lists pages,
+`GET /api/docs/:slug` returns one article, and `GET /api/docs/assets/*` serves only
+`docs/screenshots/**`.
+
 ## Skills in chat
 
 The chat slash menu shows skills found in `~/.config/opencode/skills`, `~/.claude/skills`,
@@ -184,6 +195,7 @@ Environment=SBOX_HOST=127.0.0.1
 Environment=SBOX_PORT=7391
 Environment=SBOX_DB=/srv/sandbox-harness/sandbox-harness.sqlite
 Environment=SBOX_WEB_DIR=/srv/sandbox-harness/src/web/dist
+Environment=SBOX_DOCS_DIR=/srv/sandbox-harness/docs
 Environment=SBOX_DATA_DIR=/home/sandbox/.sandbox-harness
 Environment=PATH=/home/sandbox/.local/bin:/home/sandbox/.opencode/bin:/usr/local/bin:/usr/bin:/bin
 # Optional: Environment=SBOX_HARNESS=opencode

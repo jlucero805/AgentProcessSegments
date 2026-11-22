@@ -473,3 +473,19 @@ discarded on close.
 **Cost.** Existing five-segment process files are upgraded by inserting a disabled Merge
 segment. The board now has a Merge column even when no cell enables it; it is empty by
 default. Segment limits are additive to the cell cap, not a replacement.
+
+## D34. Help docs are a manifest over the repo
+
+**Context.** The SPA ships beside `docs/`, but a phone on the tailnet had to open GitHub to
+read a guide. Hand-copying the Markdown into the bundle would drift immediately.
+
+**Decision.** Serve the repo files through an explicit manifest in
+`src/server/src/docs/service.ts`. `GET /api/docs` returns the ordered manifest,
+`GET /api/docs/:slug` reads one entry, and `GET /api/docs/assets/*` serves only
+`docs/screenshots/**`. Slugs never become filesystem paths; unknown or traversal-shaped
+slugs are 404s. The SPA renders Markdown with the existing `react-markdown` dependency and
+rewrites in-repo links to `?help=<slug>` deep links.
+
+**Cost.** Adding a page takes a manifest line and a restart. The overlay reads files at
+request time, so a missing `docs/` directory yields an empty manifest and a graceful
+unavailable state. `SBOX_DOCS_DIR` must point at the clone's docs on deploy.

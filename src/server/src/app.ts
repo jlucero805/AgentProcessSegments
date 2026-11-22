@@ -6,6 +6,7 @@ import { createHarness } from './clarify/harnesses/index.js';
 import { ModelCatalog } from './clarify/models.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
+import { DocsService } from './docs/service.js';
 import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
 import { ErrorLogger } from './logging/errors.js';
@@ -51,6 +52,7 @@ export async function main(): Promise<void> {
     });
     const models = new ModelCatalog(harness);
     const skills = new SkillCatalog();
+    const docs = new DocsService(config.docsDir);
     const masterEvents = new MasterEventRepository(db);
     const masterService = new MasterService({
       repo,
@@ -76,6 +78,7 @@ export async function main(): Promise<void> {
       masterEvents,
       process: processStore,
       skills,
+      docs,
       errorLog: errors,
       config,
     });

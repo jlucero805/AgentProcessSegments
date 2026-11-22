@@ -48,8 +48,8 @@ built and vended by the brain; real-CLI verification is still pending.
   master chat (`__master__:<cellId>`); notes and chat do not mix between cells. Segment
   caps are enforced in addition to the cell cap. Cells also
   store a max-concurrency cap (default 3, pauses new work while that many requests are
-  `working`) and default model/effort (a request’s own values win). The Cell master drawer
-  shows the selected cell’s ticker, policy, activity, and chat.
+  `working`), default model/effort (a request’s own values win), and a harness. The Cell
+  master drawer shows the selected cell’s ticker, policy, activity, and chat.
 - Desktop terminal: a sidebar **Terminal** action attaches to a server-owned PTY
   (`node-pty`) in `SBOX_TERMINAL_CWD`, independent of every agent session. Hiding the
   panel only detaches; sessions stay listed with a status dot, the sidebar shows a session
@@ -78,8 +78,9 @@ built and vended by the brain; real-CLI verification is still pending.
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
   terminal transitions. Every turn has a `SBOX_TURN_TIMEOUT_MS` watchdog (default 10
   minutes) that emits an error, kills a silent child, records `engine.timeout`, and
-  finishes with `done`. Early exits and timeouts include capped child stderr. The turn
-  model falls back to `SBOX_DEFAULT_MODEL`; OpenCode defaults to
+  finishes with `done`. Early exits and timeouts include capped child stderr. Model
+  resolution is harness-aware: request override, cell default only when the harness
+  matches, then the harness's brain default. OpenCode defaults to
   `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
 - Cell wizard failure handling: draft sync shows an inline error with Retry after 5 s
   instead of an endless “Starting setup chat…” spinner. Chat transport errors get an
@@ -96,10 +97,13 @@ built and vended by the brain; real-CLI verification is still pending.
   `SBOX_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
   stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
-  probe behind one interface. `claude` is the default; `SBOX_HARNESS=opencode` selects
-  the OpenCode adapter, which runs `opencode run --format json --auto --standalone` per
-  turn, injects config through `OPENCODE_CONFIG_DIR`, resumes with `--session`, and
-  probes `opencode models`.
+  probe behind one interface. `HarnessRegistry` caches one adapter per id. `claude` is
+  the brain default; a cell may select `opencode`, and a request may override its cell.
+  Resolution is request → cell → process default. The OpenCode adapter runs
+  `opencode run --format json --auto --standalone` per turn, injects config through
+  `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes `opencode models`.
+  `session.json` records `{harness, sessionId}`, so a harness switch starts a fresh
+  session and drops the cached child.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
@@ -120,11 +124,13 @@ built and vended by the brain; real-CLI verification is still pending.
   accepted in addition to `http(s)`, `git`, and `ssh` (D9).
 - SPA (`src/web`): Vite + React 18 + Tailwind v3, dark by default. Five board columns
   with drag-to-advance, a cell bar with inline create/rename/delete, a create modal, a
-  right-side request drawer with editable fields and two-step confirms, assistant-ui
-  chat with markdown and tool cards, slash-command autocomplete from `/api/commands`,
-  a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
-  was verified against the built server: `/` and client-side routes serve `index.html`,
-  `/api` still returns JSON, and hashed assets are served. Headless Chromium runs
+  right-side request drawer with editable fields and two-step confirms, a harness
+  selector (inherit / Claude Code / OpenCode) that refreshes models and disables effort
+  for OpenCode, assistant-ui chat with markdown and tool cards, slash-command
+  autocomplete from `/api/commands`, a skills page, and a knowledge-base page with the
+  `__kb__` chat. Single-origin vend was verified against the built server: `/` and
+  client-side routes serve `index.html`, `/api` still returns JSON, and hashed assets are
+  served. Headless Chromium runs
   (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport, optional Puppeteer)
   create a request, open the drawer and chat, visit the KB page, and open the Config page
   with no page or console errors.
@@ -235,10 +241,12 @@ built and vended by the brain; real-CLI verification is still pending.
   each turn's config, `--archived` keeps brain sessions out of the user's list, and
   `--auto` is the request-session permission posture (the KB session gets explicit deny
   rules).
-- `SBOX_HARNESS` selects the substrate; `SBOX_HARNESS_BIN` overrides the binary.
-  `SBOX_CLAUDE_BIN` remains the Claude-specific override.
-- `GET /api/models` adds `harness` and `supportsEffort` alongside the spec's
-  `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert (OpenCode).
+- `SBOX_HARNESS` selects the process default substrate; `SBOX_HARNESS_BIN` overrides
+  the selected binary. `SBOX_CLAUDE_BIN` and `SBOX_OPENCODE_BIN` target one adapter.
+  `cells.harness` and `requests.harness` can override the default.
+- `GET /api/models` adds `harness`, `supportsEffort`, and `defaultModel` alongside the
+  spec's `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert
+  (OpenCode) and can resolve `?harness=`, `?cellId=`, or `?requestId=` catalogs.
 - `GET /clarify` adds `active` alongside `started`/`transcript` so a reconnecting client
   knows whether a live turn can be reattached.
 - `POST /clarify/send` marks the request started when it is the first message, even if
@@ -255,6 +263,9 @@ built and vended by the brain; real-CLI verification is still pending.
 
 - Automatic finalize/index: the human still approves KB indexing. Per-cell review
   prompts can create draft CRs, but there is no hardcoded forger integration.
+- Cell harness selection in the cell editor: `cells.harness` and the cell API exist, and
+  the request drawer can override its cell, but CellModal/ConfigPage still inherit the
+  process default until the per-cell UI lands.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.

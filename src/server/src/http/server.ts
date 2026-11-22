@@ -7,10 +7,15 @@ import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
 import { KB_SESSION_ID, isMasterSession, isSetupSession, masterCellId } from '../clarify/engine.js';
 import { isVirtualSessionId } from '../clarify/engine.js';
-import type { ModelCatalog } from '../clarify/models.js';
+import type { ModelCatalogSet } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
+import {
+  HARNESS_IDS,
+  resolveHarness,
+  type HarnessId,
+} from '../domain/harness.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -41,7 +46,7 @@ export interface ServerDeps {
   drafts: CellDraftStore;
   kb: KbRepository;
   engine: Engine;
-  models: ModelCatalog;
+  models: ModelCatalogSet;
   plugins: PluginManager;
   settings: SettingsStore;
   master: MasterScheduler;
@@ -61,6 +66,7 @@ const createSchema = z.object({
   body: z.string().optional(),
   targetRepo: z.string().nullable().optional(),
   cellId: z.string().nullable().optional(),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
 });
 
 const editSchema = z.object({
@@ -76,6 +82,7 @@ const editSchema = z.object({
   kbDigest: z.boolean().optional(),
   digest: z.string().nullable().optional(),
   cellId: z.string().nullable().optional(),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
 });
 
 const listQuerySchema = z.object({
@@ -83,6 +90,19 @@ const listQuerySchema = z.object({
   state: z.enum(STATES).optional(),
   cellId: z.string().optional(),
 });
+const modelQuerySchema = z
+  .object({
+    refresh: z.string().optional(),
+    harness: z.enum(HARNESS_IDS).optional(),
+    cellId: z.string().optional(),
+    requestId: z.string().optional(),
+  })
+  .refine(
+    (value) =>
+      [value.harness, value.cellId, value.requestId].filter((field) => field !== undefined)
+        .length <= 1,
+    { message: 'harness, cellId, and requestId are mutually exclusive' },
+  );
 
 const transitionSchema = z.object({ to: z.enum(STATES) });
 const sendSchema = z.object({ text: z.string().min(1) });
@@ -111,6 +131,7 @@ const cellSchema = z.object({
   maxConcurrent: z.number().int().min(1).max(50).optional(),
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
 });
 const cellDraftSchema = z.object({
   name: z.string().min(1),
@@ -155,6 +176,7 @@ const cellPatchSchema = z
     maxConcurrent: z.number().int().min(1).max(50).optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+    harness: z.enum(HARNESS_IDS).nullable().optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
@@ -165,10 +187,11 @@ const cellPatchSchema = z
       value.maxConcurrent !== undefined ||
       value.model !== undefined ||
       value.effort !== undefined ||
+      value.harness !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, harness, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -322,6 +345,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const terminal = new TerminalService(config.terminalEnabled, config.terminalCwd);
   const docs = deps.docs ?? new DocsService(config.docsDir);
 
+  const harnessForRequest = (request: Request) =>
+    resolveHarness({
+      request: request.harness,
+      cell: request.cellId ? (cells.get(request.cellId)?.harness ?? null) : null,
+      process: config.harness,
+    });
+
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: 'invalid', issues: error.issues });
@@ -406,6 +436,24 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { id } = request.params as { id: string };
     const fields = editSchema.parse(request.body);
     assertCell(cells, fields.cellId);
+
+    // A model id belongs to one adapter. When an edit changes the effective
+    // harness, drop a stale request model unless the caller supplied a new one.
+    if (fields.harness !== undefined || fields.cellId !== undefined) {
+      const current = repo.require(id);
+      const after: Request = {
+        ...current,
+        harness: fields.harness !== undefined ? fields.harness : current.harness,
+        cellId: fields.cellId !== undefined ? fields.cellId : current.cellId,
+      };
+      if (
+        fields.model === undefined &&
+        harnessForRequest(current).harness !== harnessForRequest(after).harness
+      ) {
+        fields.model = null;
+      }
+    }
+
     return repo.edit(id, fields);
   });
 
@@ -538,13 +586,18 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/models', async (request) => {
-    const query = z.object({ refresh: z.string().optional() }).parse(request.query);
-    const catalog = await models.list(query.refresh === '1');
+    const query = modelQuerySchema.parse(request.query);
+    let harness: HarnessId = config.harness;
+    if (query.harness) harness = query.harness;
+    else if (query.cellId) harness = cells.require(query.cellId).harness ?? config.harness;
+    else if (query.requestId) harness = harnessForRequest(repo.require(query.requestId)).harness;
+
+    const catalog = await models.list(harness, query.refresh === '1');
     return {
       ...catalog,
-      harness: config.harness,
-      supportsEffort: config.harness === 'claude',
-      defaultModel: config.defaultModel,
+      harness,
+      supportsEffort: harness === 'claude',
+      defaultModel: config.defaultModels[harness],
     };
   });
 
@@ -632,6 +685,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         maxConcurrent: input.maxConcurrent,
         model: input.model,
         effort: input.effort,
+        harness: input.harness,
       },
     );
     master.refresh();
@@ -656,6 +710,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         body.effort !== undefined ? body.effort : current.effort,
       );
     }
+    if (body.harness !== undefined) cells.setHarness(id, body.harness);
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();
     summary.refresh();

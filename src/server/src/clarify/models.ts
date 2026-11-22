@@ -1,4 +1,5 @@
 import { EFFORT_LEVELS } from '../domain/request.js';
+import type { HarnessId } from '../domain/harness.js';
 
 export interface ModelOption {
   id: string;
@@ -51,5 +52,21 @@ export class ModelCatalog {
       source: 'fallback',
       effortLevels: EFFORT_LEVELS,
     };
+  }
+}
+
+/** One cached model catalog per harness. */
+export class ModelCatalogSet {
+  private readonly catalogs = new Map<HarnessId, ModelCatalog>();
+
+  constructor(private readonly sourceFor: (id: HarnessId) => ModelSource) {}
+
+  list(id: HarnessId, refresh = false): Promise<ModelsResult> {
+    let catalog = this.catalogs.get(id);
+    if (!catalog) {
+      catalog = new ModelCatalog(this.sourceFor(id));
+      this.catalogs.set(id, catalog);
+    }
+    return catalog.list(refresh);
   }
 }

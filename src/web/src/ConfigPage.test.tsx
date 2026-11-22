@@ -44,6 +44,7 @@ const cell: Cell = {
   maxConcurrent: 3,
   model: null,
   effort: null,
+  harness: null,
   createdAt: 1,
 };
 

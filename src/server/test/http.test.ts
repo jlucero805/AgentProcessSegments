@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellDraftStore } from '../src/cells/drafts.js';
-import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
+import { ModelCatalogSet, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { MASTER_SESSION_ID } from '../src/clarify/engine.js';
 import { buildServer } from '../src/http/server.js';
 import { MasterEventRepository } from '../src/master/events.js';
@@ -62,7 +62,10 @@ async function makeApp(
     drafts: new CellDraftStore(),
     kb: h.kb,
     engine: h.engine,
-    models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
+    models: new ModelCatalogSet(() => ({
+      probeModels: async () => null,
+      fallbackModels: HARDCODED_MODELS,
+    })),
     plugins: h.plugins,
     settings,
     master,
@@ -594,6 +597,98 @@ describe('http api', () => {
     expect(body.harness).toBe('opencode');
     expect(body.supportsEffort).toBe(false);
     expect(body.defaultModel).toBe('opencode-go/deepseek-v4.1-flash');
+  });
+
+  it('stores a request harness override and validates it', async () => {
+    await makeApp();
+    const created = await call('POST', '/api/requests', {
+      title: 'Override harness',
+      harness: 'opencode',
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.json().harness).toBe('opencode');
+
+    const cleared = await call('PATCH', `/api/requests/${created.json().id}`, { harness: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.json().harness).toBeNull();
+
+    const bad = await call('PATCH', `/api/requests/${created.json().id}`, {
+      harness: 'other',
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it('resolves models from a request override, then its cell, then the process default', async () => {
+    const { h } = await makeApp();
+    const claudeCell = h.cells.create('Claude cell', null, null, { harness: 'claude' });
+    const opencodeCell = h.cells.create('OpenCode cell', null, null, { harness: 'opencode' });
+
+    const inherited = h.repo.create({ title: 'Inherit Claude', cellId: claudeCell.id });
+    const inheritedModels = await call('GET', `/api/models?requestId=${inherited.id}`);
+    expect(inheritedModels.status).toBe(200);
+    expect(inheritedModels.json()).toMatchObject({ harness: 'claude', supportsEffort: true });
+
+    h.repo.edit(inherited.id, { harness: 'opencode' });
+    const overridden = await call('GET', `/api/models?requestId=${inherited.id}`);
+    expect(overridden.json()).toMatchObject({ harness: 'opencode', supportsEffort: false });
+
+    const unassigned = h.repo.create({ title: 'Unassigned override', harness: 'opencode' });
+    expect((await call('GET', `/api/models?requestId=${unassigned.id}`)).json().harness).toBe(
+      'opencode',
+    );
+
+    const byCell = await call('GET', `/api/models?cellId=${opencodeCell.id}`);
+    expect(byCell.json().harness).toBe('opencode');
+
+    expect((await call('GET', '/api/models?requestId=missing')).status).toBe(404);
+    expect(
+      (await call('GET', `/api/models?requestId=${inherited.id}&harness=claude`)).status,
+    ).toBe(400);
+  });
+
+  it('clears a request model when an edit changes the effective harness', async () => {
+    const { h } = await makeApp();
+    const claudeCell = h.cells.create('Claude cell', null, null, { harness: 'claude' });
+    const opencodeCell = h.cells.create('OpenCode cell', null, null, { harness: 'opencode' });
+    const request = h.repo.create({ title: 'Model reset', cellId: claudeCell.id });
+    h.repo.edit(request.id, { model: 'claude-opus-5-5' });
+
+    const switched = await call('PATCH', `/api/requests/${request.id}`, { harness: 'opencode' });
+    expect(switched.status).toBe(200);
+    expect(switched.json()).toMatchObject({ harness: 'opencode', model: null });
+
+    h.repo.edit(request.id, { model: 'claude-opus-5-5' });
+    const replaced = await call('PATCH', `/api/requests/${request.id}`, {
+      harness: 'claude',
+      model: 'claude-sonnet-5-5',
+    });
+    expect(replaced.json()).toMatchObject({ harness: 'claude', model: 'claude-sonnet-5-5' });
+
+    h.repo.edit(request.id, { model: 'claude-opus-5-5', harness: null });
+    const moved = await call('PATCH', `/api/requests/${request.id}`, { cellId: opencodeCell.id });
+    expect(moved.json()).toMatchObject({ cellId: opencodeCell.id, model: null });
+  });
+
+  it('stores a cell harness and lets a request inherit it', async () => {
+    const { h } = await makeApp();
+    const cell = h.cells.create('Policy cell');
+    const request = h.repo.create({ title: 'Inherit cell', cellId: cell.id });
+
+    const patched = await call('PATCH', `/api/cells/${cell.id}`, { harness: 'opencode' });
+    expect(patched.status).toBe(200);
+    expect(patched.json().harness).toBe('opencode');
+    expect((await call('GET', `/api/models?requestId=${request.id}`)).json().harness).toBe(
+      'opencode',
+    );
+
+    const cleared = await call('PATCH', `/api/cells/${cell.id}`, { harness: null });
+    expect(cleared.json().harness).toBeNull();
+    expect((await call('GET', `/api/models?requestId=${request.id}`)).json().harness).toBe(
+      'claude',
+    );
+
+    expect((await call('PATCH', `/api/cells/${cell.id}`, { harness: 'other' })).status).toBe(400);
   });
 
   it('reports a live clarify turn and clears it when the turn finishes', async () => {

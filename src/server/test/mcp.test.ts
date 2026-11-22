@@ -227,6 +227,17 @@ describe('harness mcp server', () => {
     expect(textOf(result)).toContain('tests pass');
   });
 
+  it('forwards a harness override and clears it with null', async () => {
+    const { call, calls } = await connect('req-1');
+
+    await call('update_request', { harness: 'opencode' });
+    await call('update_request', { harness: null });
+
+    const patches = calls.filter((entry) => entry.method === 'PATCH');
+    expect(patches[0]?.body).toEqual({ harness: 'opencode' });
+    expect(patches[1]?.body).toEqual({ harness: null });
+  });
+
   it('spawns a request and stores a digest under the request title', async () => {
     const { call, calls } = await connect('req-1');
 

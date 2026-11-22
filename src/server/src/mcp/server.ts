@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { HARNESS_IDS } from '../domain/harness.js';
 import { EFFORT_LEVELS, STATES } from '../domain/request.js';
 import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
 import { errorMessage } from '../util/errors.js';
@@ -297,6 +298,7 @@ export function buildMcpServer(options: McpOptions): McpServer {
         kbDigest: z.boolean().optional(),
         digest: z.string().nullable().optional(),
         cellId: z.string().nullable().optional(),
+        harness: z.enum(HARNESS_IDS).nullable().optional(),
       },
     },
     async (fields) =>

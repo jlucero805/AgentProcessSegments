@@ -56,12 +56,15 @@ describe('cells', () => {
       maxConcurrent: 2,
       model: 'cell-model',
       effort: 'high',
+      harness: 'opencode',
     });
     expect(cells.get(cell.id)?.process?.segments[0]?.enabled).toBe(true);
     expect(cells.get(cell.id)?.masterIntervalMinutes).toBe(3);
     expect(cells.get(cell.id)?.maxConcurrent).toBe(2);
     expect(cells.get(cell.id)?.model).toBe('cell-model');
     expect(cells.get(cell.id)?.effort).toBe('high');
+    expect(cells.get(cell.id)?.harness).toBe('opencode');
+    expect(cells.setHarness(cell.id, null).harness).toBeNull();
     expect(cells.getProcess(cell.id)?.segments[0]?.enabled).toBe(true);
 
     const cleared = cells.setProcess(cell.id, null);

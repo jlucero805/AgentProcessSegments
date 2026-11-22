@@ -2,8 +2,8 @@ import { pathToFileURL } from 'node:url';
 import { CellRepository } from './cells/repository.js';
 import { CellDraftStore } from './cells/drafts.js';
 import { Engine } from './clarify/engine.js';
-import { createHarness } from './clarify/harnesses/index.js';
-import { ModelCatalog } from './clarify/models.js';
+import { HarnessRegistry } from './clarify/harnesses/index.js';
+import { ModelCatalogSet } from './clarify/models.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { DocsService } from './docs/service.js';
@@ -41,19 +41,19 @@ export async function main(): Promise<void> {
       () => defaultProcess(settings.get().master),
       errors,
     );
-    const harness = createHarness(config);
+    const harnesses = new HarnessRegistry(config);
     const engine = new Engine({
       repo,
-      harness,
+      harnesses,
       config,
       pluginDirs: () => plugins.installedPluginDirs(),
       errors,
       cellDefaults: (cellId) => {
         const cell = cells.get(cellId);
-        return cell ? { model: cell.model, effort: cell.effort } : null;
+        return cell ? { model: cell.model, effort: cell.effort, harness: cell.harness } : null;
       },
     });
-    const models = new ModelCatalog(harness);
+    const models = new ModelCatalogSet((id) => harnesses.get(id));
     const skills = new SkillCatalog();
     const docs = new DocsService(config.docsDir);
     const masterEvents = new MasterEventRepository(db);

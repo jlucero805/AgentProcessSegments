@@ -144,9 +144,14 @@ Agent turns are bounded by `SBOX_TURN_TIMEOUT_MS` (default ten minutes); a live 
 child is killed and produces a visible error, and its recent stderr goes to the error log.
 Harness MCP calls time out after `SBOX_MCP_TIMEOUT_MS` (default 15 seconds).
 
-`SBOX_HARNESS=opencode` swaps the agent substrate; `SBOX_HARNESS_BIN` overrides the
-binary. The default is `claude`. `SBOX_DEFAULT_MODEL` sets the brain fallback model; with
-OpenCode it defaults to `opencode-go/deepseek-v4.1-flash`.
+`SBOX_HARNESS=opencode` sets the brain default agent substrate; `SBOX_HARNESS_BIN`
+overrides the selected adapter's binary, and `SBOX_CLAUDE_BIN` / `SBOX_OPENCODE_BIN`
+target one adapter. The default is `claude`. A cell can select its own harness, and a
+request can override its cell; the order is request → cell → brain default. Model and
+effort follow the same inheritance, except that a request changing harness does not
+inherit the cell's model (it uses its own model or the resolved harness default).
+`SBOX_DEFAULT_MODEL` sets the brain fallback model; with OpenCode it defaults to
+`opencode-go/deepseek-v4.1-flash`.
 
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
@@ -177,6 +182,7 @@ src/server/src
   config.ts           every path and port, env-overridable
   db.ts               schema, idempotent column migrations, boot reconcile
   domain/request.ts   states, transition table, entities, transcript types
+  domain/harness.ts   harness ids, labels, and the single resolution order
   domain/sessions.ts  reserved KB/master session ids, per-cell master sessions
   requests/           RequestRepository: CRUD, edit, guarded transitions
   cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
@@ -185,6 +191,7 @@ src/server/src
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
   clarify/harness.ts  harness seam: session prep, spawn, parser, model probe
+  clarify/harnesses/index.ts  cached claude/opencode adapter registry
   clarify/harnesses/claude.ts    claude CLI, merged MCP config, allowlist
   clarify/harnesses/opencode.ts  opencode CLI, per-turn runs, session resume
   clarify/harnesses/plugin-assets.ts  plugin skills/commands -> OpenCode config

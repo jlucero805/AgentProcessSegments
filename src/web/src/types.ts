@@ -22,6 +22,8 @@ export {
   isIntake,
   isTerminal,
 } from '../../server/src/domain/request';
+export type { HarnessId, HarnessSource } from '../../server/src/domain/harness';
+export { HARNESS_IDS, HARNESS_LABELS, isHarnessId } from '../../server/src/domain/harness';
 export type {
   MasterAction,
   MasterConfig,

@@ -82,7 +82,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     setSaving(false);
 
     api
-      .getModels()
+      .getModels(cell ? { cellId: cell.id } : {})
       .then((result) => {
         if (cancelled) return;
         setModels(Array.isArray(result.models) ? result.models : []);

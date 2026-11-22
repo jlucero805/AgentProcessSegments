@@ -109,8 +109,8 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 - **App settings are not env config.** Scheduler policy lives in
   `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`), and process segments
   live in `process.json` (`SBOX_PROCESS`). Both are zod-validated and written atomically.
-  Invalid files fall back to defaults until saved; env still owns paths, ports, and the
-  harness.
+  Invalid files fall back to defaults until saved; env owns paths, ports, and the
+  process-default harness, while a cell or request can override the harness.
 - **Errors are the only persisted logs.** `$XDG_STATE_HOME/sandbox-harness/errors.log`
   (`SBOX_ERROR_LOG`, `SBOX_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.
@@ -249,6 +249,13 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
+32. **Harness resolution is one order.** A request session uses `requests.harness`, then
+    its cell's `cells.harness`, then the process default. KB/setup use the process
+    default; a master or summary uses its cell. Resolve once per turn and use the same
+    adapter for parser/prepare/spawn. On a switch, drop the cached process and ignore a
+    `session.json` id from the old harness. A cross-harness request skips cell model and
+    effort defaults; `PATCH` clears a stale request model when the effective harness
+    changes.
 
 ## Extension recipes
 
@@ -276,9 +283,11 @@ route the new event through `Engine.broadcast`. Nothing in a parser may touch a 
 or disk.
 
 **Add a harness.** Implement `AgentHarness` in `clarify/harnesses/<id>.ts` (`prepare`,
-`spawn`, `createParser`, `probeModels`, `fallbackModels`), register it in
-`clarify/harnesses/index.ts` behind `SBOX_HARNESS`, and add prepare plus parser tests in
-`test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`.
+`spawn`, `createParser`, `probeModels`, `fallbackModels`), add the id to
+`domain/harness.ts`, register it in the cached `HarnessRegistry` in
+`clarify/harnesses/index.ts`, and add a per-adapter binary/default-model entry in
+`config.ts`. Add prepare plus parser tests in `test/harness.test.ts` and a stream test.
+Keep per-session files inside `session.dir`; do not construct an adapter per turn.
 
 **Add or change a process segment.** Update `process/definition.ts`, `process/defaults.ts`
 (defaults plus prompt), the UI labels, and `test/process.test.ts`. Advancement must be a

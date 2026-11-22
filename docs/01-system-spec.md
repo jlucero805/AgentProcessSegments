@@ -84,7 +84,12 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   - `dataDir` = `SBOX_DATA_DIR` ?? `~/.sandbox-harness` (per-request workdirs)
   - `pluginsDir` = `SBOX_PLUGINS_DIR` ?? `~/.sandbox-harness/plugins`
   - `brainUrl` = `SBOX_BRAIN_URL` ?? `http://127.0.0.1:<port>`, used by the MCP proxy
-  - `claudeBin` = `SBOX_CLAUDE_BIN` ?? `claude`
+  - `harness` = `SBOX_HARNESS` ?? `claude`; unknown values fail startup
+  - `claudeBin` = `SBOX_CLAUDE_BIN` ?? (`SBOX_HARNESS_BIN` when claude is selected) ??
+    `claude`; `opencodeBin` = `SBOX_OPENCODE_BIN` ?? (`SBOX_HARNESS_BIN` when OpenCode is
+    selected) ?? `opencode`
+  - `defaultModels` = explicit `SBOX_DEFAULT_MODEL` for both harnesses, otherwise
+    OpenCode's `opencode-go/deepseek-v4.1-flash` and Claude's CLI default
 - **Run:** `node src/server/dist/app.js` with `SBOX_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
 
@@ -103,14 +108,19 @@ restart.
 `model`, `effort`, `target_repo`, `acceptance_criteria`, `context`, `skills` (JSON
 array), `kb_digest` (0/1, default 1), `digest`, `agent_status`
 (`none|idle|working|blocked|error`, default `none`), `unchecked` (0/1), `hc_run_ids`
-(JSON array), `branch`, `cr_url`, `cell_id`, `created_at`, `updated_at`.
+(JSON array), `branch`, `cr_url`, `cell_id`, `harness`, `created_at`, `updated_at`.
+`harness` is a nullable request override; null inherits the cell, then the process
+default.
 
 Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after** the
 `cell_id` addColumn, because an index on a missing column fails on an older database.
 
 ### `cells`
 
-`id` (uuid PK), `name`, `created_at`.
+`id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`,
+`max_concurrent`, `model`, `effort`, `harness`, `process_json`, `created_at`.
+`harness` null inherits the process default. Delete detaches requests and removes their
+scorecards.
 
 ### `kb_entries`
 
@@ -156,10 +166,11 @@ object per line.
 
 - `GET /health`
 - `GET /api/requests` with `?view=intake`, `?state=…`, or `?cellId=…`
-- `GET /api/requests/:id`, `POST /api/requests {title, body?, targetRepo?, cellId?}`
+- `GET /api/requests/:id`, `POST /api/requests {title, body?, targetRepo?, cellId?, harness?}`
 - `PATCH /api/requests/:id` with all editable fields optional and nullable: title,
   body, targetRepo, acceptanceCriteria, context, skills[], groomed, model, effort,
-  kbDigest, digest, cellId
+  kbDigest, digest, cellId, harness. When `harness` or `cellId` changes the effective
+  harness, an omitted `model` is cleared.
 - `POST /api/requests/:id/transition {to}`
 - `POST /api/requests/:id/drop`, `POST /api/requests/:id/seen` (clears `unchecked`)
 - Terminal transitions and `/drop` call `engine.dispose(id)`, which kills the session
@@ -181,14 +192,17 @@ object per line.
 
 ### Models, KB, plugins, cells
 
-- `GET /api/models?refresh=1` returns `{models[], source:'probe'|'fallback', effortLevels}`
+- `GET /api/models?refresh=1` returns
+  `{models[], source:'probe'|'fallback', effortLevels, harness, supportsEffort, defaultModel}`.
+  Add `?harness=`, `?cellId=`, or `?requestId=` (mutually exclusive) to resolve one
+  catalog; an unknown request or cell is 404.
 - `GET /api/kb`, `GET /api/kb?q=…&limit=…`, `POST /api/kb {requestId,title,content}`
 - `GET /api/plugins`, `POST /api/plugins {url, subdir?, name?}`,
   `DELETE /api/plugins/:name`
 - `GET /api/commands` returns installed plugins' slash commands and skills as
   `[{command, description, plugin}]`
-- `GET /api/cells`, `POST /api/cells {name}`, `PATCH /api/cells/:id {name}`,
-  `DELETE /api/cells/:id`
+- `GET /api/cells`, `POST /api/cells {name, harness?}`, `PATCH /api/cells/:id`
+  (name, scheduler, limits, model/effort, harness, process), `DELETE /api/cells/:id`
 - `GET /ws` is a websocket skeleton (echo plus hello), reserved for an event bridge and
   unused.
 - When `webDir` exists, `@fastify/static` serves the SPA at `/` with an `index.html`
@@ -242,23 +256,27 @@ steps and resumed across restarts.
   workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
   terminal transitions.
 - **Workdirs:** `~/.sandbox-harness/requests/<id>/` holds `transcript.json`,
-  `session.json`, and `mcp-config.json`.
+  `session.json` (`{harness, sessionId}`), and `mcp-config.json`. A legacy
+  `session.json` with only `sessionId` belongs to the process default.
 
 ### Models
 
-`EFFORT_LEVELS = low|medium|high|xhigh|max`. The model list is discovered by probing
-the `claude` CLI, because there is no `claude models` command. Results are cached for
-ten minutes and fall back to `HARDCODED_MODELS` with `source:'fallback'`, a manual list
-to update as models ship.
+`EFFORT_LEVELS = low|medium|high|xhigh|max`. Model lists are discovered per harness and
+cached for ten minutes. Claude probes the `claude` CLI and falls back to
+`HARDCODED_MODELS` with `source:'fallback'`; OpenCode probes `opencode models` and falls
+back to its default model. `GET /api/models` reports the resolved harness,
+`supportsEffort`, and `defaultModel`.
 
 ### Model and effort guidance
 
 **Source of truth is runtime, not this table.** `GET /api/models` returns the live list.
 The snapshot below is a default to override, and should be re-verified as models ship.
-Model and effort are per-request (`--model`, `--effort`; null means the brain default,
-then the CLI default) and apply to that request's one persistent session across every
-step. `SBOX_DEFAULT_MODEL` sets the brain default; when the harness is OpenCode and the
-variable is unset, it defaults to `opencode-go/deepseek-v4.1-flash`.
+Model and effort inherit request → cell → brain default, with one exception: when a
+request overrides its cell's harness, it does not inherit the cell's model or effort
+because those were chosen for the other adapter. They apply to that request's one
+persistent session across every step. `SBOX_DEFAULT_MODEL` sets the brain default for
+both harnesses; when unset, OpenCode defaults to `opencode-go/deepseek-v4.1-flash` and
+Claude to its CLI default. Effort is passed only to Claude; OpenCode ignores it.
 
 **Current family** (id, tier, when to pick it, first-party USD per million in and out):
 
@@ -399,13 +417,14 @@ The server is the source of truth; the SPA mirrors these by hand.
 ```ts
 type State = 'clarify' | 'dispatch' | 'review' | 'finalize' | 'done' | 'dropped';
 type AgentStatus = 'none' | 'idle' | 'working' | 'blocked' | 'error';
+type HarnessId = 'claude' | 'opencode';
 
 interface Request {
   id: string; title: string; body: string;
   state: State;
   groomed: boolean; clarifyStarted: boolean;
   targetRepo: string | null;
-  model: string | null;          // claude --model id, null means the CLI default
+  model: string | null;          // claude --model id, null means the harness default
   effort: string | null;         // low|medium|high|xhigh|max, null means default
   acceptanceCriteria: string | null;
   context: string | null;
@@ -418,10 +437,16 @@ interface Request {
   branch: string | null;         // sbox/<id>
   crUrl: string | null;
   cellId: string | null;         // at most one cell; null means the unfiltered floor
+  harness: HarnessId | null;     // explicit override; null inherits cell then brain
   createdAt: number; updatedAt: number;
 }
 
-interface Cell { id: string; name: string; createdAt: number; }
+interface Cell {
+  id: string; name: string; masterEnabled: boolean;
+  masterIntervalMinutes: number | null; maxConcurrent: number;
+  model: string | null; effort: string | null;
+  harness: HarnessId | null; createdAt: number;
+}
 
 interface KbEntry {
   id: string; requestId: string; title: string; content: string; createdAt: number;
@@ -431,7 +456,7 @@ interface KbEntry {
 ### HTTP DTOs
 
 ```ts
-interface CreateInput { title: string; body?: string; targetRepo?: string | null; cellId?: string | null; }
+interface CreateInput { title: string; body?: string; targetRepo?: string | null; cellId?: string | null; harness?: HarnessId | null; }
 
 interface EditInput {
   title?: string; body?: string; targetRepo?: string | null;
@@ -439,6 +464,7 @@ interface EditInput {
   skills?: string[]; groomed?: boolean;
   model?: string | null; effort?: 'low'|'medium'|'high'|'xhigh'|'max' | null;
   kbDigest?: boolean; digest?: string | null; cellId?: string | null;
+  harness?: HarnessId | null;
 }
 
 // POST /api/requests/:id/transition   { to: State }
@@ -448,7 +474,10 @@ interface EditInput {
 // POST /api/cells {name}; PATCH /api/cells/:id {name}
 
 interface ModelOption { id: string; label: string; }
-interface ModelsResult { models: ModelOption[]; source: 'probe' | 'fallback'; effortLevels: string[]; }
+interface ModelsResult {
+  models: ModelOption[]; source: 'probe' | 'fallback'; effortLevels: string[];
+  harness?: HarnessId; supportsEffort?: boolean; defaultModel?: string | null;
+}
 
 interface PluginInfo  { name: string; description: string; dir: string; }
 interface CommandInfo { command: string; description: string; plugin: string; }

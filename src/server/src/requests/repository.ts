@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
+import { isHarnessId, type HarnessId } from '../domain/harness.js';
 import {
   canTransition,
   type AgentStatus,
@@ -25,6 +26,7 @@ export interface CreateInput {
   body?: string | undefined;
   targetRepo?: string | null | undefined;
   cellId?: string | null | undefined;
+  harness?: HarnessId | null | undefined;
 }
 
 /** Mirrors the PATCH body in the HTTP API. Undefined means "leave alone". */
@@ -41,6 +43,7 @@ export interface EditInput {
   kbDigest?: boolean | undefined;
   digest?: string | null | undefined;
   cellId?: string | null | undefined;
+  harness?: HarnessId | null | undefined;
 }
 
 export interface ListFilter {
@@ -70,6 +73,7 @@ interface RequestRow {
   branch: string | null;
   cr_url: string | null;
   cell_id: string | null;
+  harness: HarnessId | null;
   created_at: number;
   updated_at: number;
 }
@@ -105,6 +109,7 @@ function toRequest(row: RequestRow): Request {
     branch: row.branch,
     crUrl: row.cr_url,
     cellId: row.cell_id,
+    harness: isHarnessId(row.harness) ? row.harness : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -123,6 +128,7 @@ const EDIT_COLUMNS = {
   kbDigest: 'kb_digest',
   digest: 'digest',
   cellId: 'cell_id',
+  harness: 'harness',
 } as const satisfies Record<keyof EditInput, string>;
 
 function encodeValue(value: unknown): unknown {
@@ -155,8 +161,8 @@ export class RequestRepository {
     const id = randomUUID();
     this.db
       .prepare(
-        `INSERT INTO requests (id, title, body, state, target_repo, cell_id, created_at, updated_at)
-         VALUES (?, ?, ?, 'clarify', ?, ?, ?, ?)`,
+        `INSERT INTO requests (id, title, body, state, target_repo, cell_id, harness, created_at, updated_at)
+         VALUES (?, ?, ?, 'clarify', ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -164,6 +170,7 @@ export class RequestRepository {
         input.body ?? '',
         input.targetRepo ?? null,
         input.cellId ?? null,
+        input.harness ?? null,
         now,
         now,
       );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError, streamNdjson } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { TranscriptList } from './TranscriptList';
@@ -6,6 +6,8 @@ import { formFromRequest, patchFromForm, type RequestFormState } from './request
 import { mergeSlashCommands } from './slash';
 import {
   EFFORT_LEVELS,
+  HARNESS_IDS,
+  HARNESS_LABELS,
   isTerminal,
   STATE_LABELS,
   type Cell,
@@ -52,6 +54,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   const [request, setRequest] = useState<Request | null>(null);
   const [form, setForm] = useState<RequestFormState | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
+  const [cellsLoaded, setCellsLoaded] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
   const [harness, setHarness] = useState<string | null>(null);
@@ -64,32 +67,29 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   const [streamText, setStreamText] = useState('');
   const [maximized, setMaximized] = useState(false);
   const [saved, setSaved] = useState(false);
+  const lastHarness = useRef<{ id: string; harness: string | null } | null>(null);
 
   const load = useCallback(async () => {
     try {
+      setCellsLoaded(false);
       const found = await api.getRequest(id);
       setRequest(found);
       setForm(formFromRequest(found));
       setDigest(found.digest ?? '');
 
-      const [clarify, modelResult, commandList, skillList, cellList] = await Promise.all([
+      const [clarify, commandList, skillList, cellList] = await Promise.all([
         api.getClarify(id).catch(() => ({ started: found.clarifyStarted, transcript: [] })),
-        api.getModels().catch(() => null),
         api.getCommands().catch(() => [] as CommandInfo[]),
         api.getSkills(id).catch(() => []),
         api.getCells().catch(() => [] as Cell[]),
       ]);
       setTranscript(clarify.transcript);
-      if (modelResult) {
-        setModels(modelResult.models);
-        setEfforts(modelResult.effortLevels);
-        setHarness(modelResult.harness ?? null);
-        setSupportsEffort(modelResult.supportsEffort !== false);
-      }
       setCommands(mergeSlashCommands(commandList, skillList));
       setCells(cellList);
+      setCellsLoaded(true);
     } catch (error) {
       onError(describeError(error));
+      setCellsLoaded(true);
     }
   }, [id, onError]);
 
@@ -97,12 +97,64 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     void load();
   }, [load]);
 
+  // Reload the model catalog whenever the candidate effective harness changes.
+  // The effect ignores late responses so a quick toggle cannot overwrite the
+  // newest catalog.
+  useEffect(() => {
+    if (!form || !cellsLoaded) return;
+    const cell = form.cellId ? cells.find((candidate) => candidate.id === form.cellId) : undefined;
+    const query = form.harness
+      ? { harness: form.harness }
+      : cell
+        ? { cellId: cell.id }
+        : {};
+    let cancelled = false;
+    void api
+      .getModels(query)
+      .then((result) => {
+        if (cancelled) return;
+        const effective = result.harness ?? null;
+        const previous = lastHarness.current?.id === id ? lastHarness.current.harness : null;
+        setModels(result.models);
+        setEfforts(result.effortLevels);
+        setHarness(effective);
+        setSupportsEffort(result.supportsEffort !== false);
+        if (previous !== null && effective !== null && previous !== effective) {
+          setForm((current) => (current ? { ...current, model: '' } : current));
+        }
+        lastHarness.current = { id, harness: effective };
+      })
+      .catch(() => {
+        // Model discovery is optional; the harness default remains usable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form?.harness, form?.cellId, cells, cellsLoaded, id]);
+
   useEffect(() => {
     api.markSeen(id).catch(() => {});
   }, [id]);
 
   const set = <K extends keyof RequestFormState>(key: K, value: RequestFormState[K]) => {
-    setForm((current) => (current ? { ...current, [key]: value } : current));
+    setForm((current) => {
+      if (!current) return current;
+      const next = { ...current, [key]: value };
+      if (key === 'harness' || key === 'cellId') {
+        const cellId = key === 'cellId' ? (value as string) : current.cellId;
+        const selected = cellId ? cells.find((candidate) => candidate.id === cellId) : undefined;
+        const currentCell = current.cellId
+          ? cells.find((candidate) => candidate.id === current.cellId)
+          : undefined;
+        const before = current.harness || currentCell?.harness || harness;
+        const after =
+          (key === 'harness' ? (value as string) : current.harness) ||
+          selected?.harness ||
+          harness;
+        if (before !== after) next.model = '';
+      }
+      return next;
+    });
     setSaved(false);
   };
 
@@ -218,6 +270,18 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   }
 
   const terminal = request ? isTerminal(request.state) : false;
+  const selectedCell = form?.cellId
+    ? cells.find((candidate) => candidate.id === form.cellId)
+    : undefined;
+  const effectiveHarness = form?.harness || selectedCell?.harness || harness;
+  const harnessLabel = effectiveHarness
+    ? (HARNESS_LABELS[effectiveHarness as keyof typeof HARNESS_LABELS] ?? effectiveHarness)
+    : 'not resolved';
+  const harnessSource = form?.harness
+    ? 'request override'
+    : selectedCell?.harness
+      ? `cell ${selectedCell.name}`
+      : 'brain default';
 
   const actions = useMemo(() => {
     if (!request) return null;
@@ -318,9 +382,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   {request.targetRepo}
                 </span>
               ) : null}
-              {harness ? (
+              {effectiveHarness ? (
                 <span className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono">
-                  harness: {harness}
+                  harness: {harnessLabel} ({harnessSource})
                 </span>
               ) : null}
             </div>
@@ -351,6 +415,19 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   </Select>
                 </Field>
               </div>
+              <Field label="Harness" hint={`effective: ${harnessLabel} (${harnessSource})`}>
+                <Select
+                  value={form.harness}
+                  onChange={(event) => set('harness', event.target.value)}
+                >
+                  <option value="">Inherit</option>
+                  {HARNESS_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {HARNESS_LABELS[id]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
               <Field label="Acceptance criteria">
                 <Textarea
                   rows={2}
@@ -377,7 +454,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Model">
                   <Select value={form.model} onChange={(event) => set('model', event.target.value)}>
-                    <option value="">CLI default</option>
+                    <option value="">Harness default</option>
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.label}

@@ -1,3 +1,5 @@
+import type { HarnessId } from './harness.js';
+
 export const STATES = ['clarify', 'dispatch', 'review', 'merge', 'finalize', 'done', 'dropped'] as const;
 export type State = (typeof STATES)[number];
 
@@ -51,6 +53,8 @@ export interface Request {
   branch: string | null;
   crUrl: string | null;
   cellId: string | null;
+  /** Explicit request override; null inherits the cell, then the process default. */
+  harness: HarnessId | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -66,6 +70,8 @@ export interface Cell {
   /** Cell-level defaults; a request's own model/effort wins. */
   model: string | null;
   effort: Effort | null;
+  /** Cell harness; null inherits the process default. */
+  harness: HarnessId | null;
   createdAt: number;
 }
 

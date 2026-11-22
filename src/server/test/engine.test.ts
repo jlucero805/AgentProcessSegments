@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
+import { requestDir } from '../src/config.js';
 import { summarySessionId } from '../src/domain/sessions.js';
 
 let harness: Harness | null = null;
@@ -268,6 +271,7 @@ describe('turn engine', () => {
   it('uses the configured default model when no request or cell model is set', async () => {
     const h = fresh(() => defaultScript());
     h.config.defaultModel = 'opencode-go/deepseek-v4.1-flash';
+    h.config.defaultModels.claude = 'opencode-go/deepseek-v4.1-flash';
     const request = h.repo.create({ title: 'Default model' });
 
     const turn = await h.engine.start(request.id);
@@ -302,6 +306,100 @@ describe('turn engine', () => {
     await second.promise;
     await settle();
     expect(h.harness.sessions[1]).toMatchObject({ model: 'request-model', effort: 'low' });
+  });
+
+  it('runs an override on the other adapter and skips the cell model and effort', async () => {
+    const h = createHarness(
+      () => defaultScript(),
+      () => ({ model: 'cell-model', effort: 'high', harness: 'claude' }),
+    );
+    harness = h;
+    const cell = h.cells.create('Claude cell', null, null, { harness: 'claude' });
+    const request = h.repo.create({
+      title: 'Use OpenCode',
+      cellId: cell.id,
+      harness: 'opencode',
+    });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions).toHaveLength(0);
+    expect(h.opencode.sessions[0]).toMatchObject({
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: null,
+    });
+
+    const sameHarness = h.repo.create({
+      title: 'Same harness still inherits',
+      cellId: cell.id,
+      harness: 'claude',
+    });
+    const second = await h.engine.start(sameHarness.id);
+    await second.promise;
+    await settle();
+    expect(h.harness.sessions[0]).toMatchObject({ model: 'cell-model', effort: 'high' });
+  });
+
+  it('drops the saved session and cached process when the override changes harness', async () => {
+    const h = fresh(() => [initLine('sess-shared'), resultLine()]);
+    const request = h.repo.create({ title: 'Switch harness' });
+
+    const first = await h.engine.start(request.id);
+    await first.promise;
+    await settle();
+
+    const sessionFile = path.join(requestDir(h.config, request.id), 'session.json');
+    expect(JSON.parse(readFileSync(sessionFile, 'utf8'))).toMatchObject({
+      harness: 'claude',
+      sessionId: 'sess-shared',
+    });
+
+    h.repo.edit(request.id, { harness: 'opencode' });
+    const second = await h.engine.send(request.id, 'carry on');
+    await second.promise;
+    await settle();
+
+    expect(h.harness.process?.killed).toBe(true);
+    expect(h.opencode.sessions[0]?.sessionId).toBeNull();
+    expect(JSON.parse(readFileSync(sessionFile, 'utf8'))).toMatchObject({
+      harness: 'opencode',
+      sessionId: 'sess-shared',
+    });
+  });
+
+  it('treats a legacy session file without a harness as the process default', async () => {
+    const h = fresh(() => [initLine('legacy-session'), resultLine()]);
+    const request = h.repo.create({ title: 'Legacy session' });
+    const dir = requestDir(h.config, request.id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: 'saved-legacy' }));
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions[0]?.sessionId).toBe('saved-legacy');
+  });
+
+  it('runs a summary on its cell harness', async () => {
+    const h = createHarness(
+      () => defaultScript(),
+      () => ({ model: 'cell-model', effort: 'high', harness: 'opencode' }),
+    );
+    harness = h;
+
+    const turn = await h.engine.startSummary('facts', summarySessionId('cell-1'));
+    await turn.promise;
+    await settle();
+
+    expect(h.opencode.sessions[0]).toMatchObject({
+      scope: 'master',
+      model: 'cell-model',
+      effort: null,
+    });
+    expect(h.harness.sessions).toHaveLength(0);
   });
 
   it('transitions on the dispatch kickoff and tells the agent not to push', async () => {

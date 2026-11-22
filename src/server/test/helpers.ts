@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CellRepository } from '../src/cells/repository.js';
-import { Engine } from '../src/clarify/engine.js';
+import { Engine, type HarnessSource } from '../src/clarify/engine.js';
 import type {
   AgentHarness,
   HarnessCommand,
@@ -14,6 +14,7 @@ import { TurnParser } from '../src/clarify/stream.js';
 import type { AgentProcess } from '../src/clarify/transport.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { openDb, type Db } from '../src/db.js';
+import type { HarnessId } from '../src/domain/harness.js';
 import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
 import { PluginManager } from '../src/plugins/manager.js';
@@ -109,18 +110,20 @@ export class FakeAgentProcess implements AgentProcess {
 
 /** Records prepare/spawn calls and uses the real Claude stream parser. */
 export class FakeHarness implements AgentHarness {
-  readonly id = 'fake';
   readonly fallbackModels: readonly ModelOption[] = [];
   readonly sessions: HarnessSession[] = [];
   readonly commands: HarnessCommand[] = [];
   process: FakeAgentProcess | null = null;
 
-  constructor(private readonly respond: (text: string) => string[] = () => []) {}
+  constructor(
+    private readonly respond: (text: string) => string[] = () => [],
+    readonly id: HarnessId = 'claude',
+  ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
     this.sessions.push(session);
     const command: HarnessCommand = {
-      cmd: 'fake',
+      cmd: this.id,
       args: [],
       env: {},
       cwd: session.cwd,
@@ -144,6 +147,21 @@ export class FakeHarness implements AgentHarness {
   }
 }
 
+export class FakeHarnessSource implements HarnessSource {
+  readonly defaultId: HarnessId;
+
+  constructor(
+    private readonly adapters: Record<HarnessId, FakeHarness>,
+    defaultId: HarnessId = 'claude',
+  ) {
+    this.defaultId = defaultId;
+  }
+
+  get(id: HarnessId): FakeHarness {
+    return this.adapters[id];
+  }
+}
+
 export interface Harness {
   config: Config;
   db: Db;
@@ -152,12 +170,17 @@ export interface Harness {
   kb: KbRepository;
   plugins: PluginManager;
   harness: FakeHarness;
+  opencode: FakeHarness;
+  harnesses: FakeHarnessSource;
   engine: Engine;
 }
 
 export function createHarness(
   script: (text: string) => string[] = defaultScript,
-  cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null,
+  cellDefaults?: (
+    cellId: string,
+  ) => { model: string | null; effort: Effort | null; harness?: HarnessId | null } | null,
+  defaultId: HarnessId = 'claude',
 ): Harness {
   const config = testConfig();
   const db = openDb(config.dbPath);
@@ -165,15 +188,31 @@ export function createHarness(
   const cells = new CellRepository(db);
   const kb = new KbRepository(db);
   const plugins = new PluginManager(config.pluginsDir);
-  const agentHarness = new FakeHarness(script);
+  const agentHarness = new FakeHarness(script, 'claude');
+  const opencodeHarness = new FakeHarness(script, 'opencode');
+  const harnesses = new FakeHarnessSource(
+    { claude: agentHarness, opencode: opencodeHarness },
+    defaultId,
+  );
   const engine = new Engine({
     repo,
-    harness: agentHarness,
+    harnesses,
     config,
     pluginDirs: () => plugins.installedPluginDirs(),
     ...(cellDefaults ? { cellDefaults } : {}),
   });
-  return { config, db, repo, cells, kb, plugins, harness: agentHarness, engine };
+  return {
+    config,
+    db,
+    repo,
+    cells,
+    kb,
+    plugins,
+    harness: defaultId === 'opencode' ? opencodeHarness : agentHarness,
+    opencode: opencodeHarness,
+    harnesses,
+    engine,
+  };
 }
 
 /** Let queued microtasks (and the turn's finally block) run. */

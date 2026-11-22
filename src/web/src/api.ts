@@ -203,8 +203,17 @@ export const api = {
       body: JSON.stringify({ digest, index }),
     });
   },
-  getModels(refresh = false): Promise<ModelsResult> {
-    return request(withQuery('/api/models', refresh ? { refresh: 1 } : {}));
+  getModels(
+    options: { refresh?: boolean; harness?: string; cellId?: string; requestId?: string } = {},
+  ): Promise<ModelsResult> {
+    return request(
+      withQuery('/api/models', {
+        ...(options.refresh ? { refresh: 1 } : {}),
+        harness: options.harness,
+        cellId: options.cellId,
+        requestId: options.requestId,
+      }),
+    );
   },
   getKb(q?: string, limit?: number): Promise<KbEntry[]> {
     return request(withQuery('/api/kb', { q, limit }));

@@ -649,3 +649,27 @@ is retried with backoff rather than every scan. The report cannot replay a reque
 moved through a state and back; a durable activity log is scoped separately. The global
 policy cannot yet vary per cell, and unassigned work has no scorecard, both deliberate
 follow-ups.
+
+## D43. A request can override its cell's harness
+
+**Context.** Cells select a default agent substrate, but one request occasionally needs
+the other adapter (a migration, a provider-specific experiment, or a repo that only works
+with one CLI). Making the operator create a second cell for that request would lose the
+cell's cadence and policy. Keeping only one process-wide harness would make the cell
+setting meaningless.
+
+**Decision.** `requests.harness` is a nullable override with a single resolution order:
+request, then cell, then `SBOX_HARNESS`. `session.json` stores the harness with the
+session id, and a switch drops the cached child and starts a fresh session. KB/setup
+sessions use the process default; a cell master or summary uses its cell's harness. A
+cross-harness request does not inherit the cell's model or effort, because those ids and
+flags were chosen for the other adapter. `PATCH` clears a request model when the effective
+harness changes unless the same patch supplies a replacement; effort is left alone
+because OpenCode ignores it and it remains useful if the request returns to Claude.
+`GET /api/models?requestId=` resolves through the same helper so the SPA cannot drift.
+
+**Cost.** Operators can now pin one request to a harness whose CLI may not be installed;
+that turn fails visibly rather than falling back. A harness change discards the provider
+session id, so the next turn starts fresh even though the transcript remains. Model
+compatibility for direct API callers is still their responsibility when they set both
+fields in one patch.

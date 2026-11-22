@@ -33,6 +33,7 @@ export function makeRequest(overrides: Partial<Request> = {}): Request {
     branch: null,
     crUrl: null,
     cellId: null,
+    harness: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,

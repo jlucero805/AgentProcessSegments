@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from '
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { loadConfig } from '../src/config.js';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import { ClaudeHarness } from '../src/clarify/harnesses/claude.js';
 import {
@@ -401,6 +402,24 @@ describe('OpencodeHarness', () => {
       { id: 'opencode-go/model-b', label: 'opencode-go/model-b' },
     ]);
     expect(await probeOpencodeModels(path.join(base, 'missing'))).toBeNull();
+  });
+});
+
+describe('harness configuration', () => {
+  it('rejects an unknown SBOX_HARNESS and keeps per-adapter bins', () => {
+    expect(() => loadConfig({ SBOX_HARNESS: 'other' })).toThrow(/SBOX_HARNESS/);
+
+    const config = loadConfig({
+      SBOX_HARNESS: 'opencode',
+      SBOX_CLAUDE_BIN: 'claude-test',
+      SBOX_OPENCODE_BIN: 'opencode-test',
+    });
+    expect(config.harness).toBe('opencode');
+    expect(config.claudeBin).toBe('claude-test');
+    expect(config.opencodeBin).toBe('opencode-test');
+    expect(config.harnessBin).toBe('opencode-test');
+    expect(config.defaultModels.opencode).toBe('opencode-go/deepseek-v4.1-flash');
+    expect(config.defaultModels.claude).toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolveHarness } from '../src/domain/harness.js';
 import {
   canTransition,
   isIntake,
@@ -6,6 +7,22 @@ import {
   TERMINAL_STATES,
   TRANSITIONS,
 } from '../src/domain/request.js';
+
+describe('harness resolution', () => {
+  it('prefers a request override, then the cell, then the process default', () => {
+    expect(
+      resolveHarness({ request: 'opencode', cell: 'claude', process: 'claude' }),
+    ).toEqual({ harness: 'opencode', source: 'request' });
+    expect(resolveHarness({ request: null, cell: 'opencode', process: 'claude' })).toEqual({
+      harness: 'opencode',
+      source: 'cell',
+    });
+    expect(resolveHarness({ request: null, cell: null, process: 'claude' })).toEqual({
+      harness: 'claude',
+      source: 'process',
+    });
+  });
+});
 
 describe('request state machine', () => {
   it('walks the happy path and refuses every backward jump the spec forbids', () => {

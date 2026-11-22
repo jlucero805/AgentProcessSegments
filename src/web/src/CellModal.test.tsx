@@ -51,6 +51,7 @@ describe('CellModal', () => {
             maxConcurrent: 3,
             model: null,
             effort: null,
+            harness: null,
             process: baseProcess(),
             createdAt: 2,
           };
@@ -166,6 +167,7 @@ describe('CellModal', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
+      harness: null,
       process: stale,
       createdAt: 1,
     };

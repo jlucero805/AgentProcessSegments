@@ -36,7 +36,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 240 vitest cases: 158 server across 19 files and 82 web across 16 files, all green.
+- 247 vitest cases: 164 server across 19 files and 83 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -69,7 +69,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 158 server + 82 web
+npm test                       # 164 server + 83 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -232,6 +232,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     request nor its cell names a model. OpenCode defaults to
     `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
     Expose the default through `GET /api/models` so the wizard can show it.
+30. **The master prods a batch concurrently.** `runBucket` selects up to the cell’s spare
+    concurrency, counts already-selected candidates against segment caps, then starts the
+    batch with `Promise.all`. Do not return to a serial candidate loop; per-cell scheduler
+    coalescing still prevents overlapping cycles.
 
 ## Extension recipes
 

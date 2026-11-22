@@ -233,6 +233,41 @@ describe('MasterService', () => {
     expect(fixture.repo.require(planningNew.id).state).toBe('clarify');
   });
 
+  it('starts the whole selected batch before waiting for any turn', async () => {
+    const fixture = setup({ includeUnassigned: false });
+    const cell = fixture.cells.create('Parallel', null, null, { maxConcurrent: 4 });
+    dispatchRequest(fixture, 'One', cell.id);
+    dispatchRequest(fixture, 'Two', cell.id);
+    dispatchRequest(fixture, 'Three', cell.id);
+
+    const pending: Array<() => void> = [];
+    let active = 0;
+    let peak = 0;
+    (fixture.engine.send as ReturnType<typeof vi.fn>).mockImplementation(
+      async (): Promise<LiveTurn> => {
+        active += 1;
+        peak = Math.max(peak, active);
+        return {
+          promise: new Promise<void>((resolve) => {
+            pending.push(() => {
+              active -= 1;
+              resolve();
+            });
+          }),
+        } as unknown as LiveTurn;
+      },
+    );
+
+    const run = fixture.service.runOnce();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(pending).toHaveLength(3);
+    expect(peak).toBe(3);
+
+    for (const release of pending) release();
+    await run;
+  });
+
   it('does not prod the same request twice inside the interval', async () => {
     const fixture = setup({ autoReview: false });
     const cell = fixture.cells.create('Gap');
@@ -429,6 +464,28 @@ describe('MasterService', () => {
     age(fixture, waiting.id, 2 * 60_000);
     const allowed = await fixture.service.runOnce();
     expect(allowed.prodded).toBe(1);
+  });
+
+  it('selects only the segment cap in one parallel batch', async () => {
+    const process = processFor((config) => {
+      segment(config, 'implement').enabled = false;
+      const merge = segment(config, 'merge');
+      merge.enabled = true;
+      merge.idleMinutes = 1;
+      merge.maxPerCycle = 10;
+      merge.maxConcurrent = 1;
+      merge.readyMarker = null;
+      merge.advanceTo = null;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('One merge', null, null, { maxConcurrent: 5 });
+    requestInState(fixture, 'First merge', 'merge', cell.id);
+    requestInState(fixture, 'Second merge', 'merge', cell.id);
+
+    const result = await fixture.service.runOnce();
+
+    expect(result.prodded).toBe(1);
+    expect(fixture.turns).toHaveLength(1);
   });
 
   it('creates follow-up requests once per unique callout', async () => {

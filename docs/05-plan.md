@@ -205,4 +205,7 @@ states dispose the session as before; disabling the master stops scheduling imme
   tools, legal-transition guide in the prompt/tool errors, regression tests and docs.
 - [x] **39. Incremental setup** — direct harness MCP tool cards, elapsed/last-tool
   progress, per-update form refresh, deepseek-v4.1-flash brain default, tests and docs.
-- [ ] **Backlog 40. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **40. Parallel master batches** — select up to spare cell concurrency, respect
+  segment caps across the batch, prod with `Promise.all`, aggregate outcomes, tests and
+  docs.
+- [ ] **Backlog 41. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

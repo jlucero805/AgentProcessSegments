@@ -603,3 +603,21 @@ next tick. A cell with many ineligible oldest requests may still scan past them 
 its budget, but nothing beyond the budget is run or posted. The deterministic scheduler
 remains the promotion owner; no MCP promotion tool was added, because the master chat is
 advisory and does not call tools to prod.
+
+## D41. Cell master prods the selected batch concurrently
+
+**Context.** The master selected up to the cell’s spare concurrency but then awaited each
+turn sequentially. A slow turn delayed every other selected request in the same cycle,
+even though the cell had capacity for them.
+
+**Decision.** `runBucket` starts all selected candidates with `Promise.all`. Selection
+already bounds the batch by the cell’s spare concurrency and each segment’s
+`maxPerCycle`/`maxConcurrent`; segment selection now counts candidates already chosen for
+that batch, so a merge segment capped at one worker contributes only one request. Results,
+follow-ups, and transitions are collected per candidate and aggregated after the batch.
+Different cells remain independent scheduler keys, and a global `runOnce` still walks
+buckets in order.
+
+**Cost.** A cycle can have several live model turns at once, using more provider
+throughput and tokens. The cell cap now matters for real parallel fan-out rather than just
+admission control. A segment cap of one still serializes merge work as intended.

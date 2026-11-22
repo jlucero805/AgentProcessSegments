@@ -22,7 +22,7 @@ built and vended by the brain; real-CLI verification is still pending.
   segments from right to left so finishing work runs before more planning. Each cycle
   selects at most the cell’s spare concurrency, latest segments first and oldest request
   first inside a segment, so it does not read or note the whole board. It starts or
-  prods that bounded set, records
+  prods that bounded set concurrently (up to the cell/segment caps), records
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events, and advances on
   exact markers through legal transitions. A segment can also create follow-up requests
   from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
@@ -177,7 +177,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 240 vitest cases, all passing: 158 server across 19 files and 82 web across 16 files,
+- 247 vitest cases, all passing: 164 server across 19 files and 83 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

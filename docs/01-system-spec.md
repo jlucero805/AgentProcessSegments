@@ -188,6 +188,22 @@ an event-loop yield between batches, and relies on `idx_usage_events_created`. I
 runs `VACUUM`; SQLite reuses freed pages. "All time" usage queries therefore cover the
 retained window.
 
+### `model_pricing`
+
+`id` (uuid PK), `model` (exact resolved model id), `effective_from` (epoch ms),
+`input_usd_per_mtok`, `output_usd_per_mtok`, `cache_read_usd_per_mtok`,
+`cache_write_usd_per_mtok`, `reasoning_usd_per_mtok`, `source` (URL or citation),
+`note`, `created_at`. Unique index `idx_model_pricing_model_effective` on
+`(model, effective_from)`. Rows are append-only for normal price changes; operators add
+a new effective date instead of editing history. `DELETE` exists only for an entry
+created by mistake.
+
+A turn keeps its harness-reported cost. When that cost is null and the exact model has a
+row with `effective_from <= usage_events.created_at`, usage aggregation adds an estimate
+computed from all five token categories. The estimate is computed at query time, so it
+is never written into `usage_events` and a historical correction applies immediately.
+An unmatched or future-only price stays unknown, never zero.
+
 ### Domain (`src/server/domain/request.ts`)
 
 - `STATES = clarify | dispatch | review | finalize | done | dropped`.
@@ -219,7 +235,11 @@ retained window.
   that request, plus `list`, `getByRequest`, and a literal LIKE `search`.
 - `usage/repository.ts`: `record(input)` writes one event per completed turn and
   `query(filter)` returns totals, UTC bucket series, and model/cell/request groups.
-  Cost is the harness-reported value only; an unreported cost remains null.
+  Reported cost stays separate; an unreported turn uses the effective price row when one
+  exists and otherwise remains unpriced.
+- `pricing/repository.ts`: `list`, `create`, and `remove` effective-dated price rows,
+  plus `getEffective(model, at)` for the latest row at or before a timestamp. Duplicate
+  `(model, effective_from)` pairs are rejected.
 
 ---
 
@@ -280,9 +300,21 @@ object per line.
   returns `{range, totals, series[], byModel[], byCell[], byRequest[]}`. Bounds are
   epoch milliseconds (`from` inclusive, `to` exclusive). Series buckets are UTC-aligned
   and zero-filled when both bounds are supplied; a bounded request over 10,000 buckets
-  is rejected with 400. Totals separate known cost from
-  `unknownCostTurns`; a model with no reported cost is unknown, not zero. Request groups
-  include the request's current cell as `cellId`/`cellLabel`.
+  is rejected with 400. Totals separate reported `costUsd`, `estimatedCostUsd`, and
+  `totalCostUsd`, with `reportedCostTurns`, `estimatedCostTurns`, `unpricedTurns`, and
+  the legacy `unknownCostTurns` counts. An unreported turn with no effective model price
+  is unpriced, not zero. Request groups include the request's current cell as
+  `cellId`/`cellLabel`.
+
+### Pricing
+
+- `GET /api/pricing` returns `{prices:[{id,model,effectiveFrom,inputUsdPerMtok,…,
+  source,note,createdAt}]}`, newest effective row first within each model.
+- `POST /api/pricing` creates one row. Model, source, effective date, and all five
+  non-negative USD-per-million rates are required. A duplicate `(model,effectiveFrom)`
+  returns 409.
+- `DELETE /api/pricing/:id` removes an entry created by mistake and returns 204, or 404
+  when it does not exist.
 
 ### NDJSON event shape
 

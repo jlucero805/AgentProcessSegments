@@ -29,8 +29,8 @@ digests.
 7. `docs/07-process-segments.md` is the process.json contract and automation semantics.
 8. `docs/08-user-workflows.md` is the operator workflow: cells, process choices, master
    observation, requests, review, and finalize.
-9. `docs/09-backlog.md` holds scoped but unbuilt work (usage retention and estimated
-   pricing). Budget alerts are built and documented separately.
+9. `docs/09-backlog.md` holds scoped but unbuilt work (usage retention and pricing
+   maintenance at scale). Budget alerts and estimated pricing are built.
 10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
 11. `docs/11-skills.md` is slash-command/skill discovery and invocation in chats.
 12. `docs/12-terminals.md` is the server-owned PTY lifecycle, session list, and API.
@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 392 vitest cases: 274 server across 27 files and 118 web across 20 files, all green.
+- 414 vitest cases: 285 server across 28 files and 129 web across 21 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -63,13 +63,15 @@ digests.
   a systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
-  request-level card, and a GitHub Actions CI workflow template in
+  request-level card, effective-dated operator-maintained model pricing with
+  reported-versus-estimated cost accounting, and a GitHub Actions CI workflow template in
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, usage retention, and estimated pricing (scoped in
-  `docs/09-backlog.md`). Review/finalize automation is configurable per cell but
-  finalize remains human-gated; the CI workflow is not published yet and needs the
+- Not built: KB embeddings, usage retention, and pricing maintenance at scale such as
+  bulk import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`).
+  Review/finalize automation is configurable per cell but finalize remains human-gated;
+  the CI workflow is not published yet and needs the
   `workflow` token scope.
 
 ## Commands
@@ -77,7 +79,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 274 server + 118 web
+npm test                       # 285 server + 129 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -213,17 +215,21 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     are manual-only and never enter a bucket.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
-20. **Usage is recorded after completion, retained, and budgets are advisory.** Parsers expose a
-    normalized `TurnUsage`; the engine writes one `usage_events` row only when the
-    harness emitted a final event and reported usage. Cancelled, timed-out, and
-    usage-less turns write nothing. Cost is harness-reported only; an unreported cost
-    stays NULL, never zero. Claude reports cumulative usage on resumed sessions, so
-    persist the last cumulative totals in `session.json` and record per-turn deltas.
-    `usage.retentionDays` (default 90, `0` = keep forever) drives the startup/hourly
-    prune job; delete usage rows only through that job. Do not add guessed pricing or
-    partial usage writes. Budget status reads `UsageRepository.totals`, never estimates
-    missing cost, and never pauses or blocks work. Hard caps and external delivery stay
-    separate; long-range rollups and estimated pricing follow `docs/09-backlog.md`.
+20. **Usage is recorded after completion; reported cost wins; retention and budgets are
+    advisory.** Parsers expose a normalized `TurnUsage`; the engine writes one
+    `usage_events` row only when the harness emitted a final event and reported usage.
+    Cancelled, timed-out, and usage-less turns write nothing. `usage_events.cost_usd` is
+    harness-reported only and is never rewritten. An unreported turn may be estimated at
+    query time from the exact model's latest `model_pricing` row with
+    `effective_from <= created_at`; prices are explicit USD-per-million rows with a
+    source, and an unmatched model stays unpriced, never zero. Claude reports cumulative
+    usage on resumed sessions, so persist the last cumulative totals in `session.json`
+    and record per-turn deltas. `usage.retentionDays` (default 90, `0` = keep forever)
+    drives the startup/hourly prune job; delete usage rows only through that job. Budget
+    status reads `UsageRepository.totals`, compares reported cost only, never estimates
+    missing cost, and never pauses or blocks work. Do not add guessed prices or partial
+    usage writes. Hard caps, external delivery, long-range rollups, and pricing
+    maintenance at scale follow `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.

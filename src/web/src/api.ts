@@ -16,6 +16,9 @@ import type {
   MasterEvent,
   MasterResult,
   MasterStatus,
+  ModelPrice,
+  ModelPriceInput,
+  ModelPricesResponse,
   ModelsResult,
   PluginInfo,
   ProcessConfig,
@@ -377,5 +380,14 @@ export const api = {
         limit: filters.limit,
       }),
     );
+  },
+  getPricing(): Promise<ModelPricesResponse> {
+    return request('/api/pricing');
+  },
+  createPrice(input: ModelPriceInput): Promise<ModelPrice> {
+    return request('/api/pricing', { method: 'POST', body: JSON.stringify(input) });
+  },
+  deletePrice(id: string): Promise<void> {
+    return request(`/api/pricing/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 };

@@ -249,6 +249,19 @@ Reusing their thresholds is small, observable, and avoids a second source of tru
 Token/usage accounting is separate and already built. Cost: Claude cannot
 raise its built-in threshold, so cell values above that default collapse to Claude's
 default; a global default and per-request overrides remain follow-ups if operators ask.
+## 19. Pricing is an empty operator-maintained table
+
+**Chosen.** Ship `model_pricing` empty and expose a Config page editor plus `/api/pricing`
+rather than bundling a vendor price list. Normal price changes add an effective-dated row;
+`DELETE` is for mistaken entries only.
+
+**Alternatives.** Seed public list prices, read a checked-in JSON file, or infer a price
+from the model name.
+
+**Why.** The repo uses fictional model ids and cannot know an operator's contract, region,
+or plan. Guessing would make estimates look authoritative when they are not. Cost: an
+operator must enter prices before estimates appear. Matching is exact and USD-only; tiered
+pricing, currencies, and bulk import are follow-ups.
 
 ## Open items for review
 

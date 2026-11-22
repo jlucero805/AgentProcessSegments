@@ -60,12 +60,13 @@ afterEach(() => {
 });
 
 describe('UsagePage', () => {
-  it('renders totals, a lower-bound cost, and all breakdown tables', async () => {
+  it('renders effective totals, the reported/estimated split, and all breakdown tables', async () => {
     installFetch();
     render(<UsagePage onError={vi.fn()} />);
 
-    expect(await screen.findByText('Known cost')).toBeInTheDocument();
-    expect(screen.getAllByText('≥ $0.0120 · 1 unpriced').length).toBeGreaterThan(0);
+    expect(await screen.findByText('Effective cost')).toBeInTheDocument();
+    expect(screen.getAllByText('≈ $0.0160').length).toBeGreaterThan(0);
+    expect(screen.getByText('reported $0.0120 · estimated $0.0040')).toBeInTheDocument();
     expect(screen.getByText('Total tokens')).toBeInTheDocument();
     expect(screen.getByText('By model')).toBeInTheDocument();
     expect(screen.getByText('Model A')).toBeInTheDocument();
@@ -74,13 +75,23 @@ describe('UsagePage', () => {
     expect(screen.getAllByText('Alpha').length).toBeGreaterThan(0);
     expect(screen.getByText('Top requests')).toBeInTheDocument();
     expect(screen.getByText('A request')).toBeInTheDocument();
+    expect(screen.getAllByTitle(/estimated/).length).toBeGreaterThan(0);
   });
 
   it('shows unknown instead of zero when no turn is priced', async () => {
     const base = makeUsageResponse();
     installFetch({
       ...base,
-      totals: { ...base.totals, costUsd: null, unknownCostTurns: 2 },
+      totals: {
+        ...base.totals,
+        costUsd: null,
+        estimatedCostUsd: null,
+        totalCostUsd: null,
+        reportedCostTurns: 0,
+        estimatedCostTurns: 0,
+        unpricedTurns: 2,
+        unknownCostTurns: 2,
+      },
       byModel: [],
     });
     render(<UsagePage onError={vi.fn()} />);
@@ -96,7 +107,6 @@ describe('UsagePage', () => {
     expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
     expect(screen.getByText(/warning at 80%/)).toBeInTheDocument();
     expect(screen.getByText(/At least \$85\.00 of \$100\.00/)).toBeInTheDocument();
-    expect(screen.getByText(/1 unpriced turn/)).toBeInTheDocument();
   });
 
   it('does not show an all-unpriced budget as zero', async () => {
@@ -117,14 +127,35 @@ describe('UsagePage', () => {
     render(<UsagePage onError={vi.fn()} />);
 
     expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
-    expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
     expect(screen.queryByText(/\(0%\)/)).not.toBeInTheDocument();
+  });
+
+  it('renders a lower bound when some turns remain unpriced', async () => {
+    const base = makeUsageResponse();
+    installFetch({
+      ...base,
+      totals: {
+        ...base.totals,
+        costUsd: 0.012,
+        estimatedCostUsd: null,
+        totalCostUsd: 0.012,
+        reportedCostTurns: 1,
+        estimatedCostTurns: 0,
+        unpricedTurns: 1,
+        unknownCostTurns: 1,
+      },
+    });
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findAllByText('≥ $0.0120 · 1 unpriced')).not.toHaveLength(0);
+    expect(screen.getByText('Unpriced turns')).toBeInTheDocument();
   });
 
   it('refetches with hour buckets when the range changes', async () => {
     const fetchMock = installFetch();
     render(<UsagePage onError={vi.fn()} />);
-    await screen.findByText('Known cost');
+    await screen.findByText('Effective cost');
 
     fireEvent.click(screen.getByText('24h'));
 
@@ -144,7 +175,7 @@ describe('UsagePage', () => {
   it('refetches with the selected cell', async () => {
     const fetchMock = installFetch();
     render(<UsagePage onError={vi.fn()} />);
-    await screen.findByText('Known cost');
+    await screen.findByText('Effective cost');
 
     fireEvent.change(screen.getByLabelText('Filter usage by cell'), {
       target: { value: 'cell-1' },

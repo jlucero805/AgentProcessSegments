@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS budget_alerts (
   created_at         INTEGER NOT NULL,
   acknowledged_at    INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS model_pricing (
+  id                       TEXT PRIMARY KEY,
+  model                    TEXT NOT NULL,
+  effective_from           INTEGER NOT NULL,
+  input_usd_per_mtok       REAL NOT NULL,
+  output_usd_per_mtok      REAL NOT NULL,
+  cache_read_usd_per_mtok  REAL NOT NULL,
+  cache_write_usd_per_mtok REAL NOT NULL,
+  reasoning_usd_per_mtok   REAL NOT NULL,
+  source                   TEXT NOT NULL,
+  note                     TEXT,
+  created_at               INTEGER NOT NULL
+);
 `;
 
 /**
@@ -177,6 +191,9 @@ export function migrate(db: Db): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_budget_alerts_created ON budget_alerts(created_at)');
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_budget_alerts_acknowledged ON budget_alerts(acknowledged_at)',
+  );
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_model_effective ON model_pricing(model, effective_from)',
   );
 }
 

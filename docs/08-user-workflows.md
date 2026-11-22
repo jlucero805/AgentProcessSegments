@@ -150,6 +150,20 @@ last five.
 5. Costs are harness-reported only. Unpriced turns are counted and shown as unknown or a
    lower bound, never as zero. The Usage page shows the same monthly budget progress
    beside the token and cost breakdowns.
+## 4d. Read spend and maintain model prices
+
+- Open **Usage** from the sidebar. Pick 24h, 7d, 30d, or all time and optionally one
+  cell. The summary separates reported cost, estimated cost, and turns that remain
+  unpriced; the chart stacks reported and estimated spend.
+- A turn uses the harness-reported cost whenever there is one. Only unreported turns can
+  use a price. An exact model with no effective price stays unknown, and a mixed total is
+  shown as a lower bound (`≥`) rather than a precise number.
+- Add or remove prices in **Config → Model pricing**. Each row is USD per 1,000,000
+  tokens for input, output, cache read, cache write, and reasoning, with a source and a
+  UTC effective date. A price change is a new row with a later effective date; delete
+  only an entry created by mistake.
+- Entering a backdated row recalculates historical estimates immediately because
+  estimates are query-time. It never changes the reported cost stored on a turn.
 
 ## 5. Review, finalize, and follow-ups
 

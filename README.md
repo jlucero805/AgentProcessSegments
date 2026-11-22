@@ -115,6 +115,11 @@ These screenshots use a staged demo board in an isolated temp database, not live
 
 ![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
 
+The **Usage** page shows reported cost and, for turns a harness left unpriced, estimates
+from the operator-maintained **Model pricing** table on the Config page. Reported cost is
+never overwritten; a turn with neither a reported cost nor an effective price renders as
+unknown or as an explicit lower bound, never as zero.
+
 ## Requirements
 
 - Node 20 or newer
@@ -221,7 +226,8 @@ delivery are separate backlog items.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (long-range rollups, hard budget caps, pricing)
+- `docs/09-backlog.md` scoped follow-ups (long-range rollups, hard budget caps, usage
+  retention, pricing maintenance)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -268,6 +274,8 @@ src/server/src
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo
   usage/types.ts      pure usage contract shared with the SPA
   usage/repository.ts usage_events writes plus totals/series/group queries
+  pricing/types.ts    pure effective-dated price contract and estimate helper
+  pricing/repository.ts model_pricing list/create/remove plus effective lookup
   logging/errors.ts   structured error-only NDJSON log with size rotation
   terminal/service.ts server-owned PTY sessions with scrollback + attach/detach
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
@@ -278,14 +286,14 @@ src/web
   src/HelpPanel.tsx   full-height docs overlay: nav rail, markdown, on-this-page
   src/docs.ts         help slugs, relative link/image rewriting, heading anchors
   src/Board.tsx       six columns, drag-to-advance, agent badges
-  src/UsagePage.tsx   overall/cell usage dashboard and breakdown tables
-  src/usageFormat.ts  token/cost formatters that keep unknown cost distinct
+  src/UsagePage.tsx   overall/cell usage dashboard, reported/estimated cost chart
+  src/usageFormat.ts  token/cost formatters with exact/≈/≥ cost distinction
   src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, usage, digest
   src/ClarifyChat.tsx    per-request chat, reattach on mount
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
-  src/ConfigPage.tsx  scheduler + budgets + global process editor + cell policy entries
+  src/ConfigPage.tsx  scheduler, budgets, process editor, model pricing, cell policy
   src/BudgetBanner.tsx dismissible warning/exceeded spend alerts
   src/ProcessEditor.tsx structured per-segment controls
   src/CellModal.tsx   cell creation/edit flow with a process snapshot and budget
@@ -305,20 +313,20 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 390 vitest cases: 274 server cases (state machine, migrations including
+`npm test` runs 414 vitest cases: 285 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
-event capture and aggregation, engine turns over a fake harness, worktree isolation
-against a real git repo, the MCP tool surface, harness config/MCP/plugin mapping, model
-probing, the plugin manager against real git clones, process definitions/store/follow-ups,
-per-cell policies/tickers/limits/auto-compaction, the generic master pipeline, segment
-caps and merge, turn watchdogs/stderr, scorecard stats/generation/scheduling, budget
-status/alerts, docs manifest/traversal/HTTP, error-log format/rotation, skill discovery,
-terminal session lifecycle, and the HTTP API over a real socket) and 116 web cases
-(shared contract re-exports, NDJSON client, chat folding, slash/skill resolution,
-request-form mapping, docs helpers and Help overlay, the source link, board, create modal,
-composer, cell bar, cell creation, config/process editor, budget banner, master detail and
-scorecard, the usage page and formatters, and the app shell with the drawer and chat
-mounted under jsdom).
+event capture and aggregation, effective-dated pricing and estimation, engine turns over a
+fake harness, worktree isolation against a real git repo, the MCP tool surface, harness
+config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
+process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
+the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
+stats/generation/scheduling, budget status/alerts, docs manifest/traversal/HTTP, error-log
+format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
+socket) and 129 web cases (shared contract re-exports, NDJSON client, chat folding,
+slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
+link, board, create modal, composer, cell bar, cell creation, config/process and pricing
+editor, budget banner, master detail and scorecard, the usage page and formatters, and
+the app shell with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

@@ -57,6 +57,11 @@ export {
   MAX_USAGE_RETENTION_DAYS,
 } from '../../server/src/usage/settings';
 export type {
+  ModelPrice,
+  ModelPriceInput,
+  ModelPricesResponse,
+} from '../../server/src/pricing/types';
+export type {
   UsageBucket,
   UsageFilter,
   UsageGroup,

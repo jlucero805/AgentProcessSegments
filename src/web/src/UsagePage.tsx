@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
-import { formatCost, formatTokens } from './usageFormat';
+import { costBreakdown, formatCost, formatTokens, formatUsd } from './usageFormat';
 import {
   Badge,
   Card,
@@ -234,13 +234,13 @@ function CostChart({ data }: { data: UsageResponse }) {
       : 0;
   const chartBucket: UsageBucket =
     step > 0 && step < USAGE_BUCKET_MS.day ? 'hour' : 'day';
-  const max = Math.max(0, ...data.series.map((row) => row.costUsd ?? 0));
+  const max = Math.max(0, ...data.series.map((row) => row.totalCostUsd ?? 0));
   const totals = data.series.reduce(
     (sum, row) => ({
       turns: sum.turns + row.turns,
-      unknown: sum.unknown + row.unknownCostTurns,
+      unpriced: sum.unpriced + row.unpricedTurns,
     }),
-    { turns: 0, unknown: 0 },
+    { turns: 0, unpriced: 0 },
   );
 
   return (
@@ -249,10 +249,24 @@ function CostChart({ data }: { data: UsageResponse }) {
         <div>
           <SectionTitle>Cost over time</SectionTitle>
           <p className="mt-1 text-[11px] text-zinc-600">
-            Harness-reported cost. Buckets without a reported price are not drawn as zero.
+            Reported by the harness plus effective-dated estimates. Unpriced turns are
+            marked, never drawn as zero.
           </p>
         </div>
-        <span className="text-xs text-zinc-500">{formatCost(data.totals)}</span>
+        <div className="text-right">
+          <span className="text-xs text-zinc-500">{formatCost(data.totals)}</span>
+          <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-zinc-600">
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-emerald-600/70" /> reported
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-sky-600/70" /> estimated
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-amber-600/70" /> unpriced
+            </span>
+          </div>
+        </div>
       </div>
       {data.series.length === 0 || (max === 0 && totals.turns === 0) ? (
         <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-zinc-800 text-xs text-zinc-600">
@@ -262,24 +276,49 @@ function CostChart({ data }: { data: UsageResponse }) {
         <>
           <div className="flex h-40 items-end gap-1 border-b border-zinc-800 pb-1">
             {data.series.map((row) => {
-              const height = max > 0 ? ((row.costUsd ?? 0) / max) * 100 : 0;
-              const unknown = row.costUsd === null && row.turns > 0;
+              const reported = row.costUsd ?? 0;
+              const estimated = row.estimatedCostUsd ?? 0;
+              const effective = reported + estimated;
+              const height = max > 0 ? (effective / max) * 100 : 0;
+              const reportedShare = effective > 0 ? (reported / effective) * 100 : 0;
+              const estimatedShare = effective > 0 ? (estimated / effective) * 100 : 0;
+              const unpriced = row.unpricedTurns > 0;
+              const title = `${bucketLabel(row.bucketStart, chartBucket)}: ${
+                row.totalCostUsd === null ? 'cost unknown' : formatUsd(row.totalCostUsd)
+              } · ${formatUsd(reported)} reported · ${formatUsd(estimated)} estimated · ${
+                row.unpricedTurns
+              } unpriced · ${formatTokens(row.totalTokens)} tokens · ${row.turns} turns`;
               return (
                 <div
                   key={row.bucketStart}
                   className="group relative min-w-[2px] flex-1"
-                  title={`${bucketLabel(row.bucketStart, chartBucket)}: ${
-                    row.costUsd === null ? 'cost unknown' : `$${row.costUsd.toFixed(4)}`
-                  } · ${formatTokens(row.totalTokens)} tokens · ${row.turns} turns`}
+                  title={title}
                 >
-                  <div
-                    className={
-                      unknown
-                        ? 'w-full rounded-t-sm bg-amber-700/50'
-                        : 'w-full rounded-t-sm bg-emerald-600/70 group-hover:bg-emerald-500'
-                    }
-                    style={{ height: unknown ? '4px' : `${Math.max(height, 2)}%` }}
-                  />
+                  {effective === 0 ? (
+                    <div
+                      className={
+                        unpriced
+                          ? 'h-1 w-full rounded-t-sm bg-amber-700/60'
+                          : 'h-1 w-full rounded-t-sm bg-zinc-700'
+                      }
+                    />
+                  ) : (
+                    <div
+                      className={`flex w-full flex-col justify-end overflow-hidden rounded-t-sm ${
+                        unpriced ? 'border-t-2 border-amber-500/70' : ''
+                      }`}
+                      style={{ height: `${Math.max(height, 2)}%` }}
+                    >
+                      <div
+                        className="w-full bg-sky-600/70 group-hover:bg-sky-500"
+                        style={{ height: `${estimatedShare}%` }}
+                      />
+                      <div
+                        className="w-full bg-emerald-600/70 group-hover:bg-emerald-500"
+                        style={{ height: `${reportedShare}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -287,8 +326,8 @@ function CostChart({ data }: { data: UsageResponse }) {
           <div className="flex justify-between text-[10px] text-zinc-600">
             <span>{bucketLabel(data.series[0]?.bucketStart ?? 0, chartBucket)}</span>
             <span>
-              {totals.unknown > 0
-                ? `${totals.unknown} unpriced turn${totals.unknown === 1 ? '' : 's'}`
+              {totals.unpriced > 0
+                ? `${totals.unpriced} unpriced turn${totals.unpriced === 1 ? '' : 's'}`
                 : `${formatTokens(data.totals.totalTokens)} tokens`}
             </span>
             <span>
@@ -305,14 +344,21 @@ function CostChart({ data }: { data: UsageResponse }) {
 }
 
 function Summary({ totals }: { totals: UsageTotals }) {
+  const breakdown = costBreakdown(totals);
   const cards = [
-    { label: 'Known cost', value: formatCost(totals), hint: 'reported by the harness' },
+    {
+      label: 'Effective cost',
+      value: formatCost(totals),
+      hint:
+        breakdown ||
+        (totals.turns === 0 ? 'no turns in range' : 'no reported or estimated cost'),
+    },
     { label: 'Total tokens', value: formatTokens(totals.totalTokens), hint: 'input + output + cache + reasoning' },
     { label: 'Turns', value: String(totals.turns), hint: 'completed agent turns' },
     {
       label: 'Unpriced turns',
-      value: String(totals.unknownCostTurns),
-      hint: 'cost shown as unknown',
+      value: String(totals.unpricedTurns),
+      hint: 'reported and estimate both missing',
     },
   ];
   return (
@@ -398,8 +444,10 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Usage</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Token and cost spend across requests, cells, and every agent session. Cost comes
-            from the harness; an unpriced turn stays unknown instead of becoming zero.
+            Token and cost spend across requests, cells, and every agent session. Reported
+            cost comes from the harness; an unreported turn uses an effective-dated model
+            price when one exists. Anything still unpriced stays unknown, never zero. Prices
+            are managed in <span className="text-zinc-300">Config</span>.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -446,7 +494,7 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
           {data.totals.turns === 0 ? (
             <EmptyState
               title="No usage in this range"
-              hint="Completed agent turns appear here after the harness reports usage."
+              hint="Completed agent turns appear here after the harness reports usage; unreported costs become estimates when a model price is effective."
             />
           ) : (
             <>

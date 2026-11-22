@@ -575,7 +575,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-zinc-100">
-                      {usage.totals.unknownCostTurns}
+                      {usage.totals.unpricedTurns}
                     </p>
                     <p className="text-[10px] uppercase tracking-wide text-zinc-600">Unpriced</p>
                   </div>

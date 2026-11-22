@@ -32,6 +32,13 @@ describe('db migrations', () => {
     expect(tables).toContain('cell_summaries');
     expect(tables).toContain('usage_events');
     expect(tables).toContain('budget_alerts');
+    expect(tables).toContain('model_pricing');
+    const indexes = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
+        name: string;
+      }>
+    ).map((row) => row.name);
+    expect(indexes).toContain('idx_model_pricing_model_effective');
     db.close();
   });
 
@@ -91,6 +98,12 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_usage_events_request_created');
     expect(indexes).toContain('idx_usage_events_turn');
     expect(indexes).toContain('idx_budget_alerts_identity');
+    expect(indexes).toContain('idx_model_pricing_model_effective');
+    expect(
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string;
+      }>).map((row) => row.name),
+    ).toContain('model_pricing');
     db.close();
   });
 

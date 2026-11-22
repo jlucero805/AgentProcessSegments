@@ -49,9 +49,19 @@ export interface UsageTotals {
   cacheWriteTokens: number;
   reasoningTokens: number;
   totalTokens: number;
-  /** Sum of known costs. Null when no turn has a known cost. */
+  /** Sum of harness-reported costs. Null when no turn reported a cost. */
   costUsd: number | null;
-  /** Turns where the harness reported no cost. */
+  /** Sum of estimates for unreported turns that matched an effective price. */
+  estimatedCostUsd: number | null;
+  /** costUsd + estimatedCostUsd. Null only when neither is known. */
+  totalCostUsd: number | null;
+  /** Turns with a harness-reported cost. */
+  reportedCostTurns: number;
+  /** Turns without a reported cost that matched an effective price. */
+  estimatedCostTurns: number;
+  /** Turns with neither a reported nor an estimated cost. */
+  unpricedTurns: number;
+  /** Turns with no harness-reported cost (estimatedCostTurns + unpricedTurns). */
   unknownCostTurns: number;
 }
 

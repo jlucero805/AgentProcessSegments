@@ -432,7 +432,7 @@ chat also inherits the cell defaults.
 **Cost.** Concurrency is per cell; unassigned requests have no master and consume no
 master slot. Changing a cell model affects the next spawned turn, not a child that is
 already running. Usage tracking records the resolved model on each completed turn; see
-`docs/09-backlog.md` for retention, budget, and pricing follow-ups.
+`docs/09-backlog.md` for retention, budget, and pricing-maintenance follow-ups.
 
 ## D31. Persist only errors, through one sink
 
@@ -794,3 +794,23 @@ the same helper, so the SPA cannot drift.
 fails visibly rather than falling back. A harness change discards the provider session
 id. Direct API callers that set `harness` and a model in one patch remain responsible for
 choosing a compatible model.
+## D49. Unreported cost is estimated from effective-dated prices
+
+**Context.** Harnesses sometimes omit a cost even when they report tokens. Operators can
+still want a spend estimate, but a guessed price or a silent zero would be worse than an
+explicit unknown.
+
+**Decision.** Add a `model_pricing` table with one row per exact model and
+`effective_from` timestamp, five USD-per-million-token rates (input, output, cache read,
+cache write, reasoning), a source citation, and a creation time. A turn's estimate uses
+the latest row with `effective_from <= usage_events.created_at`; estimates are computed
+at query time and never written over the reported `cost_usd`. Reported cost always wins.
+The table starts empty, is edited on the Config page or through `/api/pricing`, and is
+append-only for normal changes. A model with no effective price remains unpriced, and the
+aggregates report reported, estimated, total, and unpriced counts separately.
+
+**Cost.** Prices are operator-maintained, exact-match only, flat per model, and USD only;
+there is no scraper, currency conversion, context-length tier, or effort multiplier. A
+wrong effective date or model id leaves turns unpriced, which is visible as a lower bound
+rather than silently understating spend. Historical estimates change when an operator adds
+a backdated row, which is intentional because the row records the source and date.

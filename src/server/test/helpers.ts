@@ -18,6 +18,7 @@ import type { HarnessId } from '../src/domain/harness.js';
 import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
 import { PluginManager } from '../src/plugins/manager.js';
+import { PricingRepository } from '../src/pricing/repository.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { UsageRepository } from '../src/usage/repository.js';
 
@@ -166,6 +167,7 @@ export interface Harness {
   cells: CellRepository;
   kb: KbRepository;
   usage: UsageRepository;
+  pricing: PricingRepository;
   plugins: PluginManager;
   harness: FakeHarness;
   opencode: FakeHarness;
@@ -194,6 +196,7 @@ export function createHarness(
   const agentHarness = new FakeHarness(script, 'claude');
   const opencodeHarness = new FakeHarness(script, 'opencode');
   const usage = new UsageRepository(db);
+  const pricing = new PricingRepository(db);
   const engine = new Engine({
     repo,
     harnesses: {
@@ -224,6 +227,7 @@ export function createHarness(
     cells,
     kb,
     usage,
+    pricing,
     plugins,
     harness: agentHarness,
     opencode: opencodeHarness,

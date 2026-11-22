@@ -16,21 +16,16 @@ function makeStore(days = 90): SettingsStore {
   return store;
 }
 
-/**
- * The production schema belongs to the usage-tracking change. Retention only
- * needs the primary key and the indexed timestamp, so the test creates the
- * smallest table that exercises the real delete path.
- */
 function makeUsageDb(): Db {
-  const db = openDb(':memory:');
-  db.exec('CREATE TABLE usage_events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)');
-  db.exec('CREATE INDEX idx_usage_events_created ON usage_events(created_at)');
-  return db;
+  return openDb(':memory:');
 }
 
 function seed(db: Db, rows: Array<{ id: string; createdAt: number }>): void {
-  const insert = db.prepare('INSERT INTO usage_events (id, created_at) VALUES (?, ?)');
-  for (const row of rows) insert.run(row.id, row.createdAt);
+  const insert = db.prepare(
+    `INSERT INTO usage_events (id, turn_id, session_id, scope, created_at)
+     VALUES (?, ?, 'test-session', 'request', ?)`,
+  );
+  for (const row of rows) insert.run(row.id, row.id, row.createdAt);
 }
 
 function ids(db: Db): string[] {
@@ -111,6 +106,7 @@ describe('UsageRetention', () => {
 
   it('is a silent no-op when the usage ledger does not exist yet', async () => {
     const db = openDb(':memory:');
+    db.exec('DROP TABLE usage_events');
     const errors = { error: vi.fn() };
     const retention = new UsageRetention({
       db,

@@ -121,7 +121,7 @@ export class FakeAgentProcess implements AgentProcess {
 
 /** Records prepare/spawn calls and uses the real Claude stream parser. */
 export class FakeHarness implements AgentHarness {
-  readonly id = 'fake';
+  readonly id = 'claude';
   readonly fallbackModels: readonly ModelOption[] = [];
   readonly sessions: HarnessSession[] = [];
   readonly commands: HarnessCommand[] = [];

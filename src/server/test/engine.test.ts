@@ -82,6 +82,38 @@ describe('turn engine', () => {
     });
   });
 
+  it('records Claude usage deltas across resumed turns', async () => {
+    let call = 0;
+    const h = fresh(() => {
+      call += 1;
+      return [
+        initLine(`sess-${call}`),
+        textLine('done'),
+        resultLine(
+          'done',
+          { input_tokens: call === 1 ? 10 : 25, output_tokens: 0 },
+          call === 1 ? 0.1 : 0.25,
+        ),
+      ];
+    });
+    const request = h.repo.create({ title: 'Cumulative Claude' });
+
+    const first = await h.engine.start(request.id);
+    await first.promise;
+    await settle();
+    const second = await h.engine.send(request.id, 'again');
+    await second.promise;
+    await settle();
+
+    const rows = h.db
+      .prepare('SELECT input_tokens, cost_usd FROM usage_events ORDER BY rowid')
+      .all() as Array<{ input_tokens: number; cost_usd: number | null }>;
+    expect(rows).toEqual([
+      { input_tokens: 10, cost_usd: 0.1 },
+      { input_tokens: 15, cost_usd: 0.15 },
+    ]);
+  });
+
   it('records master, KB, and setup turns without a request id', async () => {
     const h = fresh(() => [
       initLine('sess-usage'),
@@ -146,7 +178,8 @@ describe('turn engine', () => {
     expect(h.engine.transcript(request.id).some((message) => message.kind === 'text')).toBe(true);
   });
 
-  it('includes enabled intake instructions in the first clarification turn', async () => {    const h = fresh(() => defaultScript());
+  it('includes enabled intake instructions in the first clarification turn', async () => {
+    const h = fresh(() => defaultScript());
     const request = h.repo.create({ title: 'Repo context' });
 
     const turn = await h.engine.start(

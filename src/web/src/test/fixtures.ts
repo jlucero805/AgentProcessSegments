@@ -78,7 +78,7 @@ export function makeUsageResponse(overrides: Partial<UsageResponse> = {}): Usage
       { key: 'cell-1', label: 'Alpha', ...makeUsageTotals() },
     ],
     byRequest: [
-      { key: 'req-1', label: 'A request', ...makeUsageTotals() },
+      { key: 'req-1', label: 'A request', cellId: 'cell-1', cellLabel: 'Alpha', ...makeUsageTotals() },
     ],
     ...overrides,
   };

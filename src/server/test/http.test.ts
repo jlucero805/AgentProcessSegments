@@ -471,7 +471,9 @@ describe('http api', () => {
       totals: { turns: 2, totalTokens: 197, unknownCostTurns: 1 },
       byModel: [{ key: 'model-a' }, { key: 'model-b' }],
       byCell: [{ key: cell.id, label: 'Metered cell' }],
-      byRequest: [{ key: request.id, label: 'Metered request' }],
+      byRequest: [
+        { key: request.id, label: 'Metered request', cellId: cell.id, cellLabel: 'Metered cell' },
+      ],
     });
     expect(filtered.json().totals.costUsd).toBeCloseTo(0.01);
     expect(filtered.json().series).toHaveLength(24);
@@ -484,6 +486,9 @@ describe('http api', () => {
     expect((await call('GET', '/api/usage?bucket=week')).status).toBe(400);
     expect((await call('GET', '/api/usage?limit=0')).status).toBe(400);
     expect((await call('GET', '/api/usage?from=10&to=5')).status).toBe(400);
+    expect(
+      (await call('GET', `/api/usage?from=0&to=${10_001 * 60 * 60 * 1000}&bucket=hour`)).status,
+    ).toBe(400);
   });
 
   it('creates a cell with its own process and can replace it', async () => {

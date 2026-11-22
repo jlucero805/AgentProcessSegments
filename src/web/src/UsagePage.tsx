@@ -52,10 +52,12 @@ function BreakdownTable({
   title,
   rows,
   empty,
+  showCell = false,
 }: {
   title: string;
   rows: UsageGroup[];
   empty: string;
+  showCell?: boolean;
 }) {
   return (
     <Card className="space-y-3 p-4">
@@ -68,6 +70,7 @@ function BreakdownTable({
             <thead className="text-[10px] uppercase tracking-wide text-zinc-600">
               <tr>
                 <th className="pb-2 font-medium">Name</th>
+                {showCell ? <th className="pb-2 font-medium">Cell</th> : null}
                 <th className="pb-2 text-right font-medium">Cost</th>
                 <th className="pb-2 text-right font-medium">Tokens</th>
                 <th className="pb-2 text-right font-medium">Turns</th>
@@ -79,6 +82,14 @@ function BreakdownTable({
                   <td className="max-w-[18rem] truncate py-2 pr-3 text-zinc-300" title={row.label}>
                     {row.label}
                   </td>
+                  {showCell ? (
+                    <td
+                      className="max-w-[12rem] truncate py-2 pr-3 text-zinc-500"
+                      title={row.cellLabel ?? 'Unassigned'}
+                    >
+                      {row.cellLabel ?? '—'}
+                    </td>
+                  ) : null}
                   <td className="py-2 text-right text-zinc-400">{formatCost(row)}</td>
                   <td className="py-2 text-right text-zinc-400">
                     {formatTokens(row.totalTokens)}
@@ -174,7 +185,7 @@ function CostChart({ data }: { data: UsageResponse }) {
 function Summary({ totals }: { totals: UsageTotals }) {
   const cards = [
     { label: 'Known cost', value: formatCost(totals), hint: 'reported by the harness' },
-    { label: 'Total tokens', value: formatTokens(totals.totalTokens), hint: 'input + output + cache' },
+    { label: 'Total tokens', value: formatTokens(totals.totalTokens), hint: 'input + output + cache + reasoning' },
     { label: 'Turns', value: String(totals.turns), hint: 'completed agent turns' },
     {
       label: 'Unpriced turns',
@@ -312,6 +323,7 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
                 title="Top requests"
                 rows={data.byRequest}
                 empty="No request turns in this range."
+                showCell
               />
             </>
           )}

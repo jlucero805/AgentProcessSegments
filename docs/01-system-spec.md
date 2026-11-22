@@ -213,8 +213,10 @@ object per line.
 - `GET /api/usage?cellId=…&requestId=…&from=…&to=…&bucket=hour|day&limit=…`
   returns `{range, totals, series[], byModel[], byCell[], byRequest[]}`. Bounds are
   epoch milliseconds (`from` inclusive, `to` exclusive). Series buckets are UTC-aligned
-  and zero-filled when both bounds are supplied. Totals separate known cost from
-  `unknownCostTurns`; a model with no reported cost is unknown, not zero.
+  and zero-filled when both bounds are supplied; a bounded request over 10,000 buckets
+  is rejected with 400. Totals separate known cost from
+  `unknownCostTurns`; a model with no reported cost is unknown, not zero. Request groups
+  include the request's current cell as `cellId`/`cellLabel`.
 
 ### NDJSON event shape
 

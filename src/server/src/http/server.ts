@@ -34,7 +34,7 @@ import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
 import type { UsageRepository } from '../usage/repository.js';
-import { USAGE_BUCKETS } from '../usage/types.js';
+import { USAGE_BUCKETS, USAGE_BUCKET_MS } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
 
 export interface ServerDeps {
@@ -190,6 +190,18 @@ const usageQuerySchema = z
   .refine((value) => value.from === undefined || value.to === undefined || value.from < value.to, {
     message: 'from must be before to',
     path: ['from'],
+  })
+  .superRefine((value, ctx) => {
+    if (value.from === undefined || value.to === undefined) return;
+    const bucketMs = USAGE_BUCKET_MS[value.bucket ?? 'day'];
+    const buckets = Math.ceil((value.to - value.from) / bucketMs);
+    if (buckets > 10_000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'range exceeds 10000 buckets; narrow the dates or use day buckets',
+        path: ['to'],
+      });
+    }
   });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
 const summariesQuerySchema = z.object({

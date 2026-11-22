@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 266 vitest cases: 179 server across 21 files and 87 web across 16 files, all green.
+- 290 vitest cases: 197 server across 22 files and 93 web across 17 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -76,7 +76,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 179 server + 87 web
+npm test                       # 197 server + 93 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -207,7 +207,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 20. **Usage is recorded after completion.** Parsers expose a normalized `TurnUsage`;
     the engine writes one `usage_events` row only when the harness emitted a final event
     and reported usage. Cancelled, timed-out, and usage-less turns write nothing. Cost is
-    harness-reported only; an unreported cost stays NULL, never zero. Do not add guessed
+    harness-reported only; an unreported cost stays NULL, never zero. Claude reports
+    cumulative usage on resumed sessions, so persist the last cumulative totals in
+    `session.json` and record per-turn deltas. Do not add guessed
     pricing or partial usage writes. Retention, budgets, and estimated pricing follow
     `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;

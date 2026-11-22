@@ -32,10 +32,6 @@ export interface UsageEventInput {
   createdAt?: number;
 }
 
-export interface UsageEvent extends Required<UsageEventInput> {
-  id: string;
-}
-
 export interface UsageFilter {
   cellId?: string | undefined;
   requestId?: string | undefined;
@@ -62,6 +58,9 @@ export interface UsageTotals {
 export interface UsageGroup extends UsageTotals {
   key: string;
   label: string;
+  /** Request groups carry the request's current cell for the usage table. */
+  cellId?: string;
+  cellLabel?: string;
 }
 
 export interface UsageBucketRow extends UsageTotals {

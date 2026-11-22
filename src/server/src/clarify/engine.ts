@@ -17,7 +17,7 @@ import type { RequestRepository } from '../requests/repository.js';
 import type { UsageRepository } from '../usage/repository.js';
 import type { UsageScope } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
-import type { AgentHarness, TurnParserLike } from './harness.js';
+import type { AgentHarness, TurnParserLike, TurnUsage } from './harness.js';
 import {
   dispatchPrompt,
   finalizePrompt,
@@ -62,7 +62,27 @@ export interface LiveTurn {
 
 interface StoredSession {
   sessionId: string;
+  /** Claude reports cumulative usage for a resumed session; keep the last total. */
+  usage?: StoredUsage;
 }
+
+interface StoredUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  costUsd: number | null;
+}
+
+const EMPTY_USAGE: StoredUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  reasoningTokens: 0,
+  costUsd: null,
+};
 
 export interface EngineDeps {
   repo: RequestRepository;
@@ -374,6 +394,8 @@ export class Engine {
   private recordUsage(id: string, turn: LiveTurn, parser: TurnParserLike | undefined): void {
     const usage = parser?.usage ?? null;
     if (!usage || !parser?.finished || turn.cancelled) return;
+    const previous = this.harness.id === 'claude' ? this.readStoredUsage(id) : EMPTY_USAGE;
+    const delta = this.deltaUsage(usage, previous);
     try {
       this.deps.usage.record({
         turnId: turn.turnId,
@@ -383,20 +405,35 @@ export class Engine {
         requestId: turn.requestId,
         model: turn.model,
         effort: turn.effort,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheWriteTokens: usage.cacheWriteTokens,
-        reasoningTokens: usage.reasoningTokens,
-        costUsd: usage.costUsd,
+        inputTokens: delta.inputTokens,
+        outputTokens: delta.outputTokens,
+        cacheReadTokens: delta.cacheReadTokens,
+        cacheWriteTokens: delta.cacheWriteTokens,
+        reasoningTokens: delta.reasoningTokens,
+        costUsd: delta.costUsd,
         createdAt: Date.now(),
       });
+      if (this.harness.id === 'claude') this.writeStoredUsage(id, usage);
     } catch (error) {
       this.deps.errors?.error('usage.record', error, {
         session: id,
         turnId: turn.turnId,
       });
     }
+  }
+
+  private deltaUsage(current: TurnUsage, previous: StoredUsage): TurnUsage {
+    return {
+      inputTokens: Math.max(0, current.inputTokens - previous.inputTokens),
+      outputTokens: Math.max(0, current.outputTokens - previous.outputTokens),
+      cacheReadTokens: Math.max(0, current.cacheReadTokens - previous.cacheReadTokens),
+      cacheWriteTokens: Math.max(0, current.cacheWriteTokens - previous.cacheWriteTokens),
+      reasoningTokens: Math.max(0, current.reasoningTokens - previous.reasoningTokens),
+      costUsd:
+        current.costUsd === null
+          ? null
+          : Math.max(0, current.costUsd - (previous.costUsd ?? 0)),
+    };
   }
 
   private broadcast(turn: LiveTurn, event: ClarifyEvent): void {
@@ -529,20 +566,54 @@ export class Engine {
     return proc;
   }
 
-  private readSession(id: string): string | null {
+  private readStoredSession(id: string): Partial<StoredSession> | null {
     try {
       const raw = readFileSync(path.join(requestDir(this.config, id), 'session.json'), 'utf8');
-      const parsed = JSON.parse(raw) as Partial<StoredSession>;
-      return typeof parsed.sessionId === 'string' ? parsed.sessionId : null;
+      const parsed: unknown = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed !== null
+        ? (parsed as Partial<StoredSession>)
+        : null;
     } catch {
       return null;
     }
   }
 
+  private readSession(id: string): string | null {
+    const parsed = this.readStoredSession(id);
+    return typeof parsed?.sessionId === 'string' ? parsed.sessionId : null;
+  }
+
   private writeSession(id: string, sessionId: string): void {
     const dir = requestDir(this.config, id);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId }, null, 2));
+    const current = this.readStoredSession(id);
+    writeFileSync(
+      path.join(dir, 'session.json'),
+      JSON.stringify({ ...current, sessionId }, null, 2),
+    );
+  }
+
+  private readStoredUsage(id: string): StoredUsage {
+    const usage = this.readStoredSession(id)?.usage;
+    if (!usage || typeof usage !== 'object') return EMPTY_USAGE;
+    return {
+      inputTokens: Number(usage.inputTokens ?? 0),
+      outputTokens: Number(usage.outputTokens ?? 0),
+      cacheReadTokens: Number(usage.cacheReadTokens ?? 0),
+      cacheWriteTokens: Number(usage.cacheWriteTokens ?? 0),
+      reasoningTokens: Number(usage.reasoningTokens ?? 0),
+      costUsd: typeof usage.costUsd === 'number' ? usage.costUsd : null,
+    };
+  }
+
+  private writeStoredUsage(id: string, usage: StoredUsage): void {
+    const dir = requestDir(this.config, id);
+    mkdirSync(dir, { recursive: true });
+    const current = this.readStoredSession(id);
+    writeFileSync(
+      path.join(dir, 'session.json'),
+      JSON.stringify({ ...current, usage }, null, 2),
+    );
   }
 
   private loadTranscript(id: string): TranscriptMsg[] {

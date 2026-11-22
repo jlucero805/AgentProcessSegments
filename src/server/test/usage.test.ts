@@ -140,7 +140,11 @@ describe('usage repository', () => {
       'First ticket',
       'Second ticket',
     ]);
-    expect(result.byRequest.find((row) => row.key === request.id)?.turns).toBe(2);
+    expect(result.byRequest.find((row) => row.key === request.id)).toMatchObject({
+      turns: 2,
+      cellId: cell.id,
+      cellLabel: 'Alpha',
+    });
   });
 
   it('filters by cell, request, and time window', () => {

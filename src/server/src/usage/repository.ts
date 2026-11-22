@@ -26,6 +26,8 @@ interface AggregateRow {
 interface GroupRow extends AggregateRow {
   key: string;
   label: string;
+  cell_id?: string | null;
+  cell_label?: string | null;
 }
 
 interface BucketRow extends AggregateRow {
@@ -66,7 +68,14 @@ function totals(row: AggregateRow | undefined): UsageTotals {
 }
 
 function group(row: GroupRow): UsageGroup {
-  return { key: row.key, label: row.label, ...totals(row) };
+  return {
+    key: row.key,
+    label: row.label,
+    ...(row.cell_label !== undefined
+      ? { cellId: row.cell_id ?? '', cellLabel: row.cell_label ?? 'Unassigned' }
+      : {}),
+    ...totals(row),
+  };
 }
 
 function bucket(row: BucketRow): UsageBucketRow {
@@ -162,9 +171,12 @@ export class UsageRepository {
       .prepare(
         `SELECT u.request_id AS key,
                 COALESCE(NULLIF(r.title, ''), u.request_id) AS label,
+                COALESCE(r.cell_id, '') AS cell_id,
+                COALESCE(c.name, r.cell_id, 'Unassigned') AS cell_label,
                 ${AGGREGATE_SELECT}
            FROM usage_events u
            LEFT JOIN requests r ON r.id = u.request_id
+           LEFT JOIN cells c ON c.id = r.cell_id
            ${requestWhere.sql}
           GROUP BY key
           ORDER BY cost_usd IS NULL, cost_usd DESC, input_tokens + output_tokens + cache_read_tokens + cache_write_tokens + reasoning_tokens DESC, key

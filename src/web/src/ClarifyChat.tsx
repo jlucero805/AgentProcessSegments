@@ -14,7 +14,11 @@ interface ClarifyChatProps {
   onDone?: () => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Render an inline error banner with a retry that replays the failed call. */
+  inlineErrors?: boolean;
 }
+
+type FailedAttempt = { kind: 'hydrate' } | { kind: 'send'; text: string };
 
 function readQueue(key: string): string[] {
   try {
@@ -52,6 +56,7 @@ export function ClarifyChat({
   onDone,
   disabled,
   placeholder,
+  inlineErrors,
 }: ClarifyChatProps) {
   const queueKey = `sbox-queue:${requestId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -59,6 +64,8 @@ export function ClarifyChat({
   const [queue, setQueue] = useState<string[]>(() => readQueue(queueKey));
   const [stopping, setStopping] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const failedAttempt = useRef<FailedAttempt | null>(null);
   const runningRef = useRef(false);
   const activeStream = useRef<AbortController | null>(null);
 
@@ -86,6 +93,8 @@ export function ClarifyChat({
         onDoneRef.current?.();
         setBusy(false);
         setStopping(false);
+        setInlineError(null);
+        failedAttempt.current = null;
         return;
       }
       if (event.t === 'error') onErrorRef.current(event.message);
@@ -101,13 +110,20 @@ export function ClarifyChat({
     try {
       const state = await api.getClarify(requestId);
       if (controller.signal.aborted) return;
+      setInlineError(null);
+      failedAttempt.current = null;
       setMessages(fromTranscript(state.transcript ?? []));
       if (state.active) {
         setBusy(true);
         await api.streamClarify(requestId, handleEvent, controller.signal);
       }
     } catch (error) {
-      if (!controller.signal.aborted) onErrorRef.current(describeError(error));
+      if (!controller.signal.aborted) {
+        const message = describeError(error);
+        failedAttempt.current = { kind: 'hydrate' };
+        setInlineError(message);
+        onErrorRef.current(message);
+      }
     } finally {
       if (activeStream.current === controller) activeStream.current = null;
       if (!controller.signal.aborted) {
@@ -126,23 +142,38 @@ export function ClarifyChat({
   useEffect(() => () => activeStream.current?.abort(), []);
 
   const sendText = useCallback(
-    async (raw: string) => {
+    async (raw: string, retry = false) => {
       const text = raw.trim();
       if (text === '') return;
       const controller = new AbortController();
       activeStream.current?.abort();
       activeStream.current = controller;
       setStopped(false);
-      setMessages((current) => appendUser(current, text));
+      setInlineError(null);
+      failedAttempt.current = null;
+      if (!retry) setMessages((current) => appendUser(current, text));
       setBusy(true);
+      let received = false;
       try {
         await streamNdjson(
           `/api/requests/${encodeURIComponent(requestId)}/clarify/send`,
-          handleEvent,
+          (event) => {
+            received = true;
+            handleEvent(event);
+          },
           { method: 'POST', body: JSON.stringify({ text }), signal: controller.signal },
         );
+        setInlineError(null);
+        failedAttempt.current = null;
       } catch (error) {
-        if (!controller.signal.aborted) onErrorRef.current(describeError(error));
+        if (!controller.signal.aborted) {
+          const message = describeError(error);
+          // A failure after events were received may already have started the
+          // turn on the server; reattach instead of sending the text twice.
+          failedAttempt.current = received ? { kind: 'hydrate' } : { kind: 'send', text };
+          setInlineError(message);
+          onErrorRef.current(message);
+        }
       } finally {
         if (activeStream.current === controller) activeStream.current = null;
         if (!controller.signal.aborted) {
@@ -153,6 +184,17 @@ export function ClarifyChat({
     },
     [requestId, handleEvent, setBusy],
   );
+
+  const retry = useCallback(() => {
+    const failed = failedAttempt.current;
+    setInlineError(null);
+    if (failed?.kind === 'send') {
+      void sendText(failed.text, true);
+      return;
+    }
+    failedAttempt.current = null;
+    void hydrate();
+  }, [hydrate, sendText]);
 
   const submit = useCallback(
     async (raw: string) => {
@@ -207,6 +249,22 @@ export function ClarifyChat({
 
   return (
     <div className="flex h-full flex-col">
+      {inlineErrors && inlineError ? (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-2 border-b border-red-900/60 bg-red-950/30 px-3 py-1.5 text-[11px] text-red-300"
+        >
+          <span className="min-w-0 break-words">{inlineError}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-200 hover:border-red-500 hover:text-white disabled:opacity-40"
+            onClick={retry}
+            disabled={running}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
       {running ? (
         <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3 py-1">
           <span className="flex items-center gap-2 text-[11px] text-blue-400">

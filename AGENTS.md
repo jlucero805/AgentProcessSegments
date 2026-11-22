@@ -36,7 +36,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 232 vitest cases: 154 server across 19 files and 78 web across 16 files, all green.
+- 235 vitest cases: 155 server across 19 files and 80 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -69,7 +69,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 154 server + 78 web
+npm test                       # 155 server + 80 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -208,6 +208,19 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     OpenCode/Claude directories (`docs/11-skills.md`). The composer may show `/name`, but
     sending it must translate to `Use the <name> skill now…`; only plugin commands may be
     sent as raw slash commands.
+25. **Help docs are manifest-only.** Add pages to `src/server/src/docs/service.ts`; never
+    join a user slug onto a filesystem path. Assets are limited to `docs/screenshots/**`,
+    and an empty docs directory must render the unavailable state, not an error.
+26. **Brain agent runs are non-interactive.** Never allow a harness to wait for a UI
+    question. OpenCode's `question` tool is denied in every scope; prompts must ask in
+    plain text. The setup chat answers simple messages directly instead of touring tools.
+27. **Waits are bounded.** Every turn has `config.turnTimeoutMs`; a timeout must emit
+    `error`, finish with `done`, kill the child, and log `engine.timeout`. Harness MCP
+    calls must time out with an `isError` result. Wizard draft sync failures belong inline
+    in the modal, not only in the page-level banner.
+28. **NDJSON POSTs must declare JSON.** `streamNdjson` sets
+    `content-type: application/json` whenever it sends a body. A browser string body
+    otherwise becomes `text/plain` and Fastify rejects the chat action validation.
 
 ## Extension recipes
 

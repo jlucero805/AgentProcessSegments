@@ -82,7 +82,13 @@ export async function streamNdjson(
   onEvent: (event: ClarifyEvent) => void,
   init: RequestInit = {},
 ): Promise<void> {
-  const response = await fetch(path, init);
+  const headers = new Headers(init.headers);
+  // Chat send/start bodies are JSON. Without this header Fastify parses the
+  // string body as text/plain and the request fails validation.
+  if (init.body !== undefined && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+  const response = await fetch(path, { ...init, headers });
   if (!response.ok) throw await toApiError(response);
   if (!response.body) return;
 

@@ -43,11 +43,21 @@ The wizard never leaves the chat spinner running forever.
   **Retry** inside the modal. The page-level error banner is not the only signal.
 - Once the draft is ready, a later sync failure keeps the conversation mounted and shows
   a draft-sync warning instead of discarding the chat.
-- A chat transport error shows **Setup chat error** with **Retry**, which remounts the
-  chat and rehydrates its transcript.
+- A chat transport error shows an inline **Retry**. A failed send is replayed with the
+  same text, without appending a duplicate user bubble; if events had already arrived,
+  Retry rehydrates instead so the server does not process the message twice.
 - A live driver turn is capped by `SBOX_TURN_TIMEOUT_MS` (default ten minutes). The
   engine emits `error`, appends the error to the transcript, kills the child, emits
   `done`, and writes `engine.timeout` with capped stderr.
+- The seed prompt answers simple greetings directly and asks at most one or two
+  plain-text configuration questions. It explicitly says not to use an interactive
+  question tool or inspect the board/draft unless the answer needs it.
+- Chat send/start bodies are sent as `application/json` through the NDJSON client. The
+  earlier missing header made Fastify treat the JSON body as `text/plain`, so every
+  send failed validation and Retry tried the same rejected request again.
+- OpenCode inherits `question: 'deny'` for every brain session. `opencode run` is
+  non-interactive, so allowing that tool makes the model wait for an answer that cannot
+  arrive; the setup chat then looks dead while the turn is still running.
 - Harness MCP calls to the brain are capped by `SBOX_MCP_TIMEOUT_MS` (default 15
   seconds) and return an MCP error result instead of waiting forever.
 

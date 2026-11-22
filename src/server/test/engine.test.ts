@@ -161,7 +161,12 @@ describe('turn engine', () => {
     });
     expect(
       h.engine.transcript(session).some((message) =>
-        message.text.includes('build one Sandbox Harness cell process'),
+        message.text.includes('setup assistant for one Sandbox Harness cell'),
+      ),
+    ).toBe(true);
+    expect(
+      h.engine.transcript(session).some((message) =>
+        message.text.includes('never use an interactive question tool'),
       ),
     ).toBe(true);
   });

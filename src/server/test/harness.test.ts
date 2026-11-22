@@ -192,8 +192,31 @@ describe('OpencodeHarness', () => {
     expect(config.mcp.harness.environment.SBOX_REQUEST_ID).toBe('req-2');
     expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
     expect(config.mcp.disabled.enabled).toBe(false);
-    // Request sessions keep the user's permission posture.
-    expect(config.permission).toEqual({ bash: 'ask' });
+    // Request sessions keep the user's permission posture, minus interactive questions.
+    expect(config.permission).toEqual({ bash: 'ask', question: 'deny' });
+  });
+
+  it('denies the interactive question tool for every non-interactive scope', async () => {
+    const { home, cwd, dir } = workspace();
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+
+    for (const scope of ['request', 'setup', 'master', 'kb'] as const) {
+      await harness.prepare({
+        scope,
+        requestId: scope === 'request' ? 'req-1' : '',
+        ...(scope === 'setup' ? { draftId: 'draft-1' } : {}),
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      });
+      const config = JSON.parse(
+        readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'),
+      ) as { permission?: { question?: string } };
+      expect(config.permission?.question).toBe('deny');
+    }
   });
 
   it('forces the KB session to read-only permissions and drops user MCP servers', async () => {

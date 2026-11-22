@@ -48,6 +48,21 @@ describe('streamNdjson', () => {
     expect(events).toEqual([{ t: 'text', text: 'ok' }]);
   });
 
+  it('sets the JSON content type for bodies sent over the stream', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      ndjsonResponse(['{"t":"done","request":null,"transcript":[]}\n']),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await streamNdjson('/send', () => {}, {
+      method: 'POST',
+      body: JSON.stringify({ text: 'hello' }),
+    });
+
+    const init = fetchMock.mock.calls[0][1]!;
+    expect(new Headers(init.headers).get('content-type')).toBe('application/json');
+  });
+
   it('rejects with a typed error on a failed stream', async () => {
     vi.stubGlobal(
       'fetch',

@@ -48,8 +48,6 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [setupId, setSetupId] = useState<string | null>(null);
   const [draftStatus, setDraftStatus] = useState<DraftStatus>('idle');
   const [draftError, setDraftError] = useState<string | null>(null);
-  const [setupError, setSetupError] = useState<string | null>(null);
-  const [setupKey, setSetupKey] = useState(0);
   const [syncAttempt, setSyncAttempt] = useState(0);
   const draftReady = draftStatus === 'ready';
   const draftReadyRef = useRef(false);
@@ -67,8 +65,6 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     setSetupId(draftSetupId);
     setDraftStatus('idle');
     setDraftError(null);
-    setSetupError(null);
-    setSetupKey(0);
     setSyncAttempt(0);
     setName(cell?.name ?? '');
     setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
@@ -389,26 +385,6 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
               Draft sync warning: {draftError}
             </p>
           ) : null}
-          {setupError ? (
-            <div
-              role="alert"
-              className="mx-1 rounded-lg border border-red-900 bg-red-950/40 p-2 text-[11px] text-red-300"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span className="min-w-0 break-words">Setup chat error: {setupError}</span>
-                <button
-                  type="button"
-                  className="shrink-0 rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-200 hover:border-red-500 hover:text-white"
-                  onClick={() => {
-                    setSetupError(null);
-                    setSetupKey((key) => key + 1);
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          ) : null}
           <div className="h-64 overflow-hidden">
             {draftStatus === 'error' ? (
               <div
@@ -432,11 +408,11 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
               </div>
             ) : setupId && draftReady ? (
               <ClarifyChat
-                key={setupKey}
                 requestId={setupId}
                 started
                 commands={commands}
-                onError={setSetupError}
+                onError={() => {}}
+                inlineErrors
                 onDone={() => void refreshDraft()}
                 placeholder="Ask how this cell should be configured…"
               />

@@ -195,4 +195,8 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **34. Setup-chat hang hardening** — inline wizard draft-sync error + Retry,
   per-turn watchdog, MCP fetch timeout, capped stderr in exit/timeout errors, tests and
   docs.
-- [ ] **Backlog 35. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **35. Setup-chat responsiveness** — direct reply prompt, plain-text questions,
+  OpenCode `question` deny in every non-interactive scope, tests and docs.
+- [x] **36. Setup-chat transport** — JSON content type on NDJSON POST bodies, inline
+  retry that replays the failed send, regression test and docs.
+- [ ] **Backlog 37. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

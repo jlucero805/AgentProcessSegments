@@ -84,6 +84,9 @@ const READ_ONLY_PERMISSIONS = {
   external_directory: 'deny',
   webfetch: 'deny',
   websearch: 'deny',
+  // `opencode run` is non-interactive. Leaving the interactive question tool
+  // enabled lets the model stall the whole turn waiting for a reply.
+  question: 'deny',
 };
 
 export class OpencodeHarness implements AgentHarness {
@@ -123,6 +126,11 @@ export class OpencodeHarness implements AgentHarness {
       }
       const current = isRecord(user.permission) ? user.permission : {};
       config.permission = { ...current, ...READ_ONLY_PERMISSIONS };
+    } else {
+      // Request sessions keep the user's permission posture, but every brain
+      // session is non-interactive: the question tool must never wait for a UI.
+      const current = isRecord(user.permission) ? user.permission : {};
+      config.permission = { ...current, question: 'deny' };
     }
 
     if (requestScope) {

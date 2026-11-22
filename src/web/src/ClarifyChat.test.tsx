@@ -191,6 +191,48 @@ describe('ClarifyChat live turns', () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it('retries a failed send without duplicating the user message', async () => {
+    const sends: string[] = [];
+    let attempts = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          const body = JSON.parse(String(init?.body)) as { text: string };
+          sends.push(body.text);
+          attempts += 1;
+          if (attempts === 1) {
+            return jsonResponse({ error: 'internal', message: 'send failed' }, 500);
+          }
+          return ndjsonResponse([
+            '{"t":"text","text":"retried reply"}\n',
+            doneEvent('retried reply'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat requestId="req-retry" started commands={[]} onError={() => {}} inlineErrors />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...');
+    fireEvent.change(composer, { target: { value: 'retry me' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    expect(await screen.findByText('send failed')).toBeInTheDocument();
+    expect(sends).toEqual(['retry me']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('retried reply')).toBeInTheDocument();
+    expect(sends).toEqual(['retry me', 'retry me']);
+  });
+
   it('does not open a stream when the turn is already finished', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

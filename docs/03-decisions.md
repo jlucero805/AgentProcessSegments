@@ -508,3 +508,36 @@ spinner; chat transport errors also get an inline retry.
 long. Captured stderr is capped to the last 20 lines and included in the exit/timeout
 error and its log context. A timed-out turn is marked cancelled so the stream does not
 receive the same error twice.
+
+## D36. Setup chat must not interview through an interactive tool
+
+**Context.** The first setup seed read like a task list: “Ask about the repository, risk
+posture, review/merge policy, concurrency, and follow-ups.” On OpenCode the model obeyed
+by calling the interactive `question` tool and then touring the board/KB. `opencode run`
+is non-interactive; the question has no client, so the turn stalls or spends minutes
+gathering context while the operator sees no reply.
+
+**Decision.** Two changes. The seed now says the chat is non-interactive, answers simple
+messages directly, asks at most one or two plain-text questions only when the answer
+changes the configuration, and uses draft tools only when it needs the draft. The OpenCode
+adapter denies `question` in every brain session, including request sessions, so the
+non-interactive tool cannot be selected regardless of the harness prompt.
+
+**Cost.** The setup assistant will sometimes make a reasonable assumption instead of
+asking a follow-up, and the operator may need to correct it. That is preferable to a
+chat that appears dead. An interactive question UI would need a separate client protocol
+and is not part of this harness.
+
+## D37. NDJSON POST bodies are JSON at the transport layer
+
+**Context.** Streaming chat actions use `streamNdjson` rather than the ordinary JSON
+request helper. It forwarded `body` without a `content-type` header. Browsers send a
+string body as `text/plain`; Fastify parsed it as a string and rejected every chat send
+with `Expected object, received string`. The setup chat therefore never got a message
+into the engine, and the retry button replayed exactly the same invalid request.
+
+**Decision.** `streamNdjson` adds `content-type: application/json` whenever a body is
+present, unless the caller already set a content type. The API test asserts the header.
+
+**Cost.** None; it matches the ordinary JSON client. Chat and control streams now share
+the same validation path instead of hiding a browser-only content-type mismatch.

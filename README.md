@@ -195,7 +195,7 @@ src/server/src
   clarify/stream.ts   pure claude stream-json parser (no process, no disk)
   clarify/transport.ts  the AgentProcess interface harnesses implement
   clarify/prompts.ts  seed, dispatch, finalize, and KB briefs
-  clarify/worktree.ts per-request git worktree on branch sbox/<id>
+  clarify/worktree.ts per-request git worktree on branch aps/<id> (legacy sbox/<id> reused)
   clarify/models.ts   model catalog with a cached probe and harness fallback
   settings.ts         XDG scheduler settings, zod validation, atomic write
   docs/service.ts     explicit Help manifest, Markdown reads, screenshot assets

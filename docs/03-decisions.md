@@ -79,11 +79,15 @@ read the snapshot. That is the documented behavior, not an accident.
 **Context.** Two requests must never write the same tree, but a request without a target
 repo still needs a cwd.
 
-**Decision.** `ensureWorktree` returns an isolated checkout on `sbox/<id>` when it can,
-and the scratch workdir when there is no repo or git fails. `removeWorktree` removes the
-checkout and keeps the branch.
+**Decision.** `ensureWorktree` returns an isolated checkout on `aps/<id>` when it can,
+and the scratch workdir when there is no repo or git fails. When only a legacy
+`sbox/<id>` branch exists, it reuses that branch unchanged instead of creating the new
+prefix, and an existing checkout reports the branch it is actually on. `removeWorktree`
+removes the checkout and keeps the branch.
 
 **Cost.** The branch and its commits outlive the request by design. Cleanup is manual.
+Legacy `sbox/<id>` branches may coexist with new `aps/<id>` branches until they are
+cleaned up by hand.
 
 ## D8. The user turn is pushed into the parser's transcript
 

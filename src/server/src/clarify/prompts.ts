@@ -1,5 +1,6 @@
 import type { Request } from '../domain/request.js';
 import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
+import { branchName } from './worktree.js';
 
 function ticket(request: Request): string {
   const lines = [`# ${request.title}`, '', request.body.trim() || '(no description yet)'];
@@ -25,7 +26,7 @@ export function seedPrompt(request: Request): string {
 export function dispatchPrompt(request: Request): string {
   return [
     'Grooming is over. Build the change now.',
-    `Work on branch \`${request.branch ?? `sbox/${request.id}`}\` in this worktree. Do not push. Do not open a change request.`,
+    `Work on branch \`${request.branch ?? branchName(request.id)}\` in this worktree. Do not push. Do not open a change request.`,
     'Read before you edit. Keep the diff to what the ticket asks for.',
     'When you are done, run the tests and report what you ran, what passed, and anything you deliberately left out.',
     '',

@@ -115,6 +115,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   // model id that the new adapter does not advertise. The first load keeps the
   // request's explicit model even when a probe falls back to a partial list.
   const modelContextRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    modelContextRef.current = undefined;
+  }, [id]);
   const cellId = form?.cellId ?? '';
   useEffect(() => {
     if (!form) return;

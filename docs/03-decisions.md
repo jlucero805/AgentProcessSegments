@@ -625,3 +625,32 @@ Several model turns can be live at once, using more provider throughput and toke
 next tick refills only the capacity reported by `countWorking`. Background completion
 failures are logged and recorded as skip events, but the original cycle response has
 already returned. A segment cap of one still serializes merge work as intended.
+
+## D42. Budgets are advisory, monthly, and built ahead of the usage ledger
+
+**Context.** Operators need to see whether a cell or the whole brain is approaching its
+spend budget. The usage dashboard is a separate change and `usage_events` does not exist
+on `main` yet, but budget configuration and alert plumbing can land first without creating
+a second usage schema.
+
+**Decision.** Add a pure `domain/budget.ts` contract, an overall budget in `config.json`,
+and a nullable `cells.monthly_budget_usd`. Budget periods are UTC calendar months. Spend
+is read through a narrow `BudgetUsageReader`; a schema-guarded adapter queries
+`usage_events` when it exists and reports `usageAvailable: false` until then, so this
+change does not own or fork the usage schema. Missing `cost_usd` is unpriced, never zero
+or estimated; an all-unpriced period is `unknown` and does not alert, while mixed data
+alerts against a known lower bound.
+
+Durable alerts live in `budget_alerts`, not `master_events`. Their identity includes the
+budget amount and warning percentage, so changing either starts a new generation without
+deleting acknowledged history. Exceeded supersedes warning; acknowledging one silences
+that generation for the month. `BudgetService` evaluates on start, every 60 seconds, and
+on settings/cell changes, reports failures as `usage.budgets`, and never affects a turn.
+Budgets never pause or block work.
+
+**Cost.** Budgets are unmeasurable until the usage dashboard lands, though they are fully
+configurable and tested with seeded `usage_events`; wiring the real reader and the Usage
+page is a follow-up. The unique alert identity includes REAL budget amounts, which is
+acceptable for operator-entered dollar values. Hard caps, external delivery, and pricing
+estimation remain separate work. A retention window shorter than the month makes spend a
+lower bound, which the docs and UI say explicitly.

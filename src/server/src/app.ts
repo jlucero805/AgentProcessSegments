@@ -19,6 +19,9 @@ import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
 import { SkillCatalog } from './skills/catalog.js';
+import { BudgetAlertRepository } from './usage/budget-alerts.js';
+import { createBudgetUsageReader } from './usage/budget-usage.js';
+import { BudgetService } from './usage/budgets.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -53,6 +56,13 @@ export async function main(): Promise<void> {
     const models = new ModelCatalog(harness);
     const skills = new SkillCatalog();
     const docs = new DocsService(config.docsDir);
+    const budgets = new BudgetService({
+      usage: createBudgetUsageReader(db),
+      cells,
+      settings,
+      alerts: new BudgetAlertRepository(db),
+      errors,
+    });
     const masterEvents = new MasterEventRepository(db);
     const masterService = new MasterService({
       repo,
@@ -74,6 +84,7 @@ export async function main(): Promise<void> {
       models,
       plugins,
       settings,
+      budgets,
       master,
       masterEvents,
       process: processStore,
@@ -84,9 +95,11 @@ export async function main(): Promise<void> {
     });
     master.start();
     await app.listen({ host: config.host, port: config.port });
+    budgets.start();
 
     const shutdown = async () => {
       master.stop();
+      budgets.stop();
       // Keep-alive sockets from a closed client can hold `close()` open forever.
       const force = setTimeout(() => process.exit(0), 3000);
       force.unref();

@@ -63,8 +63,8 @@ built and vended by the brain; real-CLI verification is still pending.
   multi-term literal LIKE search (`%`, `_`, and `\` escaped) ranked by title/body term
   hits and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
-  clarify snapshot, dispatch, finalize, index, models, KB, cells, docs, websocket echo,
-  and optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch, and
+  clarify snapshot, dispatch, finalize, index, models, KB, cells, config, budgets, docs,
+  websocket echo, and optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch, and
   finalize accept `?detach=1` to start a turn and return immediately.
 - In-app Help: a sidebar **Help** row opens a full-height documentation overlay, grouped
   by manifest order from `GET /api/docs`, with an article, sticky “On this page” anchors,
@@ -159,6 +159,16 @@ built and vended by the brain; real-CLI verification is still pending.
   on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
+- Spend budgets: an advisory overall monthly budget and warning percentage live in
+  `config.json`; each cell can store `monthly_budget_usd`. Budgets use the UTC calendar
+  month and only harness-reported cost. `budget_alerts` stores durable
+  warning/exceeded rows keyed by scope, month, threshold, budget, and warning percentage;
+  `GET /api/budgets` exposes status and unacknowledged alerts, and
+  `POST /api/budgets/alerts/:id/ack` dismisses one. The Config page edits the overall
+  budget and threshold, the cell editor edits a cell budget, and an app-wide banner
+  surfaces active alerts. Unpriced turns are reported as unknown/lower bound, never
+  guessed. The layer reads `usage_events` when the usage ledger exists and reports
+  `usageAvailable: false` until then; it never stops work.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
   scheduler switch, interval, and unassigned-work flag, validated with zod and written
   atomically. `GET/PATCH /api/config` expose it. `process.json` is the global process
@@ -179,7 +189,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 250 vitest cases, all passing: 164 server across 19 files and 86 web across 16 files,
+- 276 vitest cases, all passing: 185 server across 20 files and 91 web across 17 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -243,6 +253,8 @@ built and vended by the brain; real-CLI verification is still pending.
   prompts can create draft CRs, but there is no hardcoded forger integration.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
+- The `usage_events` ledger and usage/token dashboard. Budget configuration and alerts are
+  built ahead of it and report `usageAvailable: false` until it lands.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
@@ -276,8 +288,8 @@ GET    /api/cell-drafts/:id
 PUT    /api/cell-drafts/:id
 PATCH  /api/cell-drafts/:id
 DELETE /api/cell-drafts/:id
-POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, model?, effort?}
-PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, model?, effort?, process?}
+POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, model?, effort?, monthlyBudgetUsd?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, model?, effort?, monthlyBudgetUsd?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
@@ -285,7 +297,9 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master:{…}}
+PATCH  /api/config                        {master?:{…}, budget?:{monthlyUsd?, alertAtPercent?}}
+GET    /api/budgets                       statuses + unacknowledged current-month alerts
+POST   /api/budgets/alerts/:id/ack
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]

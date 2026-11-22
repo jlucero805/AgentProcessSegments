@@ -63,7 +63,18 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
           includeUnassigned: true,
           prompt: 'prod',
         },
+        budget: { monthlyUsd: null, alertAtPercent: 80 },
         path: '/tmp/config.json',
+      });
+    }
+    if (url === '/api/budgets') {
+      return jsonResponse({
+        periodStart: Date.UTC(2026, 10, 1),
+        periodEnd: Date.UTC(2026, 11, 1),
+        alertAtPercent: 80,
+        usageAvailable: false,
+        statuses: [],
+        alerts: [],
       });
     }
     if (url === '/api/process') return jsonResponse(makeProcessResponse());
@@ -185,6 +196,7 @@ describe('App', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
+      monthlyBudgetUsd: null,
       process: {
         version: process.version,
         segments: process.segments.map((segment) =>

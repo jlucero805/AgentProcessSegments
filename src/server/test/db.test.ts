@@ -19,12 +19,14 @@ describe('db migrations', () => {
     expect(columns(db, 'requests')).toContain('cell_id');
     expect(columns(db, 'requests')).toContain('agent_status');
     expect(columns(db, 'cells')).toContain('master_enabled');
+    expect(columns(db, 'cells')).toContain('monthly_budget_usd');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
       }>
     ).map((row) => row.name);
     expect(tables).toContain('master_events');
+    expect(tables).toContain('budget_alerts');
     db.close();
   });
 
@@ -57,11 +59,13 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('process_json');
     expect(columns(db, 'cells')).toContain('master_interval_minutes');
     expect(columns(db, 'cells')).toContain('max_concurrent');
+    expect(columns(db, 'cells')).toContain('monthly_budget_usd');
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );
     expect(indexes).toContain('idx_requests_cell');
     expect(indexes).toContain('idx_requests_state');
+    expect(indexes).toContain('idx_budget_alerts_identity');
     db.close();
   });
 

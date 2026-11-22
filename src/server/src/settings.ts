@@ -1,6 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import {
+  DEFAULT_BUDGET_SETTINGS,
+  MAX_BUDGET_USD,
+  type BudgetSettings,
+} from './domain/budget.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 
@@ -23,7 +28,16 @@ const masterSchema = z.object({
   prompt: z.string().min(1).max(8000),
 }) satisfies z.ZodType<MasterConfig>;
 
-const settingsSchema = z.object({ master: masterSchema });
+const budgetSchema = z.object({
+  monthlyUsd: z.number().positive().max(MAX_BUDGET_USD).nullable(),
+  alertAtPercent: z.number().int().min(1).max(100),
+}) satisfies z.ZodType<BudgetSettings>;
+
+const settingsSchema = z.object({
+  master: masterSchema,
+  // A legacy config with only `master` loads with the default budget.
+  budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
+});
 
 export type MasterSettings = MasterConfig;
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -37,9 +51,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
     includeUnassigned: true,
     prompt: DEFAULT_MASTER_PROMPT,
   },
+  budget: { ...DEFAULT_BUDGET_SETTINGS },
 };
 
-export const settingsPatchSchema = z.object({ master: masterSchema.partial() });
+export const settingsPatchSchema = z.object({
+  master: masterSchema.partial().optional(),
+  budget: budgetSchema.partial().optional(),
+});
 
 /**
  * Persistent app settings, separate from the brain's environment/path config.
@@ -64,7 +82,9 @@ export class SettingsStore {
     const parsed = settingsPatchSchema.parse(input);
     const current = this.get();
     const next = settingsSchema.parse({
+      ...current,
       master: { ...current.master, ...(parsed.master ?? {}) },
+      budget: { ...current.budget, ...(parsed.budget ?? {}) },
     });
     this.write(next);
     this.cached = next;

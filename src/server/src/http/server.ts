@@ -30,6 +30,7 @@ import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
 import { SkillCatalog } from '../skills/catalog.js';
+import type { BudgetService } from '../usage/budgets.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
 import { errorMessage } from '../util/errors.js';
 
@@ -42,6 +43,7 @@ export interface ServerDeps {
   models: ModelCatalog;
   plugins: PluginManager;
   settings: SettingsStore;
+  budgets: BudgetService;
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
   process: ProcessStore;
@@ -107,6 +109,7 @@ const cellSchema = z.object({
   maxConcurrent: z.number().int().min(1).max(50).optional(),
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+  monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
 });
 const cellDraftSchema = z.object({
   name: z.string().min(1),
@@ -151,6 +154,7 @@ const cellPatchSchema = z
     maxConcurrent: z.number().int().min(1).max(50).optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+    monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
@@ -161,10 +165,11 @@ const cellPatchSchema = z
       value.maxConcurrent !== undefined ||
       value.model !== undefined ||
       value.effort !== undefined ||
+      value.monthlyBudgetUsd !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, monthlyBudgetUsd, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -299,6 +304,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     models,
     plugins,
     settings,
+    budgets,
     master,
     masterEvents,
     process: processStore,
@@ -620,9 +626,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         maxConcurrent: input.maxConcurrent,
         model: input.model,
         effort: input.effort,
+        monthlyBudgetUsd: input.monthlyBudgetUsd,
       },
     );
     master.refresh();
+    budgets.evaluate();
     return reply.code(201).send(created);
   });
 
@@ -635,6 +643,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       cells.setMasterInterval(id, body.masterIntervalMinutes);
     }
     if (body.maxConcurrent !== undefined) cells.setMaxConcurrent(id, body.maxConcurrent);
+    if (body.monthlyBudgetUsd !== undefined) {
+      cells.setMonthlyBudget(id, body.monthlyBudgetUsd);
+    }
     if (body.model !== undefined || body.effort !== undefined) {
       const current = cells.require(id);
       cells.setAgentDefaults(
@@ -645,6 +656,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();
+    budgets.evaluate();
     return cells.require(id);
   });
 
@@ -652,6 +664,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { id } = request.params as { id: string };
     cells.remove(id);
     master.refresh();
+    budgets.evaluate();
     return reply.code(204).send();
   });
 
@@ -683,10 +696,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/config', async () => ({ ...settings.get(), path: settings.path }));
-  app.patch('/api/config', async (request) => ({
-    ...settings.patch(request.body),
-    path: settings.path,
-  }));
+  app.patch('/api/config', async (request) => {
+    const next = settings.patch(request.body);
+    budgets.evaluate();
+    return { ...next, path: settings.path };
+  });
+
+  app.get('/api/budgets', async () => budgets.statuses());
+  app.post('/api/budgets/alerts/:id/ack', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const alert = budgets.acknowledge(id);
+    if (!alert) {
+      return reply.code(404).send({ error: 'not_found', message: `budget alert ${id} not found` });
+    }
+    return alert;
+  });
 
   app.get('/api/process', async () => ({ ...processStore.get(), path: processStore.path }));
   app.patch('/api/process', async (request) => ({

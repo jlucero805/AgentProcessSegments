@@ -104,6 +104,21 @@ KB but cannot mutate requests.
 - `SBOX_TERMINAL=0` disables creation. The action is hidden below `md`, but the endpoint
   is still a direct shell—protect the brain with loopback or an authenticated tunnel.
 
+## 4c. Set and watch spend budgets
+
+1. Open **Config** and use **Spend budgets** to set an overall monthly budget and warning
+   percentage. Leave the amount blank to remove the overall budget.
+2. Edit a cell to set its optional monthly budget. Blank means no cell budget.
+3. Budgets use the UTC calendar month. A warning appears at the configured percentage and
+   an exceeded alert appears when known spend reaches the budget. Both are advisory and
+   never stop work.
+4. Active alerts appear above every page. Press the alert's **×** to acknowledge it;
+   that alert stays silent for the rest of the month (a new month or a changed
+   budget/threshold can alert again).
+5. Costs are harness-reported only. Unpriced turns are counted and shown as unknown or a
+   lower bound, never as zero. If the usage ledger has not landed yet, Config says budgets
+   are saved but unmeasurable.
+
 ## 5. Review, finalize, and follow-ups
 
 1. Implementation ends with `READY FOR REVIEW` and the request moves to Review when the
@@ -135,6 +150,9 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Scheduler switch, interval, unassigned flag | `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`) |
 | Global process template | `$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
+| Overall spend budget | `budget` in `config.json` |
+| Cell spend budget | `cells.monthly_budget_usd` in SQLite |
+| Budget alert history | `budget_alerts` in SQLite |
 | Requests, cells, KB, events | SQLite (`SBOX_DB`) |
 | Session ids and transcripts | `$SBOX_DATA_DIR/requests/<id>/` |
 | Worktrees | `$SBOX_DATA_DIR/worktrees/<id>` |

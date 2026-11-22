@@ -12,6 +12,7 @@ const cells: Cell[] = [
     maxConcurrent: 3,
     model: null,
     effort: null,
+    monthlyBudgetUsd: null,
     createdAt: 1,
   },
 ];

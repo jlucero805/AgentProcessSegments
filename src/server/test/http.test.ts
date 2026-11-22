@@ -15,6 +15,9 @@ import { defaultProcess } from '../src/process/defaults.js';
 import { ProcessStore } from '../src/process/store.js';
 import { SettingsStore } from '../src/settings.js';
 import { SkillCatalog } from '../src/skills/catalog.js';
+import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
+import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
+import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, resultLine, settle, type Harness } from './helpers.js';
 
 interface Open {
@@ -39,6 +42,12 @@ async function makeApp(
     settings,
     h.cells,
   );
+  const budgets = new BudgetService({
+    usage: createBudgetUsageReader(h.db),
+    cells: h.cells,
+    settings,
+    alerts: new BudgetAlertRepository(h.db),
+  });
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
@@ -48,6 +57,7 @@ async function makeApp(
     models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
     plugins: h.plugins,
     settings,
+    budgets,
     master,
     masterEvents,
     process,
@@ -290,6 +300,79 @@ describe('http api', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('reads and patches budget settings and exposes budget status', async () => {
+    await makeApp();
+    const before = await call('GET', '/api/config');
+    expect(before.json().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+
+    const patched = await call('PATCH', '/api/config', {
+      budget: { monthlyUsd: 250.5, alertAtPercent: 90 },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().budget).toEqual({ monthlyUsd: 250.5, alertAtPercent: 90 });
+
+    const budgets = await call('GET', '/api/budgets');
+    expect(budgets.status).toBe(200);
+    expect(budgets.json()).toMatchObject({
+      alertAtPercent: 90,
+      usageAvailable: false,
+      alerts: [],
+    });
+    expect(budgets.json().statuses).toHaveLength(1);
+    expect(budgets.json().statuses[0]).toMatchObject({
+      scope: 'overall',
+      budgetUsd: 250.5,
+      spendUsd: 0,
+      state: 'unknown',
+    });
+
+    for (const budget of [
+      { monthlyUsd: 0 },
+      { monthlyUsd: -1 },
+      { monthlyUsd: 1_000_001 },
+      { alertAtPercent: 0 },
+      { alertAtPercent: 101 },
+      { alertAtPercent: 80.5 },
+    ]) {
+      const bad = await call('PATCH', '/api/config', { budget });
+      expect(bad.status).toBe(400);
+    }
+
+    const missing = await call('POST', '/api/budgets/alerts/ghost/ack');
+    expect(missing.status).toBe(404);
+  });
+
+  it('acknowledges a budget alert over HTTP', async () => {
+    const { h } = await makeApp();
+    h.db.exec(`CREATE TABLE usage_events (
+      id TEXT PRIMARY KEY,
+      cell_id TEXT,
+      cost_usd REAL,
+      created_at INTEGER NOT NULL
+    )`);
+    h.db
+      .prepare('INSERT INTO usage_events (id, cell_id, cost_usd, created_at) VALUES (?, ?, ?, ?)')
+      .run('u1', null, 90, Date.now());
+    await call('PATCH', '/api/config', {
+      budget: { monthlyUsd: 100, alertAtPercent: 80 },
+    });
+    await call('POST', '/api/cells', { name: 'Budgeted', monthlyBudgetUsd: 100 });
+
+    const budgets = await call('GET', '/api/budgets');
+    expect(budgets.json().alerts).toHaveLength(1);
+    const alert = budgets.json().alerts[0] as { id: string; threshold: string };
+    expect(alert.threshold).toBe('warning');
+
+    const acknowledged = await call('POST', `/api/budgets/alerts/${alert.id}/ack`);
+    expect(acknowledged.status).toBe(200);
+    expect(acknowledged.json().acknowledgedAt).toEqual(expect.any(Number));
+
+    const again = await call('POST', `/api/budgets/alerts/${alert.id}/ack`);
+    expect(again.status).toBe(200);
+    expect(again.json().acknowledgedAt).toBe(acknowledged.json().acknowledgedAt);
+    expect((await call('GET', '/api/budgets')).json().alerts).toEqual([]);
+  });
+
   it('reads and patches process segments through the API', async () => {
     await makeApp();
 
@@ -351,12 +434,14 @@ describe('http api', () => {
       maxConcurrent: 2,
       model: 'cell-model',
       effort: 'high',
+      monthlyBudgetUsd: 75.5,
     });
     expect(created.status).toBe(201);
     expect(created.json().masterIntervalMinutes).toBe(3);
     expect(created.json().maxConcurrent).toBe(2);
     expect(created.json().model).toBe('cell-model');
     expect(created.json().effort).toBe('high');
+    expect(created.json().monthlyBudgetUsd).toBe(75.5);
     expect(
       created
         .json()
@@ -368,6 +453,32 @@ describe('http api', () => {
 
     const cleared = await call('PATCH', `/api/cells/${created.json().id}`, { process: null });
     expect(cleared.json().process).toBeNull();
+  });
+
+  it('round-trips and validates a cell monthly budget', async () => {
+    await makeApp();
+    const created = await call('POST', '/api/cells', {
+      name: 'Budgeted',
+      monthlyBudgetUsd: 75.5,
+    });
+    expect(created.status).toBe(201);
+    expect(created.json().monthlyBudgetUsd).toBe(75.5);
+
+    const patched = await call('PATCH', `/api/cells/${created.json().id}`, {
+      monthlyBudgetUsd: 50,
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().monthlyBudgetUsd).toBe(50);
+
+    const cleared = await call('PATCH', `/api/cells/${created.json().id}`, {
+      monthlyBudgetUsd: null,
+    });
+    expect(cleared.json().monthlyBudgetUsd).toBeNull();
+
+    for (const monthlyBudgetUsd of [0, -1, 1_000_001, 'lots']) {
+      const bad = await call('PATCH', `/api/cells/${created.json().id}`, { monthlyBudgetUsd });
+      expect(bad.status).toBe(400);
+    }
   });
 
   it('toggles a cell master through the cells patch', async () => {

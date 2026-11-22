@@ -19,8 +19,10 @@ describe('CellModal', () => {
           maxConcurrent?: number;
           model?: string | null;
           effort?: string | null;
+          monthlyBudgetUsd?: number | null;
         }
       | undefined;
+    let draft: Record<string, unknown> | undefined;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -41,6 +43,10 @@ describe('CellModal', () => {
             defaultModel: 'opencode-go/deepseek-v4.1-flash',
           });
         }
+        if (url.startsWith('/api/cell-drafts/') && init?.method === 'PUT') {
+          draft = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return jsonResponse({ id: 'draft-1', name: 'Draft' });
+        }
         if (url === '/api/cells' && init?.method === 'POST') {
           created = JSON.parse(String(init.body)) as typeof created;
           const cell: CellDetail = {
@@ -51,6 +57,7 @@ describe('CellModal', () => {
             maxConcurrent: 3,
             model: null,
             effort: null,
+            monthlyBudgetUsd: null,
             process: baseProcess(),
             createdAt: 2,
           };
@@ -84,6 +91,9 @@ describe('CellModal', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /default difficulty/i }), {
       target: { value: 'high' },
     });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /monthly spend budget/i }), {
+      target: { value: '42.5' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
@@ -92,7 +102,9 @@ describe('CellModal', () => {
     expect(created?.maxConcurrent).toBe(3);
     expect(created?.model).toBe('m1');
     expect(created?.effort).toBe('high');
+    expect(created?.monthlyBudgetUsd).toBe(42.5);
     expect(created?.process?.segments).toHaveLength(6);
+    if (draft) expect(draft).not.toHaveProperty('monthlyBudgetUsd');
   });
 
   it('shows an inline error and Retry when the setup draft cannot sync', async () => {
@@ -166,6 +178,7 @@ describe('CellModal', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
+      monthlyBudgetUsd: null,
       process: stale,
       createdAt: 1,
     };

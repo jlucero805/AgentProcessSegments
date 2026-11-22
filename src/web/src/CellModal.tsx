@@ -4,6 +4,7 @@ import { ClarifyChat } from './ClarifyChat';
 import { ProcessEditor } from './ProcessEditor';
 import {
   EFFORT_LEVELS,
+  MAX_BUDGET_USD,
   setupSessionId,
   type CellDetail,
   type CommandInfo,
@@ -38,6 +39,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [name, setName] = useState('');
   const [interval, setInterval] = useState('');
   const [maxConcurrent, setMaxConcurrent] = useState('3');
+  const [monthlyBudget, setMonthlyBudget] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState<Effort | ''>('');
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -70,6 +72,11 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     setName(cell?.name ?? '');
     setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
     setMaxConcurrent(String(cell?.maxConcurrent ?? 3));
+    setMonthlyBudget(
+      cell?.monthlyBudgetUsd === null || cell?.monthlyBudgetUsd === undefined
+        ? ''
+        : String(cell.monthlyBudgetUsd),
+    );
     setModel(cell?.model ?? '');
     setEffort(cell?.effort ?? '');
     setProcess(cell?.process ?? null);
@@ -309,6 +316,20 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
       onError('Max concurrent requests must be a whole number from 1 to 50.');
       return;
     }
+    const budgetText = monthlyBudget.trim();
+    const budgetValue = budgetText === '' ? null : Number(budgetText);
+    if (
+      budgetValue !== null &&
+      (!Number.isFinite(budgetValue) ||
+        budgetValue <= 0 ||
+        budgetValue > MAX_BUDGET_USD ||
+        Math.abs(budgetValue * 100 - Math.round(budgetValue * 100)) > 1e-6)
+    ) {
+      onError(
+        `The monthly budget must be a positive dollar amount up to $${MAX_BUDGET_USD.toLocaleString()} with at most two decimals, or blank for no budget.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       const fields = {
@@ -316,6 +337,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         process,
         masterIntervalMinutes: minutes,
         maxConcurrent: concurrency,
+        monthlyBudgetUsd: budgetValue,
         model: model || null,
         effort: effort || null,
       };
@@ -379,6 +401,20 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
             </Select>
           </Field>
         </div>
+
+        <Field
+          label="Monthly spend budget (USD)"
+          hint="blank means no budget; alerts only, never a hard stop"
+        >
+          <Input
+            type="number"
+            min={0.01}
+            step="0.01"
+            value={monthlyBudget}
+            onChange={(event) => setMonthlyBudget(event.target.value)}
+            placeholder="No budget"
+          />
+        </Field>
 
         <Field
           label="Default difficulty"

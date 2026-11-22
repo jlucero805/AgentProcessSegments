@@ -4,8 +4,13 @@ import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
 import { ProcessEditor } from './ProcessEditor';
 import {
+  DEFAULT_BUDGET_SETTINGS,
   MASTER_SESSION_ID,
+  MAX_BUDGET_USD,
   timeAgo,
+  type BudgetSettings,
+  type BudgetStatus,
+  type BudgetsResponse,
   type CellDetail,
   type CommandInfo,
   type MasterConfig,
@@ -36,6 +41,23 @@ function clock(ts: number | null | undefined): string {
   return ts ? new Date(ts).toLocaleTimeString() : '—';
 }
 
+const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+function moneyLabel(value: number): string {
+  return money.format(value);
+}
+
+function pct(value: number): string {
+  return `${value.toFixed(0)}%`;
+}
+
+function budgetTone(status: BudgetStatus): 'neutral' | 'green' | 'amber' | 'red' {
+  if (status.state === 'exceeded') return 'red';
+  if (status.state === 'warning') return 'amber';
+  if (status.state === 'unknown') return 'neutral';
+  return 'green';
+}
+
 /** Edits the persisted master policy and shows its live status and activity. */
 export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
@@ -51,16 +73,25 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const [processSaving, setProcessSaving] = useState(false);
   const [processSaved, setProcessSaved] = useState(false);
   const [running, setRunning] = useState(false);
+  const [budget, setBudget] = useState<BudgetSettings | null>(null);
+  const [budgetMonthly, setBudgetMonthly] = useState('');
+  const [budgetAlertPercent, setBudgetAlertPercent] = useState('80');
+  const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetSaved, setBudgetSaved] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [config, processConfig, masterStatus, cellList, eventList] = await Promise.all([
-        api.getConfig(),
-        api.getProcess(),
-        api.getMasterStatus(),
-        api.getCells(),
-        api.getMasterEvents({ limit: 20 }),
-      ]);
+      const [config, processConfig, masterStatus, cellList, eventList, budgetResponse] =
+        await Promise.all([
+          api.getConfig(),
+          api.getProcess(),
+          api.getMasterStatus(),
+          api.getCells(),
+          api.getMasterEvents({ limit: 20 }),
+          api.getBudgets().catch(() => null),
+        ]);
+      const loadedBudget = config.budget ?? { ...DEFAULT_BUDGET_SETTINGS };
       setMaster(config.master);
       setPath(config.path);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
@@ -69,6 +100,14 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       setCells(cellList);
       setEvents(eventList);
       setLastResult(masterStatus.lastResult);
+      setBudget(loadedBudget);
+      setBudgetMonthly(
+        loadedBudget.monthlyUsd === null ? '' : String(loadedBudget.monthlyUsd),
+      );
+      setBudgetAlertPercent(String(loadedBudget.alertAtPercent));
+      setBudgetView(
+        budgetResponse && Array.isArray(budgetResponse.statuses) ? budgetResponse : null,
+      );
     } catch (error) {
       onError(describeError(error));
     }
@@ -125,7 +164,7 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
     if (!master) return;
     setSaving(true);
     try {
-      const config = await api.patchConfig(master);
+      const config = await api.patchConfig({ master });
       setMaster(config.master);
       setPath(config.path);
       setStatus(await api.getMasterStatus());
@@ -134,6 +173,49 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveBudget() {
+    if (!budget) return;
+    const monthlyText = budgetMonthly.trim();
+    const monthlyUsd = monthlyText === '' ? null : Number(monthlyText);
+    if (
+      monthlyUsd !== null &&
+      (!Number.isFinite(monthlyUsd) ||
+        monthlyUsd <= 0 ||
+        monthlyUsd > MAX_BUDGET_USD ||
+        Math.abs(monthlyUsd * 100 - Math.round(monthlyUsd * 100)) > 1e-6)
+    ) {
+      onError(
+        `The overall budget must be a positive dollar amount up to ${moneyLabel(MAX_BUDGET_USD)} with at most two decimals, or blank for no budget.`,
+      );
+      return;
+    }
+    const alertAtPercent = Number(budgetAlertPercent);
+    if (!Number.isInteger(alertAtPercent) || alertAtPercent < 1 || alertAtPercent > 100) {
+      onError('The alert threshold must be a whole number from 1 to 100.');
+      return;
+    }
+
+    setBudgetSaving(true);
+    try {
+      const config = await api.patchConfig({
+        budget: { monthlyUsd, alertAtPercent },
+      });
+      const savedBudget = config.budget ?? { monthlyUsd, alertAtPercent };
+      setBudget(savedBudget);
+      setBudgetMonthly(
+        savedBudget.monthlyUsd === null ? '' : String(savedBudget.monthlyUsd),
+      );
+      setBudgetAlertPercent(String(savedBudget.alertAtPercent));
+      const nextView = await api.getBudgets().catch(() => null);
+      setBudgetView(nextView && Array.isArray(nextView.statuses) ? nextView : null);
+      setBudgetSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setBudgetSaving(false);
     }
   }
 
@@ -240,6 +322,112 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
         </div>
       </Card>
 
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Spend budgets</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            Advisory monthly budgets for the whole brain and each cell. Alerts are warnings;
+            they never stop work.
+          </p>
+        </div>
+
+        {budgetView && !budgetView.usageAvailable ? (
+          <p className="rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-300">
+            Usage tracking is not available yet. Budgets are saved and will become measurable
+            when the usage ledger lands.
+          </p>
+        ) : budgetView && budgetView.statuses.length > 0 ? (
+          <div className="space-y-2">
+            {budgetView.statuses.map((status) => (
+              <div
+                key={`${status.scope}:${status.cellId ?? ''}`}
+                className="space-y-1.5 rounded-lg border border-zinc-800 px-3 py-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm text-zinc-300">{status.label}</span>
+                  <Badge tone={budgetTone(status)}>{status.state}</Badge>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className={
+                      status.state === 'exceeded'
+                        ? 'h-full rounded-full bg-red-500'
+                        : status.state === 'warning'
+                          ? 'h-full rounded-full bg-amber-400'
+                          : 'h-full rounded-full bg-emerald-500'
+                    }
+                    style={{ width: `${Math.min(100, Math.max(0, status.percentUsed))}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  {status.spendIsLowerBound ? 'At least ' : ''}
+                  {moneyLabel(status.spendUsd)} of {moneyLabel(status.budgetUsd)} (
+                  {pct(status.percentUsed)})
+                  {status.unknownCostTurns > 0
+                    ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
+                    : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-500">
+            No budgets configured. Set an overall budget below or edit a cell.
+          </p>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Overall monthly budget (USD)" hint="blank means no overall budget">
+            <Input
+              type="number"
+              min={0.01}
+              step="0.01"
+              value={budgetMonthly}
+              onChange={(event) => {
+                setBudgetMonthly(event.target.value);
+                setBudgetSaved(false);
+              }}
+              placeholder="No overall budget"
+            />
+          </Field>
+          <Field
+            label="Alert threshold (%)"
+            hint="warning percentage; 100 alerts only at the budget"
+          >
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={budgetAlertPercent}
+              onChange={(event) => {
+                setBudgetAlertPercent(event.target.value);
+                setBudgetSaved(false);
+              }}
+            />
+          </Field>
+        </div>
+
+        <p className="text-[11px] text-zinc-600">
+          Budgets use the UTC calendar month. Costs are harness-reported; unpriced turns are
+          shown as unknown or a lower bound. Cell budgets are set when editing a cell.
+        </p>
+
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            {budget?.monthlyUsd === null
+              ? 'No overall budget saved.'
+              : `Overall budget ${moneyLabel(budget?.monthlyUsd ?? 0)} per month.`}
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {budgetSaved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
+            <Button variant="primary" disabled={budgetSaving} onClick={() => void saveBudget()}>
+              {budgetSaving ? <Spinner /> : 'Save budgets'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
       <ProcessEditor
         process={process}
         path={processPath}
@@ -292,7 +480,10 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-zinc-600">
                     {cell.masterIntervalMinutes ? `${cell.masterIntervalMinutes}m` : 'global'} ·{' '}
-                    {cell.maxConcurrent}×
+                    {cell.maxConcurrent}× ·{' '}
+                    {cell.monthlyBudgetUsd === null
+                      ? 'no budget'
+                      : `${moneyLabel(cell.monthlyBudgetUsd)}/mo`}
                   </span>
                   {onEditCell ? (
                     <Button

@@ -48,6 +48,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `engine.timeout` | A turn exceeds `SBOX_TURN_TIMEOUT_MS`; the child is killed and the turn is closed |
 | `master.turn` | A master turn fails for a request (cell, request, segment) |
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
+| `usage.budgets` | A budget status/alerts evaluation fails; includes `periodStart` and scope/cell ids only |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |
 
 Expected client errors (400 validation, 404, 409 transitions) are **not** written to this

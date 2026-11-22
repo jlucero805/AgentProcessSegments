@@ -66,6 +66,8 @@ export interface Cell {
   /** Cell-level defaults; a request's own model/effort wins. */
   model: string | null;
   effort: Effort | null;
+  /** Advisory monthly spend budget in USD; null means no cell budget. */
+  monthlyBudgetUsd: number | null;
   createdAt: number;
 }
 

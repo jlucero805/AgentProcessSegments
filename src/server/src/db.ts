@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS cells (
   max_concurrent           INTEGER NOT NULL DEFAULT 3,
   model                    TEXT,
   effort                   TEXT,
+  monthly_budget_usd       REAL,
   process_json             TEXT,
   created_at               INTEGER NOT NULL
 );
@@ -58,6 +59,20 @@ CREATE TABLE IF NOT EXISTS master_events (
   detail     TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS budget_alerts (
+  id                 TEXT PRIMARY KEY,
+  scope              TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+  scope_id           TEXT NOT NULL,
+  period_start       INTEGER NOT NULL,
+  threshold          TEXT NOT NULL CHECK (threshold IN ('warning', 'exceeded')),
+  alert_at_percent   INTEGER NOT NULL,
+  budget_usd         REAL NOT NULL,
+  spend_usd          REAL NOT NULL,
+  unknown_cost_turns INTEGER NOT NULL DEFAULT 0,
+  created_at         INTEGER NOT NULL,
+  acknowledged_at    INTEGER
+);
 `;
 
 /**
@@ -88,6 +103,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['cells', 'max_concurrent', 'INTEGER NOT NULL DEFAULT 3'],
   ['cells', 'model', 'TEXT'],
   ['cells', 'effort', 'TEXT'],
+  ['cells', 'monthly_budget_usd', 'REAL'],
   ['cells', 'process_json', 'TEXT'],
 ];
 
@@ -108,6 +124,14 @@ export function migrate(db: Db): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_kb_entries_request ON kb_entries(request_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_created ON master_events(created_at)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_master_events_request ON master_events(request_id)');
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_alerts_identity
+       ON budget_alerts(scope, scope_id, period_start, threshold, budget_usd, alert_at_percent)`,
+  );
+  db.exec('CREATE INDEX IF NOT EXISTS idx_budget_alerts_created ON budget_alerts(created_at)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_budget_alerts_acknowledged ON budget_alerts(acknowledged_at)',
+  );
 }
 
 /** A persisted `working` cannot survive a restart, because no child does. */

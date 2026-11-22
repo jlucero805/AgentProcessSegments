@@ -38,7 +38,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 250 vitest cases: 164 server across 19 files and 86 web across 16 files, all green.
+- 276 vitest cases: 185 server across 20 files and 91 web across 17 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -53,7 +53,8 @@ digests.
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps and
-  model/effort defaults, an optional single-worker Merge step with per-segment caps, an
+  model/effort defaults, advisory overall/per-cell spend budgets with durable alerts and
+  an in-app banner, an optional single-worker Merge step with per-segment caps, an
   in-app Help docs viewer, a desktop-only maximizable PTY terminal independent of agent
   sessions, bounded turn/MCP waits with stderr diagnostics, a systemd user
   unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
@@ -62,8 +63,9 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: token/cost tracking per cell (scoped in `docs/09-backlog.md`), KB
-  embeddings. Review/finalize automation is configurable per cell but finalize remains
+- Not built: the `usage_events` ledger and usage dashboard (scoped in
+  `docs/09-backlog.md`), though advisory budget settings/alerts are built and read the
+  ledger when it lands; KB embeddings. Review/finalize automation is configurable per cell but finalize remains
   human-gated; the CI workflow is not published yet and needs the `workflow` token scope.
 
 ## Commands
@@ -71,7 +73,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 164 server + 86 web
+npm test                       # 185 server + 91 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -197,8 +199,12 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     first inside a segment; it must not scan or note every queue. Unassigned work uses 3.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
-20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage
-    writes; follow `docs/09-backlog.md` when it is built.
+20. **Usage cost is not guessed, and budgets are advisory.** Token/cost tracking and the
+    usage dashboard are still backlog, but budget settings, durable alerts, and the alert
+    banner are built. They read `usage_events` through a schema-guarded reader, report
+    `usageAvailable: false` until the ledger exists, never estimate missing cost, and
+    never pause or block work. Follow `docs/09-backlog.md` for the ledger; hard caps and
+    external delivery stay separate.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.

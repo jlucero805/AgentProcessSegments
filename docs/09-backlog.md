@@ -5,9 +5,14 @@ can be picked up without re-deciding the shape.
 
 ## Token and cost tracking per cell
 
-**Goal.** A timeline of token and cost spend per cell, with request/model breakdowns and
-optional budget alerts. The operator should see whether a cell is cheap or runaway
-without reading transcripts.
+> **Budget alerts are built separately.** The overall/per-cell budget settings, durable
+> `budget_alerts`, `GET /api/budgets`, acknowledgement, and the alert banner ship ahead of
+> this ledger and read `usage_events` through a schema-guarded adapter. Until this item
+> lands, budgets are configurable but unmeasurable (`usageAvailable: false`). Hard caps,
+> external delivery, and pricing estimates remain future work.
+
+**Goal.** A timeline of token and cost spend per cell, with request/model breakdowns.
+The operator should see whether a cell is cheap or runaway without reading transcripts.
 
 **Data.** Add `usage_events`: `id`, `cell_id`, `request_id`, `turn_id` (engine turn),
 `model`, `effort`, `input_tokens`, `output_tokens`, `cache_read_tokens`,
@@ -31,8 +36,8 @@ Return totals plus per-model and per-request buckets. Include a zero-cost row wh
 harness reports tokens but no price.
 
 **UI.** A Usage tab or card in the Cell master drawer: total spend, tokens, turns, and a
-small time-series chart. A cell-level monthly/daily budget is optional; alerts are a
-notification or a master-chat note, not a hard stop until the operator asks for one.
+small time-series chart. Budget status already lives on the Config page and the alert
+banner; adding a read-only budget section to the Usage page is part of this work.
 
 **Why deferred.** It needs parser/usage fixtures for both harnesses, a pricing source,
 and a retention policy. It does not change how work moves, so it is safe to add after

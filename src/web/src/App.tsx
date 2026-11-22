@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Board } from './Board';
+import { BudgetBanner } from './BudgetBanner';
 import { CellBar } from './CellBar';
 import { CellModal } from './CellModal';
 import { ConfigPage } from './ConfigPage';
@@ -399,6 +400,8 @@ export function App() {
           </button>
           <span className="text-sm font-semibold text-zinc-100">Agent Process Segments</span>
         </header>
+
+        <BudgetBanner onError={setError} />
 
         <div className="min-h-0 flex-1 overflow-hidden">
           {page === 'board' ? (

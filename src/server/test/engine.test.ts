@@ -44,6 +44,28 @@ describe('turn engine', () => {
     expect(h.harness.process?.messages[0]).toContain('Groom me');
   });
 
+  it('includes enabled intake instructions in the first clarification turn', async () => {
+    const h = fresh(() => defaultScript());
+    const request = h.repo.create({ title: 'Repo context' });
+
+    const turn = await h.engine.start(
+      request.id,
+      'This cell works in the AgentProcessSegments repository.',
+    );
+    await turn.promise;
+    await settle();
+
+    const messages = h.engine.transcript(request.id);
+    expect(
+      messages.some((message) =>
+        message.text.includes('Additional process instructions'),
+      ),
+    ).toBe(true);
+    expect(
+      messages.some((message) => message.text.includes('AgentProcessSegments repository')),
+    ).toBe(true);
+  });
+
   it('replays buffered events to a subscriber that attaches mid-turn', async () => {
     const h = fresh(() => []);
     const request = h.repo.create({ title: 'Live' });

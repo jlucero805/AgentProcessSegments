@@ -54,6 +54,22 @@ export interface ProcessConfig {
   segments: SegmentConfig[];
 }
 
+/**
+ * Short, model-facing contract for the setup assistant. The validator allows
+ * more state-machine edges than these; this is the safe happy path and the
+ * special cases that repeatedly caused guessed transitions.
+ */
+export const SEGMENT_FLOW_GUIDE = [
+  'intake: leave advanceTo null; enabling it starts clarification and moves the request to Plan. To apply an intake prompt, set intake.enabled true; the prompt is included in the first clarification turn.',
+  'plan: advanceTo "dispatch".',
+  'implement: advanceTo "review".',
+  'review: advanceTo "merge", "finalize", or "dispatch".',
+  'merge: advanceTo "finalize".',
+  'finalize: leave advanceTo null; a human indexes the result.',
+  'Enabling a segment is separate from setting advanceTo: enable every step the master should run.',
+  'Any non-null advanceTo requires a non-empty readyMarker. Keep every segment exactly once and preserve fields you are not changing.',
+].join('\n');
+
 /** A cell plus its own process policy; null means "use the global default". */
 export interface CellDetail extends Cell {
   process: ProcessConfig | null;

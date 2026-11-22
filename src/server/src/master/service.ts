@@ -124,7 +124,9 @@ export class MasterService {
   }
 
   private runTurn(segment: SegmentConfig, request: Request): Promise<LiveTurn> {
-    if (segment.id === 'intake') return this.deps.engine.start(request.id);
+    if (segment.id === 'intake') {
+      return this.deps.engine.start(request.id, this.promptFor(segment));
+    }
     return this.deps.engine.send(request.id, this.promptFor(segment));
   }
 

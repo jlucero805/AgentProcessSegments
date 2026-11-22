@@ -110,14 +110,21 @@ export class Engine {
     return this.loadTranscript(id);
   }
 
-  async start(id: string): Promise<LiveTurn> {
+  async start(id: string, extraPrompt = ''): Promise<LiveTurn> {
     const existing = this.turns.get(id);
     if (existing) return existing;
 
     const request = this.repo.setClarifyStarted(id, true);
-    const message = this.readSession(id)
+    const savedSession = this.readSession(id);
+    const base = savedSession
       ? 'Continue grooming this ticket. Ask the next question you need answered.'
       : seedPrompt(request);
+    const extra = extraPrompt.trim();
+    // An enabled intake segment contributes its prompt to the first turn. This
+    // is how a cell can add repo identity and standing context before planning.
+    const message = !savedSession && extra !== ''
+      ? `${base}\n\nAdditional process instructions:\n${extra}`
+      : base;
     return this.beginTurn(id, message, request);
   }
 

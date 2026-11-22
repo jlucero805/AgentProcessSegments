@@ -466,9 +466,9 @@ cell creation wizard also needs a way to build that policy conversationally.
 Finalize, plus `maxConcurrent` on every segment. The master enforces the cell cap first,
 then a segment cap for working requests in that state. Merge defaults to
 `maxConcurrent: 1`, `maxPerCycle: 10`, `READY TO FINALIZE`, and advances to Finalize. The wizard keeps a server-side draft per modal. Its `__setup__:<draftId>` chat gets
-board/KB reads plus `get_cell_draft`/`update_cell_draft`, so the agent can edit segments,
-prompts, markers, and limits; the form refreshes on turn completion and the draft is
-discarded on close.
+draft read/update plus `Read`, so the agent can edit segments, prompts, markers, and
+limits without touring the board/KB; the form refreshes on turn completion and the draft
+is discarded on close.
 
 **Cost.** Existing five-segment process files are upgraded by inserting a disabled Merge
 segment, and missing `maxConcurrent` fields default to null. The board now has a Merge
@@ -542,3 +542,25 @@ present, unless the caller already set a content type. The API test asserts the 
 
 **Cost.** None; it matches the ordinary JSON client. Chat and control streams now share
 the same validation path instead of hiding a browser-only content-type mismatch.
+
+## D38. Give the setup model the flow contract, not a puzzle
+
+**Context.** A setup request burned ten minutes replaying invalid `intake.advanceTo`
+guesses. The validator correctly rejected `plan` and `clarify`, but the model had no
+compact statement of the special cases, so it probed different targets. The intake prompt
+was also silently ignored by the master, which made a simple “repo identity” request
+look unsolvable.
+
+**Decision.** Export a short `SEGMENT_FLOW_GUIDE` and include it in the setup seed prompt
+and in the `update_cell_draft` tool description. If the draft update is rejected, the MCP
+tool returns the same guide alongside the validation error. Setup sessions now expose only
+`get_cell_draft` and `update_cell_draft` (plus `Read`) and no board/KB tools. A new
+`segmentUpdates` patch lets the model send only the segments it changes; the server merges
+and validates the full process. An enabled intake segment passes its prompt into the first
+clarification turn.
+
+**Cost.** The setup prompt is longer, and intake prompts now affect the first turn instead
+of being ignored. That is the intended behavior: operators can put repo identity and
+standing autonomy instructions there. The safe flow guide omits rarely used state-machine
+edges such as Review→Clarify; those remain valid for hand editing but are not advertised
+to the setup model.

@@ -1,4 +1,5 @@
 import type { Request } from '../domain/request.js';
+import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
 
 function ticket(request: Request): string {
   const lines = [`# ${request.title}`, '', request.body.trim() || '(no description yet)'];
@@ -75,11 +76,19 @@ export function setupSeedPrompt(): string {
     'review/merge policy, concurrency, and follow-ups. Ask at most one or two plain-text',
     'questions at a time, and only when the answer changes the configuration.',
     'Tools: `get_cell_draft` reads the current name, limits, model/effort, and process. Call',
-    'it only when you need to inspect or change the draft. `update_cell_draft` changes',
-    'fields; to change the flow, read first and send the complete `segments` array.',
-    'Keep ready markers exact, prompts coherent, and every transition legal. The default',
-    'has Requests, Plan, Implement, Review, Merge, and Finalize; Merge is disabled and',
-    'capped at one worker and should rebase, test, and push one request at a time before',
-    'Finalize. Explain changes briefly. The operator still confirms Create cell.',
+    'it only when you need to inspect or change the draft. For a few segment edits, call',
+    '`update_cell_draft` with `segmentUpdates` containing only the ids/fields to change;',
+    'use the complete `segments` array only for a wholesale rewrite.',
+    'Keep ready markers exact, prompts coherent, and every transition legal.',
+    'Process flow contract:',
+    SEGMENT_FLOW_GUIDE,
+    'Follow-up callouts can create new requests when a segment has `followUps.enabled`;',
+    'include the marker instruction in that prompt. The master only runs enabled segments',
+    'for matching work: there is no idle or keep-busy hook, so standing instructions in',
+    'intake apply to the first clarification turn only. If the operator asks for work when',
+    'the board is empty, explain that the scheduler needs a separate idle hook.',
+    'The default also includes Merge, disabled and capped at one worker; it should rebase,',
+    'test, and push one request at a time before Finalize. Explain changes briefly. The',
+    'operator still confirms Create cell.',
   ].join('\n');
 }

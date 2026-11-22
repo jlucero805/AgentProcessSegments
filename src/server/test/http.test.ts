@@ -597,6 +597,38 @@ describe('http api', () => {
       patched.json().process.segments.find((segment: { id: string }) => segment.id === 'intake')
         .enabled,
     ).toBe(true);
+
+    const targeted = await call('PATCH', `/api/cell-drafts/${id}`, {
+      segmentUpdates: [
+        { id: 'plan', prompt: 'Work in the AgentProcessSegments repository.' },
+        { id: 'implement', followUps: { enabled: true } },
+      ],
+    });
+    expect(targeted.status).toBe(200);
+    const updatedSegments = targeted.json().process.segments as Array<{
+      id: string;
+      enabled: boolean;
+      prompt: string;
+      followUps: { enabled: boolean };
+    }>;
+    expect(updatedSegments.find((segment) => segment.id === 'plan')).toMatchObject({
+      prompt: 'Work in the AgentProcessSegments repository.',
+    });
+    expect(updatedSegments.find((segment) => segment.id === 'implement')).toMatchObject({
+      followUps: { enabled: true, marker: 'FOLLOW-UP:' },
+    });
+    expect(updatedSegments.find((segment) => segment.id === 'intake')?.enabled).toBe(true);
+
+    const illegal = await call('PATCH', `/api/cell-drafts/${id}`, {
+      segmentUpdates: [{ id: 'intake', advanceTo: 'dispatch' }],
+    });
+    expect(illegal.status).toBe(400);
+    expect(illegal.json().issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: 'intake moves to plan by starting clarification' }),
+      ]),
+    );
+
     expect((await call('GET', `/api/cell-drafts/${id}`)).json().maxConcurrent).toBe(3);
     expect((await call('DELETE', `/api/cell-drafts/${id}`)).status).toBe(204);
     expect((await call('GET', `/api/cell-drafts/${id}`)).status).toBe(404);

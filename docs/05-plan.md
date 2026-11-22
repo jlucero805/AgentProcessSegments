@@ -201,4 +201,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   retry that replays the failed send, regression test and docs.
 - [x] **37. Cleanup round** — normalize legacy process files in place, descriptive API
   validation errors, stale-count/doc updates, and regression tests.
-- [ ] **Backlog 38. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **38. Setup flow contract** — intake prompt in the first turn, draft-only setup
+  tools, legal-transition guide in the prompt/tool errors, regression tests and docs.
+- [ ] **Backlog 39. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

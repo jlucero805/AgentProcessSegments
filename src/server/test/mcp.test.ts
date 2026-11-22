@@ -93,8 +93,9 @@ async function connect(
 }
 
 function textOf(result: CallToolResult): string {
-  const block = result.content[0];
-  return block !== undefined && block.type === 'text' ? block.text : '';
+  return result.content
+    .map((block) => (block.type === 'text' ? block.text : ''))
+    .join('\n');
 }
 
 afterEach(async () => {
@@ -139,15 +140,11 @@ describe('harness mcp server', () => {
     expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/requests/req-1' });
   });
 
-  it('gives the setup wizard read tools plus draft read/update', async () => {
+  it('gives the setup wizard only draft read/update', async () => {
     const { client, call, calls } = await connect('', 'setup', 'draft-1');
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'get_cell_draft',
-      'get_request',
-      'list_kb',
-      'list_requests',
-      'search_kb',
       'update_cell_draft',
     ]);
 
@@ -161,6 +158,42 @@ describe('harness mcp server', () => {
       path: '/api/cell-drafts/draft-1',
       body: { maxConcurrent: 2 },
     });
+
+    await call('update_cell_draft', {
+      segmentUpdates: [{ id: 'review', enabled: true }],
+    });
+    expect(calls[2]).toMatchObject({
+      method: 'PATCH',
+      path: '/api/cell-drafts/draft-1',
+      body: { segmentUpdates: [{ id: 'review', enabled: true }] },
+    });
+  });
+
+  it('returns the flow contract when a draft update is rejected', async () => {
+    const rejecting: FetchLike = async (_url, init) => {
+      if (init?.method === 'PATCH') {
+        return json(
+          {
+            error: 'invalid',
+            issues: [
+              {
+                code: 'custom',
+                path: ['segments', 0, 'advanceTo'],
+                message: 'intake moves to plan by starting clarification',
+              },
+            ],
+          },
+          400,
+        );
+      }
+      return json({});
+    };
+    const { call } = await connect('', 'setup', 'draft-1', { fetchImpl: rejecting });
+
+    const result = await call('update_cell_draft', { segments: [] });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('intake moves to plan');
+    expect(textOf(result)).toContain('intake: leave advanceTo null');
   });
 
   it('turns a stalled brain request into an MCP error result', async () => {

@@ -23,6 +23,7 @@ interface Fixture {
   engine: Engine;
   sent: Array<{ id: string; text: string }>;
   started: string[];
+  startTexts: Array<{ id: string; text: string }>;
   service: MasterService;
 }
 
@@ -46,11 +47,13 @@ function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessC
 
   const sent: Array<{ id: string; text: string }> = [];
   const started: string[] = [];
+  const startTexts: Array<{ id: string; text: string }> = [];
   const turn = () => ({ promise: Promise.resolve() }) as unknown as LiveTurn;
   const engine = {
     hasLive: vi.fn(() => false),
-    start: vi.fn(async (id: string) => {
+    start: vi.fn(async (id: string, text = '') => {
       started.push(id);
+      startTexts.push({ id, text });
       return turn();
     }),
     send: vi.fn(async (id: string, text: string) => {
@@ -67,7 +70,7 @@ function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessC
     ? ({ get: () => processConfig } as unknown as ProcessStore)
     : undefined;
   const service = new MasterService({ repo, cells, engine, settings, events, process });
-  return { db, repo, cells, events, settings, engine, sent, started, service };
+  return { db, repo, cells, events, settings, engine, sent, started, startTexts, service };
 }
 
 function dispatchRequest(
@@ -217,6 +220,7 @@ describe('MasterService', () => {
       const intake = segment(config, 'intake');
       intake.enabled = true;
       intake.idleMinutes = 1;
+      intake.prompt = 'This cell works in the AgentProcessSegments repository.';
     });
     const fixture = setup({}, process);
     const request = fixture.repo.create({ title: 'Raw request' });
@@ -226,6 +230,7 @@ describe('MasterService', () => {
 
     expect(result.started).toBe(1);
     expect(fixture.started).toEqual([request.id]);
+    expect(fixture.startTexts[0]?.text).toContain('AgentProcessSegments repository');
     expect(fixture.events.list().some((event) => event.action === 'start')).toBe(true);
   });
 

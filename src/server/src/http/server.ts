@@ -116,11 +116,23 @@ const cellDraftSchema = z.object({
   model: z.string().nullable(),
   effort: z.enum(EFFORT_LEVELS).nullable(),
 });
+const followUpUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  marker: z.string().min(1).max(80).optional(),
+});
+const segmentUpdateSchema = segmentSchema
+  .omit({ id: true, followUps: true })
+  .partial()
+  .extend({
+    id: segmentSchema.shape.id,
+    followUps: followUpUpdateSchema.optional(),
+  });
 const cellDraftPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
     process: processSchema.optional(),
     segments: z.array(segmentSchema).optional(),
+    segmentUpdates: z.array(segmentUpdateSchema).optional(),
     masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
     maxConcurrent: z.number().int().min(1).max(50).optional(),
     model: z.string().nullable().optional(),
@@ -558,6 +570,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     if (input.process !== undefined) process = input.process;
     if (input.segments !== undefined) {
       process = processSchema.parse({ version: 1, segments: input.segments });
+    }
+    if (input.segmentUpdates !== undefined) {
+      const updates = new Map(input.segmentUpdates.map((segment) => [segment.id, segment]));
+      const segments = process.segments.map((segment) => {
+        const update = updates.get(segment.id);
+        if (!update) return segment;
+        return {
+          ...segment,
+          ...update,
+          ...(update.followUps
+            ? { followUps: { ...segment.followUps, ...update.followUps } }
+            : {}),
+        };
+      });
+      process = processSchema.parse({ version: 1, segments });
     }
     return drafts.patch(id, {
       ...(input.name !== undefined ? { name: input.name } : {}),

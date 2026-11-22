@@ -24,9 +24,9 @@ export const MASTER_TOOLS = [
   'mcp__harness__list_kb',
   'mcp__harness__search_kb',
 ];
-/** Setup chat can read the board/KB and edit only its transient cell draft. */
+/** Setup chat can read and edit only its transient cell draft. */
 export const SETUP_TOOLS = [
-  ...MASTER_TOOLS,
+  'Read',
   'mcp__harness__get_cell_draft',
   'mcp__harness__update_cell_draft',
 ];

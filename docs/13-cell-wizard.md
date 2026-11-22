@@ -16,7 +16,8 @@ advance targets, and set cell/segment limits before the cell exists.
      and move successful merges to finalize.”
    - “Rewrite the implementation prompt so it must run the integration tests.”
    - “Use `READY FOR MERGE` as the review marker and add a follow-up rule.”
-4. The agent calls `get_cell_draft`, edits the draft, and calls `update_cell_draft`. The
+4. The agent calls `get_cell_draft` when needed, then calls `update_cell_draft` with
+   targeted `segmentUpdates` (or a full `segments` array for a wholesale rewrite). The
    structured fields in the modal refresh when the turn finishes.
 5. Review the result, adjust anything by hand, and press **Create cell**/**Save cell**.
 6. The chat closes and the draft is deleted with the wizard.
@@ -28,9 +29,16 @@ advance targets, and set cell/segment limits before the cell exists.
 - Before each turn, the modal syncs its current fields to `PUT /api/cell-drafts/:id`, so
   the agent starts from what you see.
 - `get_cell_draft` returns the current draft; `update_cell_draft` can change the name,
-  limits, model/effort, or the complete `segments` array.
-- The setup session uses the setup tool posture: board/KB reads plus draft read/update.
-  It cannot mutate tickets, spawn requests, or write the KB.
+  limits, model/effort, a few segments via `segmentUpdates`, or the complete `segments`
+  array. `segmentUpdates` is a list of `{ id, ...fields }`; the server merges each into
+  the current segment (including partial `followUps`) and validates the full process. Use
+  it for simple edits instead of rebuilding all six segments.
+- The setup session gets only `Read` plus `get_cell_draft`/`update_cell_draft`. It cannot
+  inspect the board/KB, mutate tickets, spawn requests, or write the KB.
+- The prompt and tool description include the safe flow contract: intake and Finalize
+  keep `advanceTo` null, Plan→Dispatch, Implement→Review, Review→Merge/Finalize/Dispatch,
+  Merge→Finalize, and every advancement needs an exact ready marker. A rejected update
+  returns the same contract so the model does not guess.
 - Closing or saving stops any live setup turn, unmounts the chat, and deletes the draft.
 - A new wizard gets a new draft id; conversations do not leak between cells.
 
@@ -51,7 +59,13 @@ The wizard never leaves the chat spinner running forever.
   `done`, and writes `engine.timeout` with capped stderr.
 - The seed prompt answers simple greetings directly and asks at most one or two
   plain-text configuration questions. It explicitly says not to use an interactive
-  question tool or inspect the board/draft unless the answer needs it.
+  question tool or inspect the draft unless the answer needs it.
+- The Requests (`intake`) prompt is now included in the first clarification turn, so
+  repo identity and standing autonomy instructions placed there actually reach the agent.
+- There is no idle/keep-busy scheduler hook. Prompts cannot make the master update docs
+  or do gardening when the board is empty; the setup assistant should say so rather than
+  inventing a transition. Follow-up callouts can create new requests only when a
+  segment enables `followUps`.
 - Chat send/start bodies are sent as `application/json` through the NDJSON client. The
   earlier missing header made Fastify treat the JSON body as `text/plain`, so every
   send failed validation and Retry tried the same rejected request again.
@@ -102,6 +116,6 @@ updates the form after each turn. The MCP server exposes `get_cell_draft` and
 ```text
 PUT    /api/cell-drafts/:id          full draft (UI sync)
 GET    /api/cell-drafts/:id          read current draft
-PATCH  /api/cell-drafts/:id          partial fields or segments (agent tool)
+PATCH  /api/cell-drafts/:id          partial fields, segmentUpdates, or segments
 DELETE /api/cell-drafts/:id          discard with the wizard
 ```

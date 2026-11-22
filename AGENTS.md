@@ -36,7 +36,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 236 vitest cases: 155 server across 19 files and 81 web across 16 files, all green.
+- 238 vitest cases: 157 server across 19 files and 81 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -69,7 +69,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 155 server + 81 web
+npm test                       # 157 server + 81 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -198,8 +198,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.
 22. **Wizard chat can edit its draft.** `__setup__:<draftId>` has no request row; setup
-    scope gets board/KB reads plus `get_cell_draft`/`update_cell_draft`. The draft is
-    server-backed, validated, deleted on close, and any live turn is stopped.
+    scope gets only `Read` plus `get_cell_draft`/`update_cell_draft`, not board/KB tools.
+    The prompt and tool errors carry `SEGMENT_FLOW_GUIDE`; prefer `segmentUpdates` for
+    targeted edits. The draft is server-backed, validated, deleted on close, and any live
+    turn is stopped. An enabled intake prompt is included in the first clarification turn.
 23. **Errors go through the error sink.** Use the injected `ErrorSink` on genuine failure
     paths; it appends NDJSON to the XDG state log and must never throw. Keep context to
     ids/method/URL, never prompts, bodies, transcripts, tokens, or secrets. Expected 4xx

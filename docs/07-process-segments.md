@@ -132,7 +132,7 @@ exactly once.
 
 | Segment | Request view | Turn action | Advancement |
 | --- | --- | --- | --- |
-| `intake` | `clarify`, not started | `engine.start` seeds clarification | none (starting moves it to Plan) |
+| `intake` | `clarify`, not started | `engine.start` seeds clarification and appends the intake prompt | none (starting moves it to Plan) |
 | `plan` | `clarify`, started | prompt via `engine.send` | legal target, e.g. `dispatch` |
 | `implement` | `dispatch` | prompt via `engine.send` | legal target, e.g. `review` |
 | `review` | `review` | prompt via `engine.send` | legal target, e.g. `merge`, `finalize`, or `dispatch` |

@@ -12,8 +12,7 @@ import {
   type HarnessSession,
   type McpServerMap,
   type TurnParserLike,
-} from '../harness.js';
-import type { ModelOption } from '../models.js';
+} from '../harness.js';import type { ModelOption } from '../models.js';
 import type { AgentProcess } from '../transport.js';
 import { LineProcess } from './line-process.js';
 import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';

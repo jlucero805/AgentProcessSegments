@@ -5,6 +5,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { EFFORT_LEVELS, STATES } from '../domain/request.js';
+import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
 import { errorMessage } from '../util/errors.js';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -210,18 +211,30 @@ function registerDraftTools(server: McpServer, api: BrainApi, draftId: string): 
     {
       title: 'Update the cell draft',
       description:
-        'Change the draft name, limits, model/effort, or the full process segment list. Read the draft first, then send the complete segments array.',
+        'Change the draft name, limits, model/effort, or its process. For a few segment edits, send `segmentUpdates` with only the ids and fields to change; use the complete `segments` array only for a wholesale rewrite. Process flow contract:\n' +
+        SEGMENT_FLOW_GUIDE,
       inputSchema: {
         name: z.string().min(1).optional(),
         maxConcurrent: z.number().int().min(1).max(50).optional(),
         masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
         model: z.string().nullable().optional(),
         effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+        segmentUpdates: z.array(z.unknown()).optional(),
         segments: z.array(z.unknown()).optional(),
         process: z.unknown().optional(),
       },
     },
-    async (fields) => respond(api.call('PATCH', draftPath, defined(fields))),
+    async (fields) => {
+      const result = await respond(api.call('PATCH', draftPath, defined(fields)));
+      if (!result.isError) return result;
+      return {
+        isError: true,
+        content: [
+          ...result.content,
+          { type: 'text' as const, text: `Process flow contract:\n${SEGMENT_FLOW_GUIDE}` },
+        ],
+      };
+    },
   );
 }
 
@@ -246,16 +259,20 @@ export function buildMcpServer(options: McpOptions): McpServer {
   const requestId = options.requestId;
   const scope = options.scope ?? (requestId === '' ? 'kb' : 'request');
 
+  if (scope === 'setup') {
+    // The setup wizard only needs its transient draft. Keeping the board/KB
+    // out of scope prevents the model from touring unrelated tools.
+    if (!options.draftId) throw new Error('setup scope requires a draft id');
+    registerDraftTools(server, api, options.draftId);
+    return server;
+  }
+
   if (scope !== 'request') {
     registerKbTools(server, api);
     if (scope === 'kb') return server;
 
-    // Master and setup chats read the board/KB; setup also edits its draft.
+    // The master chat can read the board and the KB, but never mutate them.
     registerBoardTools(server, api, null);
-    if (scope === 'setup') {
-      if (!options.draftId) throw new Error('setup scope requires a draft id');
-      registerDraftTools(server, api, options.draftId);
-    }
     return server;
   }
 

@@ -19,8 +19,10 @@ built and vended by the brain; real-CLI verification is still pending.
   and the per-cell process snapshot.
 - Cell masters: the scheduler keeps one timer per enabled cell (cell interval or the
   global default) plus one for unassigned work, and evaluates the configured process
-  segments from right to left so finishing work runs before more planning. It starts or
-  prods due work, records
+  segments from right to left so finishing work runs before more planning. Each cycle
+  selects at most the cell’s spare concurrency, latest segments first and oldest request
+  first inside a segment, so it does not read or note the whole board. It starts or
+  prods that bounded set, records
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events, and advances on
   exact markers through legal transitions. A segment can also create follow-up requests
   from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and

@@ -83,8 +83,10 @@ function addResult(total: MasterResult, next: MasterResult): void {
 
 /**
  * Deterministic process automation: walks the configured segments right-to-left,
- * starts or prods due requests, records follow-up requests, and advances on exact
- * markers. Finishing work takes precedence over starting more left-side work.
+ * selects at most the cell's spare concurrency for the cycle, starts or prods
+ * those requests, records follow-up requests, and advances on exact markers.
+ * Finishing work takes precedence over starting more left-side work, and a cycle
+ * never reads or notes the whole board.
  *
  * Every cell runs its own bucket with its own policy and its own master chat; the
  * unassigned bucket uses the global template and global master chat.
@@ -116,7 +118,62 @@ export class MasterService {
         : this.deps.repo.list({ state: SEGMENT_STATES[segment.id], cellId });
     const scoped =
       segment.id === 'plan' ? requests.filter((request) => request.clarifyStarted) : requests;
-    return scoped.sort((a, b) => a.updatedAt - b.updatedAt);
+    // Oldest start date first inside a bucket; `updatedAt` only breaks ties so the
+    // order stays stable when two requests were created in the same millisecond.
+    return scoped.sort(
+      (a, b) => a.createdAt - b.createdAt || a.updatedAt - b.updatedAt || a.id.localeCompare(b.id),
+    );
+  }
+
+  /**
+   * Pick this cycle's work without walking the whole board. Later segments win,
+   * then the oldest request inside each segment, until the cell's spare
+   * concurrency is full. This keeps the master chat's cycle notes and turns
+   * bounded instead of reporting every request in every queue.
+   */
+  private selectCandidates(
+    process: ProcessConfig,
+    bucket: Bucket,
+    now: number,
+  ): {
+    candidates: Array<{ request: Request; segment: SegmentConfig }>;
+    skipped: number;
+    blockedAtCapacity: boolean;
+    blockedSegment: SegmentConfig | null;
+  } {
+    const capacity = bucket.maxConcurrent - this.deps.repo.countWorking(bucket.cellId);
+    const selection = {
+      candidates: [] as Array<{ request: Request; segment: SegmentConfig }>,
+      skipped: 0,
+      blockedAtCapacity: capacity <= 0,
+      blockedSegment: null as SegmentConfig | null,
+    };
+    if (capacity <= 0) return selection;
+
+    for (const segment of evaluationOrder(process)) {
+      if (!segment.enabled) continue;
+      if (selection.candidates.length >= capacity) break;
+      if (
+        segment.maxConcurrent !== null &&
+        this.deps.repo.countWorking(bucket.cellId, SEGMENT_STATES[segment.id]) >=
+          segment.maxConcurrent
+      ) {
+        selection.blockedSegment = segment;
+        break;
+      }
+
+      let handled = 0;
+      for (const request of this.segmentQueue(segment, bucket.cellId)) {
+        if (selection.candidates.length >= capacity || handled >= segment.maxPerCycle) break;
+        if (this.shouldSkip(request, now, segment)) {
+          selection.skipped += 1;
+          continue;
+        }
+        selection.candidates.push({ request, segment });
+        handled += 1;
+      }
+    }
+    return selection;
   }
 
   private shouldSkip(request: Request, now: number, segment: SegmentConfig): boolean {
@@ -218,81 +275,72 @@ export class MasterService {
         : (this.deps.cells.getProcess(bucket.cellId) ?? globalProcess);
     const result = emptyResult(now);
     result.cells = 1;
-    let blockedAtCapacity = false;
-    let blockedSegment: SegmentConfig | null = null;
 
-    for (const segment of evaluationOrder(process)) {
-      if (!segment.enabled) continue;
-      const queue = this.segmentQueue(segment, bucket.cellId);
-      result.dispatch += queue.length;
+    const selection = this.selectCandidates(process, bucket, now);
+    result.dispatch = selection.candidates.length;
+    result.skipped = selection.skipped;
+    let blockedAtCapacity = selection.blockedAtCapacity;
+    let blockedSegment = selection.blockedSegment;
 
-      let handled = 0;
-      for (const request of queue) {
-        if (handled >= segment.maxPerCycle) break;
-        if (this.deps.repo.countWorking(bucket.cellId) >= bucket.maxConcurrent) {
-          blockedAtCapacity = true;
-          break;
-        }
-        if (
-          segment.maxConcurrent !== null &&
-          this.deps.repo.countWorking(bucket.cellId, SEGMENT_STATES[segment.id]) >=
-            segment.maxConcurrent
-        ) {
-          blockedSegment = segment;
-          break;
-        }
-        if (this.shouldSkip(request, now, segment)) {
-          result.skipped += 1;
-          continue;
-        }
-        handled += 1;
-
-        try {
-          const turn = await this.runTurn(segment, request);
-          const starting = segment.id === 'intake';
-          this.record({
-            cellId: bucket.cellId,
-            requestId: request.id,
-            action: starting ? 'start' : 'prod',
-            detail: request.title,
-          });
-          this.note(
-            bucket.cellId,
-            `${starting ? 'Started' : 'Prodded'} "${request.title}" in ${segment.label}.`,
-          );
-          if (starting) result.started += 1;
-          else result.prodded += 1;
-
-          await turn.promise;
-          // finishTurn persists the transcript in its finally block, one tick
-          // after the promise settles.
-          await new Promise<void>((resolve) => setImmediate(resolve));
-
-          const text = this.lastAgentText(request.id);
-          result.followUps += this.createFollowUps(request, text, segment, bucket.cellId);
-          const target = await this.advanceIfReady(request, segment, text, bucket.cellId);
-          if (target) {
-            result.advanced += 1;
-            if (target === 'review') result.reviewed += 1;
-          }
-        } catch (error) {
-          result.skipped += 1;
-          const message = errorMessage(error);
-          this.deps.errors?.error('master.turn', error, {
-            cellId: bucket.cellId,
-            requestId: request.id,
-            segment: segment.id,
-          });
-          this.record({
-            cellId: bucket.cellId,
-            requestId: request.id,
-            action: 'skip',
-            detail: message,
-          });
-          this.note(bucket.cellId, `Could not run "${request.title}" in ${segment.label}: ${message}`);
-        }
+    for (const { request, segment } of selection.candidates) {
+      // Another turn may have started in this cell while we selected.
+      if (this.deps.repo.countWorking(bucket.cellId) >= bucket.maxConcurrent) {
+        blockedAtCapacity = true;
+        break;
       }
-      if (blockedAtCapacity || blockedSegment) break;
+      if (
+        segment.maxConcurrent !== null &&
+        this.deps.repo.countWorking(bucket.cellId, SEGMENT_STATES[segment.id]) >=
+          segment.maxConcurrent
+      ) {
+        blockedSegment = segment;
+        break;
+      }
+
+      try {
+        const turn = await this.runTurn(segment, request);
+        const starting = segment.id === 'intake';
+        this.record({
+          cellId: bucket.cellId,
+          requestId: request.id,
+          action: starting ? 'start' : 'prod',
+          detail: request.title,
+        });
+        this.note(
+          bucket.cellId,
+          `${starting ? 'Started' : 'Prodded'} "${request.title}" in ${segment.label}.`,
+        );
+        if (starting) result.started += 1;
+        else result.prodded += 1;
+
+        await turn.promise;
+        // finishTurn persists the transcript in its finally block, one tick
+        // after the promise settles.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const text = this.lastAgentText(request.id);
+        result.followUps += this.createFollowUps(request, text, segment, bucket.cellId);
+        const target = await this.advanceIfReady(request, segment, text, bucket.cellId);
+        if (target) {
+          result.advanced += 1;
+          if (target === 'review') result.reviewed += 1;
+        }
+      } catch (error) {
+        result.skipped += 1;
+        const message = errorMessage(error);
+        this.deps.errors?.error('master.turn', error, {
+          cellId: bucket.cellId,
+          requestId: request.id,
+          segment: segment.id,
+        });
+        this.record({
+          cellId: bucket.cellId,
+          requestId: request.id,
+          action: 'skip',
+          detail: message,
+        });
+        this.note(bucket.cellId, `Could not run "${request.title}" in ${segment.label}: ${message}`);
+      }
     }
 
     if (blockedAtCapacity) {
@@ -349,7 +397,7 @@ export class MasterService {
     ) {
       this.note(
         bucket.cellId,
-        `Master cycle: ${result.dispatch} queued, ${result.started} started, ${result.prodded} prodded, ${result.advanced} advanced, ${result.followUps} follow-ups, ${result.skipped} skipped.`,
+        `Master cycle: ${result.dispatch} selected, ${result.started} started, ${result.prodded} prodded, ${result.advanced} advanced, ${result.followUps} follow-ups, ${result.skipped} skipped.`,
       );
     }
 

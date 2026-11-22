@@ -22,7 +22,7 @@ export function eventDetail(event: MasterEvent): string {
       skipped?: number;
     };
     const parts = [
-      `${parsed.dispatch ?? 0} queued`,
+      `${parsed.dispatch ?? 0} selected`,
       `${parsed.started ?? 0} started`,
       `${parsed.prodded ?? 0} prodded`,
       `${parsed.advanced ?? 0} advanced`,

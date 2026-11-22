@@ -110,6 +110,10 @@ function age(fixture: Fixture, requestId: string, ageMs: number): void {
   fixture.db.prepare('UPDATE master_events SET created_at = ? WHERE request_id = ?').run(at, requestId);
 }
 
+function setStartDate(fixture: Fixture, requestId: string, at: number): void {
+  fixture.db.prepare('UPDATE requests SET created_at = ? WHERE id = ?').run(at, requestId);
+}
+
 function requestInState(
   fixture: Fixture,
   title: string,
@@ -160,7 +164,7 @@ describe('MasterService', () => {
     const result = await fixture.service.runOnce();
     expect(result.prodded).toBe(0);
     expect(result.skipped).toBe(2);
-    expect(result.dispatch).toBe(2);
+    expect(result.dispatch).toBe(0);
 
     fixture.cells.setMasterEnabled(cell.id, false);
     const disabled = await fixture.service.runOnce();
@@ -177,6 +181,56 @@ describe('MasterService', () => {
 
     const result = await fixture.service.runOnce();
     expect(result.prodded).toBe(1);
+  });
+
+  it('selects at most the cell concurrency from the latest segments, oldest first', async () => {
+    const process = processFor((config) => {
+      for (const id of ['intake', 'plan', 'implement', 'review'] as const) {
+        const item = segment(config, id);
+        item.enabled = true;
+        item.idleMinutes = 1;
+        item.maxPerCycle = 10;
+        item.maxConcurrent = null;
+      }
+      const review = segment(config, 'review');
+      review.readyMarker = null;
+      review.advanceTo = null;
+    });
+    const fixture = setup({ includeUnassigned: false }, process);
+    const cell = fixture.cells.create('Bounded', null, null, { maxConcurrent: 5 });
+
+    const review = requestInState(fixture, 'Review it', 'review', cell.id);
+    const implementing = [
+      dispatchRequest(fixture, 'Implement oldest', cell.id),
+      dispatchRequest(fixture, 'Implement middle', cell.id),
+      dispatchRequest(fixture, 'Implement newest', cell.id),
+    ];
+    const planningOld = fixture.repo.create({ title: 'Plan oldest', cellId: cell.id });
+    fixture.repo.setClarifyStarted(planningOld.id, true);
+    age(fixture, planningOld.id, 3 * 60_000);
+    const planningNew = fixture.repo.create({ title: 'Plan newest', cellId: cell.id });
+    fixture.repo.setClarifyStarted(planningNew.id, true);
+    age(fixture, planningNew.id, 2 * 60_000);
+
+    const base = Date.now() - 60 * 60_000;
+    setStartDate(fixture, implementing[0]!.id, base + 1_000);
+    setStartDate(fixture, implementing[1]!.id, base + 2_000);
+    setStartDate(fixture, implementing[2]!.id, base + 3_000);
+    setStartDate(fixture, planningOld.id, base + 1_000);
+    setStartDate(fixture, planningNew.id, base + 3_000);
+
+    const result = await fixture.service.runOnce();
+
+    expect(result.dispatch).toBe(5);
+    expect(result.prodded).toBe(5);
+    expect(fixture.turns).toEqual([
+      { action: 'send', id: review.id },
+      { action: 'send', id: implementing[0]!.id },
+      { action: 'send', id: implementing[1]!.id },
+      { action: 'send', id: implementing[2]!.id },
+      { action: 'send', id: planningOld.id },
+    ]);
+    expect(fixture.repo.require(planningNew.id).state).toBe('clarify');
   });
 
   it('does not prod the same request twice inside the interval', async () => {

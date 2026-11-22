@@ -584,3 +584,22 @@ and the last tool.
 **Cost.** Setup may make several small model/tool round trips instead of one large update,
 but each is visible and the form changes as it goes. A missing default model id must be
 overridden with `SBOX_DEFAULT_MODEL` or an empty string on other providers.
+
+## D40. Bounded master selection instead of whole-board cycles
+
+**Context.** A cycle enumerated every request in every enabled segment, then skipped most
+of them. A real run logged `28 queued, 27 skipped` for one turn, and the same material was
+posted into the cell-master chat, growing its context without adding useful decisions.
+
+**Decision.** Select candidates before running turns. A cell uses its spare concurrency
+(`maxConcurrent` minus working requests) as the cycle budget, fills it from the latest
+segment backwards, and takes the oldest request by `created_at` inside each segment. Only
+the selected requests are prodded and noted. `dispatch` now means “selected this cycle”,
+and the UI labels it that way. Per-segment `maxPerCycle` and `maxConcurrent` still apply
+while selecting.
+
+**Cost.** A tick no longer drains the whole board; work beyond the budget waits for the
+next tick. A cell with many ineligible oldest requests may still scan past them to fill
+its budget, but nothing beyond the budget is run or posted. The deterministic scheduler
+remains the promotion owner; no MCP promotion tool was added, because the master chat is
+advisory and does not call tools to prod.

@@ -48,6 +48,10 @@ The most common policies:
   to emit `FOLLOW-UP: <title>` lines; the master creates those requests in the same cell’s
   intake and records them in activity.
 
+Each tick handles at most the cell’s spare concurrency, taking the latest pipeline
+segments first and the oldest request in each segment first. Work beyond that budget waits
+for the next tick, so a busy board does not flood the cell-master chat with notes.
+
 The full field reference is in `docs/07-process-segments.md`.
 
 ## 3. Create and groom a request

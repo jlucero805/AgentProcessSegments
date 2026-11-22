@@ -131,6 +131,12 @@ right to left: `finalize`, `merge`, `review`, `implement`, `plan`, then `intake`
 Finishing work gets the first turns, and the earlier segments run when no later work is
 due, so a steady backlog of planning cannot starve the right side of the pipeline.
 
+A cycle is bounded by the cell. It selects at most `maxConcurrent` minus the requests
+already working in that cell; the budget is filled from the latest segment first and,
+inside a segment, from the oldest request start date (`created_at`) first. Once the budget
+is full, the remaining requests are left for the next cycle. This keeps the turns and the
+master chat’s cycle notes small instead of enumerating every queue on every tick.
+
 ## Segment semantics
 
 | Segment | Request view | Turn action | Advancement |

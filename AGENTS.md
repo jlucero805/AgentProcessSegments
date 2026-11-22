@@ -189,8 +189,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     must never kill the PTY on close. Hide detaches, an explicit close kills, and
     `GET /api/terminals` lists every session. Keep scrollback bounded and the UI
     desktop-only; `SBOX_TERMINAL=0` disables creation.
-18. **Concurrency is per cell.** The master counts `working` requests in the cell and
-    stops starting turns at `max_concurrent` (default 3). Unassigned work uses 3.
+18. **Concurrency is per cell, and cycles are bounded.** The master counts `working`
+    requests in the cell and stops starting turns at `max_concurrent` (default 3). Each
+    cycle selects at most that spare capacity, latest segments first and oldest request
+    first inside a segment; it must not scan or note every queue. Unassigned work uses 3.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
 20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage

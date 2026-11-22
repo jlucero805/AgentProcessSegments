@@ -15,6 +15,7 @@ function makeCell(): CellDetail {
     harness: null,
     model: null,
     effort: null,
+    monthlyBudgetUsd: null,
     process: { version: process.version, segments: process.segments },
     createdAt: 1,
   };

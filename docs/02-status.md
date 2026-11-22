@@ -65,9 +65,10 @@ built and vended by the brain; real-CLI verification is still pending.
   multi-term literal LIKE search (`%`, `_`, and `\` escaped) ranked by title/body term
   hits and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
-  clarify snapshot, dispatch, finalize, index, models, usage, KB, cells, docs, websocket
-  echo, and optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch,
-  and finalize accept `?detach=1` to start a turn and return immediately.
+  clarify snapshot, dispatch, finalize, index, models, usage, KB, cells, config, budgets,
+  docs, websocket echo, and optional SPA vend with an `index.html` fallback. Clarify
+  start/send, dispatch, and finalize accept `?detach=1` to start a turn and return
+  immediately.
 - In-app Help: a sidebar **Help** row opens a full-height documentation overlay, grouped
   by manifest order from `GET /api/docs`, with an article, sticky “On this page” anchors,
   “Copy as Markdown”, in-app doc links, external links in a new tab, and screenshots via
@@ -183,12 +184,22 @@ built and vended by the brain; real-CLI verification is still pending.
   on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
+- Spend budgets: an advisory overall monthly budget and warning percentage live in
+  `config.json`; each cell can store `monthly_budget_usd`. Budgets use the UTC calendar
+  month and only harness-reported cost. `budget_alerts` stores durable
+  warning/exceeded rows keyed by scope, month, threshold, budget, and warning percentage;
+  `GET /api/budgets` exposes status and unacknowledged alerts, and
+  `POST /api/budgets/alerts/:id/ack` dismisses one. The Config page edits the overall
+  budget and threshold, the cell editor edits a cell budget, the Usage page shows the
+  same monthly progress, and an app-wide banner surfaces active alerts. Unpriced turns
+  are reported as unknown or a lower bound, never guessed. The layer reads
+  `UsageRepository.totals` and never stops work.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
   master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
-  `windowMinutes`, `prompt`), and the usage retention window (`retentionDays`),
-  validated with zod and written atomically. Older files with only `master` keep their
-  values and gain the default summary and usage blocks. `GET/PATCH /api/config` expose
-  all three blocks. `process.json` is the global process
+  `windowMinutes`, `prompt`), usage retention (`retentionDays`), and spend budget
+  (`monthlyUsd`, `alertAtPercent`), validated with zod and written atomically. Older files
+  with only `master` keep their values and gain the default summary, usage, and budget
+  blocks. `GET/PATCH /api/config` expose all blocks. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
@@ -211,7 +222,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 318 vitest cases, all passing: 214 server across 23 files and 104 web across 18 files,
+- 356 vitest cases, all passing: 243 server across 25 files and 113 web across 19 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -277,6 +288,8 @@ built and vended by the brain; real-CLI verification is still pending.
   prompts can create draft CRs, but there is no hardcoded forger integration.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
+- Long-range usage rollups and estimated pricing for models that do not report cost.
+  Advisory budget alerts are built and read the usage ledger.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
@@ -310,8 +323,8 @@ GET    /api/cell-drafts/:id
 PUT    /api/cell-drafts/:id
 PATCH  /api/cell-drafts/:id
 DELETE /api/cell-drafts/:id
-POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, model?, effort?}
-PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, model?, effort?, process?}
+POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
@@ -319,7 +332,9 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master?:{…}, summary?:{…}}
+PATCH  /api/config                        {master?:{…}, summary?:{…}, budget?:{monthlyUsd?, alertAtPercent?}}
+GET    /api/budgets                       statuses + unacknowledged current-month alerts
+POST   /api/budgets/alerts/:id/ack
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]

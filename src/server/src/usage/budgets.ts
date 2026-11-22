@@ -1,0 +1,237 @@
+import type { CellRepository } from '../cells/repository.js';
+import type { ErrorSink } from '../logging/errors.js';
+import type { SettingsStore } from '../settings.js';
+import {
+  budgetAlertThreshold,
+  budgetPeriod,
+  budgetStatus,
+  type BudgetAlert,
+  type BudgetStatus,
+  type BudgetsResponse,
+  type BudgetUsageReader,
+} from '../domain/budget.js';
+import { BudgetAlertRepository, type BudgetAlertRecord } from './budget-alerts.js';
+
+const DEFAULT_INTERVAL_MS = 60_000;
+
+export interface BudgetServiceDeps {
+  usage: BudgetUsageReader;
+  cells: Pick<CellRepository, 'list'>;
+  settings: Pick<SettingsStore, 'get' | 'onChange'>;
+  alerts: BudgetAlertRepository;
+  errors?: ErrorSink;
+  now?: () => number;
+  intervalMs?: number;
+}
+
+/**
+ * Computes monthly budget status and reconciles durable alerts. Evaluation is
+ * synchronous and never throws: budgets are advisory, and a failure must not
+ * affect a turn, the master, or the HTTP layer.
+ */
+export class BudgetService {
+  private readonly usage: BudgetUsageReader;
+  private readonly cells: Pick<CellRepository, 'list'>;
+  private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
+  private readonly alerts: BudgetAlertRepository;
+  private readonly errors?: ErrorSink;
+  private readonly clock: () => number;
+  private readonly intervalMs: number;
+
+  private timer: NodeJS.Timeout | null = null;
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(options: BudgetServiceDeps) {
+    this.usage = options.usage;
+    this.cells = options.cells;
+    this.settings = options.settings;
+    this.alerts = options.alerts;
+    this.errors = options.errors;
+    this.clock = options.now ?? (() => Date.now());
+    this.intervalMs =
+      options.intervalMs && options.intervalMs > 0
+        ? options.intervalMs
+        : DEFAULT_INTERVAL_MS;
+  }
+
+  start(): void {
+    if (this.timer) return;
+    this.unsubscribe = this.settings.onChange(() => this.evaluate());
+    this.timer = setInterval(() => this.evaluate(), this.intervalMs);
+    this.timer.unref?.();
+    this.evaluate();
+  }
+
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
+  statuses(now = this.clock()): BudgetsResponse {
+    const period = budgetPeriod(now);
+    const settings = this.settings.get();
+    const cells = this.cells.list();
+    const usageAvailable = this.usage.available();
+    const statuses: BudgetStatus[] = [];
+
+    if (settings.budget.monthlyUsd !== null) {
+      statuses.push(
+        budgetStatus({
+          scope: 'overall',
+          cellId: null,
+          cellName: null,
+          budgetUsd: settings.budget.monthlyUsd,
+          alertAtPercent: settings.budget.alertAtPercent,
+          period,
+          totals: this.totals(period.start, period.end, usageAvailable),
+          usageAvailable,
+        }),
+      );
+    }
+
+    for (const cell of cells) {
+      if (cell.monthlyBudgetUsd === null) continue;
+      statuses.push(
+        budgetStatus({
+          scope: 'cell',
+          cellId: cell.id,
+          cellName: cell.name,
+          budgetUsd: cell.monthlyBudgetUsd,
+          alertAtPercent: settings.budget.alertAtPercent,
+          period,
+          totals: this.totals(period.start, period.end, usageAvailable, cell.id),
+          usageAvailable,
+        }),
+      );
+    }
+
+    const configured = new Set(
+      statuses.map(
+        (status) =>
+          `${status.scope}:${status.scope === 'overall' ? '' : status.cellId ?? ''}`,
+      ),
+    );
+
+    return {
+      periodStart: period.start,
+      periodEnd: period.end,
+      alertAtPercent: settings.budget.alertAtPercent,
+      usageAvailable,
+      statuses,
+      alerts: this.alerts
+        .listUnacknowledged(period.start)
+        .filter((record) => configured.has(`${record.scope}:${record.scopeId}`))
+        .map((record) => this.toAlert(record, cells)),
+    };
+  }
+
+  /** Refresh alert rows for the current month. Never throws. */
+  evaluate(now = this.clock()): void {
+    let periodStart = budgetPeriod(now).start;
+    try {
+      const response = this.statuses(now);
+      periodStart = response.periodStart;
+      if (!response.usageAvailable) return;
+
+      const configured = new Set<string>();
+      for (const status of response.statuses) {
+        const scopeId = status.scope === 'overall' ? '' : status.cellId ?? '';
+        configured.add(`${status.scope}:${scopeId}`);
+        const threshold = budgetAlertThreshold(status);
+        if (threshold === null) {
+          this.alerts.removeUnacknowledged(status.scope, scopeId, response.periodStart);
+          continue;
+        }
+
+        // Acknowledging a higher-severity alert also silences the lower one.
+        if (
+          threshold === 'warning' &&
+          this.alerts.hasAcknowledged(
+            status.scope,
+            scopeId,
+            response.periodStart,
+            'exceeded',
+            status.budgetUsd,
+            response.alertAtPercent,
+          )
+        ) {
+          this.alerts.removeUnacknowledged(status.scope, scopeId, response.periodStart);
+          continue;
+        }
+
+        this.alerts.upsert(
+          {
+            scope: status.scope,
+            scopeId,
+            periodStart: response.periodStart,
+            threshold,
+            alertAtPercent: response.alertAtPercent,
+            budgetUsd: status.budgetUsd,
+            spendUsd: status.spendUsd,
+            unknownCostTurns: status.unknownCostTurns,
+          },
+          now,
+        );
+        this.alerts.removeOtherUnacknowledged(status.scope, scopeId, response.periodStart, {
+          threshold,
+          budgetUsd: status.budgetUsd,
+          alertAtPercent: response.alertAtPercent,
+        });
+      }
+
+      // Clearing a budget, changing alert identity, or deleting a cell must not
+      // leave an actionable alert for a scope that is no longer configured.
+      for (const record of this.alerts.listUnacknowledged(response.periodStart)) {
+        const key = `${record.scope}:${record.scopeId}`;
+        if (!configured.has(key)) {
+          this.alerts.removeUnacknowledged(record.scope, record.scopeId, response.periodStart);
+        }
+      }
+
+      this.alerts.removeUnacknowledgedBefore(response.periodStart);
+    } catch (error) {
+      this.errors?.error('usage.budgets', error, { periodStart });
+    }
+  }
+
+  acknowledge(id: string, now = this.clock()): BudgetAlert | null {
+    const record = this.alerts.acknowledge(id, now);
+    if (!record) return null;
+    return this.toAlert(record, this.cells.list());
+  }
+
+  private totals(
+    from: number,
+    to: number,
+    usageAvailable: boolean,
+    cellId?: string,
+  ): { turns: number; costUsd: number | null; unknownCostTurns: number } {
+    if (!usageAvailable) return { turns: 0, costUsd: null, unknownCostTurns: 0 };
+    return this.usage.totals({ from, to, ...(cellId ? { cellId } : {}) });
+  }
+
+  private toAlert(
+    record: BudgetAlertRecord,
+    cells: Array<{ id: string; name: string }>,
+  ): BudgetAlert {
+    const cellId = record.scope === 'cell' ? record.scopeId : null;
+    return {
+      id: record.id,
+      scope: record.scope,
+      cellId,
+      cellName: cellId ? cells.find((cell) => cell.id === cellId)?.name ?? 'Deleted cell' : null,
+      threshold: record.threshold,
+      alertAtPercent: record.alertAtPercent,
+      budgetUsd: record.budgetUsd,
+      spendUsd: record.spendUsd,
+      unknownCostTurns: record.unknownCostTurns,
+      periodStart: record.periodStart,
+      createdAt: record.createdAt,
+      acknowledgedAt: record.acknowledgedAt,
+    };
+  }
+}

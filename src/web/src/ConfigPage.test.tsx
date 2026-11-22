@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConfigPage } from './ConfigPage';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
 import type {
+  BudgetsResponse,
   Cell,
   MasterConfig,
   MasterEvent,
@@ -37,7 +38,36 @@ const cell: Cell = {
   harness: 'opencode',
   model: null,
   effort: null,
+  monthlyBudgetUsd: null,
   createdAt: 1,
+};
+
+const budget = { monthlyUsd: 100, alertAtPercent: 80 };
+
+const budgetView: BudgetsResponse = {
+  periodStart: Date.UTC(2026, 10, 1),
+  periodEnd: Date.UTC(2026, 11, 1),
+  alertAtPercent: 80,
+  usageAvailable: true,
+  statuses: [
+    {
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 100,
+      spendUsd: 85,
+      remainingUsd: 15,
+      percentUsed: 85,
+      pricedTurns: 3,
+      unknownCostTurns: 1,
+      spendIsLowerBound: true,
+      state: 'warning',
+    },
+  ],
+  alerts: [],
 };
 
 const event: MasterEvent = {
@@ -54,12 +84,13 @@ interface Captured {
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;
+    budget?: { monthlyUsd?: number | null; alertAtPercent?: number };
   };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
 }
 
-function installFetch(): Captured {
+function installFetch(view: BudgetsResponse = budgetView): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -70,6 +101,7 @@ function installFetch(): Captured {
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
         usage: { ...usage, ...captured.config?.usage },
+        budget: { ...budget, ...captured.config?.budget },
         path: '/tmp/sandbox-harness/config.json',
       });
     }
@@ -78,9 +110,11 @@ function installFetch(): Captured {
         master,
         summary: scorecard,
         usage,
+        budget,
         path: '/tmp/sandbox-harness/config.json',
       });
     }
+    if (url === '/api/budgets') return jsonResponse(view);
     if (url === '/api/process' && init?.method === 'PATCH') {
       captured.process = JSON.parse(String(init.body)) as Captured['process'];
       return jsonResponse({ ...processResponse, segments: captured.process?.segments });
@@ -172,6 +206,51 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Build it')).toBeInTheDocument();
     expect(screen.getByText('prod')).toBeInTheDocument();
     expect(screen.getAllByText('Alpha').length).toBeGreaterThan(0);
+  });
+
+  it('edits the overall budget, shows status, and saves independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const monthly = await screen.findByRole('spinbutton', { name: /overall monthly budget/i });
+    expect(monthly).toHaveValue(100);
+    expect(screen.getByText('Overall')).toBeInTheDocument();
+    expect(screen.getByText(/At least \$85\.00 of \$100\.00 \(85%\)/)).toBeInTheDocument();
+
+    const threshold = screen.getByRole('spinbutton', { name: /alert threshold/i });
+    expect(threshold).toHaveValue(80);
+
+    fireEvent.change(monthly, { target: { value: '250.5' } });
+    fireEvent.change(threshold, { target: { value: '90' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save budgets' }));
+
+    await waitFor(() =>
+      expect(captured.config?.budget).toEqual({ monthlyUsd: 250.5, alertAtPercent: 90 }),
+    );
+    expect(captured.config?.master).toBeUndefined();
+  });
+
+  it('does not render an all-unpriced budget as measured zero', async () => {
+    installFetch({
+      ...budgetView,
+      statuses: [
+        {
+          ...budgetView.statuses[0]!,
+          spendUsd: 0,
+          remainingUsd: 100,
+          percentUsed: 0,
+          pricedTurns: 0,
+          unknownCostTurns: 2,
+          spendIsLowerBound: true,
+          state: 'unknown',
+        },
+      ],
+    });
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
+    expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\(0%\)/)).not.toBeInTheDocument();
   });
 
   it('saves a per-segment process change', async () => {

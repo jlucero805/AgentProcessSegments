@@ -33,6 +33,7 @@ import type { SettingsStore } from '../settings.js';
 import { SkillCatalog } from '../skills/catalog.js';
 import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
+import type { BudgetService } from '../usage/budgets.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
 import type { UsageRepository } from '../usage/repository.js';
 import { USAGE_BUCKETS, USAGE_BUCKET_MS } from '../usage/types.js';
@@ -48,6 +49,7 @@ export interface ServerDeps {
   usage: UsageRepository;
   plugins: PluginManager;
   settings: SettingsStore;
+  budgets: BudgetService;
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
   summary: SummaryScheduler;
@@ -116,6 +118,7 @@ const cellSchema = z.object({
   harness: z.enum(HARNESS_IDS).nullable().optional(),
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+  monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
 });
 const cellDraftSchema = z.object({
   name: z.string().min(1),
@@ -163,6 +166,7 @@ const cellPatchSchema = z
     harness: z.enum(HARNESS_IDS).nullable().optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+    monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
@@ -174,10 +178,11 @@ const cellPatchSchema = z
       value.harness !== undefined ||
       value.model !== undefined ||
       value.effort !== undefined ||
+      value.monthlyBudgetUsd !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -345,6 +350,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     usage,
     plugins,
     settings,
+    budgets,
     master,
     masterEvents,
     summary,
@@ -698,10 +704,12 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         harness: input.harness,
         model: input.model,
         effort: input.effort,
+        monthlyBudgetUsd: input.monthlyBudgetUsd,
       },
     );
     master.refresh();
     summary.refresh();
+    budgets.evaluate();
     return reply.code(201).send(created);
   });
 
@@ -721,6 +729,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         cells.setAgentDefaults(id, null, null);
       }
     }
+    if (body.monthlyBudgetUsd !== undefined) {
+      cells.setMonthlyBudget(id, body.monthlyBudgetUsd);
+    }
     if (body.model !== undefined || body.effort !== undefined) {
       const current = cells.require(id);
       cells.setAgentDefaults(
@@ -732,6 +743,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();
     summary.refresh();
+    budgets.evaluate();
     return cells.require(id);
   });
 
@@ -740,6 +752,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     cells.remove(id);
     master.refresh();
     summary.refresh();
+    budgets.evaluate();
     return reply.code(204).send();
   });
 
@@ -771,10 +784,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/config', async () => ({ ...settings.get(), path: settings.path }));
-  app.patch('/api/config', async (request) => ({
-    ...settings.patch(request.body),
-    path: settings.path,
-  }));
+  app.patch('/api/config', async (request) => {
+    const next = settings.patch(request.body);
+    budgets.evaluate();
+    return { ...next, path: settings.path };
+  });
+
+  app.get('/api/budgets', async () => budgets.statuses());
+  app.post('/api/budgets/alerts/:id/ack', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const alert = budgets.acknowledge(id);
+    if (!alert) {
+      return reply.code(404).send({ error: 'not_found', message: `budget alert ${id} not found` });
+    }
+    return alert;
+  });
 
   app.get('/api/process', async () => ({ ...processStore.get(), path: processStore.path }));
   app.patch('/api/process', async (request) => ({

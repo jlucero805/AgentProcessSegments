@@ -715,3 +715,28 @@ and reports one `usage.prune` error through the error sink on failure. It never 
 long-range totals requires daily rollups, which are deferred. A very large first prune
 takes several short statements rather than one long transaction, but still completes in
 one run. `VACUUM` is left to an operator who can stop the brain first.
+## D46. Budgets are advisory, monthly, and read the usage ledger
+
+**Context.** Operators need to see whether a cell or the whole brain is approaching its
+spend budget. The usage dashboard already records one `usage_events` row per completed
+turn, but budgets are a separate policy: a budget crossing must not change workflow.
+
+**Decision.** Add a pure `domain/budget.ts` contract, an overall budget in `config.json`,
+and a nullable `cells.monthly_budget_usd`. Budget periods are UTC calendar months.
+`BudgetService` reads aggregate totals through the narrow `BudgetUsageReader` adapter
+backed by `UsageRepository.totals`. Missing `cost_usd` is unpriced, never zero or
+estimated; an all-unpriced period is `unknown` and does not alert, while mixed data
+alerts against a known lower bound.
+
+Durable alerts live in `budget_alerts`, not `master_events`. Their identity includes the
+budget amount and warning percentage, so changing either starts a new generation without
+deleting acknowledged history. Exceeded supersedes warning; acknowledging one silences
+that generation for the month. `BudgetService` evaluates on start, every 60 seconds, and
+on settings/cell changes, reports failures as `usage.budgets`, and never affects a turn.
+Budgets never pause or block work.
+
+**Cost.** Budget status is shown on Config, the Usage page, and the app banner. The unique
+alert identity includes REAL budget amounts, which is acceptable for operator-entered
+dollar values. Hard caps and external delivery remain separate work; usage retention uses
+D45, and long-range rollups remain deferred. A retention window shorter than the month
+makes spend a lower bound, which the docs and UI say explicitly.

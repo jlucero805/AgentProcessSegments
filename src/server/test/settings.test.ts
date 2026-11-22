@@ -13,6 +13,14 @@ describe('SettingsStore', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+  });
+
+  it('loads a legacy file with only master and defaults the budget', () => {
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
+    const store = new SettingsStore(file);
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
   });
 
   it('falls back to defaults for invalid or unreadable files', () => {
@@ -63,6 +71,35 @@ describe('SettingsStore', () => {
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(2);
     expect(new SettingsStore(file).get().master.enabled).toBe(false);
+  });
+
+  it('merges budget patches without disturbing master', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const saved = store.patch({ budget: { monthlyUsd: 125.5, alertAtPercent: 90 } });
+    expect(saved.master.enabled).toBe(true);
+    expect(saved.budget).toEqual({ monthlyUsd: 125.5, alertAtPercent: 90 });
+    expect(JSON.parse(readFileSync(file, 'utf8')).budget).toEqual({
+      monthlyUsd: 125.5,
+      alertAtPercent: 90,
+    });
+
+    const cleared = store.patch({ budget: { monthlyUsd: null } });
+    expect(cleared.budget).toEqual({ monthlyUsd: null, alertAtPercent: 90 });
+    expect(cleared.master.intervalMinutes).toBe(DEFAULT_SETTINGS.master.intervalMinutes);
+  });
+
+  it('rejects invalid budget patches without writing', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    expect(() => store.patch({ budget: { monthlyUsd: 0 } })).toThrow();
+    expect(() => store.patch({ budget: { monthlyUsd: -1 } })).toThrow();
+    expect(() => store.patch({ budget: { monthlyUsd: 1_000_001 } })).toThrow();
+    expect(() => store.patch({ budget: { alertAtPercent: 0 } })).toThrow();
+    expect(() => store.patch({ budget: { alertAtPercent: 101 } })).toThrow();
+    expect(() => store.patch({ budget: { alertAtPercent: 80.5 } })).toThrow();
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+    expect(() => readFileSync(file)).toThrow();
   });
 
   it('rejects invalid patches without writing', () => {

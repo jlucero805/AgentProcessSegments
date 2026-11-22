@@ -28,8 +28,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
   (`SBOX_PROCESS` override): six ordered segments with purpose, enabled, idle minutes,
   per-cycle cap, per-segment concurrency, prompt, ready marker, advance target, and
-  follow-up policy. It is zod-validated and written atomically. Missing/invalid files
-  fall back to the legacy implement-only policy derived from `config.json`.
+  follow-up policy. It is zod-validated and written atomically. Five-segment files are
+  upgraded by inserting Merge, and missing `maxConcurrent` fields default to null.
+  Missing/invalid files still fall back to the legacy implement-only policy derived
+  from `config.json`.
 - Per-cell process policies: creating a cell opens a process editor seeded from the
   global default plus a transient **Setup assistant** chat that can read and update the
   draft (segments, prompts, markers, limits). The saved
@@ -168,7 +170,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 235 vitest cases, all passing: 155 server across 19 files and 80 web across 16 files,
+- 236 vitest cases, all passing: 155 server across 19 files and 81 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

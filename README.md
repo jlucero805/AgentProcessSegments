@@ -228,7 +228,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 235 vitest cases: 155 server cases (state machine, migrations including
+`npm test` runs 236 vitest cases: 155 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
@@ -236,7 +236,7 @@ real git clones, process definitions/store/follow-ups, per-cell policies/tickers
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, docs
 manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal session
 lifecycle, and the HTTP API
-over a real socket) and 80 web cases (shared contract re-exports, NDJSON client, chat
+over a real socket) and 81 web cases (shared contract re-exports, NDJSON client, chat
 folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
 board, create modal, composer, cell bar, cell creation, config/process editor, master
 detail, and the app shell with the drawer and chat mounted under jsdom).

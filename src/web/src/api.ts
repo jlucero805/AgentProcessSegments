@@ -50,8 +50,17 @@ async function toApiError(response: Response): Promise<ApiError> {
   } catch {
     // Non-JSON error bodies fall back to the status text.
   }
+  const issues = Array.isArray(body?.['issues']) ? body['issues'] : [];
+  const firstIssue = issues.find((issue) => issue && typeof issue === 'object') as
+    | { message?: unknown }
+    | undefined;
+  const issueMessage =
+    typeof firstIssue?.message === 'string' && firstIssue.message !== ''
+      ? firstIssue.message
+      : null;
   const message =
     (typeof body?.['message'] === 'string' && body['message']) ||
+    issueMessage ||
     (typeof body?.['error'] === 'string' && body['error']) ||
     `${response.status} ${response.statusText}`;
   return new ApiError(response.status, message, body?.['issues']);

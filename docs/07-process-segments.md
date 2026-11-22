@@ -13,6 +13,10 @@ There are two layers:
    one, its master uses it instead of the global default. Existing cells without a
    policy keep inheriting the global default.
 
+The store upgrades old files on read: a five-segment file gets the disabled Merge
+segment, and any segment missing `maxConcurrent` inherits the cell cap (`null`). This
+keeps pre-Merge prompts and settings instead of falling back to the default policy.
+
 Each cell also has its own **ticker** and **master chat**:
 
 - `masterIntervalMinutes` on the cell overrides the global scheduler interval; null

@@ -93,15 +93,21 @@ describe('ProcessStore', () => {
     expect(segmentBy(new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).get(), 'intake').enabled).toBe(true);
   });
 
-  it('upgrades an old five-segment process by adding Merge', () => {
+  it('upgrades an old five-segment process by adding Merge and concurrency', () => {
     const file = tempFile();
     const old = defaultProcess(DEFAULT_SETTINGS.master);
     old.segments = old.segments.filter((segment) => segment.id !== 'merge');
+    for (const segment of old.segments) {
+      delete (segment as unknown as Record<string, unknown>)['maxConcurrent'];
+    }
     writeFileSync(file, JSON.stringify(old));
 
     const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
-    expect(store.get().segments.map((segment) => segment.id)).toEqual([...SEGMENT_IDS]);
-    expect(segmentBy(store.get(), 'merge').enabled).toBe(false);
+    const loaded = store.get();
+    expect(loaded.segments.map((segment) => segment.id)).toEqual([...SEGMENT_IDS]);
+    expect(segmentBy(loaded, 'merge')).toMatchObject({ enabled: false, maxConcurrent: 1 });
+    expect(segmentBy(loaded, 'implement')).toMatchObject({ maxConcurrent: null });
+    expect(segmentBy(loaded, 'implement').prompt).toContain('cell master');
   });
 
   it('falls back for an invalid file and rejects invalid patches', () => {

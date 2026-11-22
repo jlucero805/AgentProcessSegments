@@ -157,17 +157,27 @@ export function normalizeProcess(input: unknown): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
   const record = input as Record<string, unknown>;
   if (!Array.isArray(record['segments'])) return input;
+
+  // Merge was added after the first five-segment configs. Old files also lack
+  // the per-segment concurrency field; default it to null (inherit the cell cap)
+  // instead of rejecting the entire policy.
+  const segments = record['segments'].map((segment) => {
+    if (typeof segment !== 'object' || segment === null || Array.isArray(segment)) return segment;
+    if ('maxConcurrent' in segment) return segment;
+    return { ...(segment as Record<string, unknown>), maxConcurrent: null };
+  });
+
   if (
-    record['segments'].some(
+    segments.some(
       (segment) =>
         typeof segment === 'object' &&
         segment !== null &&
         (segment as { id?: unknown }).id === 'merge',
     )
   ) {
-    return input;
+    return { ...record, segments };
   }
-  const segments = [...record['segments']];
+
   const reviewIndex = segments.findIndex(
     (segment) =>
       typeof segment === 'object' &&

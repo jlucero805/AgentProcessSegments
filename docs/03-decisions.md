@@ -471,8 +471,9 @@ prompts, markers, and limits; the form refreshes on turn completion and the draf
 discarded on close.
 
 **Cost.** Existing five-segment process files are upgraded by inserting a disabled Merge
-segment. The board now has a Merge column even when no cell enables it; it is empty by
-default. Segment limits are additive to the cell cap, not a replacement.
+segment, and missing `maxConcurrent` fields default to null. The board now has a Merge
+column even when no cell enables it; it is empty by default. Segment limits are additive
+to the cell cap, not a replacement.
 
 ## D34. Help docs are a manifest over the repo
 

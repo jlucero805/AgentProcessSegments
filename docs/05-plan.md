@@ -199,4 +199,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   OpenCode `question` deny in every non-interactive scope, tests and docs.
 - [x] **36. Setup-chat transport** — JSON content type on NDJSON POST bodies, inline
   retry that replays the failed send, regression test and docs.
-- [ ] **Backlog 37. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **37. Cleanup round** — normalize legacy process files in place, descriptive API
+  validation errors, stale-count/doc updates, and regression tests.
+- [ ] **Backlog 38. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

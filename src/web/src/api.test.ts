@@ -100,6 +100,28 @@ describe('api client', () => {
     expect((init.headers as Record<string, string>)['content-type']).toBe('application/json');
   });
 
+  it('surfaces the first validation issue when there is no message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            error: 'invalid',
+            issues: [
+              { code: 'invalid_type', path: [], message: 'Expected object, received string' },
+            ],
+          },
+          400,
+        ),
+      ),
+    );
+
+    await expect(api.createRequest({ title: 'x' })).rejects.toMatchObject({
+      status: 400,
+      message: 'Expected object, received string',
+    });
+  });
+
   it('surfaces the server error message and status', async () => {
     vi.stubGlobal(
       'fetch',

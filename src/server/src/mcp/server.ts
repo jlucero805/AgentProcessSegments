@@ -211,7 +211,7 @@ function registerDraftTools(server: McpServer, api: BrainApi, draftId: string): 
     {
       title: 'Update the cell draft',
       description:
-        'Change the draft name, limits, model/effort, or its process. For a few segment edits, send `segmentUpdates` with only the ids and fields to change; use the complete `segments` array only for a wholesale rewrite. Process flow contract:\n' +
+        'Change the draft name, limits, model/effort, auto-compaction percentage, or its process. For a few segment edits, send `segmentUpdates` with only the ids and fields to change; use the complete `segments` array only for a wholesale rewrite. Process flow contract:\n' +
         SEGMENT_FLOW_GUIDE,
       inputSchema: {
         name: z.string().min(1).optional(),
@@ -219,6 +219,7 @@ function registerDraftTools(server: McpServer, api: BrainApi, draftId: string): 
         masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
         model: z.string().nullable().optional(),
         effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+        autocompactPercent: z.number().int().min(1).max(99).optional(),
         segmentUpdates: z.array(z.unknown()).optional(),
         segments: z.array(z.unknown()).optional(),
         process: z.unknown().optional(),

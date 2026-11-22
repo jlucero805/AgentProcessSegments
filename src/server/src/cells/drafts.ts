@@ -9,6 +9,7 @@ export interface CellDraft {
   maxConcurrent: number;
   model: string | null;
   effort: Effort | null;
+  autocompactPercent: number;
   process: ProcessConfig;
   updatedAt: number;
 }

@@ -110,7 +110,9 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 
 ### `cells`
 
-`id` (uuid PK), `name`, `created_at`.
+`id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`
+(default 3), `model`, `effort`, `autocompact_percent` (default 80, range 1–99),
+`process_json`, `created_at`.
 
 ### `kb_entries`
 
@@ -141,7 +143,8 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
   and branch setters. `RequestError` maps to HTTP 404 or 409.
 - `cells/repository.ts`: `list` by name, `get`, `create`, `rename`, `delete` in a
   transaction that nulls requests' `cell_id` before deleting the cell. No cascade
-  delete of requests.
+  delete of requests. Setters cover master state/interval, concurrency, model/effort,
+  auto-compaction percentage, and the cell process snapshot.
 - `kb/repository.ts`: `store({requestId,title,content})` replaces the prior entry for
   that request, plus `list`, `getByRequest`, and a literal LIKE `search`.
 
@@ -187,8 +190,10 @@ object per line.
   `DELETE /api/plugins/:name`
 - `GET /api/commands` returns installed plugins' slash commands and skills as
   `[{command, description, plugin}]`
-- `GET /api/cells`, `POST /api/cells {name}`, `PATCH /api/cells/:id {name}`,
-  `DELETE /api/cells/:id`
+- `GET /api/cells`, `POST /api/cells {name, process?, masterIntervalMinutes?,
+  maxConcurrent?, model?, effort?, autocompactPercent?}`,
+  `PATCH /api/cells/:id` with the same fields plus `masterEnabled`, and
+  `DELETE /api/cells/:id`. `autocompactPercent` is an integer 1–99.
 - `GET /ws` is a websocket skeleton (echo plus hello), reserved for an event bridge and
   unused.
 - When `webDir` exists, `@fastify/static` serves the SPA at `/` with an `index.html`
@@ -233,6 +238,12 @@ steps and resumed across restarts.
   `dispatchPrompt` says stop clarifying and build on an isolated branch, do not push,
   do not open a change request. `finalizePrompt` asks for a KB digest. `kbSeedPrompt`
   answers from the KB through `search_kb` and `list_kb`.
+- **Auto-compaction:** request sessions compact at the cell's `autocompactPercent`
+  (default 80). OpenCode gets `compaction.auto: true` and
+  `compaction.buffer: "<100 - percent>%"`; Claude gets
+  `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` and `autoCompactEnabled: true`. Claude cannot raise
+  its built-in threshold, so higher cell values fall back to Claude's default. KB,
+  master, setup, and summary sessions keep their own compaction behavior.
 - **Agent status:** `working` on turn start, `idle` on end, `unchecked` when a turn
   finishes, cleared by `/seen`. Boot reconciles a stale `working` to `idle`.
 - **Per-request git worktree:** `agentCwd` resolves the session cwd to a worktree off
@@ -421,7 +432,14 @@ interface Request {
   createdAt: number; updatedAt: number;
 }
 
-interface Cell { id: string; name: string; createdAt: number; }
+interface Cell {
+  id: string; name: string;
+  masterEnabled: boolean; masterIntervalMinutes: number | null;
+  maxConcurrent: number;
+  model: string | null; effort: Effort | null;
+  autocompactPercent: number; // 1–99, default 80
+  createdAt: number;
+}
 
 interface KbEntry {
   id: string; requestId: string; title: string; content: string; createdAt: number;
@@ -445,7 +463,7 @@ interface EditInput {
 // POST /api/requests/:id/index        { digest?: string | null; index?: boolean }
 // POST /api/kb                        { requestId: string; title: string; content: string }
 // POST /api/plugins                   { url: string; subdir?: string; name?: string }
-// POST /api/cells {name}; PATCH /api/cells/:id {name}
+// POST /api/cells {name, autocompactPercent?}; PATCH /api/cells/:id {name?, autocompactPercent?}
 
 interface ModelOption { id: string; label: string; }
 interface ModelsResult { models: ModelOption[]; source: 'probe' | 'fallback'; effortLevels: string[]; }

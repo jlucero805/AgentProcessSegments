@@ -19,6 +19,7 @@ describe('CellModal', () => {
           maxConcurrent?: number;
           model?: string | null;
           effort?: string | null;
+          autocompactPercent?: number;
         }
       | undefined;
     vi.stubGlobal(
@@ -51,6 +52,7 @@ describe('CellModal', () => {
             maxConcurrent: 3,
             model: null,
             effort: null,
+            autocompactPercent: 80,
             process: baseProcess(),
             createdAt: 2,
           };
@@ -72,6 +74,7 @@ describe('CellModal', () => {
     await waitFor(() =>
       expect(modelSelect).toHaveValue('opencode-go/deepseek-v4.1-flash'),
     );
+    expect(screen.getByRole('spinbutton', { name: /auto-compact/i })).toHaveValue(80);
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
       target: { value: 'Work repo' },
     });
@@ -84,6 +87,9 @@ describe('CellModal', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /default difficulty/i }), {
       target: { value: 'high' },
     });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /auto-compact/i }), {
+      target: { value: '70' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
@@ -92,7 +98,54 @@ describe('CellModal', () => {
     expect(created?.maxConcurrent).toBe(3);
     expect(created?.model).toBe('m1');
     expect(created?.effort).toBe('high');
+    expect(created?.autocompactPercent).toBe(70);
     expect(created?.process?.segments).toHaveLength(6);
+  });
+
+  it('rejects an out-of-range auto-compaction percentage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/process') return jsonResponse(makeProcessResponse());
+        if (url === '/api/models') {
+          return jsonResponse({ models: [], source: 'fallback', effortLevels: ['low'] });
+        }
+        if (url.startsWith('/api/cell-drafts/') && init?.method === 'PUT') {
+          return jsonResponse({ id: 'draft-1', name: 'Draft' });
+        }
+        return jsonResponse([]);
+      }),
+    );
+    const onError = vi.fn();
+    const onSaved = vi.fn();
+
+    render(
+      <CellModal
+        open
+        cell={null}
+        commands={[]}
+        onClose={() => {}}
+        onSaved={onSaved}
+        onError={onError}
+      />,
+    );
+
+    await screen.findByText('Cell process segments');
+    fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
+      target: { value: 'Bad threshold' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: /auto-compact/i }), {
+      target: { value: '100' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        'Auto-compact must be a whole number from 1 to 99.',
+      ),
+    );
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it('shows an inline error and Retry when the setup draft cannot sync', async () => {
@@ -166,15 +219,16 @@ describe('CellModal', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
+      autocompactPercent: 80,
       process: stale,
       createdAt: 1,
     };
     const serverCell: CellDetail = { ...cell, process: fresh };
-    let patched = false;
+    let patched: Record<string, unknown> | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (init?.method === 'PATCH') {
-        patched = true;
+        patched = JSON.parse(String(init.body)) as Record<string, unknown>;
         return jsonResponse({ ...serverCell, name: 'Renamed' });
       }
       if (url === '/api/cells/c1') return jsonResponse(serverCell);
@@ -196,6 +250,7 @@ describe('CellModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save cell' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(patched).toBe(true);
+    expect(patched).not.toBeNull();
+    expect(patched).toMatchObject({ autocompactPercent: 80 });
   });
 });

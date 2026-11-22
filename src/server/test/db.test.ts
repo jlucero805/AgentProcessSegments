@@ -19,6 +19,7 @@ describe('db migrations', () => {
     expect(columns(db, 'requests')).toContain('cell_id');
     expect(columns(db, 'requests')).toContain('agent_status');
     expect(columns(db, 'cells')).toContain('master_enabled');
+    expect(columns(db, 'cells')).toContain('autocompact_percent');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
@@ -49,6 +50,9 @@ describe('db migrations', () => {
     legacy
       .prepare("INSERT INTO requests (id, title, state, created_at, updated_at) VALUES ('r1', 'old', 'clarify', 1, 1)")
       .run();
+    legacy
+      .prepare("INSERT INTO cells (id, name, created_at) VALUES ('c1', 'old cell', 1)")
+      .run();
     legacy.close();
 
     // The index on cell_id must be created after the column exists, or this throws.
@@ -58,6 +62,11 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('process_json');
     expect(columns(db, 'cells')).toContain('master_interval_minutes');
     expect(columns(db, 'cells')).toContain('max_concurrent');
+    expect(columns(db, 'cells')).toContain('autocompact_percent');
+    const migrated = db
+      .prepare('SELECT autocompact_percent FROM cells WHERE id = ?')
+      .get('c1') as { autocompact_percent: number };
+    expect(migrated.autocompact_percent).toBe(80);
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );

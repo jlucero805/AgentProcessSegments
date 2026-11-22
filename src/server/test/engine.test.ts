@@ -279,6 +279,35 @@ describe('turn engine', () => {
     });
   });
 
+  it('passes the cell auto-compaction percentage to request sessions only', async () => {
+    let cellId = '';
+    const h = createHarness(defaultScript, (id) =>
+      id === cellId ? { model: null, effort: null, autocompactPercent: 60 } : null,
+    );
+    harness = h;
+    const cell = h.cells.create('Compact cell');
+    cellId = cell.id;
+
+    const assigned = h.repo.create({ title: 'Assigned', cellId: cell.id });
+    await (await h.engine.start(assigned.id)).promise;
+    await settle();
+
+    const unassigned = h.repo.create({ title: 'Unassigned' });
+    await (await h.engine.start(unassigned.id)).promise;
+    await settle();
+
+    await (await h.engine.startMaster('status')).promise;
+    await settle();
+
+    await (await h.engine.startSetup('defaults', '__setup__:draft-1')).promise;
+    await settle();
+
+    expect(h.harness.sessions[0]).toMatchObject({ scope: 'request', autocompactPercent: 60 });
+    expect(h.harness.sessions[1]).toMatchObject({ scope: 'request', autocompactPercent: 80 });
+    expect(h.harness.sessions[2]).toMatchObject({ scope: 'master', autocompactPercent: null });
+    expect(h.harness.sessions[3]).toMatchObject({ scope: 'setup', autocompactPercent: null });
+  });
+
   it('uses cell model and effort defaults, with request overrides winning', async () => {
     const h = createHarness(defaultScript, () => ({
       model: 'cell-model',

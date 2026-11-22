@@ -111,6 +111,7 @@ const cellSchema = z.object({
   maxConcurrent: z.number().int().min(1).max(50).optional(),
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+  autocompactPercent: z.number().int().min(1).max(99).optional(),
 });
 const cellDraftSchema = z.object({
   name: z.string().min(1),
@@ -119,6 +120,7 @@ const cellDraftSchema = z.object({
   maxConcurrent: z.number().int().min(1).max(50),
   model: z.string().nullable(),
   effort: z.enum(EFFORT_LEVELS).nullable(),
+  autocompactPercent: z.number().int().min(1).max(99),
 });
 const followUpUpdateSchema = z.object({
   enabled: z.boolean().optional(),
@@ -141,6 +143,7 @@ const cellDraftPatchSchema = z
     maxConcurrent: z.number().int().min(1).max(50).optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+    autocompactPercent: z.number().int().min(1).max(99).optional(),
   })
   .refine(
     (value) =>
@@ -155,6 +158,7 @@ const cellPatchSchema = z
     maxConcurrent: z.number().int().min(1).max(50).optional(),
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+    autocompactPercent: z.number().int().min(1).max(99).optional(),
     process: processSchema.nullable().optional(),
   })
   .refine(
@@ -165,10 +169,11 @@ const cellPatchSchema = z
       value.maxConcurrent !== undefined ||
       value.model !== undefined ||
       value.effort !== undefined ||
+      value.autocompactPercent !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, model, effort, autocompactPercent, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -607,6 +612,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       ...(input.maxConcurrent !== undefined ? { maxConcurrent: input.maxConcurrent } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.autocompactPercent !== undefined
+        ? { autocompactPercent: input.autocompactPercent }
+        : {}),
       process,
     });
   });
@@ -632,6 +640,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         maxConcurrent: input.maxConcurrent,
         model: input.model,
         effort: input.effort,
+        autocompactPercent: input.autocompactPercent,
       },
     );
     master.refresh();
@@ -655,6 +664,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         body.model !== undefined ? body.model : current.model,
         body.effort !== undefined ? body.effort : current.effort,
       );
+    }
+    if (body.autocompactPercent !== undefined) {
+      cells.setAutocompactPercent(id, body.autocompactPercent);
     }
     if (body.process !== undefined) cells.setProcess(id, body.process);
     master.refresh();

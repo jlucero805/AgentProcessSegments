@@ -192,10 +192,22 @@ export class ClaudeHarness implements AgentHarness {
     if (session.sessionId) args.push('--resume', session.sessionId);
     for (const dir of session.pluginDirs) args.push('--plugin-dir', dir);
 
+    const env: Record<string, string> = { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' };
+    if (
+      requestScope &&
+      session.autocompactPercent !== null &&
+      session.autocompactPercent !== undefined
+    ) {
+      // Claude can lower its auto-compact threshold but cannot raise it above
+      // its own default; the UI states that limitation.
+      env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(session.autocompactPercent);
+      args.push('--settings', JSON.stringify({ autoCompactEnabled: true }));
+    }
+
     return {
       cmd: this.bin,
       args,
-      env: { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' },
+      env,
       cwd: session.cwd,
       sessionId: session.sessionId,
     };

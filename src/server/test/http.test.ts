@@ -429,12 +429,14 @@ describe('http api', () => {
       maxConcurrent: 2,
       model: 'cell-model',
       effort: 'high',
+      autocompactPercent: 60,
     });
     expect(created.status).toBe(201);
     expect(created.json().masterIntervalMinutes).toBe(3);
     expect(created.json().maxConcurrent).toBe(2);
     expect(created.json().model).toBe('cell-model');
     expect(created.json().effort).toBe('high');
+    expect(created.json().autocompactPercent).toBe(60);
     expect(
       created
         .json()
@@ -444,6 +446,22 @@ describe('http api', () => {
     const detail = await call('GET', `/api/cells/${created.json().id}`);
     expect(detail.json().process.segments).toHaveLength(6);
 
+    const compacted = await call('PATCH', `/api/cells/${created.json().id}`, {
+      autocompactPercent: 75,
+    });
+    expect(compacted.json().autocompactPercent).toBe(75);
+
+    const invalid = await call('PATCH', `/api/cells/${created.json().id}`, {
+      autocompactPercent: 100,
+    });
+    expect(invalid.status).toBe(400);
+
+    const invalidCreate = await call('POST', '/api/cells', {
+      name: 'Bad threshold',
+      autocompactPercent: 0,
+    });
+    expect(invalidCreate.status).toBe(400);
+
     const cleared = await call('PATCH', `/api/cells/${created.json().id}`, { process: null });
     expect(cleared.json().process).toBeNull();
   });
@@ -452,6 +470,7 @@ describe('http api', () => {
     await makeApp();
     const created = await call('POST', '/api/cells', { name: 'Mastered' });
     expect(created.json().masterEnabled).toBe(true);
+    expect(created.json().autocompactPercent).toBe(80);
 
     const patched = await call('PATCH', `/api/cells/${created.json().id}`, {
       masterEnabled: false,
@@ -670,9 +689,11 @@ describe('http api', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
+      autocompactPercent: 70,
     });
     expect(created.status).toBe(200);
     expect(created.json().name).toBe('Draft cell');
+    expect(created.json().autocompactPercent).toBe(70);
 
     const segments = created.json().process.segments as Array<{ id: string; enabled: boolean }>;
     const intake = segments.find((segment) => segment.id === 'intake');
@@ -717,6 +738,10 @@ describe('http api', () => {
     );
 
     expect((await call('GET', `/api/cell-drafts/${id}`)).json().maxConcurrent).toBe(3);
+    const compactedDraft = await call('PATCH', `/api/cell-drafts/${id}`, {
+      autocompactPercent: 65,
+    });
+    expect(compactedDraft.json().autocompactPercent).toBe(65);
     expect((await call('DELETE', `/api/cell-drafts/${id}`)).status).toBe(204);
     expect((await call('GET', `/api/cell-drafts/${id}`)).status).toBe(404);
   });

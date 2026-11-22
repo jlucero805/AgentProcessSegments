@@ -38,7 +38,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 266 vitest cases: 179 server across 21 files and 87 web across 16 files, all green.
+- 270 vitest cases: 182 server across 21 files and 88 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -54,11 +54,11 @@ digests.
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
   polling scheduler with catch-up and backoff), a cell creation flow that
-  defines the policy up front with an editable setup chat, per-cell concurrency caps and
-  model/effort defaults, an optional single-worker Merge step with per-segment caps, an
-  in-app Help docs viewer, a desktop-only maximizable PTY terminal independent of agent
-  sessions, bounded turn/MCP waits with stderr diagnostics, a systemd user
-  unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
+  defines the policy up front with an editable setup chat, per-cell concurrency caps,
+  model/effort defaults, and auto-compaction thresholds, an optional single-worker Merge
+  step with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
+  terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
+  a systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, and a GitHub Actions CI workflow template in
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
@@ -73,7 +73,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 179 server + 87 web
+npm test                       # 182 server + 88 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -249,6 +249,12 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
+32. **Auto-compaction is harness-native and per cell.** A request session compacts at
+    its cell’s `autocompactPercent` (default 80, range 1–99); unassigned requests use 80.
+    Pass it into OpenCode as `compaction.buffer: "<100 - percent>%"` with `auto: true`,
+    and into Claude as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
+    `autoCompactEnabled: true`. Note that Claude cannot raise its built-in threshold.
+    KB, master, setup, and summary sessions keep the harness/global behavior.
 
 ## Extension recipes
 

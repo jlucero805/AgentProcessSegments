@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
+import { DEFAULT_AUTOCOMPACT_PERCENT } from '../domain/request.js';
 import {
   KB_SESSION_ID,
   MASTER_SESSION_ID,
@@ -59,8 +60,12 @@ export interface EngineDeps {
   harness: AgentHarness;
   config: Config;
   pluginDirs?: () => string[];
-  /** Cell-level model/effort defaults; a request's own values win. */
-  cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null;
+  /** Cell-level model/effort and compaction defaults; request values win. */
+  cellDefaults?: (
+    cellId: string,
+  ) =>
+    | { model: string | null; effort: Effort | null; autocompactPercent?: number }
+    | null;
   /** Error-only sink; ordinary transcript/turn logs are not persisted here. */
   errors?: ErrorSink;
 }
@@ -443,6 +448,9 @@ export class Engine {
       sessionId: this.readSession(id),
       model: request?.model ?? defaults?.model ?? this.config.defaultModel ?? null,
       effort: request?.effort ?? defaults?.effort ?? null,
+      autocompactPercent: request
+        ? (defaults?.autocompactPercent ?? DEFAULT_AUTOCOMPACT_PERCENT)
+        : null,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });
     const proc = this.harness.spawn(command);

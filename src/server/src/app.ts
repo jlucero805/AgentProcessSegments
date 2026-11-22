@@ -50,7 +50,13 @@ export async function main(): Promise<void> {
       errors,
       cellDefaults: (cellId) => {
         const cell = cells.get(cellId);
-        return cell ? { model: cell.model, effort: cell.effort } : null;
+        return cell
+          ? {
+              model: cell.model,
+              effort: cell.effort,
+              autocompactPercent: cell.autocompactPercent,
+            }
+          : null;
       },
     });
     const models = new ModelCatalog(harness);

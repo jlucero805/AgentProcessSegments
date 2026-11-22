@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS cells (
   max_concurrent           INTEGER NOT NULL DEFAULT 3,
   model                    TEXT,
   effort                   TEXT,
+  autocompact_percent      INTEGER NOT NULL DEFAULT 80,
   process_json             TEXT,
   created_at               INTEGER NOT NULL
 );
@@ -99,6 +100,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['cells', 'max_concurrent', 'INTEGER NOT NULL DEFAULT 3'],
   ['cells', 'model', 'TEXT'],
   ['cells', 'effort', 'TEXT'],
+  ['cells', 'autocompact_percent', 'INTEGER NOT NULL DEFAULT 80'],
   ['cells', 'process_json', 'TEXT'],
 ];
 

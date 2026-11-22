@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import type { Effort } from '../domain/request.js';
-import { DEFAULT_MAX_CONCURRENT } from '../domain/request.js';
+import { DEFAULT_AUTOCOMPACT_PERCENT, DEFAULT_MAX_CONCURRENT } from '../domain/request.js';
 import { normalizeProcess, processSchema } from '../process/defaults.js';
 import type { CellDetail, ProcessConfig } from '../process/definition.js';
 
@@ -13,6 +13,7 @@ interface CellRow {
   max_concurrent: number;
   model: string | null;
   effort: Effort | null;
+  autocompact_percent: number;
   process_json: string | null;
   created_at: number;
 }
@@ -43,6 +44,7 @@ function toCell(row: CellRow): CellDetail {
     maxConcurrent: row.max_concurrent ?? DEFAULT_MAX_CONCURRENT,
     model: row.model,
     effort: row.effort,
+    autocompactPercent: row.autocompact_percent ?? DEFAULT_AUTOCOMPACT_PERCENT,
     process: parseProcess(row.process_json),
     createdAt: row.created_at,
   };
@@ -75,6 +77,7 @@ export class CellRepository {
       maxConcurrent?: number;
       model?: string | null;
       effort?: Effort | null;
+      autocompactPercent?: number;
     } = {},
   ): CellDetail {
     const id = randomUUID();
@@ -82,8 +85,8 @@ export class CellRepository {
       .prepare(
         `INSERT INTO cells
            (id, name, master_enabled, master_interval_minutes, max_concurrent, model, effort,
-            process_json, created_at)
-         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+            autocompact_percent, process_json, created_at)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -92,6 +95,7 @@ export class CellRepository {
         options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT,
         options.model ?? null,
         options.effort ?? null,
+        options.autocompactPercent ?? DEFAULT_AUTOCOMPACT_PERCENT,
         process ? JSON.stringify(process) : null,
         Date.now(),
       );
@@ -126,6 +130,14 @@ export class CellRepository {
     const result = this.db
       .prepare('UPDATE cells SET model = ?, effort = ? WHERE id = ?')
       .run(model, effort, id);
+    if (result.changes === 0) throw new CellNotFoundError(id);
+    return this.require(id);
+  }
+
+  setAutocompactPercent(id: string, percent: number): CellDetail {
+    const result = this.db
+      .prepare('UPDATE cells SET autocompact_percent = ? WHERE id = ?')
+      .run(percent, id);
     if (result.changes === 0) throw new CellNotFoundError(id);
     return this.require(id);
   }

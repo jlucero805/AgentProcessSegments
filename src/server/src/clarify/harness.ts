@@ -49,6 +49,8 @@ export interface HarnessSession {
   sessionId: string | null;
   model: string | null;
   effort: string | null;
+  /** Request-session auto-compaction trigger, as a context-window percentage. */
+  autocompactPercent?: number | null;
   pluginDirs: string[];
 }
 

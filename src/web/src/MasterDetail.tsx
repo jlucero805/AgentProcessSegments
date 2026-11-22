@@ -209,7 +209,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                       cell.maxConcurrent
                     }× concurrency · ${cell.model ?? 'CLI model'} · ${
                       cell.effort ?? 'default effort'
-                    }`
+                    } · compact ${cell.autocompactPercent}%`
                   : master.includeUnassigned
                     ? 'Global template · includes unassigned requests'
                     : 'Global template · cell-assigned requests only'}

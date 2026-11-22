@@ -185,6 +185,7 @@ describe('App', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
+      autocompactPercent: 80,
       process: {
         version: process.version,
         segments: process.segments.map((segment) =>

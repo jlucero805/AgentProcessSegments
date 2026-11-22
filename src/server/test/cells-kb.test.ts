@@ -23,6 +23,7 @@ describe('cells', () => {
     const b = cells.create('beta');
 
     expect(cells.list().map((cell) => cell.name)).toEqual(['Alpha', 'beta']);
+    expect(a.autocompactPercent).toBe(80);
     expect(cells.rename(a.id, 'Gamma').name).toBe('Gamma');
     expect(cells.get(b.id)?.name).toBe('beta');
     expect(cells.get('missing')).toBeNull();
@@ -56,12 +57,15 @@ describe('cells', () => {
       maxConcurrent: 2,
       model: 'cell-model',
       effort: 'high',
+      autocompactPercent: 55,
     });
     expect(cells.get(cell.id)?.process?.segments[0]?.enabled).toBe(true);
     expect(cells.get(cell.id)?.masterIntervalMinutes).toBe(3);
     expect(cells.get(cell.id)?.maxConcurrent).toBe(2);
     expect(cells.get(cell.id)?.model).toBe('cell-model');
     expect(cells.get(cell.id)?.effort).toBe('high');
+    expect(cells.get(cell.id)?.autocompactPercent).toBe(55);
+    expect(cells.setAutocompactPercent(cell.id, 65).autocompactPercent).toBe(65);
     expect(cells.getProcess(cell.id)?.segments[0]?.enabled).toBe(true);
 
     const cleared = cells.setProcess(cell.id, null);

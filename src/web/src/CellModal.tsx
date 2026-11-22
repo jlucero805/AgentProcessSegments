@@ -51,6 +51,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [syncAttempt, setSyncAttempt] = useState(0);
   const draftReady = draftStatus === 'ready';
   const draftReadyRef = useRef(false);
+  const loadingProcessRef = useRef(true);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -72,7 +73,12 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     setModel(cell?.model ?? '');
     setEffort(cell?.effort ?? '');
     setProcess(cell?.process ?? null);
-    setLoading(cell?.process == null);
+    // Always refresh the policy for an existing cell. The caller may hold a
+    // snapshot from before another screen saved the cell, and the bug report
+    // was exactly that: the editor showed the global defaults instead of the
+    // cell's current policy.
+    loadingProcessRef.current = true;
+    setLoading(true);
     setSaving(false);
 
     api
@@ -100,19 +106,32 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         // Model discovery is optional; the CLI default remains usable.
       });
 
-    if (cell?.process == null) {
-      api
-        .getProcess()
-        .then((global) => {
-          if (!cancelled) setProcess({ version: global.version, segments: global.segments });
-        })
-        .catch((error) => {
-          if (!cancelled) onError(describeError(error));
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    }
+    const loadProcess = async () => {
+      try {
+        if (cell) {
+          const detail = await api.getCell(cell.id);
+          if (cancelled) return;
+          if (detail.process) {
+            setProcess({ version: detail.process.version, segments: detail.process.segments });
+            return;
+          }
+        }
+        const global = await api.getProcess();
+        if (cancelled) return;
+        setProcess({ version: global.version, segments: global.segments });
+      } catch (error) {
+        // If the refresh fails, an existing cell still has the snapshot passed
+        // by the caller to fall back to. Only surface the error when there is
+        // nothing else to edit.
+        if (!cancelled && !cell?.process) onError(describeError(error));
+      } finally {
+        if (!cancelled) {
+          loadingProcessRef.current = false;
+          setLoading(false);
+        }
+      }
+    };
+    void loadProcess();
 
     return () => {
       cancelled = true;
@@ -127,7 +146,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   }, [draftReady]);
 
   useEffect(() => {
-    if (!open || !draftId || !process) return;
+    if (!open || !draftId || !process || loading || loadingProcessRef.current) return;
     let cancelled = false;
     let timeoutTimer: number | undefined;
     const minutes = interval.trim() === '' ? null : Number(interval);
@@ -196,6 +215,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     open,
     draftId,
     process,
+    loading,
     name,
     interval,
     maxConcurrent,

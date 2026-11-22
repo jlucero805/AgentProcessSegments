@@ -26,7 +26,7 @@ import {
 interface MasterDetailProps {
   cellId?: string | null;
   onClose: () => void;
-  onConfigure: () => void;
+  onConfigure: (cell: CellDetail | null) => void;
   onError: (message: string) => void;
   commands: CommandInfo[];
 }
@@ -104,7 +104,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">
           {cell ? `${cell.name} · process automation` : 'Process automation'}
         </span>
-        <Button variant="secondary" size="sm" onClick={onConfigure}>
+        <Button variant="secondary" size="sm" onClick={() => onConfigure(cell)}>
           Configure
         </Button>
         <IconButton label="Close master detail" onClick={onClose}>

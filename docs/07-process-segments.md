@@ -196,8 +196,9 @@ The operator defines the policy before the cell receives work:
    - choose where a segment advances.
 7. Create the cell. The policy is stored as JSON on the cell and used by its master.
 8. Press **Cell master** while that cell is selected to see its status, ticker, prompts,
-   recent activity, and **its own chat**. Press **Process** on the cell in Config to edit
-   it later.
+   recent activity, and **its own chat**. Press **Configure** there (or **Process** on the
+   cell in Config) to reopen the editor with that cell's current policy, then tweak and
+   save it.
 
 New cells start from `process.json`. An existing cell with no policy (for example one
 created before this feature) inherits the global default until edited. Clearing a cell

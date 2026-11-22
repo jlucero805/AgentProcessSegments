@@ -149,7 +149,15 @@ describe('CellModal', () => {
     expect(draftAttempts).toBe(2);
   });
 
-  it('edits an existing cell without requiring a fetch', async () => {
+  it('loads the current policy when editing an existing cell', async () => {
+    const stale = baseProcess();
+    stale.segments = stale.segments.map((segment) =>
+      segment.id === 'plan' ? { ...segment, purpose: 'Stale plan purpose' } : segment,
+    );
+    const fresh = baseProcess();
+    fresh.segments = fresh.segments.map((segment) =>
+      segment.id === 'plan' ? { ...segment, purpose: 'Fresh plan purpose' } : segment,
+    );
     const cell: CellDetail = {
       id: 'c1',
       name: 'Alpha',
@@ -158,13 +166,18 @@ describe('CellModal', () => {
       maxConcurrent: 3,
       model: null,
       effort: null,
-      process: baseProcess(),
+      process: stale,
       createdAt: 1,
     };
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const serverCell: CellDetail = { ...cell, process: fresh };
+    let patched = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
       if (init?.method === 'PATCH') {
-        return jsonResponse({ ...cell, name: 'Renamed' });
+        patched = true;
+        return jsonResponse({ ...serverCell, name: 'Renamed' });
       }
+      if (url === '/api/cells/c1') return jsonResponse(serverCell);
       return jsonResponse([]);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -175,10 +188,14 @@ describe('CellModal', () => {
     );
 
     const name = await screen.findByDisplayValue('Alpha');
+    expect((await screen.findAllByText('Fresh plan purpose')).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Stale plan purpose')).toHaveLength(0);
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/cells/c1')).toBe(true);
+
     fireEvent.change(name, { target: { value: 'Renamed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save cell' }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/cells/c1')).toBe(true);
+    expect(patched).toBe(true);
   });
 });

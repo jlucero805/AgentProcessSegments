@@ -424,7 +424,17 @@ export function App() {
           cellId={cellId}
           commands={commands}
           onClose={() => setMasterOpen(false)}
-          onConfigure={() => go('config')}
+          onConfigure={(cell) => {
+            if (!cell) {
+              go('config');
+              return;
+            }
+            // Configure from a cell master must open that cell's own policy,
+            // not the global template on the Config page.
+            setMasterOpen(false);
+            setEditingCell(cell);
+            setCellModalOpen(true);
+          }}
           onError={setError}
         />
       ) : null}

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { jsonResponse, makeProcessResponse, makeRequest } from './test/fixtures';
-import type { Request } from './types';
+import type { CellDetail, Request } from './types';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -28,10 +28,15 @@ const DOCS: Record<string, unknown> = {
   },
 };
 
-function installFetch(request: Request, transcript: unknown[] = []) {
+function installFetch(request: Request, transcript: unknown[] = [], cells: CellDetail[] = []) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
-    if (url === '/api/cells') return jsonResponse([]);
+    if (url === '/api/cells') return jsonResponse(cells);
+    if (url.startsWith('/api/cells/')) {
+      const id = decodeURIComponent(url.slice('/api/cells/'.length).split('?')[0] ?? '');
+      const cell = cells.find((item) => item.id === id);
+      return cell ? jsonResponse(cell) : jsonResponse({ error: 'not_found' }, 404);
+    }
     if (url === '/api/commands') return jsonResponse([]);
     if (url === '/api/docs') return jsonResponse({ pages: DOC_PAGES });
     if (url.startsWith('/api/docs/')) {
@@ -167,6 +172,36 @@ describe('App', () => {
     expect(await screen.findByText('Process automation')).toBeInTheDocument();
     expect(screen.getByText('Cron loop')).toBeInTheDocument();
     expect(window.location.search).toContain('master=1');
+  });
+
+  it('opens the cell policy from the cell master drawer', async () => {
+    window.history.replaceState(null, '', '/?cell=c1&master=1');
+    const process = makeProcessResponse();
+    const cell: CellDetail = {
+      id: 'c1',
+      name: 'Alpha',
+      masterEnabled: true,
+      masterIntervalMinutes: 3,
+      maxConcurrent: 3,
+      model: null,
+      effort: null,
+      process: {
+        version: process.version,
+        segments: process.segments.map((segment) =>
+          segment.id === 'plan' ? { ...segment, purpose: 'Drawer plan purpose' } : segment,
+        ),
+      },
+      createdAt: 1,
+    };
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [cell]);
+
+    render(<App />);
+    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
+
+    expect(await screen.findByText('Edit cell')).toBeInTheDocument();
+    expect((await screen.findAllByText('Drawer plan purpose')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('GLOBAL PROCESS TEMPLATE')).not.toBeInTheDocument();
   });
 
   it('opens the config page and records it in the URL', async () => {

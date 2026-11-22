@@ -108,6 +108,7 @@ describe('MasterDetail', () => {
       createdAt: 1,
     };
     const urls: string[] = [];
+    const onConfigure = vi.fn();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -155,7 +156,7 @@ describe('MasterDetail', () => {
         cellId="c1"
         commands={[]}
         onClose={() => {}}
-        onConfigure={() => {}}
+        onConfigure={onConfigure}
         onError={() => {}}
       />,
     );
@@ -164,5 +165,8 @@ describe('MasterDetail', () => {
     expect(await screen.findByText('cell note')).toBeInTheDocument();
     expect(urls).toContain('/api/master/status?cellId=c1');
     expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
+    expect(onConfigure).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
   });
 });

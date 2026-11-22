@@ -140,7 +140,9 @@ built and vended by the brain; real-CLI verification is still pending.
   any point in the workflow.
 - Cell master detail: a `Cell master` button above `+ New request` opens a dedicated
   drawer with status, last/next run, the enabled cron loop and prompts, activity, and the
-  master chat. `?master=1` restores it.
+  master chat. `?master=1` restores it. **Configure** in that drawer opens the cell editor
+  with the cell's saved policy (falling back to the global template only when the cell has
+  none).
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
   scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
   transcript without a model turn. The Config page and the Cell master drawer embed the

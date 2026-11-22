@@ -18,8 +18,9 @@ built and vended by the brain; real-CLI verification is still pending.
   requests instead of deleting them, plus `master_enabled`, `master_interval_minutes`,
   and the per-cell process snapshot.
 - Cell masters: the scheduler keeps one timer per enabled cell (cell interval or the
-  global default) plus one for unassigned work, and evaluates the configured process
-  segments from right to left so finishing work runs before more planning. Each cycle
+  global default), and evaluates the configured process segments from right to left so
+  finishing work runs before more planning. Requests without a cell have no master and
+  stay manual. Each cycle
   selects at most the cell’s spare concurrency, latest segments first and oldest request
   first inside a segment, so it does not read or note the whole board. It starts or
   prods that bounded set concurrently (up to the cell/segment caps), returns without
@@ -44,8 +45,9 @@ built and vended by the brain; real-CLI verification is still pending.
   A cell can enable the optional Merge segment, which defaults to one worker
   (`maxConcurrent: 1`) so rebases are serialized.
 - Per-cell masters: the scheduler keeps a separate timer per cell (`masterIntervalMinutes`
-  or the global interval) plus one for unassigned work. Each cell has its own reserved
-  master chat (`__master__:<cellId>`); notes and chat do not mix between cells. Segment
+  or the global interval). Each cell has its own reserved master chat
+  (`__master__:<cellId>`); notes and chat do not mix between cells. Unassigned requests
+  have no master chat and stay manual until assigned. Segment
   caps are enforced in addition to the cell cap. Cells also
   store a max-concurrency cap (default 3, pauses new work while that many requests are
   `working`) and default model/effort (a request’s own values win). The Cell master drawer
@@ -176,10 +178,10 @@ built and vended by the brain; real-CLI verification is still pending.
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
-  master switch, interval, unassigned-work flag, and the scorecard policy
-  (`enabled`, `intervalMinutes`, `windowMinutes`, `prompt`), validated with zod and
-  written atomically. Older files with only `master` keep their values and gain the
-  default summary block. `GET/PATCH /api/config` expose both blocks. `process.json` is the global process
+  master switch, interval, and the scorecard policy (`enabled`, `intervalMinutes`,
+  `windowMinutes`, `prompt`), validated with zod and written atomically. Older files
+  with only `master` keep their values and gain the default summary block.
+  `GET/PATCH /api/config` expose both blocks. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
@@ -309,7 +311,7 @@ PATCH  /api/config                        {master?:{…}, summary?:{…}}
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]
-POST   /api/master/run[?cellId=…]
+POST   /api/master/run?cellId=…
 GET    /api/master/events?cellId=…&limit=…
 GET    /api/summaries[?cellId=…&limit=…]
 GET    /api/summaries/latest?cellId=…

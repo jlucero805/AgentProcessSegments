@@ -41,7 +41,6 @@ function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessC
       idleMinutes: 1,
       intervalMinutes: 5,
       autoReview: true,
-      includeUnassigned: true,
       ...overrides,
     },
   });
@@ -136,14 +135,46 @@ async function settleMaster(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+/** Test-only equivalent of the old run-all: one pass over every enabled cell. */
+async function runEnabledCells(fixture: Fixture) {
+  const results = [];
+  for (const cell of fixture.cells.list()) {
+    if (!cell.masterEnabled) continue;
+    results.push(await fixture.service.runCell(cell.id));
+  }
+  await settleMaster();
+
+  const total = {
+    ranAt: Date.now(),
+    cells: 0,
+    dispatch: 0,
+    started: 0,
+    prodded: 0,
+    reviewed: 0,
+    advanced: 0,
+    followUps: 0,
+    skipped: 0,
+  };
+  for (const result of results) {
+    total.cells += result.cells;
+    total.dispatch += result.dispatch;
+    total.started += result.started;
+    total.prodded += result.prodded;
+    total.reviewed += result.reviewed;
+    total.advanced += result.advanced;
+    total.followUps += result.followUps;
+    total.skipped += result.skipped;
+  }
+  return total;
+}
+
 describe('MasterService', () => {
   it('prods an idle dispatch request and moves it to Review on the marker', async () => {
     const fixture = setup();
     const cell = fixture.cells.create('Alpha');
     const request = dispatchRequest(fixture, 'Build it', cell.id);
 
-    const result = await fixture.service.runOnce();
-    await settleMaster();
+    const result = await runEnabledCells(fixture);
 
     expect(result).toMatchObject({ prodded: 1, reviewed: 1, dispatch: 1 });
     expect(fixture.sent).toEqual([{ id: request.id, text: expect.stringContaining('cell master') }]);
@@ -160,7 +191,7 @@ describe('MasterService', () => {
   });
 
   it('skips fresh, live, and disabled-cell queues', async () => {
-    const fixture = setup({ includeUnassigned: false });
+    const fixture = setup();
     const cell = fixture.cells.create('Busy');
     dispatchRequest(fixture, 'Fresh', cell.id, 0);
     const live = dispatchRequest(fixture, 'Live', cell.id);
@@ -168,25 +199,26 @@ describe('MasterService', () => {
       (id: string) => id === live.id,
     );
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
     expect(result.prodded).toBe(0);
     expect(result.skipped).toBe(2);
     expect(result.dispatch).toBe(0);
 
     fixture.cells.setMasterEnabled(cell.id, false);
-    const disabled = await fixture.service.runOnce();
+    const disabled = await runEnabledCells(fixture);
     expect(disabled.dispatch).toBe(0);
     expect(fixture.sent).toHaveLength(0);
   });
 
   it('does not treat viewing a request as activity', async () => {
     const fixture = setup();
-    const request = dispatchRequest(fixture, 'Viewed');
+    const cell = fixture.cells.create('Viewed cell');
+    const request = dispatchRequest(fixture, 'Viewed', cell.id);
 
     // What POST /api/requests/:id/seen does when the drawer opens.
     fixture.repo.setUnchecked(request.id, false);
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
     expect(result.prodded).toBe(1);
   });
 
@@ -203,7 +235,7 @@ describe('MasterService', () => {
       review.readyMarker = null;
       review.advanceTo = null;
     });
-    const fixture = setup({ includeUnassigned: false }, process);
+    const fixture = setup({}, process);
     const cell = fixture.cells.create('Bounded', null, null, { maxConcurrent: 5 });
 
     const review = requestInState(fixture, 'Review it', 'review', cell.id);
@@ -226,7 +258,7 @@ describe('MasterService', () => {
     setStartDate(fixture, planningOld.id, base + 1_000);
     setStartDate(fixture, planningNew.id, base + 3_000);
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
 
     expect(result.dispatch).toBe(5);
     expect(result.prodded).toBe(5);
@@ -241,7 +273,7 @@ describe('MasterService', () => {
   });
 
   it('starts the whole selected batch and returns before any turn settles', async () => {
-    const fixture = setup({ includeUnassigned: false });
+    const fixture = setup();
     const cell = fixture.cells.create('Parallel', null, null, { maxConcurrent: 4 });
     dispatchRequest(fixture, 'One', cell.id);
     dispatchRequest(fixture, 'Two', cell.id);
@@ -265,7 +297,7 @@ describe('MasterService', () => {
       },
     );
 
-    const result = await fixture.service.runOnce();
+    const result = await fixture.service.runCell(cell.id);
 
     expect(result.dispatch).toBe(3);
     expect(result.prodded).toBe(3);
@@ -281,10 +313,10 @@ describe('MasterService', () => {
     const cell = fixture.cells.create('Gap');
     const request = dispatchRequest(fixture, 'Once', cell.id);
 
-    expect((await fixture.service.runOnce()).prodded).toBe(1);
+    expect((await runEnabledCells(fixture)).prodded).toBe(1);
     expect(fixture.repo.require(request.id).state).toBe('dispatch');
 
-    const second = await fixture.service.runOnce();
+    const second = await runEnabledCells(fixture);
     expect(second.prodded).toBe(0);
     expect(second.skipped).toBe(1);
   });
@@ -293,7 +325,7 @@ describe('MasterService', () => {
     const noAuto = setup({ autoReview: false });
     const cell = noAuto.cells.create('No auto');
     const request = dispatchRequest(noAuto, 'Manual review', cell.id);
-    expect((await noAuto.service.runOnce()).reviewed).toBe(0);
+    expect((await runEnabledCells(noAuto)).reviewed).toBe(0);
     expect(noAuto.repo.require(request.id).state).toBe('dispatch');
 
     const noMarker = setup();
@@ -301,18 +333,75 @@ describe('MasterService', () => {
       { role: 'agent', kind: 'text', text: 'still working', ts: 1 },
     ]);
     const other = dispatchRequest(noMarker, 'Not ready', noMarker.cells.create('Other').id);
-    expect((await noMarker.service.runOnce()).reviewed).toBe(0);
+    expect((await runEnabledCells(noMarker)).reviewed).toBe(0);
     expect(noMarker.repo.require(other.id).state).toBe('dispatch');
   });
 
-  it('includes unassigned work only when configured', async () => {
-    const excluded = setup({ includeUnassigned: false });
-    dispatchRequest(excluded, 'Unassigned');
-    expect((await excluded.service.runOnce()).prodded).toBe(0);
+  it('leaves requests without a cell untouched', async () => {
+    const fixture = setup();
+    const request = dispatchRequest(fixture, 'Unassigned');
+    const cell = fixture.cells.create('Alpha');
 
-    const included = setup({ includeUnassigned: true });
-    dispatchRequest(included, 'Unassigned');
-    expect((await included.service.runOnce()).prodded).toBe(1);
+    const result = await fixture.service.runCell(cell.id);
+
+    expect(result.prodded).toBe(0);
+    expect(fixture.sent).toHaveLength(0);
+    expect(fixture.started).toHaveLength(0);
+    expect(fixture.events.list().filter((event) => event.requestId === request.id)).toHaveLength(0);
+    expect(fixture.repo.require(request.id).state).toBe('dispatch');
+  });
+
+  it('keeps each cell to its own requests when every cell runs', async () => {
+    const fixture = setup();
+    const alpha = fixture.cells.create('Alpha');
+    const beta = fixture.cells.create('Beta');
+    const alphaRequest = dispatchRequest(fixture, 'Alpha work', alpha.id);
+    const betaRequest = dispatchRequest(fixture, 'Beta work', beta.id);
+
+    const result = await runEnabledCells(fixture);
+
+    expect(result.prodded).toBe(2);
+    expect(fixture.sent.map((call) => call.id).sort()).toEqual(
+      [alphaRequest.id, betaRequest.id].sort(),
+    );
+    expect(fixture.turns).toHaveLength(2);
+    const events = fixture.events.list();
+    expect(events.filter((event) => event.requestId === alphaRequest.id).every(
+      (event) => event.cellId === alpha.id,
+    )).toBe(true);
+    expect(events.filter((event) => event.requestId === betaRequest.id).every(
+      (event) => event.cellId === beta.id,
+    )).toBe(true);
+    const notes = (fixture.engine.note as ReturnType<typeof vi.fn>).mock.calls;
+    expect(notes.every(([session]) => session !== '__master__')).toBe(true);
+  });
+
+  it('does not prod a request reassigned after the queue snapshot', async () => {
+    const fixture = setup();
+    const alpha = fixture.cells.create('Alpha');
+    const beta = fixture.cells.create('Beta');
+    const request = dispatchRequest(fixture, 'Moved work', alpha.id);
+    const original = fixture.repo.list.bind(fixture.repo);
+    let moved = false;
+    vi.spyOn(fixture.repo, 'list').mockImplementation((filter = {}) => {
+      const rows = original(filter);
+      if (!moved && filter.cellId === alpha.id) {
+        moved = true;
+        fixture.repo.edit(request.id, { cellId: beta.id });
+      }
+      return rows;
+    });
+
+    const result = await fixture.service.runCell(alpha.id);
+
+    expect(moved).toBe(true);
+    expect(result.prodded).toBe(0);
+    expect(fixture.turns).toHaveLength(0);
+    expect(fixture.events.list().filter((event) => event.requestId === request.id)).toHaveLength(0);
+    expect(fixture.repo.require(request.id)).toMatchObject({
+      state: 'dispatch',
+      cellId: beta.id,
+    });
   });
 
   it('records a skip event when sending the prod fails', async () => {
@@ -321,7 +410,7 @@ describe('MasterService', () => {
     dispatchRequest(fixture, 'Explodes', cell.id);
     (fixture.engine.send as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('session gone'));
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
     expect(result.skipped).toBe(1);
     const skip = fixture.events.list().find((event) => event.action === 'skip');
     expect(skip?.detail).toContain('session gone');
@@ -335,10 +424,11 @@ describe('MasterService', () => {
       intake.prompt = 'This cell works in the AgentProcessSegments repository.';
     });
     const fixture = setup({}, process);
-    const request = fixture.repo.create({ title: 'Raw request' });
+    const cell = fixture.cells.create('Intake cell');
+    const request = fixture.repo.create({ title: 'Raw request', cellId: cell.id });
     age(fixture, request.id, 2 * 60_000);
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
 
     expect(result.started).toBe(1);
     expect(fixture.started).toEqual([request.id]);
@@ -354,15 +444,15 @@ describe('MasterService', () => {
       segment(config, 'implement').enabled = false;
     });
     const fixture = setup({}, process);
-    const request = fixture.repo.create({ title: 'Plan me' });
+    const cell = fixture.cells.create('Plan cell');
+    const request = fixture.repo.create({ title: 'Plan me', cellId: cell.id });
     fixture.repo.setClarifyStarted(request.id, true);
     age(fixture, request.id, 2 * 60_000);
     (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
       { role: 'agent', kind: 'text', text: `planned. ${READY_FOR_IMPLEMENTATION}`, ts: 1 },
     ]);
 
-    const result = await fixture.service.runOnce();
-    await settleMaster();
+    const result = await runEnabledCells(fixture);
 
     expect(result.advanced).toBe(1);
     expect(fixture.repo.require(request.id).state).toBe('dispatch');
@@ -387,7 +477,7 @@ describe('MasterService', () => {
     const raw = fixture.repo.create({ title: 'Raw request', cellId: cell.id });
     age(fixture, raw.id, 2 * 60_000);
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
 
     expect(result.prodded).toBe(2);
     expect(result.started).toBe(1);
@@ -409,13 +499,13 @@ describe('MasterService', () => {
       intake.idleMinutes = 1;
       segment(config, 'implement').enabled = false;
     });
-    const fixture = setup({ includeUnassigned: false }, global);
+    const fixture = setup({}, global);
     const cell = fixture.cells.create('Strict repo', cellProcess);
     const intakeRequest = fixture.repo.create({ title: 'Raw in cell', cellId: cell.id });
     age(fixture, intakeRequest.id, 2 * 60_000);
     const dispatch = dispatchRequest(fixture, 'Build in cell', cell.id);
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
 
     expect(result.started).toBe(1);
     expect(fixture.started).toEqual([intakeRequest.id]);
@@ -433,7 +523,7 @@ describe('MasterService', () => {
     fixture.repo.setAgentStatus(working.id, 'working');
     const request = dispatchRequest(fixture, 'Wait', cell.id);
 
-    const blocked = await fixture.service.runOnce();
+    const blocked = await runEnabledCells(fixture);
     expect(blocked.prodded).toBe(0);
     expect(
       fixture.events.list().some((event) => event.detail.includes('concurrency limit')),
@@ -442,7 +532,7 @@ describe('MasterService', () => {
 
     fixture.repo.setAgentStatus(working.id, 'idle');
     age(fixture, request.id, 2 * 60_000);
-    const allowed = await fixture.service.runOnce();
+    const allowed = await runEnabledCells(fixture);
     expect(allowed.prodded).toBe(1);
   });
 
@@ -463,7 +553,7 @@ describe('MasterService', () => {
     fixture.repo.setAgentStatus(working.id, 'working');
     const waiting = requestInState(fixture, 'Next merge', 'merge', cell.id);
 
-    const blocked = await fixture.service.runOnce();
+    const blocked = await runEnabledCells(fixture);
     expect(blocked.prodded).toBe(0);
     expect(
       fixture.events.list().some((event) => event.detail.includes('segment concurrency limit')),
@@ -471,7 +561,7 @@ describe('MasterService', () => {
 
     fixture.repo.setAgentStatus(working.id, 'idle');
     age(fixture, waiting.id, 2 * 60_000);
-    const allowed = await fixture.service.runOnce();
+    const allowed = await runEnabledCells(fixture);
     expect(allowed.prodded).toBe(1);
   });
 
@@ -491,7 +581,7 @@ describe('MasterService', () => {
     requestInState(fixture, 'First merge', 'merge', cell.id);
     requestInState(fixture, 'Second merge', 'merge', cell.id);
 
-    const result = await fixture.service.runOnce();
+    const result = await runEnabledCells(fixture);
 
     expect(result.prodded).toBe(1);
     expect(fixture.turns).toHaveLength(1);
@@ -506,7 +596,8 @@ describe('MasterService', () => {
       implement.followUps.enabled = true;
     });
     const fixture = setup({}, process);
-    const request = dispatchRequest(fixture, 'Build it');
+    const cell = fixture.cells.create('Follow-up cell');
+    const request = dispatchRequest(fixture, 'Build it', cell.id);
     (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
       {
         role: 'agent',
@@ -518,8 +609,7 @@ describe('MasterService', () => {
       },
     ]);
 
-    const first = await fixture.service.runOnce();
-    await settleMaster();
+    const first = await runEnabledCells(fixture);
     expect(first.followUps).toBe(2);
     const created = fixture.repo
       .list()
@@ -528,7 +618,7 @@ describe('MasterService', () => {
     expect(fixture.events.list().filter((event) => event.action === 'followup')).toHaveLength(2);
 
     age(fixture, request.id, 2 * 60_000);
-    const second = await fixture.service.runOnce();
+    const second = await runEnabledCells(fixture);
     expect(second.followUps).toBe(0);
     expect(
       fixture.repo.list().filter((item) => item.title === 'Add metrics' || item.title === 'Write docs'),
@@ -556,14 +646,12 @@ describe('MasterScheduler', () => {
     try {
       const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
       const settings = new SettingsStore(path.join(base, 'config.json'));
-      settings.patch({ master: { includeUnassigned: false } });
+      settings.patch({ master: { enabled: true } });
       const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
       const cell = cells.create('Alpha', null, 2);
       const runCell = vi.fn(async () => emptyResult());
       const service = {
-        runOnce: vi.fn(async () => emptyResult()),
         runCell,
-        runUnassigned: vi.fn(async () => emptyResult()),
         lastRunAt: null,
         lastResult: null,
         lastFor: vi.fn(() => null),
@@ -593,31 +681,61 @@ describe('MasterScheduler', () => {
     }
   });
 
-  it('coalesces concurrent run-now calls', async () => {
-    const settings = new SettingsStore(path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'));
+  it('does not create an unassigned timer when no cells exist', async () => {
+    vi.useFakeTimers();
+    try {
+      const settings = new SettingsStore(
+        path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'),
+      );
+      const runCell = vi.fn(async () => emptyResult());
+      const scheduler = new MasterScheduler(
+        {
+          runCell,
+          lastRunAt: null,
+          lastResult: null,
+          lastFor: vi.fn(() => null),
+        } as unknown as MasterService,
+        settings,
+        new CellRepository(openDb(':memory:')),
+      );
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+      expect(runCell).not.toHaveBeenCalled();
+      expect(scheduler.status()).toMatchObject({ nextRunAt: null, running: false });
+      scheduler.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces concurrent run-now calls for one cell', async () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+    const settings = new SettingsStore(path.join(base, 'config.json'));
+    const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+    const cell = cells.create('Alpha');
     let release!: (value: unknown) => void;
     const result = emptyResult();
-    const runOnce = vi.fn(
+    const runCell = vi.fn(
       () => new Promise((resolve) => {
         release = resolve;
       }),
     );
     const scheduler = new MasterScheduler(
       {
-        runOnce,
-        runCell: vi.fn(),
-        runUnassigned: vi.fn(),
+        runCell,
         lastRunAt: null,
         lastResult: null,
         lastFor: vi.fn(() => null),
       } as unknown as MasterService,
       settings,
-      new CellRepository(openDb(':memory:')),
+      cells,
     );
 
-    const first = scheduler.runNow();
-    const second = scheduler.runNow();
-    expect(runOnce).toHaveBeenCalledTimes(1);
+    const first = scheduler.runNow(cell.id);
+    const second = scheduler.runNow(cell.id);
+    expect(runCell).toHaveBeenCalledTimes(1);
     release(result);
     expect(await first).toBe(result);
     expect(await second).toBe(result);

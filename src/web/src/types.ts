@@ -57,12 +57,8 @@ export type {
 export { SEGMENT_IDS, SEGMENT_STATES } from '../../server/src/process/definition';
 export {
   KB_SESSION_ID,
-  MASTER_SESSION_ID,
   SETUP_SESSION_PREFIX,
-  isMasterSession,
   isSetupSession,
-  isVirtualSessionId,
-  masterCellId,
   masterSessionId,
   setupSessionId,
 } from '../../server/src/domain/sessions';

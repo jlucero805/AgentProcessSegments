@@ -6,7 +6,6 @@ const fixtureMaster: MasterConfig = {
   intervalMinutes: 5,
   idleMinutes: 10,
   autoReview: true,
-  includeUnassigned: true,
   prompt: 'prod prompt',
 };
 

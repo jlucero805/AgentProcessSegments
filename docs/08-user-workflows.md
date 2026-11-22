@@ -75,18 +75,16 @@ The full field reference is in `docs/07-process-segments.md`.
 
 ## 4. Watch the master
 
-Press **Cell master** (above **+ New request**).
+Select a cell, then press **Cell master** (above **+ New request**). There is no master
+for **All cells**: requests without a cell stay manual until you assign one.
 
-- With no cell selected it shows the global template and all activity.
-- With a cell selected it shows that cell’s policy and **ticker interval**, filters
-  activity to the cell, and says whether the cell is using its own policy or inheriting
-  the global default.
+- The drawer shows that cell’s policy and **ticker interval**, filters activity to the
+  cell, and says whether the cell is using its own policy or inheriting the global
+  default.
 - The drawer shows status, last/next run, every segment prompt, recent
-  start/prod/advance/followup/skip events, and **that cell’s master chat**. Unassigned
-  work uses the global master chat.
-- **Run now** executes one cycle for the selected cell (or the global cycle when no cell
-  is selected).
-- **Configure** jumps to the Config page.
+  start/prod/advance/followup/skip events, and **that cell’s master chat**.
+- **Run now** executes one cycle for the selected cell.
+- **Configure** jumps to the Config page or that cell’s policy editor.
 
 Each cell’s master chat is a separate reserved session, so one cell’s notes and
 conversation do not mix with another’s. The chat is advisory: it can read the board and
@@ -152,7 +150,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 
 | Thing | Location |
 | --- | --- |
-| Scheduler switch, interval, unassigned flag | `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`) |
+| Scheduler switch and interval | `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`) |
 | Global process template | `$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
 | Requests, cells, KB, events | SQLite (`SBOX_DB`) |

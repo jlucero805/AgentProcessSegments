@@ -6,7 +6,6 @@ import { requestDir } from '../config.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import {
   KB_SESSION_ID,
-  MASTER_SESSION_ID,
   isSetupSession,
   masterCellId,
   setupDraftId,
@@ -208,7 +207,7 @@ export class Engine {
   /** Chat with a cell master. Advisory and read-only; the scheduler notes into it. */
   async startMaster(
     text: string,
-    sessionId: string = MASTER_SESSION_ID,
+    sessionId: string,
     context?: string,
   ): Promise<LiveTurn> {
     const existing = this.turns.get(sessionId);

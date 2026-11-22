@@ -198,7 +198,7 @@ src/server/src
   process/            six segment definitions (incl. Merge), defaults, store, follow-up parser
   master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
-  master/scheduler.ts per-cell timers, unassigned timer, manual run, coalesced cycles
+  master/scheduler.ts per-cell timers, per-cell manual run, coalesced cycles
   summary/            per-cell scorecard policy, deterministic stats, read-only generation,
                       polling scheduler, persisted report history
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API

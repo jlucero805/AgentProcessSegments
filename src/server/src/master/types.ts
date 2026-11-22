@@ -43,6 +43,5 @@ export interface MasterConfig {
   intervalMinutes: number;
   idleMinutes: number;
   autoReview: boolean;
-  includeUnassigned: boolean;
   prompt: string;
 }

@@ -283,17 +283,19 @@ implementation sessions prodded to record decisions and keep moving, and complet
 moved to Review.
 
 **Decision.** A server-side scheduler runs a master cycle (default every 5 minutes).
-Each enabled cell's `dispatch` queue, plus unassigned work when configured, is filtered
-to idle requests older than the idle threshold and not prodded within the interval. The
+Each enabled cell's selected queue is filtered to idle requests older than the idle
+threshold and not prodded within the interval. Requests without a cell have no master.
+The
 prod is an ordinary `engine.send` turn using the configured prompt. If the reply contains
 `READY FOR REVIEW` and auto-review is on, the request moves `dispatch → review`. Every
 prod/review/cycle/skip is stored in `master_events`; status, history, and a manual run are
 exposed, and the Config page owns the policy and per-cell switches.
 
-**Cost.** One prod at a time per cell, sequentially inside that cell; a hung turn delays
-the rest of that cell’s cycle. D27 later made cadence and policy per cell and replaced
-the single prod rule with configurable segments. The review move relies on the marker
-rather than an LLM judgment. Prods are ordinary agent turns, so they cost tokens.
+**Cost.** Turns run inside the cell’s concurrency budget, so a hung turn can still hold
+one slot until it finishes. D27 later made cadence and policy per cell, D41 made the
+selected batch concurrent, and D42 removed unassigned work from the master entirely. The
+review move relies on the marker rather than an LLM judgment. Prods are ordinary agent
+turns, so they cost tokens.
 
 ## D23. Chat queue is client-side; stop keeps the session
 
@@ -385,14 +387,13 @@ the cron is doing, see the prompt it uses, and chat with it as a first-class obj
 
 **Decision.** Add a `Cell master` button above `+ New request`. It opens a dedicated
 drawer with status, the cell’s own ticker/last/next run, the enabled segment loop and
-prompts, filtered activity, and the cell’s `__master__:<cellId>` chat. With no cell
-selected it shows the global template, the unassigned ticker, and the global chat.
-`?master=1` restores the drawer. Config remains the editor; the drawer is the
-observability surface.
+prompts, filtered activity, and the cell’s `__master__:<cellId>` chat. The control is
+only available when a cell is selected; `?master=1` restores the drawer only with a
+`cell` query. Config remains the editor; the drawer is the observability surface.
 
 **Cost.** The drawer polls status and events every 10 seconds while open. Each cell’s
-chat is separate; unassigned work keeps the global chat. The chat remains
-read-only/advisory.
+chat is separate; there is no global chat for unassigned work. The chat remains
+read-only/advisory. D42 later removed the no-cell view.
 
 ## D29. The desktop terminal is a direct PTY
 
@@ -422,8 +423,8 @@ is reached; it records a `skip`/cycle event and a master-chat note. The engine r
 turn’s model/effort from the request first, then the cell defaults. A per-cell master
 chat also inherits the cell defaults.
 
-**Cost.** Concurrency is per cell; unassigned work uses the default cap of 3 until a cell
-is attached. Changing a cell model affects the next spawned turn, not a child that is
+**Cost.** Concurrency is per cell; unassigned requests have no master and consume no
+master slot. Changing a cell model affects the next spawned turn, not a child that is
 already running. Usage tracking records the resolved model on each completed turn; see
 `docs/09-backlog.md` for retention, budget, and pricing follow-ups.
 
@@ -618,14 +619,14 @@ candidate and mutates the cycle’s result/event history as it finishes. Selecti
 bounds the batch by the cell’s spare concurrency and each segment’s
 `maxPerCycle`/`maxConcurrent`; segment selection counts candidates already chosen for the
 batch, so a merge segment capped at one worker contributes only one request. Different
-cells remain independent scheduler keys, and a global `runOnce` still walks buckets in
-order.
+cells remain independent scheduler keys; manual runs are per cell.
 
 **Cost.** The scheduler’s “running” flag now means “dispatching”, not “waiting for agents”.
 Several model turns can be live at once, using more provider throughput and tokens; the
 next tick refills only the capacity reported by `countWorking`. Background completion
 failures are logged and recorded as skip events, but the original cycle response has
 already returned. A segment cap of one still serializes merge work as intended.
+
 ## D42. Scorecards use a dedicated read-only session and derived facts
 
 **Context.** Operators need a periodic report of what happened on a cell without reading
@@ -650,3 +651,22 @@ is retried with backoff rather than every scan. The report cannot replay a reque
 moved through a state and back; a durable activity log is scoped separately. The global
 policy cannot yet vary per cell, and unassigned work has no scorecard, both deliberate
 follow-ups.
+
+## D43. Unassigned work has no master
+
+**Context.** The scheduler treated unassigned requests as a pseudo-cell, giving them a
+global ticker, the global process template, a `__master__` chat, and a fallback
+concurrency cap. That made "no cell" a second automation scope and let a global run
+compete with the cell that actually owned a request.
+
+**Decision.** Masters exist only for real cells. Remove `includeUnassigned`, the empty
+scheduler key, `runUnassigned`, the global `runOnce` batch, the bare `__master__` session,
+and the no-cell master drawer. `POST /api/master/run` requires a `cellId`. Unassigned
+requests stay on the board and remain manually editable/chat-able; assigning one to a
+cell opts it into that cell's master. Before each start/prod, the service re-reads the
+request and skips it if it is missing, live, or no longer in the bucket's cell.
+
+**Cost.** New requests are created unassigned, so they no longer get intake automation
+until someone assigns a cell. Troubleshooting scripts that called the global run endpoint
+must name a cell. Historical `master_events` with a null cell id stay readable and render
+as "Unassigned".

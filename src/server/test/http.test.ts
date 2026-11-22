@@ -339,13 +339,17 @@ describe('http api', () => {
     expect(bad.status).toBe(400);
   });
 
-  it('reports master status, runs a cycle, and lists events', async () => {
-    await makeApp();
+  it('reports master status, runs a cell cycle, and lists events', async () => {
+    const { h } = await makeApp();
+    const cell = h.cells.create('Alpha');
     const status = await call('GET', '/api/master/status');
     expect(status.status).toBe(200);
     expect(status.json()).toMatchObject({ enabled: true, running: false, intervalMinutes: 5 });
 
-    const run = await call('POST', '/api/master/run');
+    const missing = await call('POST', '/api/master/run');
+    expect(missing.status).toBe(400);
+
+    const run = await call('POST', `/api/master/run?cellId=${cell.id}`);
     expect(run.status).toBe(200);
     expect(run.json()).toMatchObject({ prodded: 0, reviewed: 0, dispatch: 0 });
 
@@ -692,25 +696,18 @@ describe('http api', () => {
     expect(after.json().active).toBe(false);
   });
 
-  it('serves the master chat and scheduler notes', async () => {
+  it('does not serve a global master chat', async () => {
     const { h } = await makeApp();
     h.engine.note(MASTER_SESSION_ID, 'Master cycle: 1 queued, 1 prodded');
 
     const snapshot = await call('GET', `/api/requests/${MASTER_SESSION_ID}/clarify`);
-    expect(snapshot.status).toBe(200);
-    expect(snapshot.json()).toMatchObject({ started: true, active: false });
-    expect(
-      snapshot.json().transcript.some((message: { text: string }) =>
-        message.text.includes('Master cycle'),
-      ),
-    ).toBe(true);
+    expect(snapshot.status).toBe(404);
 
     const sent = await call('POST', `/api/requests/${MASTER_SESSION_ID}/clarify/send`, {
       text: 'what are you doing?',
     });
-    expect(sent.status).toBe(200);
-    expect(sent.text).toContain('"t":"done"');
-    expect(h.harness.sessions[0]).toMatchObject({ scope: 'master', requestId: '' });
+    expect(sent.status).toBe(404);
+    expect(h.harness.sessions).toHaveLength(0);
   });
 
   it('serves a separate master chat and status per cell', async () => {

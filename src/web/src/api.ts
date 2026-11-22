@@ -319,7 +319,7 @@ export const api = {
   getMasterStatus(cellId?: string): Promise<MasterStatus> {
     return request(withQuery('/api/master/status', { cellId }));
   },
-  runMaster(cellId?: string): Promise<MasterResult> {
+  runMaster(cellId: string): Promise<MasterResult> {
     return request(withQuery('/api/master/run', { cellId }), { method: 'POST' });
   },
   getMasterEvents(options: { cellId?: string; limit?: number } = {}): Promise<MasterEvent[]> {

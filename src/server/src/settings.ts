@@ -32,7 +32,6 @@ const masterSchema = z.object({
   intervalMinutes: z.number().int().min(1).max(24 * 60),
   idleMinutes: z.number().int().min(1).max(24 * 60),
   autoReview: z.boolean(),
-  includeUnassigned: z.boolean(),
   prompt: z.string().min(1).max(8000),
 }) satisfies z.ZodType<MasterConfig>;
 
@@ -55,7 +54,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     intervalMinutes: 5,
     idleMinutes: 10,
     autoReview: true,
-    includeUnassigned: true,
     prompt: DEFAULT_MASTER_PROMPT,
   },
   summary: {

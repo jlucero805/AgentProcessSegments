@@ -204,6 +204,7 @@ const usageQuerySchema = z
     }
   });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
+const masterRunQuerySchema = z.object({ cellId: z.string().min(1) });
 const summariesQuerySchema = z.object({
   cellId: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
@@ -294,7 +295,7 @@ function isVirtualSession(id: string): boolean {
 
 function masterChatContext(cells: CellRepository, id: string): string | undefined {
   const cellId = masterCellId(id);
-  if (!cellId) return 'Scope: unassigned work and the global process template.';
+  if (!cellId) return undefined;
   const cell = cells.get(cellId);
   if (!cell) return 'Scope: a cell that no longer exists.';
   const interval = cell.masterIntervalMinutes
@@ -743,8 +744,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return query.cellId ? master.statusFor(query.cellId) : master.status();
   });
   app.post('/api/master/run', async (request) => {
-    const query = masterQuerySchema.parse(request.query);
-    return query.cellId ? master.runNow(query.cellId) : master.runNow();
+    const query = masterRunQuerySchema.parse(request.query);
+    return master.runNow(query.cellId);
   });
   app.get('/api/master/events', async (request) => {
     const query = masterEventsQuerySchema.parse(request.query);

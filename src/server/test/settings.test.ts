@@ -48,6 +48,25 @@ describe('SettingsStore', () => {
     expect(() => readFileSync(file)).toThrow();
   });
 
+  it('ignores a legacy unassigned-work flag', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        master: { ...DEFAULT_SETTINGS.master, intervalMinutes: 7, includeUnassigned: true },
+      }),
+    );
+
+    const store = new SettingsStore(file);
+    expect(store.get().master).toMatchObject({ intervalMinutes: 7 });
+    expect(store.get().master).not.toHaveProperty('includeUnassigned');
+
+    const saved = store.patch({ master: { intervalMinutes: 3, includeUnassigned: false } });
+    expect(saved.master.intervalMinutes).toBe(3);
+    expect(saved.master).not.toHaveProperty('includeUnassigned');
+    expect(JSON.parse(readFileSync(file, 'utf8')).master).not.toHaveProperty('includeUnassigned');
+  });
+
   it('strips unknown keys and accepts a fresh file path', () => {
     const file = tempFile('nested/config.json');
     const store = new SettingsStore(file);

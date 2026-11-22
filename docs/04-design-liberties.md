@@ -104,8 +104,8 @@ for the web workspace, Vitest 2 on the server.
 ## 9. Cell masters are deterministic and marker-based
 
 **Chosen.** A server-side scheduler runs every configured interval, prods idle `dispatch`
-requests in enabled cells (and optionally unassigned work) through the normal agent
-session, and moves `dispatch → review` only when the reply contains `READY FOR REVIEW`.
+requests in enabled cells through the normal agent session, and moves
+`dispatch → review` only when the reply contains `READY FOR REVIEW`.
 Policy and per-cell switches live in the XDG settings file; prod/review/cycle/skip events
 are stored.
 

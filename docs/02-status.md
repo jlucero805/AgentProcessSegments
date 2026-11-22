@@ -8,7 +8,8 @@ built and vended by the brain; real-CLI verification is still pending.
 
 - `db.ts`: schema, WAL, `foreign_keys=ON`, additive column guards, indexes created
   after `cell_id` is added, and the stale `working` to `idle` boot reconcile.
-- Domain: six states, the transition table as data, terminal states, agent statuses,
+- Domain: seven states including the optional Merge step, the transition table as data,
+  terminal states, agent statuses,
   effort levels, `isIntake`, and the transcript and NDJSON event types.
 - `RequestRepository`: create, get, list (intake view, state, cell), edit with
   boolean/array encoding, guarded transitions (`ILLEGAL_TRANSITION`, `NOT_FOUND`),
@@ -25,17 +26,21 @@ built and vended by the brain; real-CLI verification is still pending.
   event history are cell-scoped. The Config page edits the global schedule/template, and
   the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
 - Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
-  (`SBOX_PROCESS` override): five ordered segments with purpose, enabled, idle minutes,
-  per-cycle cap, prompt, ready marker, advance target, and follow-up policy. It is
-  zod-validated and written atomically. Missing/invalid files fall back to the legacy
-  implement-only policy derived from `config.json`.
+  (`SBOX_PROCESS` override): six ordered segments with purpose, enabled, idle minutes,
+  per-cycle cap, per-segment concurrency, prompt, ready marker, advance target, and
+  follow-up policy. It is zod-validated and written atomically. Missing/invalid files
+  fall back to the legacy implement-only policy derived from `config.json`.
 - Per-cell process policies: creating a cell opens a process editor seeded from the
-  global default; the saved policy is stored on the cell (`cells.process_json`) and its
-  master uses it instead of the global template. Existing cells without a policy inherit
-  the global default.
+  global default plus a transient **Setup assistant** chat that can read and update the
+  draft (segments, prompts, markers, limits). The saved
+  policy is stored on the cell (`cells.process_json`) and its master uses it instead of
+  the global template. Existing cells without a policy inherit the global default.
+  A cell can enable the optional Merge segment, which defaults to one worker
+  (`maxConcurrent: 1`) so rebases are serialized.
 - Per-cell masters: the scheduler keeps a separate timer per cell (`masterIntervalMinutes`
   or the global interval) plus one for unassigned work. Each cell has its own reserved
-  master chat (`__master__:<cellId>`); notes and chat do not mix between cells. Cells also
+  master chat (`__master__:<cellId>`); notes and chat do not mix between cells. Segment
+  caps are enforced in addition to the cell cap. Cells also
   store a max-concurrency cap (default 3, pauses new work while that many requests are
   `working`) and default model/effort (a request’s own values win). The Cell master drawer
   shows the selected cell’s ticker, policy, activity, and chat.
@@ -150,7 +155,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 203 vitest cases, all passing: 138 server across 18 files and 65 web across 14 files,
+- 209 vitest cases, all passing: 144 server across 18 files and 65 web across 14 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -240,6 +245,10 @@ GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}
 GET    /api/cells
 GET    /api/cells/:id
+GET    /api/cell-drafts/:id
+PUT    /api/cell-drafts/:id
+PATCH  /api/cell-drafts/:id
+DELETE /api/cell-drafts/:id
 POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, model?, effort?}
 PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, model?, effort?, process?}
 DELETE /api/cells/:id

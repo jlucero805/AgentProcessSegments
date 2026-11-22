@@ -31,11 +31,12 @@ digests.
 10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
 11. `docs/11-skills.md` is slash-command/skill discovery and invocation in chats.
 12. `docs/12-terminals.md` is the server-owned PTY lifecycle, session list, and API.
+13. `docs/13-cell-wizard.md` is the cell creation chat and policy setup workflow.
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 203 vitest cases: 138 server across 18 files and 65 web across 14 files, all green.
+- 209 vitest cases: 144 server across 18 files and 65 web across 14 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -49,7 +50,8 @@ digests.
   settings and a structured process editor, configurable global and per-cell process
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, a cell creation flow that
-  defines the policy up front, per-cell concurrency caps and model/effort defaults, a
+  defines the policy up front with an advisory setup chat, per-cell concurrency caps and
+  model/effort defaults, an optional single-worker Merge step with per-segment caps, a
   desktop-only maximizable PTY terminal independent of agent sessions, a systemd user
   unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
@@ -66,7 +68,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 138 server + 65 web
+npm test                       # 144 server + 65 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -140,9 +142,9 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
    special-case them before touching the request repository. All reserved sessions are
    read-only; the master scope gets board read tools in addition to the KB tools.
 3. **MCP tool names must match the harness allowlist.** Registering a tool does not
-   grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, or `MASTER_TOOLS` in
+   grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, `MASTER_TOOLS`, or `SETUP_TOOLS` in
    `clarify/harness.ts` or the Claude agent cannot call it under auto-approve. OpenCode
-   request sessions use `--auto`; its KB and master sessions use explicit deny
+   request sessions use `--auto`; its read-only/setup sessions use explicit deny
    permissions.
 4. **One turn at a time per id.** `start`/`send`/`dispatch`/`finalize` return the
    existing `LiveTurn` while one is in flight. Do not start a second.
@@ -191,11 +193,17 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     then the cell defaults; persist cell changes on the cell, not in memory.
 20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage
     writes; follow `docs/09-backlog.md` when it is built.
-21. **Errors go through the error sink.** Use the injected `ErrorSink` on genuine failure
+21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
+    the master must check segment caps in addition to the cell cap. Its prompt rebases,
+    tests, and pushes one request at a time before advancing to Finalize.
+22. **Wizard chat can edit its draft.** `__setup__:<draftId>` has no request row; setup
+    scope gets board/KB reads plus `get_cell_draft`/`update_cell_draft`. The draft is
+    server-backed, validated, deleted on close, and any live turn is stopped.
+23. **Errors go through the error sink.** Use the injected `ErrorSink` on genuine failure
     paths; it appends NDJSON to the XDG state log and must never throw. Keep context to
     ids/method/URL, never prompts, bodies, transcripts, tokens, or secrets. Expected 4xx
     responses stay out of the file.
-22. **Skills are prompt instructions, not CLI slashes.** Discover them from the standard
+24. **Skills are prompt instructions, not CLI slashes.** Discover them from the standard
     OpenCode/Claude directories (`docs/11-skills.md`). The composer may show `/name`, but
     sending it must translate to `Use the <name> skill now…`; only plugin commands may be
     sent as raw slash commands.

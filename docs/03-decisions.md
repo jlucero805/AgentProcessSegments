@@ -358,7 +358,7 @@ thread is the place to watch it. Callers that want the stream keep the default r
 want to configure every segment and expand the cron loop to start planning, implement,
 review, create follow-ups, and advance on rules.
 
-**Decision.** Store five ordered segments in
+**Decision.** Store six ordered segments in
 `$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS` overrides) as the global
 default. A cell can store a full copy of the same shape in `cells.process_json`; its
 master uses that policy, while cells without one inherit the global default. Each cell
@@ -455,3 +455,21 @@ raw slash commands.
 **Cost.** Discovery is a directory walk on each fetch; no cache yet. A skill that is only
 visible inside a request’s target repo appears in that request’s chat, not the global KB
 or master chat menu.
+
+## D33. Optional Merge segment and per-segment concurrency
+
+**Context.** Cells sometimes need a step after Review that cannot safely run in parallel:
+a single merger rebases, tests, and pushes one request at a time to avoid conflicts. The
+cell creation wizard also needs a way to build that policy conversationally.
+
+**Decision.** Add a built-in `merge` state and optional segment between Review and
+Finalize, plus `maxConcurrent` on every segment. The master enforces the cell cap first,
+then a segment cap for working requests in that state. Merge defaults to
+`maxConcurrent: 1`, `maxPerCycle: 10`, `READY TO FINALIZE`, and advances to Finalize. The wizard keeps a server-side draft per modal. Its `__setup__:<draftId>` chat gets
+board/KB reads plus `get_cell_draft`/`update_cell_draft`, so the agent can edit segments,
+prompts, markers, and limits; the form refreshes on turn completion and the draft is
+discarded on close.
+
+**Cost.** Existing five-segment process files are upgraded by inserting a disabled Merge
+segment. The board now has a Merge column even when no cell enables it; it is empty by
+default. Segment limits are additive to the cell cap, not a replacement.

@@ -185,4 +185,8 @@ states dispose the session as before; disabling the master stops scheduling imme
   menu, skill badge, prompt-text invocation, API and tests.
 - [x] **30. Persistent terminals** — server-owned sessions, detach on hide, scrollback
   replay, visible session strip, explicit close, list API, lifecycle tests.
-- [ ] **Backlog 31. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **31. Merge and segment limits** — optional Merge state/column, per-segment
+  `maxConcurrent`, single-merge walkthrough, old-process upgrade, tests and docs.
+- [x] **32. Cell wizard chat** — transient `__setup__` chat with a server-backed draft,
+  `get_cell_draft`/`update_cell_draft` tools, live form refresh, close cleanup.
+- [ ] **Backlog 33. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

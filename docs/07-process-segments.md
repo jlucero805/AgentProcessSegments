@@ -1,7 +1,7 @@
 # Process segments
 
 The master no longer hardcodes a single “prod dispatch” rule. The pipeline is data:
-five ordered segments, each with a purpose, a prompt, an idle threshold, an optional
+six ordered segments, each with a purpose, a prompt, an idle threshold, an optional
 ready marker, and an optional follow-up rule. The SPA edits it as structured controls;
 the file underneath is ordinary JSON.
 
@@ -46,6 +46,7 @@ Each cell also has its own **ticker** and **master chat**:
       "enabled": false,
       "idleMinutes": 10,
       "maxPerCycle": 5,
+      "maxConcurrent": null,
       "prompt": "",
       "readyMarker": null,
       "advanceTo": null,
@@ -58,6 +59,7 @@ Each cell also has its own **ticker** and **master chat**:
       "enabled": false,
       "idleMinutes": 10,
       "maxPerCycle": 5,
+      "maxConcurrent": null,
       "prompt": "Continue grooming this ticket…\nREADY FOR IMPLEMENTATION",
       "readyMarker": "READY FOR IMPLEMENTATION",
       "advanceTo": "dispatch",
@@ -70,6 +72,7 @@ Each cell also has its own **ticker** and **master chat**:
       "enabled": true,
       "idleMinutes": 10,
       "maxPerCycle": 10,
+      "maxConcurrent": null,
       "prompt": "…READY FOR REVIEW",
       "readyMarker": "READY FOR REVIEW",
       "advanceTo": "review",
@@ -82,7 +85,21 @@ Each cell also has its own **ticker** and **master chat**:
       "enabled": false,
       "idleMinutes": 10,
       "maxPerCycle": 5,
+      "maxConcurrent": null,
       "prompt": "…READY TO FINALIZE",
+      "readyMarker": "READY TO FINALIZE",
+      "advanceTo": "finalize",
+      "followUps": { "enabled": false, "marker": "FOLLOW-UP:" }
+    },
+    {
+      "id": "merge",
+      "label": "Merge",
+      "purpose": "Rebase and push one request at a time, then hand it to Finalize.",
+      "enabled": false,
+      "idleMinutes": 10,
+      "maxPerCycle": 10,
+      "maxConcurrent": 1,
+      "prompt": "You are the single merge worker…\nREADY TO FINALIZE",
       "readyMarker": "READY TO FINALIZE",
       "advanceTo": "finalize",
       "followUps": { "enabled": false, "marker": "FOLLOW-UP:" }
@@ -94,6 +111,7 @@ Each cell also has its own **ticker** and **master chat**:
       "enabled": false,
       "idleMinutes": 10,
       "maxPerCycle": 5,
+      "maxConcurrent": null,
       "prompt": "…READY TO INDEX",
       "readyMarker": "READY TO INDEX",
       "advanceTo": null,
@@ -113,7 +131,8 @@ exactly once.
 | `intake` | `clarify`, not started | `engine.start` seeds clarification | none (starting moves it to Plan) |
 | `plan` | `clarify`, started | prompt via `engine.send` | legal target, e.g. `dispatch` |
 | `implement` | `dispatch` | prompt via `engine.send` | legal target, e.g. `review` |
-| `review` | `review` | prompt via `engine.send` | legal target, e.g. `finalize` or `dispatch` |
+| `review` | `review` | prompt via `engine.send` | legal target, e.g. `merge`, `finalize`, or `dispatch` |
+| `merge` | `merge` | prompt via `engine.send` | legal target, e.g. `finalize` |
 | `finalize` | `finalize` | prompt via `engine.send` | none; the human still approves indexing |
 
 A segment turn is eligible when:
@@ -123,7 +142,9 @@ A segment turn is eligible when:
 - no turn is live and the request is not `working`;
 - `now - updated_at >= idleMinutes`;
 - the request was not already started/prodded within `idleMinutes`;
-- fewer than `maxPerCycle` requests were handled in this segment/cell this cycle.
+- fewer than `maxPerCycle` requests were handled in this segment/cell this cycle;
+- if the segment sets `maxConcurrent`, fewer than that many requests are working in the
+  segment’s state for the cell.
 
 After a turn finishes, the master reads the last agent text. If it contains
 `readyMarker`, the request moves to `advanceTo` when that transition is legal.
@@ -155,15 +176,18 @@ The operator defines the policy before the cell receives work:
    **default difficulty**. A request’s own model/effort overrides the cell default. The
    master will not start more work in a cell while that many requests are already
    `working`.
-4. The process editor opens with a complete copy of the global default.
-5. Adjust the segments for that cell. Typical changes:
+4. Use the **Setup assistant** chat to reason about the repo’s risk posture, merge
+   policy, and concurrency. It is advisory and closes with the wizard.
+5. The process editor opens with a complete copy of the global default.
+6. Adjust the segments for that cell. Typical changes:
    - enable `intake` and `plan` for a hands-off pipeline;
    - shorten segment idle thresholds;
-   - rewrite the implement/review prompts;
+   - set an optional segment concurrency (Merge defaults to 1);
+   - rewrite the implement/review/merge prompts;
    - enable follow-up callouts;
    - choose where a segment advances.
-6. Create the cell. The policy is stored as JSON on the cell and used by its master.
-7. Press **Cell master** while that cell is selected to see its status, ticker, prompts,
+7. Create the cell. The policy is stored as JSON on the cell and used by its master.
+8. Press **Cell master** while that cell is selected to see its status, ticker, prompts,
    recent activity, and **its own chat**. Press **Process** on the cell in Config to edit
    it later.
 
@@ -216,6 +240,24 @@ POST  /api/master/run?cellId=…         run that cell's cycle now
 Per-cell master chats use the reserved `__master__:<cellId>` session; unassigned work
 uses `__master__`.
 
+## Merge bucket (single worker)
+
+A built-in optional `merge` segment sits between Review and Finalize. Its default policy
+sets `maxConcurrent: 1` and `maxPerCycle: 10`, so the master walks the merge bucket
+sequentially: one request rebases/tests/pushes to origin, then the next one starts. This
+avoids concurrent merges and rebase conflicts while still draining the bucket in one cycle.
+
+Recommended policy for a strict repo:
+
+1. Enable `merge`; keep `maxConcurrent: 1`.
+2. Give it a prompt that rebases onto the target branch, resolves conflicts, runs tests,
+   and pushes to origin.
+3. Set `readyMarker: READY TO FINALIZE` and `advanceTo: finalize`.
+4. Enable `finalize` only for digest generation; the human still indexes into the KB.
+
+The merge prompt default already describes the single-worker rule. The cell-level
+concurrency cap still applies; the segment cap is an additional limit.
+
 ## Follow-up requests
 
 When `followUps.enabled` is on for `plan`, `implement`, or `review`, the master appends an
@@ -233,7 +275,7 @@ is still available for richer follow-ups.
 
 ## UI
 
-- **Config** edits the schedule, the five segment definitions, prompts, markers,
+- **Config** edits the schedule, the six segment definitions, prompts, markers,
   advancement, and follow-up rules as structured controls.
 - **Cell master** (the button above `+ New request`) opens a first-class detail drawer:
   current status, next/last run, the enabled cron loop with the exact prompt used for

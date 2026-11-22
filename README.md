@@ -85,7 +85,9 @@ flowchart LR
   Intake["Requests<br/>intake"] --> Plan["Plan"]
   Plan --> Implement["Implement"]
   Implement --> Review["Review"]
-  Review --> Finalize["Finalize"]
+  Review --> Merge["Merge (optional, 1 worker)"]
+  Merge --> Finalize["Finalize"]
+  Review -.->|skip merge| Finalize
   Finalize --> Done["Done"]
   Review -.->|needs changes| Implement
   Plan -.->|needs rework| Intake
@@ -147,6 +149,7 @@ main routes over a real socket.
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
+- `docs/13-cell-wizard.md` cell creation chat and policy setup
 - `deploy/vps.md` systemd unit and VPS runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
@@ -160,7 +163,7 @@ src/server/src
   domain/request.ts   states, transition table, entities, transcript types
   domain/sessions.ts  reserved KB/master session ids, per-cell master sessions
   requests/           RequestRepository: CRUD, edit, guarded transitions
-  cells/              CellRepository: delete detaches requests, per-cell process policy,
+  cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
                       interval, concurrency cap, and model/effort defaults
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
@@ -175,7 +178,7 @@ src/server/src
   clarify/worktree.ts per-request git worktree on branch sbox/<id>
   clarify/models.ts   model catalog with a cached probe and harness fallback
   settings.ts         XDG scheduler settings, zod validation, atomic write
-  process/            process.json definition, defaults, store, follow-up parser
+  process/            six segment definitions (incl. Merge), defaults, store, follow-up parser
   master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
   master/scheduler.ts per-cell timers, unassigned timer, manual run, coalesced cycles
@@ -213,13 +216,13 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 203 vitest cases: 138 server cases (state machine, migrations including
+`npm test` runs 209 vitest cases: 144 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
-the generic master pipeline, error-log format/rotation, skill discovery, terminal session
-lifecycle, and the HTTP API over a real socket) and 65 web cases (shared contract
+the generic master pipeline, segment caps and merge, error-log format/rotation, skill
+discovery, terminal session lifecycle, and the HTTP API over a real socket) and 65 web cases (shared contract
 re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
 board, create modal, composer, cell bar, cell creation, config/process editor, master
 detail, and the app shell with the drawer and chat mounted under jsdom).

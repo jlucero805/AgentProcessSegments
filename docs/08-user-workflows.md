@@ -21,9 +21,11 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
    - **Plan**: groom tickets and advance to Implement.
    - **Implement**: continue/build work and advance to Review.
    - **Review**: check the result; optionally create a draft change request.
+   - **Merge**: optional single-worker bucket; rebase, test, push, then advance.
    - **Finalize**: produce the digest; the human still approves KB indexing.
-6. For each segment set the enabled switch, idle threshold, per-cycle cap, prompt, ready
-   marker, legal target, and follow-up rule.
+6. For each segment set the enabled switch, idle threshold, per-cycle cap, optional
+   segment concurrency (Merge defaults to 1), prompt, ready marker, legal target, and
+   follow-up rule.
 7. Press **Create cell**. The policy is stored on the cell as a snapshot.
 8. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
 
@@ -39,9 +41,9 @@ The most common policies:
 - **Hands-off pipeline:** enable Intake, Plan, and Implement. Raw requests get clarified,
   planned requests move to Implement, and implementation moves to Review. Each segment
   waits for its own idle window.
-- **Strict repo:** enable Plan, Implement, and Review. Review uses a prompt that creates a
-  draft change request and does not push anything automatically before that point. Set
-  `review.advanceTo` to Finalize or leave it null to stop for a human.
+- **Strict repo:** enable Plan, Implement, Review, and Merge. Review can create a draft
+  change request; Merge is capped at one worker, so requests rebase/push sequentially
+  instead of colliding. Set `merge.advanceTo` to Finalize when the push succeeds.
 - **Follow-up farm:** enable follow-ups on Implement or Review. The prompt tells the agent
   to emit `FOLLOW-UP: <title>` lines; the master creates those requests in the same cell’s
   intake and records them in activity.
@@ -102,8 +104,11 @@ KB but cannot mutate requests.
 2. In Review, a human or the Review prompt checks the work. For a strict repo, the Review
    prompt can create a draft change request using the operator’s CLI; there is no
    hardcoded forger integration.
-3. When satisfied, press **Finalize**. The finalize turn proposes a digest.
-4. Review the digest and press **Index and finalize**. This is the only step that writes
+3. When satisfied, press **Send to merge** if the cell has a Merge segment. The master
+   allows only one merge worker at a time (`maxConcurrent: 1`), draining the bucket one
+   rebase/test/push at a time. Each success advances to Finalize.
+4. Press **Finalize** (or let the Merge marker advance it). The finalize turn proposes a digest.
+5. Review the digest and press **Index and finalize**. This is the only step that writes
    the KB entry and closes the request; the master cannot auto-advance Finalize.
 5. Out-of-scope findings can become intake requests automatically (follow-up markers) or
    through the agent’s `spawn_request` tool.

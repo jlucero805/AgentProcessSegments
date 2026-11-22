@@ -209,6 +209,19 @@ full instruction, or only show plugin skills.
 differ. An instruction is portable and keeps the UI simple. Cost: the menu is not a
 literal CLI command list; a skill that exists only inside a target repo is request-scoped.
 
+## 17. Merge is a built-in optional state, not a dynamic stage DSL
+
+**Chosen.** Add one fixed `merge` state/column and per-segment `maxConcurrent`. The cell
+wizard chat edits the server-backed draft with the same validation.
+
+**Alternative.** A fully dynamic stage definition language where operators add arbitrary
+states and columns.
+
+**Why.** Merge is the concrete operational bottleneck (serialize rebase/push), and a fixed
+state keeps the transition table, board, and API honest. Cost: arbitrary extra stages
+still require a new state and UI column; the wizard can recommend them but not invent
+them. The `maxConcurrent` field is generic, so other segments can be serialized now.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MasterDetail } from './MasterDetail';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
-import type { CellDetail } from './types';
+import type { CellDetail, MasterEvent } from './types';
 
 function makeCell(): CellDetail {
   const process = makeProcessResponse();
@@ -119,6 +119,67 @@ describe('MasterDetail', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
     await waitFor(() => expect(captured.ran).toBe(true));
     expect(await screen.findByText(/Last cycle: 0 started/)).toBeInTheDocument();
+  });
+
+  it('caps recent activity and keeps every event scrollable', async () => {
+    const events: MasterEvent[] = Array.from({ length: 30 }, (_, index) => ({
+      id: `e${index}`,
+      cellId: 'c1',
+      requestId: null,
+      action: 'cycle',
+      detail: `Cycle ${index}`,
+      createdAt: Date.now() - index * 1_000,
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/process') return jsonResponse(makeProcessResponse());
+        if (url === '/api/master/status?cellId=c1') {
+          return jsonResponse({
+            enabled: true,
+            intervalMinutes: 3,
+            running: false,
+            nextRunAt: null,
+            lastRunAt: null,
+            lastResult: null,
+          });
+        }
+        if (url === '/api/cells') return jsonResponse([makeCell()]);
+        if (url.startsWith('/api/master/events')) return jsonResponse(events);
+        if (url === '/api/summaries/latest?cellId=c1') return jsonResponse(null);
+        if (url === '/api/summaries?cellId=c1&limit=5') return jsonResponse([]);
+        if (url === '/api/summaries/status?cellId=c1') {
+          return jsonResponse({
+            enabled: false,
+            intervalMinutes: 360,
+            windowMinutes: 360,
+            running: false,
+            nextRunAt: null,
+            lastRunAt: null,
+            lastError: null,
+          });
+        }
+        if (url === '/api/requests/__master__%3Ac1/clarify') {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    const list = await screen.findByRole('list', { name: 'Recent activity' });
+    expect(list).toHaveClass('max-h-80', 'overflow-y-auto');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(30);
   });
 
   it('runs a scorecard and passes the selected cell to configure', async () => {

@@ -93,7 +93,9 @@ for **All cells**: requests without a cell stay manual until you assign one.
   cell, and says whether the cell is using its own policy or inheriting the global
   default.
 - The drawer shows status, last/next run, every segment prompt, recent
-  start/prod/advance/followup/skip events, and **that cell’s master chat**.
+  start/prod/advance/followup/skip events, and **that cell’s master chat**. Recent
+  activity is capped at 20rem and scrolls inside its card, so a busy master does not
+  push the chat out of reach.
 - **Run now** executes one cycle for the selected cell. A tick that lands while that
   cell’s cycle is already active is skipped and retried on the next interval.
 - **Configure** jumps to the Config page or that cell’s policy editor.

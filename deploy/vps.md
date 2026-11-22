@@ -64,6 +64,17 @@ backlogged in `docs/09-backlog.md`.
 Both files are intentionally outside the repo and outside the systemd unit. The master
 scheduler runs inside the brain.
 
+Turn safety is configurable:
+
+- `SBOX_TURN_TIMEOUT_MS` (default `600000`, ten minutes) caps one agent turn. A child
+  that stays alive but silent is killed, the turn emits an error and `done`, and
+  `engine.timeout` is written to the error log.
+- `SBOX_MCP_TIMEOUT_MS` (default `15000`, fifteen seconds) caps one harness MCP call to
+  the brain. A stalled call returns an MCP error result so the agent can recover.
+
+Leave the defaults unless a slow repo genuinely needs a longer turn; a shorter turn
+timeout is useful when a CLI wrapper is suspected of hanging at startup.
+
 ## Verification
 
 The built brain is exercised by `scripts/smoke.sh`, `scripts/mcp-smoke.mjs`, and

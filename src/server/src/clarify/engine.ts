@@ -54,6 +54,7 @@ export class Engine {
   private readonly turns = new Map<string, LiveTurn>();
   private readonly parsers = new Map<string, TurnParserLike>();
   private readonly procs = new Map<string, AgentProcess>();
+  private readonly watchdogs = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -82,6 +83,7 @@ export class Engine {
     if (!turn || turn.done) return false;
 
     turn.cancelled = true;
+    this.clearWatchdog(id);
     const proc = this.procs.get(id);
     this.procs.delete(id);
     if (proc) {
@@ -89,6 +91,9 @@ export class Engine {
       const force = setTimeout(() => proc.kill('SIGKILL'), 2_000);
       force.unref();
     }
+    // Finish now even if the harness is still stuck inside `prepare()`. The
+    // later `runTurn` continuation sees `turn.done` and only cleans up.
+    this.finishTurn(id, turn, this.repo.get(id) ?? null);
     turn.resolve();
     return true;
   }
@@ -213,6 +218,7 @@ export class Engine {
     this.turns.set(id, turn);
     this.parsers.set(id, this.harness.createParser(this.loadTranscript(id)));
     if (request) this.repo.setAgentStatus(id, 'working');
+    this.armWatchdog(id, turn, request);
 
     void this.runTurn(id, turn, message, request);
     return turn;
@@ -229,7 +235,7 @@ export class Engine {
 
     try {
       const proc = await this.ensureProc(id, request);
-      if (turn.cancelled) {
+      if (turn.cancelled || turn.done) {
         proc.kill();
         this.procs.delete(id);
         return;
@@ -240,17 +246,34 @@ export class Engine {
       await turn.promise;
       if (turn.failure && !turn.cancelled) this.broadcast(turn, { t: 'error', message: turn.failure });
     } catch (error) {
-      this.deps.errors?.error('engine.turn', error, { session: id });
-      const message = errorMessage(error);
-      this.broadcast(turn, { t: 'error', message });
+      if (!turn.done && !turn.cancelled) {
+        this.deps.errors?.error('engine.turn', error, { session: id });
+        const message = errorMessage(error);
+        turn.failure = message;
+        this.broadcast(turn, { t: 'error', message });
+      }
     } finally {
       this.finishTurn(id, turn, request);
     }
   }
 
   private finishTurn(id: string, turn: LiveTurn, request: Request | null): void {
+    if (turn.done) return;
+    this.clearWatchdog(id);
     const parser = this.parsers.get(id);
     const transcript = parser ? parser.finalize() : this.loadTranscript(id);
+    const failure = turn.failure;
+    if (
+      failure &&
+      !transcript.some((message) => message.kind === 'text' && message.text.includes(failure))
+    ) {
+      transcript.push({
+        role: 'agent',
+        kind: 'text',
+        text: `⚠ ${failure}`,
+        ts: Date.now(),
+      });
+    }
     this.saveTranscript(id, transcript);
 
     if (request) {
@@ -271,6 +294,53 @@ export class Engine {
     for (const subscriber of turn.subscribers) subscriber(event);
   }
 
+  private armWatchdog(id: string, turn: LiveTurn, request: Request | null): void {
+    const timeoutMs = this.config.turnTimeoutMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
+    const timer = setTimeout(() => this.timeoutTurn(id, turn, request, timeoutMs), timeoutMs);
+    timer.unref();
+    this.watchdogs.set(id, timer);
+  }
+
+  private clearWatchdog(id: string): void {
+    const timer = this.watchdogs.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.watchdogs.delete(id);
+  }
+
+  private timeoutTurn(
+    id: string,
+    turn: LiveTurn,
+    request: Request | null,
+    timeoutMs: number,
+  ): void {
+    if (turn.done || turn.cancelled) return;
+    const proc = this.procs.get(id);
+    const stderr = proc?.recentStderr().trim() ?? '';
+    const label = timeoutMs < 1_000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1_000)}s`;
+    const message = `agent turn timed out after ${label}${stderr ? `\nstderr:\n${stderr}` : ''}`;
+    turn.failure = message;
+    // Mark it cancelled so `runTurn` does not broadcast the same failure twice.
+    turn.cancelled = true;
+    this.deps.errors?.error('engine.timeout', new Error(message), {
+      session: id,
+      timeoutMs,
+      ...(stderr ? { stderr } : {}),
+    });
+    this.broadcast(turn, { t: 'error', message });
+    if (proc) {
+      this.procs.delete(id);
+      proc.kill('SIGTERM');
+      const force = setTimeout(() => proc.kill('SIGKILL'), 2_000);
+      force.unref();
+    }
+    // A child that is stuck in `prepare()` may never resolve; finish the turn
+    // here so the stream always receives `done`.
+    this.finishTurn(id, turn, request);
+    turn.resolve();
+  }
+
   private consume(id: string, line: string): void {
     const turn = this.turns.get(id);
     const parser = this.parsers.get(id);
@@ -286,13 +356,21 @@ export class Engine {
   }
 
   private onExit(id: string, code: number | null): void {
+    const proc = this.procs.get(id);
+    const stderr = proc?.recentStderr().trim() ?? '';
     this.procs.delete(id);
     const turn = this.turns.get(id);
     // A harness whose process ends after its final event has already finished
     // the turn normally; only an exit before completion is a failure.
     if (!turn || turn.done || turn.cancelled || this.parsers.get(id)?.finished) return;
-    turn.failure = `agent process exited with code ${code ?? 'unknown'}`;
-    this.deps.errors?.error('engine.exit', new Error(turn.failure), { session: id, code });
+    turn.failure = `agent process exited with code ${code ?? 'unknown'}${
+      stderr ? `\nstderr:\n${stderr}` : ''
+    }`;
+    this.deps.errors?.error('engine.exit', new Error(turn.failure), {
+      session: id,
+      code,
+      ...(stderr ? { stderr } : {}),
+    });
     turn.resolve();
   }
 
@@ -380,20 +458,22 @@ export class Engine {
   async dispose(id: string): Promise<void> {
     const proc = this.procs.get(id);
     const turn = this.turns.get(id);
+    const request = this.repo.get(id);
+    this.clearWatchdog(id);
     proc?.kill();
     this.procs.delete(id);
 
     if (turn && !turn.done) {
-      // A terminal route can dispose a live turn. Resolving it lets `finishTurn`
-      // save the partial transcript, broadcast `done`, and clean up the maps.
+      // A terminal route can dispose a live turn. Finish it so the stream gets
+      // `done` and the maps are cleaned up even if the harness is stuck.
       turn.cancelled = true;
+      this.finishTurn(id, turn, request);
       turn.resolve();
     } else {
       this.turns.delete(id);
       this.parsers.delete(id);
     }
 
-    const request = this.repo.get(id);
     await removeWorktree({
       targetRepo: request?.targetRepo ?? null,
       requestId: id,

@@ -489,3 +489,22 @@ rewrites in-repo links to `?help=<slug>` deep links.
 **Cost.** Adding a page takes a manifest line and a restart. The overlay reads files at
 request time, so a missing `docs/` directory yields an empty manifest and a graceful
 unavailable state. `SBOX_DOCS_DIR` must point at the clone's docs on deploy.
+
+## D35. Turn and tool waits are bounded
+
+**Context.** A harness child can stay alive while producing no stdout, and a setup turn
+can call the brain through MCP with no deadline. Both look like an eternal “Agent is
+working…” in the wizard, and neither writes an error because nothing has failed yet.
+
+**Decision.** Apply three bounded waits. The engine arms a per-turn watchdog
+(`SBOX_TURN_TIMEOUT_MS`, default ten minutes) that emits an error, kills the child, writes
+`engine.timeout`, and finishes with `done` even if the harness is still inside
+`prepare()`. The MCP client races every brain call against `SBOX_MCP_TIMEOUT_MS`
+(default 15 seconds) and returns an `isError` tool result. The cell wizard gives draft
+sync five seconds and renders an inline error with Retry instead of an indefinite
+spinner; chat transport errors also get an inline retry.
+
+**Cost.** A genuinely slow turn must raise the timeout; the default is intentionally
+long. Captured stderr is capped to the last 20 lines and included in the exit/timeout
+error and its log context. A timed-out turn is marked cancelled so the stream does not
+receive the same error twice.

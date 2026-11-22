@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { ProcessEditor } from './ProcessEditor';
@@ -24,6 +24,11 @@ interface CellModalProps {
   onError: (message: string) => void;
 }
 
+const DRAFT_SYNC_TIMEOUT_MS = 5_000;
+const DRAFT_SYNC_DEBOUNCE_MS = 300;
+
+type DraftStatus = 'idle' | 'syncing' | 'ready' | 'error';
+
 /**
  * The cell creation flow: name plus a complete process policy, seeded from the
  * global default. This is where an operator decides what the cell's master should
@@ -41,7 +46,13 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [setupId, setSetupId] = useState<string | null>(null);
-  const [draftReady, setDraftReady] = useState(false);
+  const [draftStatus, setDraftStatus] = useState<DraftStatus>('idle');
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupKey, setSetupKey] = useState(0);
+  const [syncAttempt, setSyncAttempt] = useState(0);
+  const draftReady = draftStatus === 'ready';
+  const draftReadyRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -54,7 +65,11 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     const draftSetupId = setupSessionId(newDraftId);
     setDraftId(newDraftId);
     setSetupId(draftSetupId);
-    setDraftReady(false);
+    setDraftStatus('idle');
+    setDraftError(null);
+    setSetupError(null);
+    setSetupKey(0);
+    setSyncAttempt(0);
     setName(cell?.name ?? '');
     setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
     setMaxConcurrent(String(cell?.maxConcurrent ?? 3));
@@ -103,12 +118,33 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
 
   // Keep the server-side draft in sync so the setup chat can read and edit it.
   useEffect(() => {
+    draftReadyRef.current = draftReady;
+  }, [draftReady]);
+
+  useEffect(() => {
     if (!open || !draftId || !process) return;
+    let cancelled = false;
+    let timeoutTimer: number | undefined;
     const minutes = interval.trim() === '' ? null : Number(interval);
     const concurrency = Number(maxConcurrent);
+
+    setDraftStatus((current) => (current === 'ready' ? current : 'syncing'));
+
     const timer = window.setTimeout(() => {
-      void api
-        .putCellDraft(draftId, {
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutTimer = window.setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Saving the cell draft timed out after ${DRAFT_SYNC_TIMEOUT_MS / 1000} seconds.`,
+              ),
+            ),
+          DRAFT_SYNC_TIMEOUT_MS,
+        );
+      });
+
+      void Promise.race([
+        api.putCellDraft(draftId, {
           name: name.trim() || 'Untitled cell',
           process,
           masterIntervalMinutes:
@@ -121,12 +157,47 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
               : 3,
           model: model || null,
           effort: effort || null,
+        }),
+        timeout,
+      ])
+        .then(() => {
+          if (cancelled) return;
+          setDraftStatus('ready');
+          setDraftError(null);
         })
-        .then(() => setDraftReady(true))
-        .catch((error) => onError(describeError(error)));
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [open, draftId, process, name, interval, maxConcurrent, model, effort]);
+        .catch((error) => {
+          if (cancelled) return;
+          const message = describeError(error);
+          setDraftError(message);
+          if (draftReadyRef.current) {
+            // The chat is already usable; keep it mounted and surface the sync
+            // problem without replacing the conversation with an error state.
+            onError(message);
+          } else {
+            setDraftStatus('error');
+          }
+        })
+        .finally(() => {
+          if (timeoutTimer !== undefined) window.clearTimeout(timeoutTimer);
+        });
+    }, DRAFT_SYNC_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (timeoutTimer !== undefined) window.clearTimeout(timeoutTimer);
+    };
+  }, [
+    open,
+    draftId,
+    process,
+    name,
+    interval,
+    maxConcurrent,
+    model,
+    effort,
+    syncAttempt,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshDraft = useCallback(async () => {
     if (!draftId) return;
@@ -313,13 +384,59 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
             Ask about repo strictness, merge policy, concurrency, or extra handoff steps.
             It proposes settings; you apply them below.
           </p>
+          {draftError && draftReady ? (
+            <p role="alert" className="px-1 text-[11px] text-amber-300">
+              Draft sync warning: {draftError}
+            </p>
+          ) : null}
+          {setupError ? (
+            <div
+              role="alert"
+              className="mx-1 rounded-lg border border-red-900 bg-red-950/40 p-2 text-[11px] text-red-300"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0 break-words">Setup chat error: {setupError}</span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded border border-red-800 px-2 py-0.5 text-[11px] text-red-200 hover:border-red-500 hover:text-white"
+                  onClick={() => {
+                    setSetupError(null);
+                    setSetupKey((key) => key + 1);
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="h-64 overflow-hidden">
-            {setupId && draftReady ? (
+            {draftStatus === 'error' ? (
+              <div
+                role="alert"
+                className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center"
+              >
+                <p className="text-xs font-medium text-red-300">Could not start the setup chat.</p>
+                <p className="max-w-sm break-words text-[11px] text-zinc-500">
+                  {draftError ?? 'The cell draft could not be saved.'}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setDraftError(null);
+                    setSyncAttempt((attempt) => attempt + 1);
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : setupId && draftReady ? (
               <ClarifyChat
+                key={setupKey}
                 requestId={setupId}
                 started
                 commands={commands}
-                onError={onError}
+                onError={setSetupError}
                 onDone={() => void refreshDraft()}
                 placeholder="Ask how this cell should be configured…"
               />

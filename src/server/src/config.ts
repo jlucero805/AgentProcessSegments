@@ -18,6 +18,8 @@ export interface Config {
   processPath: string;
   errorLogPath: string;
   errorLogMaxBytes: number;
+  /** Hard ceiling for one agent turn; a silent child is killed with an error. */
+  turnTimeoutMs: number;
   terminalEnabled: boolean;
   terminalCwd: string;
 }
@@ -58,6 +60,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     errorLogMaxBytes: (() => {
       const value = Number(env.SBOX_ERROR_LOG_MAX_BYTES ?? 2 * 1024 * 1024);
       return Number.isFinite(value) && value > 0 ? value : 2 * 1024 * 1024;
+    })(),
+    // A live but silent CLI must not hold a request open forever. Ten minutes
+    // is the default; override with SBOX_TURN_TIMEOUT_MS.
+    turnTimeoutMs: (() => {
+      const value = Number(env.SBOX_TURN_TIMEOUT_MS ?? 10 * 60 * 1000);
+      return Number.isFinite(value) && value > 0 ? value : 10 * 60 * 1000;
     })(),
     // The browser terminal is a direct shell, separate from agent sessions.
     // Disable with SBOX_TERMINAL=0 when the brain is exposed beyond loopback.

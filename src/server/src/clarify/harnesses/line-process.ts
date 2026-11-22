@@ -16,6 +16,11 @@ export interface LineProcessHooks {
 export abstract class LineProcess implements AgentProcess {
   private readonly lineHandlers: Array<(line: string) => void> = [];
   private readonly exitHandlers: Array<(code: number | null) => void> = [];
+  private stderrLines: string[] = [];
+  private stderrPartial = '';
+
+  private static readonly MAX_STDERR_LINES = 20;
+  private static readonly MAX_STDERR_LINE = 500;
 
   protected emitLine(line: string): void {
     for (const handler of this.lineHandlers) handler(line);
@@ -32,12 +37,36 @@ export abstract class LineProcess implements AgentProcess {
         this.emitLine(line);
       });
     }
-    child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      this.captureStderr(chunk.toString());
+    });
     child.on('exit', (code) => {
       hooks.onExit?.(code);
       this.emitExit(code);
     });
     child.on('error', (error) => this.emitLine(this.errorLine(error)));
+  }
+
+  private captureStderr(text: string): void {
+    this.stderrPartial += text;
+    const lines = this.stderrPartial.split(/\r?\n/);
+    this.stderrPartial = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.slice(0, LineProcess.MAX_STDERR_LINE).trimEnd();
+      if (trimmed === '') continue;
+      this.stderrLines.push(trimmed);
+      if (this.stderrLines.length > LineProcess.MAX_STDERR_LINES) {
+        this.stderrLines = this.stderrLines.slice(-LineProcess.MAX_STDERR_LINES);
+      }
+    }
+  }
+
+  recentStderr(): string {
+    const lines = [...this.stderrLines];
+    const partial = this.stderrPartial.slice(0, LineProcess.MAX_STDERR_LINE).trim();
+    if (partial !== '') lines.push(partial);
+    return lines.slice(-LineProcess.MAX_STDERR_LINES).join('\n');
   }
 
   /** Each CLI has its own error-event shape; turn it into one line for the parser. */

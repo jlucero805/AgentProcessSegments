@@ -4,4 +4,6 @@ export interface AgentProcess {
   kill(signal?: NodeJS.Signals): void;
   onLine(handler: (line: string) => void): void;
   onExit(handler: (code: number | null) => void): void;
+  /** Recent stderr, used to explain an exit or watchdog timeout. */
+  recentStderr(): string;
 }

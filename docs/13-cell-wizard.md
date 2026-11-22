@@ -34,6 +34,23 @@ advance targets, and set cell/segment limits before the cell exists.
 - Closing or saving stops any live setup turn, unmounts the chat, and deletes the draft.
 - A new wizard gets a new draft id; conversations do not leak between cells.
 
+## Failure states
+
+The wizard never leaves the chat spinner running forever.
+
+- Draft sync gets a five-second deadline. A failed or slow `PUT /api/cell-drafts/:id`
+  replaces the spinner with **Could not start the setup chat**, the server message, and
+  **Retry** inside the modal. The page-level error banner is not the only signal.
+- Once the draft is ready, a later sync failure keeps the conversation mounted and shows
+  a draft-sync warning instead of discarding the chat.
+- A chat transport error shows **Setup chat error** with **Retry**, which remounts the
+  chat and rehydrates its transcript.
+- A live driver turn is capped by `SBOX_TURN_TIMEOUT_MS` (default ten minutes). The
+  engine emits `error`, appends the error to the transcript, kills the child, emits
+  `done`, and writes `engine.timeout` with capped stderr.
+- Harness MCP calls to the brain are capped by `SBOX_MCP_TIMEOUT_MS` (default 15
+  seconds) and return an MCP error result instead of waiting forever.
+
 ## Validation
 
 `update_cell_draft` is validated by the brain before it is accepted:

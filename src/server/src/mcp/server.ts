@@ -9,6 +9,8 @@ import { errorMessage } from '../util/errors.js';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+const DEFAULT_MCP_TIMEOUT_MS = 15_000;
+
 export interface BrainResponse {
   ok: boolean;
   status: number;
@@ -20,6 +22,7 @@ export class BrainApi {
   constructor(
     private readonly brainUrl: string,
     private readonly fetchImpl: FetchLike = fetch,
+    private readonly timeoutMs = DEFAULT_MCP_TIMEOUT_MS,
   ) {}
 
   async call(method: string, path: string, body?: unknown): Promise<BrainResponse> {
@@ -29,19 +32,50 @@ export class BrainApi {
       init.headers = { 'content-type': 'application/json' };
     }
 
-    const response = await this.fetchImpl(`${this.brainUrl}${path}`, init);
-    const text = await response.text();
+    const controller = new AbortController();
+    init.signal = controller.signal;
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutMs = this.timeoutMs;
+    const timeout =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              const message = `brain request timed out after ${timeoutMs} ms`;
+              controller.abort(new Error(message));
+              reject(new Error(message));
+            }, timeoutMs);
+            timer.unref?.();
+          })
+        : null;
 
-    let data: unknown = null;
-    if (text !== '') {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = text;
+    const operation = (async () => {
+      const response = await this.fetchImpl(`${this.brainUrl}${path}`, init);
+      return { response, text: await response.text() };
+    })();
+
+    try {
+      const { response, text } = timeout
+        ? await Promise.race([operation, timeout])
+        : await operation;
+
+      let data: unknown = null;
+      if (text !== '') {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = text;
+        }
       }
-    }
 
-    return { ok: response.ok, status: response.status, data };
+      return { ok: response.ok, status: response.status, data };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`brain request timed out after ${timeoutMs} ms`);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }
 
@@ -201,11 +235,13 @@ export interface McpOptions {
   scope?: SessionScope;
   /** Setup wizard draft id, when scope is `setup`. */
   draftId?: string;
+  /** Brain request timeout; defaults to 15 seconds. */
+  timeoutMs?: number;
   fetchImpl?: FetchLike;
 }
 
 export function buildMcpServer(options: McpOptions): McpServer {
-  const api = new BrainApi(options.brainUrl, options.fetchImpl);
+  const api = new BrainApi(options.brainUrl, options.fetchImpl, options.timeoutMs);
   const server = new McpServer({ name: 'harness', version: '0.1.0' });
   const requestId = options.requestId;
   const scope = options.scope ?? (requestId === '' ? 'kb' : 'request');
@@ -312,7 +348,14 @@ async function main(): Promise<void> {
       ? rawScope
       : undefined;
   const draftId = process.env.SBOX_SETUP_DRAFT_ID;
-  const server = buildMcpServer({ brainUrl, requestId, scope, draftId });
+  const timeout = Number(process.env.SBOX_MCP_TIMEOUT_MS ?? 15_000);
+  const server = buildMcpServer({
+    brainUrl,
+    requestId,
+    scope,
+    draftId,
+    timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 15_000,
+  });
   await server.connect(new StdioServerTransport());
 }
 

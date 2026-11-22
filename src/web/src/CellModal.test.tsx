@@ -84,6 +84,60 @@ describe('CellModal', () => {
     expect(created?.process?.segments).toHaveLength(6);
   });
 
+  it('shows an inline error and Retry when the setup draft cannot sync', async () => {
+    let draftAttempts = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/process') return jsonResponse(makeProcessResponse());
+        if (url === '/api/models') {
+          return jsonResponse({
+            models: [],
+            source: 'fallback',
+            effortLevels: ['low', 'medium', 'high'],
+            supportsEffort: true,
+          });
+        }
+        if (url.startsWith('/api/cell-drafts/') && init?.method === 'PUT') {
+          draftAttempts += 1;
+          if (draftAttempts === 1) {
+            return jsonResponse({ error: 'invalid', message: 'draft rejected' }, 400);
+          }
+          return jsonResponse({ id: 'draft-1', name: 'Draft' });
+        }
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        return jsonResponse([]);
+      }),
+    );
+    const onError = vi.fn();
+
+    render(
+      <CellModal
+        open
+        cell={null}
+        commands={[]}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onError={onError}
+      />,
+    );
+
+    expect(await screen.findByText('Could not start the setup chat.')).toBeInTheDocument();
+    expect(screen.queryByText('Starting setup chat…')).not.toBeInTheDocument();
+    expect(screen.getByText(/draft rejected/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(onError).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(
+      await screen.findByPlaceholderText('Ask how this cell should be configured…'),
+    ).toBeInTheDocument();
+    expect(draftAttempts).toBe(2);
+  });
+
   it('edits an existing cell without requiring a fetch', async () => {
     const cell: CellDetail = {
       id: 'c1',

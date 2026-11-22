@@ -61,6 +61,7 @@ export function defaultScript(): string[] {
 /** Test double for a harness process; scripted lines stand in for the CLI. */
 export class FakeAgentProcess implements AgentProcess {
   readonly messages: string[] = [];
+  stderrText = '';
   killed = false;
 
   private readonly lineHandlers: Array<(line: string) => void> = [];
@@ -79,6 +80,14 @@ export class FakeAgentProcess implements AgentProcess {
 
   kill(): void {
     this.killed = true;
+  }
+
+  recentStderr(): string {
+    return this.stderrText;
+  }
+
+  emitStderr(text: string): void {
+    this.stderrText += this.stderrText === '' ? text : `\n${text}`;
   }
 
   onLine(handler: (line: string) => void): void {

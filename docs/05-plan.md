@@ -192,4 +192,7 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **33. In-app Help** — manifest-backed docs API, sidebar Help overlay, grouped nav,
   markdown with anchors, copy-as-Markdown, `?help` deep links, screenshot assets,
   traversal guards, and tests.
-- [ ] **Backlog 34. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **34. Setup-chat hang hardening** — inline wizard draft-sync error + Retry,
+  per-turn watchdog, MCP fetch timeout, capped stderr in exit/timeout errors, tests and
+  docs.
+- [ ] **Backlog 35. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

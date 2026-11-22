@@ -134,6 +134,10 @@ the screenshots, with grouped navigation and `?help=<slug>` deep links. The brai
 them from `SBOX_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
 build.
 
+Agent turns are bounded by `SBOX_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
+child is killed and produces a visible error, and its recent stderr goes to the error log.
+Harness MCP calls time out after `SBOX_MCP_TIMEOUT_MS` (default 15 seconds).
+
 `SBOX_HARNESS=opencode` swaps the agent substrate; `SBOX_HARNESS_BIN` overrides the
 binary. The default is `claude`.
 
@@ -224,14 +228,15 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 228 vitest cases: 151 server cases (state machine, migrations including
+`npm test` runs 232 vitest cases: 154 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
-the generic master pipeline, segment caps and merge, docs manifest/traversal/HTTP,
-error-log format/rotation, skill discovery, terminal session lifecycle, and the HTTP API
-over a real socket) and 77 web cases (shared contract re-exports, NDJSON client, chat
+the generic master pipeline, segment caps and merge, turn watchdogs/stderr, docs
+manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal session
+lifecycle, and the HTTP API
+over a real socket) and 78 web cases (shared contract re-exports, NDJSON client, chat
 folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
 board, create modal, composer, cell bar, cell creation, config/process editor, master
 detail, and the app shell with the drawer and chat mounted under jsdom).

@@ -69,7 +69,12 @@ built and vended by the brain; real-CLI verification is still pending.
 - Engine: one persistent child per request, buffered live turns with reattach,
   transcript and session persistence, `--resume` on later spawns, agent status
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
-  terminal transitions.
+  terminal transitions. Every turn has a `SBOX_TURN_TIMEOUT_MS` watchdog (default 10
+  minutes) that emits an error, kills a silent child, records `engine.timeout`, and
+  finishes with `done`. Early exits and timeouts include capped child stderr.
+- Cell wizard failure handling: draft sync shows an inline error with Retry after 5 s
+  instead of an endless “Starting setup chat…” spinner. Chat transport errors get an
+  inline retry that remounts the setup chat without closing the wizard.
 - Stream parser: the full claude stream-json mapping (init, deltas, tool_use,
   tool_result, result) with ordered transcript, duplicate-text protection, and capped
   tool output.
@@ -78,7 +83,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - MCP server (`src/mcp/server.ts`): stdio server scoped by `SBOX_REQUEST_ID`, proxying
   to the loopback API. Request sessions get `update_request`, `get_request`,
   `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and
-  `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool.
+  `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool. Brain calls have a
+  `SBOX_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
+  stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
   probe behind one interface. `claude` is the default; `SBOX_HARNESS=opencode` selects
   the OpenCode adapter, which runs `opencode run --format json --auto --standalone` per
@@ -152,16 +159,16 @@ built and vended by the brain; real-CLI verification is still pending.
 - Error log: explicit failure paths append NDJSON to
   `$XDG_STATE_HOME/sandbox-harness/errors.log` (`SBOX_ERROR_LOG`,
   `SBOX_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
-  process files, unexpected HTTP 5xx, engine turn/exit failures, master turn/cycle
-  failures, and PTY open failures. Normal logs and expected 4xx responses are not
-  persisted. See `docs/10-error-log.md`.
+  process files, unexpected HTTP 5xx, engine turn/exit/timeout failures, master
+  turn/cycle failures, and PTY open failures. Normal logs and expected 4xx responses are
+  not persisted. See `docs/10-error-log.md`.
 - Chat slash menu: combines installed plugin commands/skills with skills discovered from
   `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, and project
   `.opencode`/`.claude`/`.agents` skill directories. Request chats also discover skills
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 228 vitest cases, all passing: 151 server across 19 files and 77 web across 16 files,
+- 232 vitest cases, all passing: 154 server across 19 files and 78 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

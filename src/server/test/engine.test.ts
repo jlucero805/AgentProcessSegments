@@ -282,4 +282,61 @@ describe('turn engine', () => {
     expect(h.repo.require(request.id).agentStatus).toBe('idle');
     expect(h.engine.hasLive(request.id)).toBe(false);
   });
+
+  it('includes recent child stderr when a process exits early', async () => {
+    const h = fresh(() => []);
+    const request = h.repo.create({ title: 'Stderr exit' });
+
+    const turn = await h.engine.start(request.id);
+    await settle();
+    h.harness.process?.emitStderr('authentication failed: no credentials');
+    h.harness.process?.emitExit(1);
+
+    await turn.promise;
+    await settle();
+
+    const error = turn.events.find((event) => event.t === 'error');
+    expect(error?.t).toBe('error');
+    if (error?.t === 'error') {
+      expect(error.message).toContain('authentication failed: no credentials');
+    }
+    expect(
+      h.engine
+        .transcript(request.id)
+        .some((message) => message.text.includes('authentication failed: no credentials')),
+    ).toBe(true);
+  });
+
+  it('times out a silent turn and emits an error plus done', async () => {
+    const h = fresh(() => []);
+    h.config.turnTimeoutMs = 25;
+    const request = h.repo.create({ title: 'Silent' });
+
+    const turn = await h.engine.start(request.id);
+    await settle();
+    h.harness.process?.emitStderr('stuck in MCP handshake');
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    await turn.promise;
+    await settle();
+
+    const error = turn.events.find((event) => event.t === 'error');
+    expect(error?.t).toBe('error');
+    if (error?.t === 'error') {
+      expect(error.message).toContain('timed out after');
+      expect(error.message).toContain('stuck in MCP handshake');
+    }
+    expect(turn.events.some((event) => event.t === 'done')).toBe(true);
+    const done = turn.events.find((event) => event.t === 'done');
+    if (done?.t === 'done') {
+      expect(done.transcript.some((message) => message.text.includes('timed out after'))).toBe(
+        true,
+      );
+    }
+    expect(h.harness.process?.killed).toBe(true);
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
+    expect(h.engine.hasLive(request.id)).toBe(false);
+    expect(
+      h.engine.transcript(request.id).some((message) => message.text.includes('timed out after')),
+    ).toBe(true);
+  });
 });

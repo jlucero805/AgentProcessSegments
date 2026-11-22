@@ -31,8 +31,9 @@ Fields:
 | `name`, `message`, `stack` | Standard `Error` fields when available |
 | `context` | Small identifiers such as session, cell, request, method, URL |
 
-The logger never includes request bodies, prompts, transcripts, tokens, agent output, or
-environment values.
+The logger never includes request bodies, prompts, transcripts, tokens, or environment
+values. `engine.exit` and `engine.timeout` may include the last capped lines of child
+stderr; that is diagnostic output, not a prompt or transcript.
 
 ## Instrumented sites
 
@@ -43,7 +44,8 @@ environment values.
 | `process.invalid` / `process.unreadable` | `process.json` is invalid or unreadable |
 | `http.request` | An unexpected 5xx from the HTTP layer (includes request id/method/URL) |
 | `engine.turn` | An agent turn throws or fails |
-| `engine.exit` | An agent process exits before completing a turn |
+| `engine.exit` | An agent process exits before completing a turn (includes recent stderr) |
+| `engine.timeout` | A turn exceeds `SBOX_TURN_TIMEOUT_MS`; the child is killed and the turn is closed |
 | `master.turn` | A master turn fails for a request (cell, request, segment) |
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |

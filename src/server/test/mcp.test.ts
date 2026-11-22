@@ -60,6 +60,7 @@ async function connect(
   requestId: string,
   scope?: 'request' | 'kb' | 'master' | 'setup',
   draftId?: string,
+  options: { fetchImpl?: FetchLike; timeoutMs?: number } = {},
 ): Promise<{
   client: Client;
   calls: Recorded[];
@@ -71,7 +72,8 @@ async function connect(
     requestId,
     scope,
     draftId,
-    fetchImpl,
+    fetchImpl: options.fetchImpl ?? fetchImpl,
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -159,6 +161,18 @@ describe('harness mcp server', () => {
       path: '/api/cell-drafts/draft-1',
       body: { maxConcurrent: 2 },
     });
+  });
+
+  it('turns a stalled brain request into an MCP error result', async () => {
+    const never: FetchLike = () => new Promise<Response>(() => {});
+    const { call } = await connect('', 'master', undefined, {
+      fetchImpl: never,
+      timeoutMs: 20,
+    });
+
+    const result = await call('list_kb');
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('timed out after 20 ms');
   });
 
   it('defaults get_request to the scoped request', async () => {

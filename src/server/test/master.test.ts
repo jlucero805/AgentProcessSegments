@@ -103,6 +103,22 @@ function age(fixture: Fixture, requestId: string, ageMs: number): void {
   fixture.db.prepare('UPDATE master_events SET created_at = ? WHERE request_id = ?').run(at, requestId);
 }
 
+function requestInState(
+  fixture: Fixture,
+  title: string,
+  state: string,
+  cellId: string | null,
+  ageMs = 10 * 60_000,
+) {
+  const request = fixture.repo.create({ title, cellId });
+  fixture.db
+    .prepare(
+      "UPDATE requests SET state = ?, clarify_started = 1, agent_status = 'idle', updated_at = ? WHERE id = ?",
+    )
+    .run(state, Date.now() - ageMs, request.id);
+  return fixture.repo.require(request.id);
+}
+
 describe('MasterService', () => {
   it('prods an idle dispatch request and moves it to Review on the marker', async () => {
     const fixture = setup();
@@ -280,6 +296,35 @@ describe('MasterService', () => {
 
     fixture.repo.setAgentStatus(working.id, 'idle');
     age(fixture, request.id, 2 * 60_000);
+    const allowed = await fixture.service.runOnce();
+    expect(allowed.prodded).toBe(1);
+  });
+
+  it('serializes a merge segment with its own concurrency cap', async () => {
+    const process = processFor((config) => {
+      segment(config, 'implement').enabled = false;
+      const merge = segment(config, 'merge');
+      merge.enabled = true;
+      merge.idleMinutes = 1;
+      merge.maxPerCycle = 1;
+      merge.maxConcurrent = 1;
+      merge.readyMarker = null;
+      merge.advanceTo = null;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Merge cell', null, null, { maxConcurrent: 5 });
+    const working = requestInState(fixture, 'Merging now', 'merge', cell.id);
+    fixture.repo.setAgentStatus(working.id, 'working');
+    const waiting = requestInState(fixture, 'Next merge', 'merge', cell.id);
+
+    const blocked = await fixture.service.runOnce();
+    expect(blocked.prodded).toBe(0);
+    expect(
+      fixture.events.list().some((event) => event.detail.includes('segment concurrency limit')),
+    ).toBe(true);
+
+    fixture.repo.setAgentStatus(working.id, 'idle');
+    age(fixture, waiting.id, 2 * 60_000);
     const allowed = await fixture.service.runOnce();
     expect(allowed.prodded).toBe(1);
   });

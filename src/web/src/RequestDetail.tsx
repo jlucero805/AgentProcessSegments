@@ -41,6 +41,7 @@ const STATE_TONES: Record<State, 'purple' | 'blue' | 'amber' | 'green' | 'red' |
   clarify: 'purple',
   dispatch: 'blue',
   review: 'amber',
+  merge: 'blue',
   finalize: 'green',
   done: 'green',
   dropped: 'red',
@@ -240,11 +241,23 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       states.push({ key: 'clarify', label: 'Back to plan', run: () => transitionTo('clarify') });
     } else if (request.state === 'review') {
       states.push({
+        key: 'merge',
+        label: 'Send to merge',
+        run: () => transitionTo('merge'),
+      });
+      states.push({
         key: 'finalize',
         label: 'Finalize',
         run: () => runStream(`/api/requests/${encodeURIComponent(id)}/finalize`, 'finalize'),
       });
       states.push({ key: 'dispatch', label: 'Back to implement', run: () => transitionTo('dispatch') });
+    } else if (request.state === 'merge') {
+      states.push({
+        key: 'finalize',
+        label: 'Finalize',
+        run: () => runStream(`/api/requests/${encodeURIComponent(id)}/finalize`, 'finalize'),
+      });
+      states.push({ key: 'review', label: 'Back to review', run: () => transitionTo('review') });
     }
     if (request.state !== 'done' && request.state !== 'dropped') {
       states.push({ key: 'drop', label: 'Drop', run: dropRequest, tone: 'danger' });

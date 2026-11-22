@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { ZodError, z } from 'zod';
 import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
-import { KB_SESSION_ID, masterCellId, isMasterSession } from '../clarify/engine.js';
+import { KB_SESSION_ID, isMasterSession, isSetupSession, masterCellId } from '../clarify/engine.js';
 import { isVirtualSessionId } from '../clarify/engine.js';
 import type { ModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
@@ -22,8 +22,9 @@ import type { ErrorSink } from '../logging/errors.js';
 import type { MasterEventRepository } from '../master/events.js';
 import type { MasterScheduler } from '../master/scheduler.js';
 import { PluginError, type PluginManager } from '../plugins/manager.js';
-import { processSchema } from '../process/defaults.js';
+import { processSchema, segmentSchema } from '../process/defaults.js';
 import type { ProcessStore } from '../process/store.js';
+import type { CellDraftStore } from '../cells/drafts.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
@@ -34,6 +35,7 @@ import { errorMessage } from '../util/errors.js';
 export interface ServerDeps {
   repo: RequestRepository;
   cells: CellRepository;
+  drafts: CellDraftStore;
   kb: KbRepository;
   engine: Engine;
   models: ModelCatalog;
@@ -104,6 +106,29 @@ const cellSchema = z.object({
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
 });
+const cellDraftSchema = z.object({
+  name: z.string().min(1),
+  process: processSchema,
+  masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable(),
+  maxConcurrent: z.number().int().min(1).max(50),
+  model: z.string().nullable(),
+  effort: z.enum(EFFORT_LEVELS).nullable(),
+});
+const cellDraftPatchSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    process: processSchema.optional(),
+    segments: z.array(segmentSchema).optional(),
+    masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
+    maxConcurrent: z.number().int().min(1).max(50).optional(),
+    model: z.string().nullable().optional(),
+    effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      Object.values(value).some((field) => field !== undefined),
+    { message: 'at least one draft field is required' },
+  );
 const cellPatchSchema = z
   .object({
     name: z.string().min(1).optional(),
@@ -235,6 +260,7 @@ function sessionTurn(
   context?: string,
 ): Promise<LiveTurn> {
   if (id === KB_SESSION_ID) return engine.startKb(text ?? '');
+  if (isSetupSession(id)) return engine.startSetup(text ?? '', id);
   if (isMasterSession(id)) return engine.startMaster(text ?? '', id, context);
   return text === undefined ? engine.start(id) : engine.send(id, text);
 }
@@ -253,6 +279,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const {
     repo,
     cells,
+    drafts,
     kb,
     engine,
     models,
@@ -487,6 +514,47 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/cells', async () => cells.list());
+
+  app.get('/api/cell-drafts/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const draft = drafts.get(id);
+    if (!draft) return reply.code(404).send({ error: 'not_found' });
+    return draft;
+  });
+
+  app.put('/api/cell-drafts/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const input = cellDraftSchema.parse(request.body);
+    return drafts.put({ id, ...input });
+  });
+
+  app.patch('/api/cell-drafts/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const current = drafts.get(id);
+    if (!current) return reply.code(404).send({ error: 'not_found' });
+    const input = cellDraftPatchSchema.parse(request.body);
+    let process = current.process;
+    if (input.process !== undefined) process = input.process;
+    if (input.segments !== undefined) {
+      process = processSchema.parse({ version: 1, segments: input.segments });
+    }
+    return drafts.patch(id, {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.masterIntervalMinutes !== undefined
+        ? { masterIntervalMinutes: input.masterIntervalMinutes }
+        : {}),
+      ...(input.maxConcurrent !== undefined ? { maxConcurrent: input.maxConcurrent } : {}),
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      process,
+    });
+  });
+
+  app.delete('/api/cell-drafts/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    drafts.remove(id);
+    return reply.code(204).send();
+  });
 
   app.get('/api/cells/:id', async (request) => {
     const { id } = request.params as { id: string };

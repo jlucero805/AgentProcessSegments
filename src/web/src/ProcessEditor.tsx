@@ -102,6 +102,7 @@ export function ProcessEditor({
               </Badge>
               <span className="text-[11px] text-zinc-500">
                 {segment.idleMinutes}m idle · {segment.advanceTo ? `→ ${segment.advanceTo}` : 'stays'}
+                {segment.maxConcurrent !== null ? ` · max ${segment.maxConcurrent}` : ''}
               </span>
               <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-600">
                 {segment.purpose}
@@ -115,7 +116,7 @@ export function ProcessEditor({
                 onChange={(event) => onChange(segment.id, 'enabled', event.target.checked)}
               />
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Idle threshold (minutes)">
                   <Input
                     type="number"
@@ -135,6 +136,22 @@ export function ProcessEditor({
                     value={segment.maxPerCycle}
                     onChange={(event) =>
                       onChange(segment.id, 'maxPerCycle', Number(event.target.value))
+                    }
+                  />
+                </Field>
+                <Field label="Segment concurrency" hint="empty uses cell cap">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={segment.maxConcurrent ?? ''}
+                    placeholder="cell cap"
+                    onChange={(event) =>
+                      onChange(
+                        segment.id,
+                        'maxConcurrent',
+                        event.target.value === '' ? null : Number(event.target.value),
+                      )
                     }
                   />
                 </Field>

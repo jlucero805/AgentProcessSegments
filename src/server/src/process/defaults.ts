@@ -38,11 +38,21 @@ const FINALIZE_PROMPT = [
   'Do not close the request; a human approves indexing into the knowledge base.',
 ].join('\n');
 
+const MERGE_PROMPT = [
+  'You are the single merge worker for this cell.',
+  'Rebase the request branch onto the target branch, resolve conflicts, run the tests,',
+  'then push the merged result to origin. Do not start another merge; the master',
+  'serializes this segment so merge workers do not step on each other.',
+  'When the push succeeds, finish your reply with the exact line:',
+  READY_TO_FINALIZE,
+].join('\n');
+
 export const DEFAULT_SEGMENT_PROMPTS: Record<SegmentId, string> = {
   intake: '',
   plan: PLAN_PROMPT,
   implement: '',
   review: REVIEW_PROMPT,
+  merge: MERGE_PROMPT,
   finalize: FINALIZE_PROMPT,
 };
 
@@ -58,6 +68,7 @@ export const segmentSchema = z.object({
   enabled: z.boolean(),
   idleMinutes: z.number().int().min(1).max(24 * 60),
   maxPerCycle: z.number().int().min(1).max(50),
+  maxConcurrent: z.number().int().min(1).max(50).nullable(),
   prompt: z.string().max(8000),
   readyMarker: z.string().min(1).max(200).nullable(),
   advanceTo: z.enum(STATES).nullable(),
@@ -125,6 +136,50 @@ export const processSchema: z.ZodType<ProcessConfig> = processShape.superRefine(
 
 export const processPatchSchema = z.object({ segments: z.array(segmentSchema) });
 
+export function defaultMergeSegment(): SegmentConfig {
+  return {
+    id: 'merge',
+    label: 'Merge',
+    purpose: 'Rebase and push one request at a time, then hand it to Finalize.',
+    enabled: false,
+    idleMinutes: 10,
+    maxPerCycle: 10,
+    maxConcurrent: 1,
+    prompt: MERGE_PROMPT,
+    readyMarker: READY_TO_FINALIZE,
+    advanceTo: 'finalize',
+    followUps: { enabled: false, marker: DEFAULT_FOLLOW_UP_MARKER },
+  };
+}
+
+/** Upgrade old five-segment files by inserting the disabled Merge segment. */
+export function normalizeProcess(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  const record = input as Record<string, unknown>;
+  if (!Array.isArray(record['segments'])) return input;
+  if (
+    record['segments'].some(
+      (segment) =>
+        typeof segment === 'object' &&
+        segment !== null &&
+        (segment as { id?: unknown }).id === 'merge',
+    )
+  ) {
+    return input;
+  }
+  const segments = [...record['segments']];
+  const reviewIndex = segments.findIndex(
+    (segment) =>
+      typeof segment === 'object' &&
+      segment !== null &&
+      (segment as { id?: unknown }).id === 'review',
+  );
+  /* v8 ignore next -- old configs always have review; keep this defensive */
+  const insertAt = reviewIndex >= 0 ? reviewIndex + 1 : segments.length;
+  segments.splice(insertAt, 0, defaultMergeSegment());
+  return { ...record, segments };
+}
+
 /** Conservative defaults: only the existing implement prod/review loop is on. */
 export function defaultProcess(master: MasterConfig): ProcessConfig {
   const segment = (
@@ -139,6 +194,7 @@ export function defaultProcess(master: MasterConfig): ProcessConfig {
     enabled: false,
     idleMinutes: master.idleMinutes,
     maxPerCycle: 5,
+    maxConcurrent: null,
     prompt: DEFAULT_SEGMENT_PROMPTS[id],
     readyMarker: null,
     advanceTo: null,
@@ -174,6 +230,17 @@ export function defaultProcess(master: MasterConfig): ProcessConfig {
         'Review',
         'Check the implementation and decide whether to finalize or send it back.',
         { readyMarker: READY_TO_FINALIZE, advanceTo: 'finalize' },
+      ),
+      segment(
+        'merge',
+        'Merge',
+        'Rebase and push one request at a time, then hand it to Finalize.',
+        {
+          maxConcurrent: 1,
+          maxPerCycle: 10,
+          readyMarker: READY_TO_FINALIZE,
+          advanceTo: 'finalize',
+        },
       ),
       segment(
         'finalize',

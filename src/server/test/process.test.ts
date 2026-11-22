@@ -62,6 +62,7 @@ describe('process definition', () => {
       plan: 'clarify',
       implement: 'dispatch',
       review: 'review',
+      merge: 'merge',
       finalize: 'finalize',
     });
     expect(READY_FOR_IMPLEMENTATION).toBe('READY FOR IMPLEMENTATION');
@@ -88,8 +89,19 @@ describe('ProcessStore', () => {
 
     expect(segmentBy(saved, 'intake').enabled).toBe(true);
     expect(seen).toHaveLength(1);
-    expect(JSON.parse(readFileSync(file, 'utf8')).segments).toHaveLength(5);
+    expect(JSON.parse(readFileSync(file, 'utf8')).segments).toHaveLength(6);
     expect(segmentBy(new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).get(), 'intake').enabled).toBe(true);
+  });
+
+  it('upgrades an old five-segment process by adding Merge', () => {
+    const file = tempFile();
+    const old = defaultProcess(DEFAULT_SETTINGS.master);
+    old.segments = old.segments.filter((segment) => segment.id !== 'merge');
+    writeFileSync(file, JSON.stringify(old));
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.get().segments.map((segment) => segment.id)).toEqual([...SEGMENT_IDS]);
+    expect(segmentBy(store.get(), 'merge').enabled).toBe(false);
   });
 
   it('falls back for an invalid file and rejects invalid patches', () => {

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CellDraftStore } from '../src/cells/drafts.js';
 import { ModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { MASTER_SESSION_ID } from '../src/clarify/engine.js';
 import { buildServer } from '../src/http/server.js';
@@ -40,6 +41,7 @@ async function makeApp(
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
+    drafts: new CellDraftStore(),
     kb: h.kb,
     engine: h.engine,
     models: new ModelCatalog({ probeModels: async () => null, fallbackModels: HARDCODED_MODELS }),
@@ -239,7 +241,7 @@ describe('http api', () => {
 
     const before = await call('GET', '/api/process');
     expect(before.status).toBe(200);
-    expect(before.json().segments).toHaveLength(5);
+    expect(before.json().segments).toHaveLength(6);
     expect(before.json().path).toContain('process.json');
     const segments = before.json().segments as Array<{ id: string; enabled: boolean }>;
     const intake = segments.find((segment) => segment.id === 'intake');
@@ -308,7 +310,7 @@ describe('http api', () => {
     ).toBe(true);
 
     const detail = await call('GET', `/api/cells/${created.json().id}`);
-    expect(detail.json().process.segments).toHaveLength(5);
+    expect(detail.json().process.segments).toHaveLength(6);
 
     const cleared = await call('PATCH', `/api/cells/${created.json().id}`, { process: null });
     expect(cleared.json().process).toBeNull();
@@ -514,6 +516,53 @@ describe('http api', () => {
 
     const status = await call('GET', `/api/master/status?cellId=${cell.id}`);
     expect(status.json()).toMatchObject({ enabled: true, intervalMinutes: 3 });
+  });
+
+  it('stores and patches transient cell drafts', async () => {
+    await makeApp();
+    const process = (await call('GET', '/api/process')).json();
+    const id = 'draft-test';
+    const created = await call('PUT', `/api/cell-drafts/${id}`, {
+      name: 'Draft cell',
+      process: { version: 1, segments: process.segments },
+      masterIntervalMinutes: 5,
+      maxConcurrent: 3,
+      model: null,
+      effort: null,
+    });
+    expect(created.status).toBe(200);
+    expect(created.json().name).toBe('Draft cell');
+
+    const segments = created.json().process.segments as Array<{ id: string; enabled: boolean }>;
+    const intake = segments.find((segment) => segment.id === 'intake');
+    if (!intake) throw new Error('missing intake');
+    intake.enabled = true;
+    const patched = await call('PATCH', `/api/cell-drafts/${id}`, { segments });
+    expect(patched.status).toBe(200);
+    expect(
+      patched.json().process.segments.find((segment: { id: string }) => segment.id === 'intake')
+        .enabled,
+    ).toBe(true);
+    expect((await call('GET', `/api/cell-drafts/${id}`)).json().maxConcurrent).toBe(3);
+    expect((await call('DELETE', `/api/cell-drafts/${id}`)).status).toBe(204);
+    expect((await call('GET', `/api/cell-drafts/${id}`)).status).toBe(404);
+  });
+
+  it('serves a transient cell-setup chat', async () => {
+    const { h } = await makeApp();
+    const session = '__setup__:draft-1';
+    const sent = await call('POST', `/api/requests/${session}/clarify/send`, {
+      text: 'suggest defaults',
+    });
+    expect(sent.status).toBe(200);
+    expect(sent.text).toContain('"t":"done"');
+    expect(h.harness.sessions[0]).toMatchObject({
+      scope: 'setup',
+      requestId: '',
+      draftId: 'draft-1',
+    });
+    const snapshot = await call('GET', `/api/requests/${session}/clarify`);
+    expect(snapshot.json().started).toBe(true);
   });
 
   it('stops a live turn over HTTP', async () => {

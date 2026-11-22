@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { ErrorSink } from '../logging/errors.js';
 import type { ProcessConfig } from './definition.js';
-import { processPatchSchema, processSchema } from './defaults.js';
+import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
 
 /**
  * Persistent process definitions, separate from the scheduler's master policy.
@@ -56,7 +56,7 @@ export class ProcessStore {
     }
 
     try {
-      const result = processSchema.safeParse(JSON.parse(raw));
+      const result = processSchema.safeParse(normalizeProcess(JSON.parse(raw)));
       if (!result.success) {
         this.errors?.error('process.invalid', new Error(result.error.message), {
           path: this.path,

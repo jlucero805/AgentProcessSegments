@@ -102,7 +102,7 @@ try {
     throw new Error(`Tailwind did not apply; root background is ${background}`);
   }
 
-  for (const label of ['Requests', 'Plan', 'Implement', 'Review', 'Finalize']) {
+  for (const label of ['Requests', 'Plan', 'Implement', 'Review', 'Merge', 'Finalize']) {
     if (!(await hasText(label))) throw new Error(`board column missing: ${label}`);
   }
 

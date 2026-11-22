@@ -1,5 +1,6 @@
 import type {
   CellDetail,
+  CellDraft,
   ClarifyEvent,
   ClarifyState,
   CommandInfo,
@@ -244,6 +245,21 @@ export const api = {
   },
   getSkills(requestId?: string): Promise<SkillInfo[]> {
     return request(withQuery('/api/skills', { requestId }));
+  },
+  getCellDraft(id: string): Promise<CellDraft> {
+    return request(`/api/cell-drafts/${encodeURIComponent(id)}`);
+  },
+  putCellDraft(
+    id: string,
+    draft: Omit<CellDraft, 'id' | 'updatedAt'>,
+  ): Promise<CellDraft> {
+    return request(`/api/cell-drafts/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(draft),
+    });
+  },
+  deleteCellDraft(id: string): Promise<void> {
+    return request(`/api/cell-drafts/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   getConfig(): Promise<ConfigResponse> {
     return request('/api/config');

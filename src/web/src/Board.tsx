@@ -24,6 +24,7 @@ const QUERIES: Record<Column, Record<string, string>> = {
   clarify: { state: 'clarify' },
   dispatch: { state: 'dispatch' },
   review: { state: 'review' },
+  merge: { state: 'merge' },
   finalize: { state: 'finalize' },
 };
 
@@ -98,6 +99,8 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
           await api.kickoffDispatch(id);
         } else if (target === 'review') {
           await api.transition(id, 'review');
+        } else if (target === 'merge') {
+          await api.transition(id, 'merge');
         } else if (target === 'finalize') {
           await api.kickoffFinalize(id);
         } else {
@@ -142,7 +145,7 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
   }
 
   return (
-    <div className="flex h-full snap-x snap-mandatory gap-3 overflow-x-auto p-3 md:grid md:grid-cols-5 md:gap-3 md:overflow-visible md:p-4">
+    <div className="flex h-full snap-x snap-mandatory gap-3 overflow-x-auto p-3 md:grid md:grid-cols-6 md:gap-3 md:overflow-visible md:p-4">
       {COLUMNS.map((column) => {
         const cards = byColumn(column);
         return (

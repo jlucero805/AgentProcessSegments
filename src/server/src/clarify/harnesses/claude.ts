@@ -10,6 +10,7 @@ import {
   KB_TOOLS,
   MASTER_TOOLS,
   REQUEST_TOOLS,
+  SETUP_TOOLS,
   type AgentHarness,
   type HarnessCommand,
   type HarnessSession,
@@ -144,7 +145,13 @@ export class ClaudeHarness implements AgentHarness {
     const requestScope = session.scope === 'request';
     const userServers = requestScope ? claudeUserMcpServers(this.home, session.cwd) : {};
     const baseTools =
-      session.scope === 'kb' ? KB_TOOLS : session.scope === 'master' ? MASTER_TOOLS : REQUEST_TOOLS;
+      session.scope === 'kb'
+        ? KB_TOOLS
+        : session.scope === 'master'
+          ? MASTER_TOOLS
+          : session.scope === 'setup'
+            ? SETUP_TOOLS
+            : REQUEST_TOOLS;
     const allowedTools = [...baseTools];
     for (const name of Object.keys(userServers)) allowedTools.push(`mcp__${name}__*`);
 
@@ -157,6 +164,7 @@ export class ClaudeHarness implements AgentHarness {
           SBOX_BRAIN_URL: this.brainUrl,
           SBOX_REQUEST_ID: session.requestId,
           SBOX_SESSION_SCOPE: session.scope,
+          ...(session.draftId ? { SBOX_SETUP_DRAFT_ID: session.draftId } : {}),
         },
       },
     };

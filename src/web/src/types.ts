@@ -44,13 +44,16 @@ export { SEGMENT_IDS, SEGMENT_STATES } from '../../server/src/process/definition
 export {
   KB_SESSION_ID,
   MASTER_SESSION_ID,
+  SETUP_SESSION_PREFIX,
   isMasterSession,
+  isSetupSession,
   isVirtualSessionId,
   masterCellId,
   masterSessionId,
+  setupSessionId,
 } from '../../server/src/domain/sessions';
 
-import type { AgentStatus, Request, State, TranscriptMsg } from '../../server/src/domain/request';
+import type { AgentStatus, Effort, Request, State, TranscriptMsg } from '../../server/src/domain/request';
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
 import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
@@ -76,6 +79,17 @@ export interface ProcessResponse extends ProcessConfig {
   path: string;
 }
 
+export interface CellDraft {
+  id: string;
+  name: string;
+  masterIntervalMinutes: number | null;
+  maxConcurrent: number;
+  model: string | null;
+  effort: Effort | null;
+  process: ProcessConfig;
+  updatedAt: number;
+}
+
 export interface TerminalStatus {
   available: boolean;
   cwd: string;
@@ -89,14 +103,22 @@ export interface ClarifyState {
   active?: boolean;
 }
 
-export type Column = 'intake' | 'clarify' | 'dispatch' | 'review' | 'finalize';
-export const COLUMNS: readonly Column[] = ['intake', 'clarify', 'dispatch', 'review', 'finalize'];
+export type Column = 'intake' | 'clarify' | 'dispatch' | 'review' | 'merge' | 'finalize';
+export const COLUMNS: readonly Column[] = [
+  'intake',
+  'clarify',
+  'dispatch',
+  'review',
+  'merge',
+  'finalize',
+];
 
 export const COLUMN_LABELS: Record<Column, string> = {
   intake: 'Requests',
   clarify: 'Plan',
   dispatch: 'Implement',
   review: 'Review',
+  merge: 'Merge',
   finalize: 'Finalize',
 };
 
@@ -105,6 +127,7 @@ export const STATE_LABELS: Record<State, string> = {
   clarify: 'Clarify',
   dispatch: 'Implement',
   review: 'Review',
+  merge: 'Merge',
   finalize: 'Finalize',
   done: 'Done',
   dropped: 'Dropped',
@@ -116,6 +139,7 @@ export const COLUMN_STATE: Record<Column, State | null> = {
   clarify: 'clarify',
   dispatch: 'dispatch',
   review: 'review',
+  merge: 'merge',
   finalize: 'finalize',
 };
 
@@ -123,6 +147,7 @@ export function columnOf(request: Pick<Request, 'state' | 'clarifyStarted'>): Co
   if (request.state === 'clarify') return request.clarifyStarted ? 'clarify' : 'intake';
   if (request.state === 'dispatch') return 'dispatch';
   if (request.state === 'review') return 'review';
+  if (request.state === 'merge') return 'merge';
   if (request.state === 'finalize') return 'finalize';
   return null;
 }

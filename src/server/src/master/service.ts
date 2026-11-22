@@ -194,6 +194,7 @@ export class MasterService {
     const result = emptyResult(now);
     result.cells = 1;
     let blockedAtCapacity = false;
+    let blockedSegment: SegmentConfig | null = null;
 
     for (const segment of process.segments) {
       if (!segment.enabled) continue;
@@ -205,6 +206,14 @@ export class MasterService {
         if (handled >= segment.maxPerCycle) break;
         if (this.deps.repo.countWorking(bucket.cellId) >= bucket.maxConcurrent) {
           blockedAtCapacity = true;
+          break;
+        }
+        if (
+          segment.maxConcurrent !== null &&
+          this.deps.repo.countWorking(bucket.cellId, SEGMENT_STATES[segment.id]) >=
+            segment.maxConcurrent
+        ) {
+          blockedSegment = segment;
           break;
         }
         if (this.shouldSkip(request, now, segment)) {
@@ -258,7 +267,7 @@ export class MasterService {
           this.note(bucket.cellId, `Could not run "${request.title}" in ${segment.label}: ${message}`);
         }
       }
-      if (blockedAtCapacity) break;
+      if (blockedAtCapacity || blockedSegment) break;
     }
 
     if (blockedAtCapacity) {
@@ -272,6 +281,19 @@ export class MasterService {
       this.note(
         bucket.cellId,
         `Skipped new work: this cell is at its concurrency limit (${bucket.maxConcurrent}).`,
+      );
+    }
+    if (blockedSegment) {
+      result.skipped += 1;
+      this.record({
+        cellId: bucket.cellId,
+        requestId: null,
+        action: 'skip',
+        detail: `segment concurrency limit reached (${blockedSegment.label}: ${blockedSegment.maxConcurrent})`,
+      });
+      this.note(
+        bucket.cellId,
+        `Held ${blockedSegment.label}: its segment concurrency limit is ${blockedSegment.maxConcurrent}.`,
       );
     }
 

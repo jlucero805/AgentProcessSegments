@@ -55,10 +55,11 @@ describe('CellModal', () => {
     const onSaved = vi.fn();
 
     render(
-      <CellModal open cell={null} onClose={() => {}} onSaved={onSaved} onError={() => {}} />,
+      <CellModal open cell={null} commands={[]} onClose={() => {}} onSaved={onSaved} onError={() => {}} />,
     );
 
     expect(await screen.findByText('Cell process segments')).toBeInTheDocument();
+    expect(screen.getByText('Setup assistant')).toBeInTheDocument();
     expect(await screen.findByText('Model One')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
       target: { value: 'Work repo' },
@@ -80,7 +81,7 @@ describe('CellModal', () => {
     expect(created?.maxConcurrent).toBe(3);
     expect(created?.model).toBe('m1');
     expect(created?.effort).toBe('high');
-    expect(created?.process?.segments).toHaveLength(5);
+    expect(created?.process?.segments).toHaveLength(6);
   });
 
   it('edits an existing cell without requiring a fetch', async () => {
@@ -105,7 +106,7 @@ describe('CellModal', () => {
     const onSaved = vi.fn();
 
     render(
-      <CellModal open cell={cell} onClose={() => {}} onSaved={onSaved} onError={() => {}} />,
+      <CellModal open cell={cell} commands={[]} onClose={() => {}} onSaved={onSaved} onError={() => {}} />,
     );
 
     const name = await screen.findByDisplayValue('Alpha');

@@ -14,6 +14,8 @@ describe('workflow helpers', () => {
     expect(canTransition('clarify', 'review')).toBe(false);
     expect(canTransition('dispatch', 'review')).toBe(true);
     expect(canTransition('dispatch', 'finalize')).toBe(false);
+    expect(canTransition('review', 'merge')).toBe(true);
+    expect(canTransition('merge', 'finalize')).toBe(true);
     expect(canTransition('review', 'finalize')).toBe(true);
     expect(canTransition('review', 'dispatch')).toBe(true);
     expect(canTransition('finalize', 'done')).toBe(true);
@@ -27,6 +29,7 @@ describe('workflow helpers', () => {
     expect(columnOf({ state: 'clarify', clarifyStarted: true })).toBe('clarify');
     expect(columnOf({ state: 'dispatch', clarifyStarted: true })).toBe('dispatch');
     expect(columnOf({ state: 'review', clarifyStarted: true })).toBe('review');
+    expect(columnOf({ state: 'merge', clarifyStarted: true })).toBe('merge');
     expect(columnOf({ state: 'finalize', clarifyStarted: true })).toBe('finalize');
   });
 
@@ -41,6 +44,7 @@ describe('workflow helpers', () => {
       clarify: 'clarify',
       dispatch: 'dispatch',
       review: 'review',
+      merge: 'merge',
       finalize: 'finalize',
     });
   });

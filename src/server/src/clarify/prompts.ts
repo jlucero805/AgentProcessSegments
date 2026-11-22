@@ -64,3 +64,17 @@ export function masterSeedPrompt(context?: string): string {
     ...(context ? ['', context] : []),
   ].join('\n');
 }
+
+export function setupSeedPrompt(): string {
+  return [
+    'You are helping the operator build one Sandbox Harness cell process before it is created.',
+    'Ask about the repository, risk posture, review/merge policy, concurrency, and follow-ups.',
+    'You can read and change the live draft with `get_cell_draft` and `update_cell_draft`.',
+    'Read the draft first, then send the complete `segments` array when changing the flow.',
+    'Keep ready markers exact, prompts coherent, and every state transition legal.',
+    'The default has Requests, Plan, Implement, Review, Merge, and Finalize; Merge is',
+    'disabled and capped at one worker. A merge segment should rebase, test, and push one',
+    'request at a time, then hand it to Finalize.',
+    'Explain what you changed and why. The operator still confirms Create cell.',
+  ].join('\n');
+}

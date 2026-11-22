@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
+import { ClarifyChat } from './ClarifyChat';
 import { ProcessEditor } from './ProcessEditor';
 import {
   EFFORT_LEVELS,
+  setupSessionId,
   type CellDetail,
+  type CommandInfo,
+  type Effort,
   type ModelOption,
   type ProcessConfig,
   type SegmentConfig,
@@ -14,6 +18,7 @@ interface CellModalProps {
   open: boolean;
   /** null creates a new cell; a cell edits it. */
   cell: CellDetail | null;
+  commands: CommandInfo[];
   onClose: () => void;
   onSaved: (cell: CellDetail) => void;
   onError: (message: string) => void;
@@ -24,16 +29,19 @@ interface CellModalProps {
  * global default. This is where an operator decides what the cell's master should
  * push toward before the cell has any requests.
  */
-export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalProps) {
+export function CellModal({ open, cell, commands, onClose, onSaved, onError }: CellModalProps) {
   const [name, setName] = useState('');
   const [interval, setInterval] = useState('');
   const [maxConcurrent, setMaxConcurrent] = useState('3');
   const [model, setModel] = useState('');
-  const [effort, setEffort] = useState('');
+  const [effort, setEffort] = useState<Effort | ''>('');
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
   const [supportsEffort, setSupportsEffort] = useState(true);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [setupId, setSetupId] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -42,6 +50,11 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const newDraftId = crypto.randomUUID();
+    const draftSetupId = setupSessionId(newDraftId);
+    setDraftId(newDraftId);
+    setSetupId(draftSetupId);
+    setDraftReady(false);
     setName(cell?.name ?? '');
     setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
     setMaxConcurrent(String(cell?.maxConcurrent ?? 3));
@@ -83,8 +96,54 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
 
     return () => {
       cancelled = true;
+      void api.stopClarify(draftSetupId).catch(() => {});
+      void api.deleteCellDraft(newDraftId).catch(() => {});
     };
   }, [open, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the server-side draft in sync so the setup chat can read and edit it.
+  useEffect(() => {
+    if (!open || !draftId || !process) return;
+    const minutes = interval.trim() === '' ? null : Number(interval);
+    const concurrency = Number(maxConcurrent);
+    const timer = window.setTimeout(() => {
+      void api
+        .putCellDraft(draftId, {
+          name: name.trim() || 'Untitled cell',
+          process,
+          masterIntervalMinutes:
+            minutes !== null && Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440
+              ? minutes
+              : null,
+          maxConcurrent:
+            Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 50
+              ? concurrency
+              : 3,
+          model: model || null,
+          effort: effort || null,
+        })
+        .then(() => setDraftReady(true))
+        .catch((error) => onError(describeError(error)));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [open, draftId, process, name, interval, maxConcurrent, model, effort]);
+
+  const refreshDraft = useCallback(async () => {
+    if (!draftId) return;
+    try {
+      const draft = await api.getCellDraft(draftId);
+      setName(draft.name);
+      setInterval(
+        draft.masterIntervalMinutes ? String(draft.masterIntervalMinutes) : '',
+      );
+      setMaxConcurrent(String(draft.maxConcurrent));
+      setModel(draft.model ?? '');
+      setEffort(draft.effort ?? '');
+      setProcess(draft.process);
+    } catch {
+      // The draft may already be gone if the modal closed during the turn.
+    }
+  }, [draftId]);
 
   const setSegment = <K extends keyof SegmentConfig>(
     id: SegmentConfig['id'],
@@ -230,7 +289,7 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
           hint={supportsEffort ? 'request override wins' : 'not used by this harness'}
         >
           {supportsEffort ? (
-            <Select value={effort} onChange={(event) => setEffort(event.target.value)}>
+      <Select value={effort} onChange={(event) => setEffort(event.target.value as Effort | '')}>
               <option value="">CLI default</option>
               {efforts.map((level) => (
                 <option key={level} value={level}>
@@ -242,6 +301,35 @@ export function CellModal({ open, cell, onClose, onSaved, onError }: CellModalPr
             <Input value="—" disabled readOnly />
           )}
         </Field>
+
+        <div className="space-y-1 rounded-xl border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="flex items-baseline justify-between gap-2 px-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              Setup assistant
+            </span>
+            <span className="text-[10px] text-zinc-600">closes with the wizard</span>
+          </div>
+          <p className="px-1 text-[11px] text-zinc-500">
+            Ask about repo strictness, merge policy, concurrency, or extra handoff steps.
+            It proposes settings; you apply them below.
+          </p>
+          <div className="h-64 overflow-hidden">
+            {setupId && draftReady ? (
+              <ClarifyChat
+                requestId={setupId}
+                started
+                commands={commands}
+                onError={onError}
+                onDone={() => void refreshDraft()}
+                placeholder="Ask how this cell should be configured…"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center gap-2 text-xs text-zinc-500">
+                <Spinner /> Starting setup chat…
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-zinc-500">

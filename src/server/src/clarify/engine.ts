@@ -3,22 +3,26 @@ import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
-import { KB_SESSION_ID, MASTER_SESSION_ID, masterCellId } from '../domain/sessions.js';
+import { KB_SESSION_ID, MASTER_SESSION_ID, isSetupSession, masterCellId, setupDraftId } from '../domain/sessions.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
-import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPrompt } from './prompts.js';
+import { dispatchPrompt, finalizePrompt, kbSeedPrompt, masterSeedPrompt, seedPrompt, setupSeedPrompt } from './prompts.js';
 import type { AgentProcess } from './transport.js';
 import { ensureWorktree, removeWorktree } from './worktree.js';
 
 export {
   KB_SESSION_ID,
   MASTER_SESSION_ID,
+  SETUP_SESSION_PREFIX,
   isMasterSession,
+  isSetupSession,
   isVirtualSessionId,
   masterCellId,
   masterSessionId,
+  setupDraftId,
+  setupSessionId,
 } from '../domain/sessions.js';
 
 export interface LiveTurn {
@@ -156,6 +160,18 @@ export class Engine {
         ? 'Report the current board state and what this cell master has been doing.'
         : text
       : `${masterSeedPrompt(context)}\n\n---\n\n${text}`;
+    return this.beginTurn(sessionId, message, null);
+  }
+
+  /** Transient cell-setup chat used by the creation wizard. */
+  async startSetup(text: string, sessionId: string): Promise<LiveTurn> {
+    const existing = this.turns.get(sessionId);
+    if (existing) return existing;
+    const message = this.readSession(sessionId)
+      ? text.trim() === ''
+        ? 'Suggest sane defaults for the cell I am creating.'
+        : text
+      : `${setupSeedPrompt()}\n\n---\n\n${text}`;
     return this.beginTurn(sessionId, message, null);
   }
 
@@ -302,10 +318,12 @@ export class Engine {
 
     const cellId = request?.cellId ?? masterCellId(id);
     const defaults = cellId ? (this.deps.cellDefaults?.(cellId) ?? null) : null;
+    const draftId = isSetupSession(id) ? (setupDraftId(id) ?? undefined) : undefined;
 
     const command = await this.harness.prepare({
-      scope: request ? 'request' : id === KB_SESSION_ID ? 'kb' : 'master',
+      scope: request ? 'request' : id === KB_SESSION_ID ? 'kb' : draftId ? 'setup' : 'master',
       requestId: request ? id : '',
+      ...(draftId ? { draftId } : {}),
       dir,
       cwd,
       sessionId: this.readSession(id),

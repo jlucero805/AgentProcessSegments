@@ -43,6 +43,11 @@ function makeBrain(): { calls: Recorded[]; fetchImpl: FetchLike } {
     if (parsed.pathname === '/api/kb') return json([{ id: 'kb-1', content: 'cells are floors' }]);
     if (parsed.pathname === '/api/requests/req-1') return json({ id: 'req-1', title: 'Scoped' });
     if (parsed.pathname === '/api/requests') return json([{ id: 'req-1' }]);
+    if (parsed.pathname === '/api/cell-drafts/draft-1') {
+      return method === 'PATCH'
+        ? json({ id: 'draft-1', ...(JSON.parse(String(init?.body)) as object) })
+        : json({ id: 'draft-1', name: 'Draft' });
+    }
     return json({ error: 'not_found' }, 404);
   };
 
@@ -53,14 +58,21 @@ let close: (() => Promise<void>) | null = null;
 
 async function connect(
   requestId: string,
-  scope?: 'request' | 'kb' | 'master',
+  scope?: 'request' | 'kb' | 'master' | 'setup',
+  draftId?: string,
 ): Promise<{
   client: Client;
   calls: Recorded[];
   call: (name: string, args?: Record<string, unknown>) => Promise<CallToolResult>;
 }> {
   const { calls, fetchImpl } = makeBrain();
-  const server = buildMcpServer({ brainUrl: 'http://brain.test', requestId, scope, fetchImpl });
+  const server = buildMcpServer({
+    brainUrl: 'http://brain.test',
+    requestId,
+    scope,
+    draftId,
+    fetchImpl,
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
 
@@ -123,6 +135,30 @@ describe('harness mcp server', () => {
     const result = await call('get_request', { id: 'req-1' });
     expect(textOf(result)).toContain('Scoped');
     expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/requests/req-1' });
+  });
+
+  it('gives the setup wizard read tools plus draft read/update', async () => {
+    const { client, call, calls } = await connect('', 'setup', 'draft-1');
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'get_cell_draft',
+      'get_request',
+      'list_kb',
+      'list_requests',
+      'search_kb',
+      'update_cell_draft',
+    ]);
+
+    await call('get_cell_draft');
+    expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/cell-drafts/draft-1' });
+
+    const updated = await call('update_cell_draft', { maxConcurrent: 2 });
+    expect(textOf(updated)).toContain('maxConcurrent');
+    expect(calls[1]).toMatchObject({
+      method: 'PATCH',
+      path: '/api/cell-drafts/draft-1',
+      body: { maxConcurrent: 2 },
+    });
   });
 
   it('defaults get_request to the scoped request', async () => {

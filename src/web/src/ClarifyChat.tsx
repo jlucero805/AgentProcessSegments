@@ -11,6 +11,7 @@ interface ClarifyChatProps {
   commands: CommandInfo[];
   onError: (message: string) => void;
   onRequest?: (request: Request) => void;
+  onDone?: () => void;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -48,6 +49,7 @@ export function ClarifyChat({
   commands,
   onError,
   onRequest,
+  onDone,
   disabled,
   placeholder,
 }: ClarifyChatProps) {
@@ -64,6 +66,8 @@ export function ClarifyChat({
   onErrorRef.current = onError;
   const onRequestRef = useRef(onRequest);
   onRequestRef.current = onRequest;
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
 
   useEffect(() => {
     writeQueue(queueKey, queue);
@@ -79,6 +83,7 @@ export function ClarifyChat({
       if (event.t === 'done') {
         setMessages(fromTranscript(event.transcript));
         if (event.request) onRequestRef.current?.(event.request);
+        onDoneRef.current?.();
         setBusy(false);
         setStopping(false);
         return;
@@ -96,7 +101,7 @@ export function ClarifyChat({
     try {
       const state = await api.getClarify(requestId);
       if (controller.signal.aborted) return;
-      setMessages(fromTranscript(state.transcript));
+      setMessages(fromTranscript(state.transcript ?? []));
       if (state.active) {
         setBusy(true);
         await api.streamClarify(requestId, handleEvent, controller.signal);

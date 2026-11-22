@@ -158,14 +158,49 @@ function registerBoardTools(
   );
 }
 
-export type SessionScope = 'request' | 'kb' | 'master';
+function registerDraftTools(server: McpServer, api: BrainApi, draftId: string): void {
+  const draftPath = `/api/cell-drafts/${encodeURIComponent(draftId)}`;
+
+  server.registerTool(
+    'get_cell_draft',
+    {
+      title: 'Read the cell draft',
+      description: 'Read the current cell creation draft, including all process segments.',
+      annotations: { readOnlyHint: true },
+    },
+    async () => respond(api.call('GET', draftPath)),
+  );
+
+  server.registerTool(
+    'update_cell_draft',
+    {
+      title: 'Update the cell draft',
+      description:
+        'Change the draft name, limits, model/effort, or the full process segment list. Read the draft first, then send the complete segments array.',
+      inputSchema: {
+        name: z.string().min(1).optional(),
+        maxConcurrent: z.number().int().min(1).max(50).optional(),
+        masterIntervalMinutes: z.number().int().min(1).max(24 * 60).nullable().optional(),
+        model: z.string().nullable().optional(),
+        effort: z.enum(EFFORT_LEVELS).nullable().optional(),
+        segments: z.array(z.unknown()).optional(),
+        process: z.unknown().optional(),
+      },
+    },
+    async (fields) => respond(api.call('PATCH', draftPath, defined(fields))),
+  );
+}
+
+export type SessionScope = 'request' | 'kb' | 'master' | 'setup';
 
 export interface McpOptions {
   brainUrl: string;
-  /** Empty string for the knowledge-base/master sessions, which have no request scope. */
+  /** Empty string for the knowledge-base/master/setup sessions, which have no request scope. */
   requestId: string;
   /** Defaults to `kb` when requestId is empty, otherwise `request`. */
   scope?: SessionScope;
+  /** Setup wizard draft id, when scope is `setup`. */
+  draftId?: string;
   fetchImpl?: FetchLike;
 }
 
@@ -179,8 +214,12 @@ export function buildMcpServer(options: McpOptions): McpServer {
     registerKbTools(server, api);
     if (scope === 'kb') return server;
 
-    // The master chat can read the board and the KB, but never mutate them.
+    // Master and setup chats read the board/KB; setup also edits its draft.
     registerBoardTools(server, api, null);
+    if (scope === 'setup') {
+      if (!options.draftId) throw new Error('setup scope requires a draft id');
+      registerDraftTools(server, api, options.draftId);
+    }
     return server;
   }
 
@@ -269,8 +308,11 @@ async function main(): Promise<void> {
   const requestId = process.env.SBOX_REQUEST_ID ?? '';
   const rawScope = process.env.SBOX_SESSION_SCOPE;
   const scope =
-    rawScope === 'request' || rawScope === 'kb' || rawScope === 'master' ? rawScope : undefined;
-  const server = buildMcpServer({ brainUrl, requestId, scope });
+    rawScope === 'request' || rawScope === 'kb' || rawScope === 'master' || rawScope === 'setup'
+      ? rawScope
+      : undefined;
+  const draftId = process.env.SBOX_SETUP_DRAFT_ID;
+  const server = buildMcpServer({ brainUrl, requestId, scope, draftId });
   await server.connect(new StdioServerTransport());
 }
 

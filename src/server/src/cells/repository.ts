@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import type { Effort } from '../domain/request.js';
 import { DEFAULT_MAX_CONCURRENT } from '../domain/request.js';
-import { processSchema } from '../process/defaults.js';
+import { normalizeProcess, processSchema } from '../process/defaults.js';
 import type { CellDetail, ProcessConfig } from '../process/definition.js';
 
 interface CellRow {
@@ -27,7 +27,7 @@ export class CellNotFoundError extends Error {
 function parseProcess(raw: string | null): ProcessConfig | null {
   if (!raw) return null;
   try {
-    const result = processSchema.safeParse(JSON.parse(raw));
+    const result = processSchema.safeParse(normalizeProcess(JSON.parse(raw)));
     return result.success ? result.data : null;
   } catch {
     return null;

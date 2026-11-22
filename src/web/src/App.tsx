@@ -356,6 +356,7 @@ export function App() {
       <CellModal
         open={cellModalOpen}
         cell={editingCell}
+        commands={commands}
         onClose={() => setCellModalOpen(false)}
         onSaved={(cell) => {
           setCellModalOpen(false);

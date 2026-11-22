@@ -246,20 +246,22 @@ export class RequestRepository {
   }
 
   /** Requests currently working in a cell (or unassigned when cellId is null). */
-  countWorking(cellId: string | null): number {
-    const row = (
-      cellId === null
-        ? this.db
-            .prepare(
-              "SELECT COUNT(*) AS count FROM requests WHERE agent_status = 'working' AND cell_id IS NULL",
-            )
-            .get()
-        : this.db
-            .prepare(
-              "SELECT COUNT(*) AS count FROM requests WHERE agent_status = 'working' AND cell_id = ?",
-            )
-            .get(cellId)
-    ) as { count: number } | undefined;
+  countWorking(cellId: string | null, state?: State): number {
+    const clauses = ["agent_status = 'working'"];
+    const params: Array<string | null> = [];
+    if (cellId === null) {
+      clauses.push('cell_id IS NULL');
+    } else {
+      clauses.push('cell_id = ?');
+      params.push(cellId);
+    }
+    if (state !== undefined) {
+      clauses.push('state = ?');
+      params.push(state);
+    }
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS count FROM requests WHERE ${clauses.join(' AND ')}`)
+      .get(...params) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 

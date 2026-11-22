@@ -25,6 +25,7 @@ export function opencodeHarnessServer(
   requestId: string,
   brainUrl: string,
   scope: string,
+  draftId?: string,
 ): Record<string, unknown> {
   return {
     type: 'local',
@@ -33,6 +34,7 @@ export function opencodeHarnessServer(
       SBOX_BRAIN_URL: brainUrl,
       SBOX_REQUEST_ID: requestId,
       SBOX_SESSION_SCOPE: scope,
+      ...(draftId ? { SBOX_SETUP_DRAFT_ID: draftId } : {}),
     },
     enabled: true,
   };
@@ -104,7 +106,12 @@ export class OpencodeHarness implements AgentHarness {
       ...user,
       mcp: {
         ...userServers,
-        harness: opencodeHarnessServer(session.requestId, this.brainUrl, session.scope),
+        harness: opencodeHarnessServer(
+          session.requestId,
+          this.brainUrl,
+          session.scope,
+          session.draftId,
+        ),
       },
     };
 

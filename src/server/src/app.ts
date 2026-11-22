@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { CellRepository } from './cells/repository.js';
+import { CellDraftStore } from './cells/drafts.js';
 import { Engine } from './clarify/engine.js';
 import { createHarness } from './clarify/harnesses/index.js';
 import { ModelCatalog } from './clarify/models.js';
@@ -27,6 +28,7 @@ export async function main(): Promise<void> {
 
     const repo = new RequestRepository(db);
     const cells = new CellRepository(db);
+    const drafts = new CellDraftStore();
     const kb = new KbRepository(db);
     const plugins = new PluginManager(config.pluginsDir);
     const settings = new SettingsStore(config.configPath, errors);
@@ -64,6 +66,7 @@ export async function main(): Promise<void> {
     const app = await buildServer({
       repo,
       cells,
+      drafts,
       kb,
       engine,
       models,

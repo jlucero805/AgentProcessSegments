@@ -1,4 +1,4 @@
-export const STATES = ['clarify', 'dispatch', 'review', 'finalize', 'done', 'dropped'] as const;
+export const STATES = ['clarify', 'dispatch', 'review', 'merge', 'finalize', 'done', 'dropped'] as const;
 export type State = (typeof STATES)[number];
 
 export const TERMINAL_STATES: readonly State[] = ['done', 'dropped'];
@@ -10,7 +10,8 @@ export function isTerminal(state: State): boolean {
 export const TRANSITIONS: Record<State, readonly State[]> = {
   clarify: ['dispatch', 'dropped'],
   dispatch: ['review', 'clarify', 'dropped'],
-  review: ['finalize', 'clarify', 'dispatch', 'dropped'],
+  review: ['merge', 'finalize', 'clarify', 'dispatch', 'dropped'],
+  merge: ['finalize', 'review', 'dispatch', 'clarify', 'dropped'],
   finalize: ['done', 'dropped'],
   done: [],
   dropped: [],

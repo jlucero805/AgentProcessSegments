@@ -146,6 +146,26 @@ describe('turn engine', () => {
     ).toBe(true);
   });
 
+  it('runs a separate setup chat for the cell wizard', async () => {
+    const h = fresh(() => defaultScript());
+    const session = '__setup__:draft-1';
+
+    const turn = await h.engine.startSetup('help me configure this cell', session);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions[0]).toMatchObject({
+      scope: 'setup',
+      requestId: '',
+      draftId: 'draft-1',
+    });
+    expect(
+      h.engine.transcript(session).some((message) =>
+        message.text.includes('build one Sandbox Harness cell process'),
+      ),
+    ).toBe(true);
+  });
+
   it('marks a request started when its first message is sent', async () => {
     const h = fresh(() => defaultScript());
     const request = h.repo.create({ title: 'Send first' });

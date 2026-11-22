@@ -1,7 +1,14 @@
 import type { Cell, State } from '../domain/request.js';
 
 /** Ordered pipeline segments. The ids are stable; labels are presentation. */
-export const SEGMENT_IDS = ['intake', 'plan', 'implement', 'review', 'finalize'] as const;
+export const SEGMENT_IDS = [
+  'intake',
+  'plan',
+  'implement',
+  'review',
+  'merge',
+  'finalize',
+] as const;
 export type SegmentId = (typeof SEGMENT_IDS)[number];
 
 /** The request state each segment operates on. Intake and Plan share clarify. */
@@ -10,6 +17,7 @@ export const SEGMENT_STATES: Record<SegmentId, State> = {
   plan: 'clarify',
   implement: 'dispatch',
   review: 'review',
+  merge: 'merge',
   finalize: 'finalize',
 };
 
@@ -29,6 +37,8 @@ export interface SegmentConfig {
   idleMinutes: number;
   /** Upper bound of requests handled per cell per cycle. */
   maxPerCycle: number;
+  /** Optional cap on requests working in this segment; null inherits the cell cap. */
+  maxConcurrent: number | null;
   /** Agent prompt for this segment. Empty uses the built-in default. */
   prompt: string;
   /** Exact text that means this segment is done; null disables advancement. */

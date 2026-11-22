@@ -13,9 +13,12 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     proxy: {
-      '/api': { target: `http://127.0.0.1:${process.env.SBOX_PORT ?? 7391}`, changeOrigin: true },
+      '/api': {
+        target: `http://127.0.0.1:${process.env.APS_PORT ?? process.env.SBOX_PORT ?? 7391}`,
+        changeOrigin: true,
+      },
       '/ws': {
-        target: `http://127.0.0.1:${process.env.SBOX_PORT ?? 7391}`,
+        target: `http://127.0.0.1:${process.env.APS_PORT ?? process.env.SBOX_PORT ?? 7391}`,
         changeOrigin: true,
         ws: true,
       },

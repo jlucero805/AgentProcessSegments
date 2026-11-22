@@ -161,10 +161,10 @@ export class ClaudeHarness implements AgentHarness {
         command: process.execPath,
         args: [HARNESS_MCP_SERVER],
         env: {
-          SBOX_BRAIN_URL: this.brainUrl,
-          SBOX_REQUEST_ID: session.requestId,
-          SBOX_SESSION_SCOPE: session.scope,
-          ...(session.draftId ? { SBOX_SETUP_DRAFT_ID: session.draftId } : {}),
+          APS_BRAIN_URL: this.brainUrl,
+          APS_REQUEST_ID: session.requestId,
+          APS_SESSION_SCOPE: session.scope,
+          ...(session.draftId ? { APS_SETUP_DRAFT_ID: session.draftId } : {}),
         },
       },
     };

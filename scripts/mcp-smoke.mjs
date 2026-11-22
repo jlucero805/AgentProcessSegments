@@ -29,9 +29,12 @@ const brainUrl = `http://127.0.0.1:${port}`;
 const brain = spawn(process.execPath, [path.join(root, 'src/server/dist/app.js')], {
   env: {
     ...process.env,
-    SBOX_DB: path.join(work, 'harness.sqlite'),
-    SBOX_DATA_DIR: path.join(work, 'data'),
-    SBOX_PORT: String(port),
+    APS_DB: path.join(work, 'harness.sqlite'),
+    APS_DATA_DIR: path.join(work, 'data'),
+    APS_CONFIG: path.join(work, 'config.json'),
+    APS_PROCESS: path.join(work, 'process.json'),
+    APS_ERROR_LOG: path.join(work, 'errors.log'),
+    APS_PORT: String(port),
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 });
@@ -79,6 +82,7 @@ try {
     args: [path.join(root, 'src/server/dist/mcp/server.js')],
     env: {
       ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)),
+      // Deliberately legacy: proves the MCP server still accepts SBOX_* names.
       SBOX_BRAIN_URL: brainUrl,
       SBOX_REQUEST_ID: created.id,
     },

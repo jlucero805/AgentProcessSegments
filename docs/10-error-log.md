@@ -5,10 +5,10 @@ explicit error paths append a record. This is meant for debugging, not analytics
 
 ## Location and size
 
-- Default: `$XDG_STATE_HOME/sandbox-harness/errors.log`
-  (`~/.local/state/sandbox-harness/errors.log` when `XDG_STATE_HOME` is unset).
-- Override: `SBOX_ERROR_LOG=/path/to/errors.log`.
-- Size cap: `SBOX_ERROR_LOG_MAX_BYTES` (default **2 MiB**).
+- Default: `$XDG_STATE_HOME/agent-process-segments/errors.log`
+  (`~/.local/state/agent-process-segments/errors.log` when `XDG_STATE_HOME` is unset).
+- Override: `APS_ERROR_LOG=/path/to/errors.log`.
+- Size cap: `APS_ERROR_LOG_MAX_BYTES` (default **2 MiB**).
 - When the file reaches the cap, it is renamed to `errors.log.1`; the next error starts a
   fresh primary file. Only one rotated backup is kept.
 - Files are created with mode `0600` in a directory created on demand.
@@ -45,7 +45,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `http.request` | An unexpected 5xx from the HTTP layer (includes request id/method/URL) |
 | `engine.turn` | An agent turn throws or fails |
 | `engine.exit` | An agent process exits before completing a turn (includes recent stderr) |
-| `engine.timeout` | A turn exceeds `SBOX_TURN_TIMEOUT_MS`; the child is killed and the turn is closed |
+| `engine.timeout` | A turn exceeds `APS_TURN_TIMEOUT_MS`; the child is killed and the turn is closed |
 | `master.turn` | A master turn fails for a request (cell, request, segment) |
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
 | `summary.generate` | A scorecard turn fails, times out without text, or returns no text (cell id only) |
@@ -59,13 +59,13 @@ events stay in `master_events` and transcripts.
 
 ```bash
 # recent errors, one line each
-tail -n 50 ~/.local/state/sandbox-harness/errors.log
+tail -n 50 ~/.local/state/agent-process-segments/errors.log
 
 # pretty-print the last 20
-tail -n 20 ~/.local/state/sandbox-harness/errors.log | jq .
+tail -n 20 ~/.local/state/agent-process-segments/errors.log | jq .
 
 # only engine failures
-jq -c 'select(.source | startswith("engine."))' ~/.local/state/sandbox-harness/errors.log
+jq -c 'select(.source | startswith("engine."))' ~/.local/state/agent-process-segments/errors.log
 ```
 
 ## Adding a new error site

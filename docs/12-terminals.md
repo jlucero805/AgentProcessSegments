@@ -6,7 +6,7 @@ and its scrollback is replayed on the next attach.
 
 ## Lifecycle
 
-- **New terminal:** `POST /api/terminals` creates one PTY in `SBOX_TERMINAL_CWD`.
+- **New terminal:** `POST /api/terminals` creates one PTY in `APS_TERMINAL_CWD`.
 - **Hide panel (`×`):** unmounts the panel and closes its WebSocket. The shell keeps
   running; it stays visible in `GET /api/terminals`.
 - **Reopen Terminal:** the SPA lists existing sessions and attaches to the most recent
@@ -55,8 +55,8 @@ A closing WebSocket only detaches; it never calls `kill`.
 
 ## Safety
 
-- `SBOX_TERMINAL=0` disables creation and the UI action.
-- `SBOX_TERMINAL_CWD` sets the starting directory.
+- `APS_TERMINAL=0` disables creation and the UI action.
+- `APS_TERMINAL_CWD` sets the starting directory.
 - The route is a direct shell with no auth of its own; keep the brain loopback-only or
   behind an authenticated tunnel.
 - The terminal is independent of every harness/agent session and transcript.

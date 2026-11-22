@@ -356,7 +356,7 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
                 Documentation is not available in this build
               </h2>
               <p className="mt-2 text-sm text-zinc-400">
-                This build does not ship the docs directory. Set <code>SBOX_DOCS_DIR</code> to the
+                This build does not ship the docs directory. Set <code>APS_DOCS_DIR</code> to the
                 repository&apos;s <code>docs</code> folder and restart the brain.
               </p>
             </div>

@@ -73,11 +73,11 @@ function installFetch(): Captured {
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
-        path: '/tmp/sandbox-harness/config.json',
+        path: '/tmp/agent-process-segments/config.json',
       });
     }
     if (url === '/api/config') {
-      return jsonResponse({ master, summary: scorecard, path: '/tmp/sandbox-harness/config.json' });
+      return jsonResponse({ master, summary: scorecard, path: '/tmp/agent-process-segments/config.json' });
     }
     if (url === '/api/process' && init?.method === 'PATCH') {
       captured.process = JSON.parse(String(init.body)) as Captured['process'];
@@ -127,7 +127,7 @@ describe('ConfigPage', () => {
     const interval = await screen.findByRole('spinbutton', { name: /interval/i });
     expect(interval).toHaveValue(5);
     expect(screen.getByRole('spinbutton', { name: /every/i })).toHaveValue(360);
-    expect(screen.getByText('/tmp/sandbox-harness/config.json')).toBeInTheDocument();
+    expect(screen.getByText('/tmp/agent-process-segments/config.json')).toBeInTheDocument();
 
     fireEvent.change(interval, { target: { value: '8' } });
     fireEvent.change(screen.getByRole('spinbutton', { name: /window/i }), {

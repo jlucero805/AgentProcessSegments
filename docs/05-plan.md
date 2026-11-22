@@ -22,8 +22,8 @@ prompt libraries, and semantic KB retrieval.
   columns on small screens; full-width drawer; responsive top bar.
 - [x] **2. Durable chat and routing** — page/request in the URL; restore on reload;
   reattach to a live turn with a running state; keep streaming text.
-- [x] **3. Config store** — `$XDG_CONFIG_HOME/sandbox-harness/config.json` (override
-  `SBOX_CONFIG`), zod-validated defaults, `GET/PATCH /api/config`, and a Config page.
+- [x] **3. Config store** — `$XDG_CONFIG_HOME/agent-process-segments/config.json` (override
+  `APS_CONFIG`), zod-validated defaults, `GET/PATCH /api/config`, and a Config page.
 - [x] **4. Cell masters** — scheduler with configurable interval (default 5 min),
   idle threshold, prod prompt, auto-review marker, per-cell enable toggles, event log,
   manual "run now", and a Master page section.
@@ -59,8 +59,8 @@ UI.
 
 ## 3. Config store
 
-Path: `SBOX_CONFIG` or `$XDG_CONFIG_HOME/sandbox-harness/config.json`
-(`~/.config/sandbox-harness/config.json` fallback). The file is created lazily with:
+Path: `APS_CONFIG` or `$XDG_CONFIG_HOME/agent-process-segments/config.json`
+(`~/.config/agent-process-segments/config.json` fallback). The file is created lazily with:
 
 ```json
 {
@@ -151,8 +151,8 @@ states dispose the session as before; disabling the master stops scheduling imme
 
 ## Follow-up: configurable process segments
 
-- [x] **16. Process config** — separate `$XDG_CONFIG_HOME/sandbox-harness/process.json`
-  (`SBOX_PROCESS`), zod-validated, atomic writes, conservative fallback derived from
+- [x] **16. Process config** — separate `$XDG_CONFIG_HOME/agent-process-segments/process.json`
+  (`APS_PROCESS`), zod-validated, atomic writes, conservative fallback derived from
   the legacy master policy.
 - [x] **17. Generic master loop** — walk enabled segments in order, start/prod due work,
   apply follow-up callouts, and advance on exact markers through legal transitions.

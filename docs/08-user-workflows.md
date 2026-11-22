@@ -115,13 +115,13 @@ last five.
 ## 4b. Use the desktop terminal
 
 - On desktop, press **Terminal** in the sidebar. It attaches to a server-owned shell in
-  the brain’s configured cwd (`SBOX_TERMINAL_CWD`), completely separate from every agent
+  the brain’s configured cwd (`APS_TERMINAL_CWD`), completely separate from every agent
   session.
 - The session strip lists every shell with a status dot and a close button. **Hide** only
   detaches, so reopening or reloading reattaches to the same shell and scrollback.
   **Close** on a session tab kills that shell.
 - Maximize/restore from the panel header. **Reconnect** reattaches the active session.
-- `SBOX_TERMINAL=0` disables creation. The action is hidden below `md`, but the endpoint
+- `APS_TERMINAL=0` disables creation. The action is hidden below `md`, but the endpoint
   is still a direct shell—protect the brain with loopback or an authenticated tunnel.
 
 ## 5. Review, finalize, and follow-ups
@@ -152,12 +152,12 @@ and asserts the knowledge base stays empty. No live data is touched.
 
 | Thing | Location |
 | --- | --- |
-| Scheduler switch, interval, unassigned flag | `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`) |
-| Global process template | `$XDG_CONFIG_HOME/sandbox-harness/process.json` (`SBOX_PROCESS`) |
+| Scheduler switch, interval, unassigned flag | `$XDG_CONFIG_HOME/agent-process-segments/config.json` (`APS_CONFIG`) |
+| Global process template | `$XDG_CONFIG_HOME/agent-process-segments/process.json` (`APS_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
-| Requests, cells, KB, events | SQLite (`SBOX_DB`) |
-| Session ids and transcripts | `$SBOX_DATA_DIR/requests/<id>/` |
-| Worktrees | `$SBOX_DATA_DIR/worktrees/<id>` |
+| Requests, cells, KB, events | SQLite (`APS_DB`) |
+| Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` |
+| Worktrees | `$APS_DATA_DIR/worktrees/<id>` |
 | Master chat | reserved `__master__` transcript |
 
 All of this is single-operator: there is no auth, and the brain binds loopback. Put a

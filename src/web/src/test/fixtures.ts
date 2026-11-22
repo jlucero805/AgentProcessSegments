@@ -44,7 +44,7 @@ export function makeProcess() {
 }
 
 export function makeProcessResponse() {
-  return { ...makeProcess(), path: '/tmp/sandbox-harness/process.json' };
+  return { ...makeProcess(), path: '/tmp/agent-process-segments/process.json' };
 }
 
 export function jsonResponse(body: unknown, status = 200): Response {  return new Response(JSON.stringify(body), {

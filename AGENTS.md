@@ -10,7 +10,7 @@ against the spec, say so rather than silently following either.
 
 A local Node/TS service that drives headless agent sessions through
 Intake → Plan → Implement → Review → Finalize. The agent substrate is swappable
-(`SBOX_HARNESS=claude` is the default; `opencode` is supported). One port serves
+(`APS_HARNESS=claude` is the default; `opencode` is supported). One port serves
 `/api`, `/ws`, and the built SPA. Requests live in SQLite, one persistent agent session
 per request, one git worktree per request, and a knowledge base fed by human-approved
 digests.
@@ -38,7 +38,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 266 vitest cases: 179 server across 21 files and 87 web across 16 files, all green.
+- 281 vitest cases: 194 server across 23 files and 87 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -73,25 +73,25 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 179 server + 87 web
+npm test                       # 194 server + 87 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
-SBOX_HARNESS=opencode SBOX_DB=/tmp/sbox.sqlite node src/server/dist/app.js
+APS_HARNESS=opencode APS_DB=/tmp/sbox.sqlite node src/server/dist/app.js
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 node scripts/claude-mock-smoke.mjs  # real claude binary + mock Anthropic API
 node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 # on a VPS, the brain runs as a systemd user unit:
-systemctl --user restart sandbox-harness
-journalctl --user -u sandbox-harness -n 50 --no-pager
+systemctl --user restart agent-process-segments
+journalctl --user -u agent-process-segments -n 50 --no-pager
 ```
 
 ## Environment facts that will bite
 
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
-  Code binary can be supplied with `SBOX_CLAUDE_BIN`.
+  Code binary can be supplied with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock
   Anthropic API (stream, MCP tool, `--resume`, model probe) and skips when no binary is
   found. Do not infer live Claude model behavior from the mock.
@@ -107,15 +107,21 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
   inherited value points it at the brain's directory and breaks per-request config and
   commands. Both harness adapters set it on spawn.
 - **App settings are not env config.** Scheduler policy lives in
-  `$XDG_CONFIG_HOME/sandbox-harness/config.json` (`SBOX_CONFIG`), and process segments
-  live in `process.json` (`SBOX_PROCESS`). Both are zod-validated and written atomically.
+  `$XDG_CONFIG_HOME/agent-process-segments/config.json` (`APS_CONFIG`), and process segments
+  live in `process.json` (`APS_PROCESS`). Both are zod-validated and written atomically.
   Invalid files fall back to defaults until saved; env still owns paths, ports, and the
   harness.
-- **Errors are the only persisted logs.** `$XDG_STATE_HOME/sandbox-harness/errors.log`
-  (`SBOX_ERROR_LOG`, `SBOX_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
+- **APS is canonical, SBOX is legacy.** Read every runtime variable through
+  `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
+  string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it
+  prefers an existing `agent-process-segments` location and falls back to an existing
+  `sandbox-harness` one. Do not add a fresh `process.env.SBOX_*` read or a new hardcoded
+  default outside `config.ts`. Operators move data with `npm run migrate:paths`.
+- **Errors are the only persisted logs.** `$XDG_STATE_HOME/agent-process-segments/errors.log`
+  (`APS_ERROR_LOG`, `APS_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.
-- **The browser terminal is a real PTY.** `SBOX_TERMINAL=0` disables creation;
-  `SBOX_TERMINAL_CWD` sets its starting directory. Sessions are server-owned and listed
+- **The browser terminal is a real PTY.** `APS_TERMINAL=0` disables creation;
+  `APS_TERMINAL_CWD` sets its starting directory. Sessions are server-owned and listed
   in the UI; hiding the panel only detaches, closing a session tab kills it. It is
   desktop-only in the UI, but the session API is live. Never expose the brain beyond
   loopback without auth/proxy controls, because the terminal is a direct shell.
@@ -194,7 +200,7 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 17. **Terminal sessions are server-owned and visible.** A WebSocket attaches/detaches; it
     must never kill the PTY on close. Hide detaches, an explicit close kills, and
     `GET /api/terminals` lists every session. Keep scrollback bounded and the UI
-    desktop-only; `SBOX_TERMINAL=0` disables creation.
+    desktop-only; `APS_TERMINAL=0` disables creation.
 18. **Concurrency is per cell, and cycles are bounded.** The master counts `working`
     requests in the cell and stops starting turns at `max_concurrent` (default 3). Each
     cycle selects at most that spare capacity, latest segments first and oldest request
@@ -234,7 +240,7 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 28. **NDJSON POSTs must declare JSON.** `streamNdjson` sets
     `content-type: application/json` whenever it sends a body. A browser string body
     otherwise becomes `text/plain` and Fastify rejects the chat action validation.
-29. **Model defaults are brain-level.** `SBOX_DEFAULT_MODEL` applies when neither the
+29. **Model defaults are brain-level.** `APS_DEFAULT_MODEL` applies when neither the
     request nor its cell names a model. OpenCode defaults to
     `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
     Expose the default through `GET /api/models` so the wizard can show it.
@@ -277,7 +283,7 @@ or disk.
 
 **Add a harness.** Implement `AgentHarness` in `clarify/harnesses/<id>.ts` (`prepare`,
 `spawn`, `createParser`, `probeModels`, `fallbackModels`), register it in
-`clarify/harnesses/index.ts` behind `SBOX_HARNESS`, and add prepare plus parser tests in
+`clarify/harnesses/index.ts` behind `APS_HARNESS`, and add prepare plus parser tests in
 `test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`.
 
 **Add or change a process segment.** Update `process/definition.ts`, `process/defaults.ts`

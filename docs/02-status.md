@@ -67,7 +67,8 @@ built and vended by the brain; real-CLI verification is still pending.
   “Copy as Markdown”, in-app doc links, external links in a new tab, and screenshots via
   `GET /api/docs/assets/*`. `?help=<slug>` deep-links a page and back/forward move between
   pages. The manifest is an explicit code list; docs are read from `SBOX_DOCS_DIR`
-  (default `<cwd>/docs`) and traversal is rejected.
+  (default `<cwd>/docs`) and traversal is rejected. A GitHub icon beside the Help row
+  opens the public source repository in a new tab.
 - Engine: one persistent child per request, buffered live turns with reattach,
   transcript and session persistence, `--resume` on later spawns, agent status
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
@@ -172,7 +173,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 240 vitest cases, all passing: 158 server across 19 files and 82 web across 16 files,
+- 243 vitest cases, all passing: 158 server across 19 files and 85 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

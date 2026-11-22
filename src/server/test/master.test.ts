@@ -8,6 +8,7 @@ import { openDb, type Db } from '../src/db.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
 import { MasterService } from '../src/master/service.js';
+import type { MasterResult } from '../src/master/types.js';
 import { defaultProcess, READY_FOR_IMPLEMENTATION } from '../src/process/defaults.js';
 import type { ProcessConfig } from '../src/process/definition.js';
 import type { ProcessStore } from '../src/process/store.js';
@@ -593,20 +594,264 @@ describe('MasterScheduler', () => {
     }
   });
 
-  it('coalesces concurrent run-now calls', async () => {
-    const settings = new SettingsStore(path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'));
-    let release!: (value: unknown) => void;
-    const result = emptyResult();
+  it('skips a tick while a cell run is still in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const settings = new SettingsStore(path.join(base, 'config.json'));
+      settings.patch({ master: { includeUnassigned: false } });
+      const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+      const cell = cells.create('Alpha', null, 2);
+      let release!: (value: MasterResult) => void;
+      let calls = 0;
+      const runCell = vi.fn(() => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<MasterResult>((resolve) => {
+            release = resolve;
+          });
+        }
+        return Promise.resolve(emptyResult());
+      });
+      const scheduler = new MasterScheduler(
+        {
+          runOnce: vi.fn(async () => emptyResult()),
+          runCell,
+          runUnassigned: vi.fn(async () => emptyResult()),
+          lastRunAt: null,
+          lastResult: null,
+          lastFor: vi.fn(() => null),
+        } as unknown as MasterService,
+        settings,
+        cells,
+      );
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+      expect(scheduler.status().running).toBe(true);
+      expect(scheduler.statusFor(cell.id).running).toBe(true);
+      const firstNextRunAt = scheduler.statusFor(cell.id).nextRunAt;
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+      expect(scheduler.statusFor(cell.id).running).toBe(true);
+      expect(scheduler.statusFor(cell.id).nextRunAt).toBeGreaterThan(firstNextRunAt ?? 0);
+
+      release(emptyResult());
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(2);
+
+      scheduler.stop();
+      cells.list();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for an in-flight cell run before starting a global run', async () => {
+    vi.useFakeTimers();
+    try {
+      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const settings = new SettingsStore(path.join(base, 'config.json'));
+      settings.patch({ master: { includeUnassigned: false } });
+      const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+      const cell = cells.create('Alpha', null, 2);
+      let releaseCell!: (value: MasterResult) => void;
+      let calls = 0;
+      const runCell = vi.fn(() => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<MasterResult>((resolve) => {
+            releaseCell = resolve;
+          });
+        }
+        return Promise.resolve(emptyResult());
+      });
+      const globalResult = { ...emptyResult(), cells: 1, prodded: 1 };
+      const runOnce = vi.fn(async () => globalResult);
+      const scheduler = new MasterScheduler(
+        {
+          runOnce,
+          runCell,
+          runUnassigned: vi.fn(async () => emptyResult()),
+          lastRunAt: null,
+          lastResult: null,
+          lastFor: vi.fn(() => null),
+        } as unknown as MasterService,
+        settings,
+        cells,
+      );
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+
+      const global = scheduler.runNow();
+      expect(runOnce).not.toHaveBeenCalled();
+      expect(scheduler.statusFor(cell.id).running).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+      expect(runOnce).not.toHaveBeenCalled();
+
+      releaseCell(emptyResult());
+      expect(await global).toBe(globalResult);
+      expect(runOnce).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(2);
+
+      scheduler.stop();
+      cells.list();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips a tick while a global run is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const settings = new SettingsStore(path.join(base, 'config.json'));
+      settings.patch({ master: { includeUnassigned: false } });
+      const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+      const cell = cells.create('Alpha', null, 2);
+      let releaseGlobal!: (value: MasterResult) => void;
+      const globalResult = emptyResult();
+      const runOnce = vi.fn(
+        () =>
+          new Promise<MasterResult>((resolve) => {
+            releaseGlobal = resolve;
+          }),
+      );
+      const runCell = vi.fn(async () => emptyResult());
+      const scheduler = new MasterScheduler(
+        {
+          runOnce,
+          runCell,
+          runUnassigned: vi.fn(async () => emptyResult()),
+          lastRunAt: null,
+          lastResult: null,
+          lastFor: vi.fn(() => null),
+        } as unknown as MasterService,
+        settings,
+        cells,
+      );
+      scheduler.start();
+
+      const global = scheduler.runNow();
+      expect(runOnce).toHaveBeenCalledTimes(1);
+      expect(scheduler.status().running).toBe(true);
+      expect(scheduler.statusFor(cell.id).running).toBe(true);
+      const firstNextRunAt = scheduler.statusFor(cell.id).nextRunAt;
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).not.toHaveBeenCalled();
+      expect(scheduler.statusFor(cell.id).nextRunAt).toBeGreaterThan(firstNextRunAt ?? 0);
+
+      releaseGlobal(globalResult);
+      expect(await global).toBe(globalResult);
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(runCell).toHaveBeenCalledTimes(1);
+
+      scheduler.stop();
+      cells.list();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('makes a per-cell run join an in-flight global run', async () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+    const settings = new SettingsStore(path.join(base, 'config.json'));
+    settings.patch({ master: { includeUnassigned: false } });
+    const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+    const cell = cells.create('Alpha', null, 2);
+    let releaseGlobal!: (value: MasterResult) => void;
+    const globalResult = emptyResult();
     const runOnce = vi.fn(
-      () => new Promise((resolve) => {
-        release = resolve;
-      }),
+      () =>
+        new Promise<MasterResult>((resolve) => {
+          releaseGlobal = resolve;
+        }),
     );
+    const runCell = vi.fn(async () => emptyResult());
     const scheduler = new MasterScheduler(
       {
         runOnce,
-        runCell: vi.fn(),
-        runUnassigned: vi.fn(),
+        runCell,
+        runUnassigned: vi.fn(async () => emptyResult()),
+        lastRunAt: null,
+        lastResult: null,
+        lastFor: vi.fn(() => null),
+      } as unknown as MasterService,
+      settings,
+      cells,
+    );
+    scheduler.start();
+
+    const global = scheduler.runNow();
+    const perCell = scheduler.runNow(cell.id);
+    expect(runCell).not.toHaveBeenCalled();
+
+    releaseGlobal(globalResult);
+    expect(await global).toBe(globalResult);
+    expect(await perCell).toBe(globalResult);
+
+    scheduler.stop();
+    cells.list();
+  });
+
+  it('runs a manual global cycle while the scheduler is disabled', async () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+    const settings = new SettingsStore(path.join(base, 'config.json'));
+    settings.patch({ master: { enabled: false, includeUnassigned: false } });
+    const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+    const cell = cells.create('Alpha', null, 2);
+    const result = emptyResult();
+    const runOnce = vi.fn(async () => result);
+    const runCell = vi.fn(async () => emptyResult());
+    const scheduler = new MasterScheduler(
+      {
+        runOnce,
+        runCell,
+        runUnassigned: vi.fn(async () => emptyResult()),
+        lastRunAt: null,
+        lastResult: null,
+        lastFor: vi.fn(() => null),
+      } as unknown as MasterService,
+      settings,
+      cells,
+    );
+    scheduler.start();
+
+    expect(scheduler.statusFor(cell.id).nextRunAt).toBeNull();
+    expect(await scheduler.runNow()).toBe(result);
+    expect(runCell).not.toHaveBeenCalled();
+
+    scheduler.stop();
+    cells.list();
+  });
+
+  it('coalesces concurrent run-now calls', async () => {
+    const settings = new SettingsStore(path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'));
+    let release!: (value: MasterResult) => void;
+    const result = emptyResult();
+    const runOnce = vi.fn(
+      () => new Promise<MasterResult>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const runCell = vi.fn();
+    const runUnassigned = vi.fn();
+    const scheduler = new MasterScheduler(
+      {
+        runOnce,
+        runCell,
+        runUnassigned,
         lastRunAt: null,
         lastResult: null,
         lastFor: vi.fn(() => null),
@@ -618,6 +863,8 @@ describe('MasterScheduler', () => {
     const first = scheduler.runNow();
     const second = scheduler.runNow();
     expect(runOnce).toHaveBeenCalledTimes(1);
+    expect(runCell).not.toHaveBeenCalled();
+    expect(runUnassigned).not.toHaveBeenCalled();
     release(result);
     expect(await first).toBe(result);
     expect(await second).toBe(result);

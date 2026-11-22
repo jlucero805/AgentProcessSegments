@@ -25,10 +25,13 @@ built and vended by the brain; real-CLI verification is still pending.
   prods that bounded set concurrently (up to the cell/segment caps), returns without
   waiting for the turns, then settles each completion in the background, recording
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events and advancing on
-  exact markers through legal transitions. A segment can also create follow-up requests
-  from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
-  event history are cell-scoped. The Config page edits the global schedule/template, and
-  the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
+  exact markers through legal transitions. A bucket never dispatches two cycles at once:
+  a tick that lands during an active cycle is skipped and retried on the next interval,
+  and a global Run now waits for in-flight cell cycles before dispatching. A segment can
+  also create follow-up requests from `FOLLOW-UP:` callouts. Each cell has its own master
+  chat; manual run, status, and event history are cell-scoped. The Config page edits the
+  global schedule/template, and the Cell master drawer shows the selected cell’s status,
+  prompts, activity, and chat.
 - Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
   (`SBOX_PROCESS` override): six ordered segments with purpose, enabled, idle minutes,
   per-cycle cap, per-segment concurrency, prompt, ready marker, advance target, and

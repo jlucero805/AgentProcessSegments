@@ -375,8 +375,11 @@ in `master_events`.
 
 **Cost.** A missing global file falls back to a policy derived from the legacy master
 fields. Cell policies are snapshots, so changing the global template does not rewrite
-existing cells. Each enabled cell has its own timer and cycle; cycles are sequential
-inside a cell. Prompts cost tokens when segments are enabled.
+existing cells. Each enabled cell has its own timer and cycle; a bucket has at most one
+dispatch cycle in flight, and a tick during an active cycle is skipped and retried on
+the next cadence. Background turns from a completed dispatch may still be running. A
+global manual run is exclusive with per-cell cycles: it waits for in-flight buckets and
+blocks new ones until it returns. Prompts cost tokens when segments are enabled.
 
 ## D28. The cell master has its own detail
 

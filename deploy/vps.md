@@ -54,7 +54,9 @@ Process segments live beside it in `$XDG_CONFIG_HOME/sandbox-harness/process.jso
 (`SBOX_PROCESS` overrides). This is the global default and the template for new cells.
 Each cell stores its own copy in SQLite (`cells.process_json`) plus an optional
 `master_interval_minutes`, `max_concurrent` (default 3), and `model`/`effort` defaults.
-The scheduler keeps one timer per enabled cell plus one for unassigned work. Per-cell
+The scheduler keeps one timer per enabled cell plus one for unassigned work. A bucket
+runs at most one dispatch cycle at a time; a tick during an active cycle is skipped and
+retried next interval, and a global Run now waits for in-flight cell cycles. Per-cell
 master chats use `__master__:<cellId>`. Edit cell policy from the cell creation/edit flow
 or `PATCH /api/cells/:id`. The Config page edits the global default; the Cell master
 drawer shows the selected cell’s policy, ticker, activity, and chat. See

@@ -11,16 +11,20 @@ interface TimerState {
 }
 
 const REFRESH_MS = 30_000;
-const ALL_KEY = '__all__';
 
 /**
  * One timer per cell plus one for unassigned work. Intervals come from the cell
  * (`masterIntervalMinutes`) or fall back to the global scheduler interval. A periodic
  * refresh picks up cells created or deleted through another client.
+ *
+ * Runs are keyed by bucket (cell id, or `''` for unassigned). `active` coalesces
+ * same-bucket runs, while `globalRun` makes a manual all-cells run exclusive with every
+ * per-bucket timer so a bucket never dispatches two cycles at once.
  */
 export class MasterScheduler {
   private readonly timers = new Map<string, TimerState>();
   private readonly active = new Map<string, Promise<MasterResult>>();
+  private globalRun: Promise<MasterResult> | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
   private unsubscribe: (() => void) | null = null;
   private started = false;
@@ -86,6 +90,10 @@ export class MasterScheduler {
       if (existing) clearInterval(existing.timer);
       const nextRunAt = Date.now() + intervalMs;
       const timer = setInterval(() => {
+        // Advance the cadence before running. When this tick lands during an
+        // active bucket or global run, `runKey` returns that run instead of
+        // starting another cycle, so this tick is dropped and the bucket tries
+        // again on the next interval.
         const current = this.timers.get(key);
         if (current) current.nextRunAt = Date.now() + intervalMs;
         void this.runKey(key, run).catch((error: unknown) => {
@@ -98,11 +106,36 @@ export class MasterScheduler {
   }
 
   async runNow(cellId?: string | null): Promise<MasterResult> {
-    if (cellId === undefined) return this.runKey(ALL_KEY, () => this.service.runOnce());
+    if (cellId === undefined) return this.runAll();
     const key = cellId ?? '';
     return this.runKey(key, () =>
       cellId === null ? this.service.runUnassigned() : this.service.runCell(cellId),
     );
+  }
+
+  /**
+   * Run every eligible bucket once. A global run is exclusive with per-bucket
+   * timers: it first waits for any in-flight buckets, then `runKey` joins this
+   * promise until it settles. That keeps a global Run now from overlapping a
+   * cell cycle, and stops timers from starting new cycles while it is pending.
+   */
+  private runAll(): Promise<MasterResult> {
+    if (this.globalRun) return this.globalRun;
+
+    const pending = (async () => {
+      // `runKey` returns `globalRun` once it is assigned, so `active` cannot
+      // grow while we wait. The loop guards against a run settling between the
+      // snapshot and the check.
+      while (this.active.size > 0) {
+        await Promise.allSettled([...this.active.values()]);
+      }
+      return this.service.runOnce();
+    })().finally(() => {
+      this.globalRun = null;
+    });
+
+    this.globalRun = pending;
+    return pending;
   }
 
   status(): MasterStatus {
@@ -112,7 +145,7 @@ export class MasterScheduler {
     return {
       enabled: master.enabled,
       intervalMinutes: master.intervalMinutes,
-      running: this.active.size > 0,
+      running: this.globalRun !== null || this.active.size > 0,
       nextRunAt,
       lastRunAt: this.service.lastRunAt,
       lastResult: this.service.lastResult,
@@ -128,7 +161,7 @@ export class MasterScheduler {
     return {
       enabled: master.enabled && (cellId === null || cell?.masterEnabled === true),
       intervalMinutes: cell?.masterIntervalMinutes ?? master.intervalMinutes,
-      running: this.active.has(key),
+      running: this.globalRun !== null || this.active.has(key),
       nextRunAt: timer?.nextRunAt ?? null,
       lastRunAt: last?.at ?? null,
       lastResult: last?.result ?? null,
@@ -136,6 +169,7 @@ export class MasterScheduler {
   }
 
   private runKey(key: string, run: () => Promise<MasterResult>): Promise<MasterResult> {
+    if (this.globalRun) return this.globalRun;
     const existing = this.active.get(key);
     if (existing) return existing;
     const pending = run().finally(() => this.active.delete(key));

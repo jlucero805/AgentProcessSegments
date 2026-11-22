@@ -242,8 +242,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     concurrency, counts already-selected candidates against segment caps, starts the batch
     with `Promise.all`, records the prods, and returns. Completion handling (transcript,
     follow-ups, marker advancement) runs in background promises and mutates the cycle
-    result/events. Do not block the cycle on `turn.promise`; per-cell scheduler coalescing
-    still prevents overlapping dispatch cycles.
+    result/events. Do not block the cycle on `turn.promise`; per-bucket scheduler
+    coalescing still prevents overlapping dispatch cycles. A global `runNow` is
+    scheduler-wide exclusive: it waits for in-flight buckets, and `runKey` joins it so
+    timers cannot start a new dispatch cycle while it runs.
 31. **Scorecards are observational and separate from the master.** The summary service
     gathers facts, writes one `cell_summaries` row, and never transitions requests or
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the

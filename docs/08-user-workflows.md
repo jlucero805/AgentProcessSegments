@@ -85,7 +85,9 @@ Press **Cell master** (above **+ New request**).
   start/prod/advance/followup/skip events, and **that cell’s master chat**. Unassigned
   work uses the global master chat.
 - **Run now** executes one cycle for the selected cell (or the global cycle when no cell
-  is selected).
+  is selected). A cell run joins an active global run. A global run waits for in-flight
+  cell cycles and blocks new ticks until it returns; a tick that lands during an active
+  cycle is skipped and retried on the next interval.
 - **Configure** jumps to the Config page.
 
 Each cell’s master chat is a separate reserved session, so one cell’s notes and

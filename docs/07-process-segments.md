@@ -178,6 +178,9 @@ the master carry work from an unplanned request through implementation:
 4. Optionally enable `review` and `finalize`.
 
 Each cell’s ticker drives its own cycle; a cell interval overrides the global cadence.
+A bucket has at most one dispatch cycle in flight: if a tick lands while the cell or a
+global manual run is already active, that tick is skipped and the cell tries again on its
+next interval. A global Run now waits for in-flight cell cycles before it dispatches.
 Lower a segment’s `idleMinutes` to move through that segment sooner; the same request is
 not handled twice inside that window.
 

@@ -4,6 +4,7 @@ import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
 import { ProcessEditor } from './ProcessEditor';
 import {
+  MAX_USAGE_RETENTION_DAYS,
   MASTER_SESSION_ID,
   timeAgo,
   type CellDetail,
@@ -14,6 +15,7 @@ import {
   type MasterStatus,
   type ProcessConfig,
   type SegmentConfig,
+  type UsageSettings,
 } from './types';
 import {
   Badge,
@@ -39,6 +41,7 @@ function clock(ts: number | null | undefined): string {
 /** Edits the persisted master policy and shows its live status and activity. */
 export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
+  const [usage, setUsage] = useState<UsageSettings | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
   const [processPath, setProcessPath] = useState('');
@@ -48,6 +51,8 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [usageSaving, setUsageSaving] = useState(false);
+  const [usageSaved, setUsageSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
   const [processSaved, setProcessSaved] = useState(false);
   const [running, setRunning] = useState(false);
@@ -62,6 +67,7 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
         api.getMasterEvents({ limit: 20 }),
       ]);
       setMaster(config.master);
+      setUsage(config.usage);
       setPath(config.path);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
@@ -81,6 +87,11 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
   const set = <K extends keyof MasterConfig>(key: K, value: MasterConfig[K]) => {
     setMaster((current) => (current ? { ...current, [key]: value } : current));
     setSaved(false);
+  };
+
+  const setRetention = (days: number) => {
+    setUsage((current) => (current ? { ...current, retentionDays: days } : current));
+    setUsageSaved(false);
   };
 
   const setSegment = <K extends keyof SegmentConfig>(
@@ -125,8 +136,9 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
     if (!master) return;
     setSaving(true);
     try {
-      const config = await api.patchConfig(master);
+      const config = await api.patchConfig({ master });
       setMaster(config.master);
+      setUsage(config.usage);
       setPath(config.path);
       setStatus(await api.getMasterStatus());
       setSaved(true);
@@ -134,6 +146,21 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveUsage() {
+    if (!usage) return;
+    setUsageSaving(true);
+    try {
+      const config = await api.patchConfig({ usage });
+      setUsage(config.usage);
+      setPath(config.path);
+      setUsageSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setUsageSaving(false);
     }
   }
 
@@ -179,7 +206,7 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
     }
   }
 
-  if (!master || !process) {
+  if (!master || !usage || !process) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
         <Spinner /> Loading settings...
@@ -235,6 +262,42 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
             {saved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
             <Button variant="primary" disabled={saving} onClick={() => void save()}>
               {saving ? <Spinner /> : 'Save schedule'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Usage retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Raw usage rows older than this window are pruned in the background. Cost is
+          reported by the harness, never estimated here.
+        </p>
+        <Field label="Retention (days)" hint="0 keeps history forever">
+          <Input
+            type="number"
+            min={0}
+            max={MAX_USAGE_RETENTION_DAYS}
+            step={1}
+            value={usage.retentionDays}
+            onChange={(event) => setRetention(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. All-time totals cover the retained
+            window.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {usageSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={usageSaving}
+              onClick={() => void saveUsage()}
+            >
+              {usageSaving ? <Spinner /> : 'Save usage retention'}
             </Button>
           </div>
         </div>

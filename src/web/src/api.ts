@@ -22,6 +22,7 @@ import type {
   State,
   TerminalSessionInfo,
   TerminalStatus,
+  UsageSettings,
 } from './types';
 
 export class ApiError extends Error {
@@ -287,8 +288,11 @@ export const api = {
   getConfig(): Promise<ConfigResponse> {
     return request('/api/config');
   },
-  patchConfig(master: Partial<MasterConfig>): Promise<ConfigResponse> {
-    return request('/api/config', { method: 'PATCH', body: JSON.stringify({ master }) });
+  patchConfig(input: {
+    master?: Partial<MasterConfig>;
+    usage?: Partial<UsageSettings>;
+  }): Promise<ConfigResponse> {
+    return request('/api/config', { method: 'PATCH', body: JSON.stringify(input) });
   },
   getProcess(): Promise<ProcessResponse> {
     return request('/api/process');

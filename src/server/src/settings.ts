@@ -3,6 +3,11 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
+import {
+  DEFAULT_USAGE_RETENTION_DAYS,
+  MAX_USAGE_RETENTION_DAYS,
+  type UsageSettings,
+} from './usage/settings.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -23,7 +28,16 @@ const masterSchema = z.object({
   prompt: z.string().min(1).max(8000),
 }) satisfies z.ZodType<MasterConfig>;
 
-const settingsSchema = z.object({ master: masterSchema });
+const usageSchema = z.object({
+  retentionDays: z.number().int().min(0).max(MAX_USAGE_RETENTION_DAYS),
+}) satisfies z.ZodType<UsageSettings>;
+
+const settingsSchema = z.object({
+  master: masterSchema,
+  // A legacy config written before usage retention existed has no `usage`
+  // key; keep its master settings and give it the default window.
+  usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
+});
 
 export type MasterSettings = MasterConfig;
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -37,9 +51,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
     includeUnassigned: true,
     prompt: DEFAULT_MASTER_PROMPT,
   },
+  usage: {
+    retentionDays: DEFAULT_USAGE_RETENTION_DAYS,
+  },
 };
 
-export const settingsPatchSchema = z.object({ master: masterSchema.partial() });
+export const settingsPatchSchema = z.object({
+  master: masterSchema.partial().optional(),
+  usage: usageSchema.partial().optional(),
+});
 
 /**
  * Persistent app settings, separate from the brain's environment/path config.
@@ -65,6 +85,7 @@ export class SettingsStore {
     const current = this.get();
     const next = settingsSchema.parse({
       master: { ...current.master, ...(parsed.master ?? {}) },
+      usage: { ...current.usage, ...(parsed.usage ?? {}) },
     });
     this.write(next);
     this.cached = next;

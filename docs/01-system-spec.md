@@ -117,6 +117,18 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 `id` (uuid PK), `request_id`, `title`, `content`, `created_at`; index
 `idx_kb_entries_request`. Re-indexing a request replaces its prior entry.
 
+### Usage retention
+
+The usage ledger (`usage_events`, specified in `docs/09-backlog.md`) is pruned by a
+brain-level retention window. `usage.retentionDays` lives in the app settings file
+(`config.json`, editable from the Config page): default 90 days, `0` keeps history
+forever. A job runs once shortly after startup, then hourly, and immediately when the
+setting changes. It deletes rows whose `created_at` is strictly before
+`now - retentionDays`, in batches of 1000 with an event-loop yield between batches, and
+relies on the ledger's `created_at` index. It never runs `VACUUM`; SQLite reuses freed
+pages. "All time" usage queries therefore cover the retained window. Until the ledger
+table exists the job is a silent no-op.
+
 ### Domain (`src/server/domain/request.ts`)
 
 - `STATES = clarify | dispatch | review | finalize | done | dropped`.

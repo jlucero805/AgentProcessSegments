@@ -17,6 +17,7 @@ function installFetch() {
           includeUnassigned: true,
           prompt: 'prod prompt',
         },
+        usage: { retentionDays: 90 },
         path: '/tmp/config.json',
       });
     }
@@ -124,6 +125,7 @@ describe('MasterDetail', () => {
               includeUnassigned: true,
               prompt: 'prod',
             },
+            usage: { retentionDays: 90 },
             path: '/tmp/config.json',
           });
         }

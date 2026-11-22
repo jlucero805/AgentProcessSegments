@@ -34,8 +34,10 @@ harness reports tokens but no price.
 small time-series chart. A cell-level monthly/daily budget is optional; alerts are a
 notification or a master-chat note, not a hard stop until the operator asks for one.
 
-**Why deferred.** It needs parser/usage fixtures for both harnesses, a pricing source,
-and a retention policy. It does not change how work moves, so it is safe to add after
+**Why deferred.** It needs parser/usage fixtures for both harnesses and a pricing source.
+Retention is no longer a blocker: `usage.retentionDays` (default 90, `0` = forever) is
+stored in `config.json`, edited on the Config page, and enforced shortly after startup and
+hourly in 1000-row batches. It does not change how work moves, so it is safe to add after
 per-cell process, ticker, concurrency, and model controls.
 
 **Acceptance.**

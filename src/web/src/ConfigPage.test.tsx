@@ -2,7 +2,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigPage } from './ConfigPage';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
-import type { Cell, MasterConfig, MasterEvent, MasterStatus, SegmentConfig } from './types';
+import type {
+  Cell,
+  MasterConfig,
+  MasterEvent,
+  MasterStatus,
+  SegmentConfig,
+  UsageSettings,
+} from './types';
 
 const master: MasterConfig = {
   enabled: true,
@@ -12,6 +19,8 @@ const master: MasterConfig = {
   includeUnassigned: true,
   prompt: 'prod prompt',
 };
+
+const usage: UsageSettings = { retentionDays: 90 };
 
 const status: MasterStatus = {
   enabled: true,
@@ -43,7 +52,7 @@ const event: MasterEvent = {
 };
 
 interface Captured {
-  config?: { master?: Partial<MasterConfig> };
+  config?: { master?: Partial<MasterConfig>; usage?: Partial<UsageSettings> };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
   ran?: boolean;
@@ -58,11 +67,16 @@ function installFetch(): Captured {
       captured.config = JSON.parse(String(init.body)) as Captured['config'];
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
+        usage: { ...usage, ...captured.config?.usage },
         path: '/tmp/sandbox-harness/config.json',
       });
     }
     if (url === '/api/config') {
-      return jsonResponse({ master, path: '/tmp/sandbox-harness/config.json' });
+      return jsonResponse({
+        master,
+        usage,
+        path: '/tmp/sandbox-harness/config.json',
+      });
     }
     if (url === '/api/process' && init?.method === 'PATCH') {
       captured.process = JSON.parse(String(init.body)) as Captured['process'];
@@ -119,6 +133,24 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     await waitFor(() => expect(captured.config).toBeDefined());
     expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
+  });
+
+  it('loads and saves usage retention', async () => {
+    const captured = installFetch();
+    render(<ConfigPage commands={[]} onError={() => {}} />);
+
+    const retention = await screen.findByRole('spinbutton', { name: /retention/i });
+    expect(retention).toHaveValue(90);
+    expect(screen.getByText('0 keeps history forever')).toBeInTheDocument();
+
+    fireEvent.change(retention, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save usage retention' }));
+
+    await waitFor(() =>
+      expect(captured.config?.usage).toEqual({ retentionDays: 30 }),
+    );
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(retention).toHaveValue(30);
   });
 
   it('toggles the master switch', async () => {

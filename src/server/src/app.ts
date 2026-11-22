@@ -19,6 +19,7 @@ import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
 import { SettingsStore } from './settings.js';
 import { SkillCatalog } from './skills/catalog.js';
+import { UsageRetention } from './usage/retention.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -64,6 +65,7 @@ export async function main(): Promise<void> {
       errors,
     });
     const master = new MasterScheduler(masterService, settings, cells, errors);
+    const usageRetention = new UsageRetention({ db, settings, errors });
 
     const app = await buildServer({
       repo,
@@ -84,8 +86,11 @@ export async function main(): Promise<void> {
     });
     master.start();
     await app.listen({ host: config.host, port: config.port });
+    // Fire-and-forget: a first-time prune must not delay readiness.
+    usageRetention.start();
 
     const shutdown = async () => {
+      usageRetention.stop();
       master.stop();
       // Keep-alive sockets from a closed client can hold `close()` open forever.
       const force = setTimeout(() => process.exit(0), 3000);

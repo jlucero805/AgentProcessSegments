@@ -33,6 +33,11 @@ export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { SkillInfo } from '../../server/src/skills/types';
 export type { TerminalSessionInfo } from '../../server/src/terminal/types';
 export type { ModelOption } from '../../server/src/clarify/models';
+export type { UsageSettings } from '../../server/src/usage/settings';
+export {
+  DEFAULT_USAGE_RETENTION_DAYS,
+  MAX_USAGE_RETENTION_DAYS,
+} from '../../server/src/usage/settings';
 export type {
   CellDetail,
   FollowUpPolicy,
@@ -57,6 +62,7 @@ import type { AgentStatus, Effort, Request, State, TranscriptMsg } from '../../s
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
 import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
+import type { UsageSettings } from '../../server/src/usage/settings';
 
 export interface ModelsResult {
   models: ModelOption[];
@@ -70,6 +76,7 @@ export interface ModelsResult {
 
 export interface AppConfig {
   master: MasterConfig;
+  usage: UsageSettings;
 }
 
 export interface ConfigResponse extends AppConfig {

@@ -148,6 +148,12 @@ Harness MCP calls time out after `SBOX_MCP_TIMEOUT_MS` (default 15 seconds).
 binary. The default is `claude`. `SBOX_DEFAULT_MODEL` sets the brain fallback model; with
 OpenCode it defaults to `opencode-go/deepseek-v4.1-flash`.
 
+Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
+Config page. The default is 90 days; `0` keeps usage history forever. Raw
+`usage_events` rows older than the window are deleted shortly after startup and then
+hourly in small batches, so all-time usage totals cover the retained window. Cost is
+reported by the harness, never estimated.
+
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
 
@@ -161,7 +167,7 @@ main routes over a real socket.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped but unbuilt work (token/cost tracking)
+- `docs/09-backlog.md` scoped but unbuilt work (usage tracking and deferred follow-ups)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close

@@ -197,8 +197,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     first inside a segment; it must not scan or note every queue. Unassigned work uses 3.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
-20. **Token/cost tracking is backlog.** Do not add guessed pricing or partial usage
-    writes; follow `docs/09-backlog.md` when it is built.
+20. **Usage data is retained, never guessed.** `usage.retentionDays` (default 90, `0` =
+    keep forever) drives the startup/hourly prune job; do not add guessed pricing or
+    partial usage writes, and delete usage rows only through that job. See
+    `docs/09-backlog.md` and D42.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.

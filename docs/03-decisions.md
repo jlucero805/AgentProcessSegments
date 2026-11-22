@@ -621,3 +621,24 @@ buckets in order.
 **Cost.** A cycle can have several live model turns at once, using more provider
 throughput and tokens. The cell cap now matters for real parallel fan-out rather than just
 admission control. A segment cap of one still serializes merge work as intended.
+
+## D42. Usage retention is a configurable raw-row prune
+
+**Context.** The usage ledger grows once per completed agent turn. Without a bound it
+outlives the dashboards that read it and bloats the brain database. The dashboards need a
+predictable answer for "all time", and operators need a way to opt out of automatic
+deletion.
+
+**Decision.** `usage.retentionDays` lives in `config.json` and on the Config page,
+default 90 days, `0` keeps history forever. A `UsageRetention` job runs after startup,
+hourly, and when the setting changes. It deletes raw `usage_events` rows strictly older
+than the cutoff in 1000-row batches with a `setImmediate` yield between batches, uses the
+ledger's `created_at` index, joins an in-flight pass rather than starting a second one,
+and reports one `usage.prune` error through the error sink on failure. It never runs
+`VACUUM` or writes rollups. Until the ledger table exists it is a silent no-op, so this
+retention change can land before the usage dashboard and activate automatically.
+
+**Cost.** "All time" totals cover the retained window; the UI and docs say so. Preserving
+long-range totals requires daily rollups, which are deferred. A very large first prune
+takes several short statements rather than one long transaction, but still completes in
+one run. `VACUUM` is left to an operator who can stop the brain first.

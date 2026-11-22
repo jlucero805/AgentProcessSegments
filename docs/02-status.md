@@ -29,6 +29,8 @@ built and vended by the brain; real-CLI verification is still pending.
   from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
   event history are cell-scoped. The Config page edits the global schedule/template, and
   the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
+  Both Activity lists cap at 20rem and scroll internally, so a busy master does not push
+  the chat out of reach.
 - Process configuration lives in `$XDG_CONFIG_HOME/sandbox-harness/process.json`
   (`SBOX_PROCESS` override): six ordered segments with purpose, enabled, idle minutes,
   per-cycle cap, per-segment concurrency, prompt, ready marker, advance target, and
@@ -197,7 +199,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 290 vitest cases, all passing: 197 server across 22 files and 93 web across 17 files,
+- 292 vitest cases, all passing: 197 server across 22 files and 95 web across 17 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

@@ -83,7 +83,9 @@ Press **Cell master** (above **+ New request**).
   the global default.
 - The drawer shows status, last/next run, every segment prompt, recent
   start/prod/advance/followup/skip events, and **that cell’s master chat**. Unassigned
-  work uses the global master chat.
+  work uses the global master chat. Recent activity is capped at 20rem and scrolls
+  inside its card, so a busy master does not push the chat out of reach; the Config
+  page uses the same cap above the Global master chat.
 - **Run now** executes one cycle for the selected cell (or the global cycle when no cell
   is selected).
 - **Configure** jumps to the Config page.

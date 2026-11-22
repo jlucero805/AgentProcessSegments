@@ -383,7 +383,10 @@ export function ConfigPage({ onError, commands, onEditCell }: ConfigPageProps) {
         {events.length === 0 ? (
           <p className="text-sm text-zinc-500">No master activity yet.</p>
         ) : (
-          <ul className="divide-y divide-zinc-800">
+          <ul
+            aria-label="Recent activity"
+            className="max-h-80 divide-y divide-zinc-800 overflow-y-auto overscroll-contain pr-1"
+          >
             {events.map((event) => (
               <li key={event.id} className="flex items-start gap-2 py-2 text-xs">
                 <span className="w-10 shrink-0 text-zinc-600">{timeAgo(event.createdAt)}</span>

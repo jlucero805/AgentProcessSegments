@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MasterDetail } from './MasterDetail';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
+import type { MasterEvent } from './types';
 
-function installFetch() {
+function installFetch(events: MasterEvent[] = []) {
   const captured: { ran?: boolean; result?: Record<string, unknown> } = {};
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -32,7 +33,7 @@ function installFetch() {
       });
     }
     if (url === '/api/cells') return jsonResponse([]);
-    if (url.startsWith('/api/master/events')) return jsonResponse([]);
+    if (url.startsWith('/api/master/events')) return jsonResponse(events);
     if (url === '/api/requests/__master__/clarify') {
       return jsonResponse({ started: true, active: false, transcript: [] });
     }
@@ -76,6 +77,30 @@ describe('MasterDetail', () => {
     expect(screen.getAllByText('Prompt used on cron').length).toBeGreaterThan(0);
     expect(screen.queryByText('Acceptance criteria')).not.toBeInTheDocument();
     expect(screen.queryByText('Target repo')).not.toBeInTheDocument();
+  });
+
+  it('caps recent activity and keeps every event scrollable', async () => {
+    const events: MasterEvent[] = Array.from({ length: 30 }, (_, index) => ({
+      id: `e${index}`,
+      cellId: null,
+      requestId: null,
+      action: 'cycle',
+      detail: `Cycle ${index}`,
+      createdAt: Date.now() - index * 1_000,
+    }));
+    installFetch(events);
+    render(
+      <MasterDetail
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    const list = await screen.findByRole('list', { name: 'Recent activity' });
+    expect(list).toHaveClass('max-h-80', 'overflow-y-auto');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(30);
   });
 
   it('runs a cycle from the detail', async () => {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigPage } from './ConfigPage';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
@@ -63,7 +63,7 @@ interface Captured {
   ran?: boolean;
 }
 
-function installFetch(): Captured {
+function installFetch(events: MasterEvent[] = [event]): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -92,7 +92,7 @@ function installFetch(): Captured {
       });
     }
     if (url === '/api/master/status') return jsonResponse(status);
-    if (url.startsWith('/api/master/events')) return jsonResponse([event]);
+    if (url.startsWith('/api/master/events')) return jsonResponse(events);
     if (url === '/api/cells/c1' && init?.method === 'PATCH') {
       captured.cell = JSON.parse(String(init.body)) as Captured['cell'];
       return jsonResponse({ ...cell, ...captured.cell });
@@ -174,6 +174,23 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Build it')).toBeInTheDocument();
     expect(screen.getByText('prod')).toBeInTheDocument();
     expect(await screen.findByText('Master cycle: 1 prodded')).toBeInTheDocument();
+  });
+
+  it('caps recent activity so the global master chat stays reachable', async () => {
+    const events: MasterEvent[] = Array.from({ length: 30 }, (_, index) => ({
+      id: `e${index}`,
+      cellId: null,
+      requestId: null,
+      action: 'prod',
+      detail: `Prod ${index}`,
+      createdAt: Date.now() - index * 1_000,
+    }));
+    installFetch(events);
+    render(<ConfigPage commands={[]} onError={() => {}} />);
+
+    const list = await screen.findByRole('list', { name: 'Recent activity' });
+    expect(list).toHaveClass('max-h-80', 'overflow-y-auto');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(30);
   });
 
   it('saves a per-segment process change', async () => {

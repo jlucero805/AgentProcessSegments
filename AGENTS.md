@@ -271,11 +271,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
-32. **Harness choice is per cell and pinned per session.** `cells.harness` NULL inherits
-    `config.harness`. Requests, cell masters, and summary sessions resolve their adapter
-    through the cell; setup, KB, and unassigned sessions use the process default.
-    `session.json` stores the harness with the session id and usage, and an id from
-    another adapter is never resumed.
+32. **Harness choice is per cell or request and pinned per session.** A request session
+    uses `requests.harness`, then its cell's `cells.harness`, then `config.harness`.
+    Cell masters and summary sessions use their cell; setup, KB, and unassigned
+    sessions use the process default. `session.json` stores the harness with the session
+    id and usage, and an id from another adapter is never resumed. A cross-harness
+    request skips the cell's model and effort defaults, and a patch that changes the
+    effective harness clears a stale request model unless a replacement is supplied.
 
 ## Extension recipes
 

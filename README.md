@@ -149,11 +149,14 @@ Harness MCP calls time out after `APS_MCP_TIMEOUT_MS` (default 15 seconds).
 
 `APS_HARNESS=claude` (the default) or `opencode` sets the brain default. Each cell can
 choose its own harness in the cell editor; a cell with **Brain default** inherits this
-value. `APS_CLAUDE_BIN` and `APS_OPENCODE_BIN` point at each adapter's binary;
-`APS_HARNESS_BIN` remains a legacy fallback for the default adapter only, and the
-adapter-specific value wins when both are set. The legacy `SBOX_*` names still work.
-`APS_DEFAULT_MODEL` sets the default harness's fallback model. OpenCode also has an
-implicit `opencode-go/deepseek-v4.1-flash` default; Claude has none unless configured.
+value. A request can override its cell in the request drawer; the order is request,
+then cell, then brain default. A cross-harness request does not inherit the cell's model
+or effort, because those ids were chosen for the other adapter. `APS_CLAUDE_BIN` and
+`APS_OPENCODE_BIN` point at each adapter's binary; `APS_HARNESS_BIN` remains a legacy
+fallback for the default adapter only, and the adapter-specific value wins when both are
+set. The legacy `SBOX_*` names still work. `APS_DEFAULT_MODEL` sets the default harness's
+fallback model. OpenCode also has an implicit `opencode-go/deepseek-v4.1-flash` default;
+Claude has none unless configured.
 
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
 Config page. The default is 90 days; `0` keeps usage history forever. Raw

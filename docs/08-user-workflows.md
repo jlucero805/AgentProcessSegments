@@ -65,16 +65,20 @@ The full field reference is in `docs/07-process-segments.md`.
 
 1. Press **+ New request**, choose a title/body/target repo. If a cell is selected it is
    attached to that cell.
-2. The request starts in **Requests** (intake). If the cell’s intake segment is enabled,
+2. The drawer’s **Harness** selector defaults to **Inherit** (the cell’s adapter, then
+   the brain default). Pick **Claude Code** or **OpenCode** to pin this one request. The
+   model list follows the resolved adapter; changing harness resets a stale model, and
+   Effort is inert for OpenCode.
+3. The request starts in **Requests** (intake). If the cell’s intake segment is enabled,
    the master starts clarification; otherwise open the request and press **Start
    clarify**.
-3. Clarify, dispatch, review, and finalize share one chat thread. Interject at any time;
+4. Clarify, dispatch, review, and finalize share one chat thread. Interject at any time;
    messages sent while a turn runs are queued, and **Stop** cuts the turn short so you can
    redirect it.
-4. Type `/` at the start of a message to open the slash menu. Skills show a `skill` badge
+5. Type `/` at the start of a message to open the slash menu. Skills show a `skill` badge
    and are sent as instructions such as “Use the poteto-mode skill now…”. Plugin commands
    are sent as ordinary slash commands. See `docs/11-skills.md`.
-5. The drawer’s workflow buttons can move work manually. The master and a human use the
+6. The drawer’s workflow buttons can move work manually. The master and a human use the
    same transition table.
 
 ## 4. Watch the master

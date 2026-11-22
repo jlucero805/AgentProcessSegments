@@ -29,6 +29,7 @@ describe('request repository', () => {
     expect(request.hcRunIds).toEqual([]);
     expect(request.model).toBeNull();
     expect(request.cellId).toBeNull();
+    expect(request.harness).toBeNull();
     expect(request.createdAt).toBeGreaterThan(0);
   });
 
@@ -44,6 +45,7 @@ describe('request repository', () => {
       kbDigest: false,
       digest: 'notes',
       cellId: null,
+      harness: 'opencode',
     });
 
     expect(edited.skills).toEqual(['pstack', 'tdd']);
@@ -52,10 +54,12 @@ describe('request repository', () => {
     expect(edited.effort).toBe('xhigh');
     expect(edited.kbDigest).toBe(false);
     expect(edited.digest).toBe('notes');
+    expect(edited.harness).toBe('opencode');
 
-    const cleared = repo.edit(request.id, { model: null, digest: null });
+    const cleared = repo.edit(request.id, { model: null, digest: null, harness: null });
     expect(cleared.model).toBeNull();
     expect(cleared.digest).toBeNull();
+    expect(cleared.harness).toBeNull();
     expect(cleared.skills).toEqual(['pstack', 'tdd']);
   });
 

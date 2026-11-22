@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS requests (
   branch              TEXT,
   cr_url              TEXT,
   cell_id             TEXT,
+  harness             TEXT,
   created_at          INTEGER NOT NULL,
   updated_at          INTEGER NOT NULL
 );
@@ -128,6 +129,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['requests', 'branch', 'TEXT'],
   ['requests', 'cr_url', 'TEXT'],
   ['requests', 'cell_id', 'TEXT'],
+  ['requests', 'harness', 'TEXT'],
   ['cells', 'master_enabled', 'INTEGER NOT NULL DEFAULT 1'],
   ['cells', 'master_interval_minutes', 'INTEGER'],
   ['cells', 'max_concurrent', 'INTEGER NOT NULL DEFAULT 3'],

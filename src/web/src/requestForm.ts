@@ -13,6 +13,7 @@ export interface RequestFormState {
   effort: string;
   kbDigest: boolean;
   cellId: string;
+  harness: string;
 }
 
 export function formFromRequest(request: Request): RequestFormState {
@@ -28,6 +29,7 @@ export function formFromRequest(request: Request): RequestFormState {
     effort: request.effort ?? '',
     kbDigest: request.kbDigest,
     cellId: request.cellId ?? '',
+    harness: request.harness ?? '',
   };
 }
 
@@ -49,5 +51,6 @@ export function patchFromForm(form: RequestFormState, digest: string): Record<st
     kbDigest: form.kbDigest,
     digest: digest.trim() === '' ? null : digest,
     cellId: form.cellId || null,
+    harness: form.harness || null,
   };
 }

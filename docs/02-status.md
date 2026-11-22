@@ -111,8 +111,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
   probe behind one interface, with a cached registry of `claude` and `opencode` adapters.
   `APS_HARNESS` (legacy `SBOX_HARNESS`) sets the process default; each cell can store
-  its own `harness`, and requests, cell masters, and summary sessions resolve through
-  that cell. Setup, KB, and unassigned sessions use the default. Claude runs one
+  its own `harness`, and a request can override its cell. Resolution is request, then
+  cell, then the process default. Cell masters and summary sessions use their cell;
+  setup, KB, and unassigned sessions use the default. Claude runs one
   long-lived `claude -p` stream-json child; OpenCode runs
   `opencode run --format json --auto --standalone` per turn, injects config through
   `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes `opencode models`. Session
@@ -269,10 +270,12 @@ built and vended by the brain; real-CLI verification is still pending.
   each turn's config, `--archived` keeps brain sessions out of the user's list, and
   `--auto` is the request-session permission posture (the KB session gets explicit deny
   rules).
-- `APS_HARNESS` selects the substrate; `APS_HARNESS_BIN` overrides the binary.
-  `APS_CLAUDE_BIN` remains the Claude-specific override.
-- `GET /api/models` adds `harness` and `supportsEffort` alongside the spec's
-  `models`/`source`/`effortLevels`, so the SPA can tell when effort is inert (OpenCode).
+- `APS_HARNESS` selects the process-default substrate; `APS_CLAUDE_BIN` and
+  `APS_OPENCODE_BIN` point at each adapter. `APS_HARNESS_BIN` is the legacy fallback for
+  the default adapter only.
+- `GET /api/models` adds `harness`, `supportsEffort`, and `defaultModel` alongside the
+  spec's `models`/`source`/`effortLevels`, and accepts `harness`, `cellId`, or
+  `requestId`, so the SPA can resolve the right catalog and tell when effort is inert.
 - `GET /clarify` adds `active` alongside `started`/`transcript` so a reconnecting client
   knows whether a live turn can be reattached.
 - `POST /clarify/send` marks the request started when it is the first message, even if

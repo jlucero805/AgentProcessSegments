@@ -17,6 +17,7 @@ describe('db migrations', () => {
     migrate(db);
     migrate(db);
     expect(columns(db, 'requests')).toContain('cell_id');
+    expect(columns(db, 'requests')).toContain('harness');
     expect(columns(db, 'requests')).toContain('agent_status');
     expect(columns(db, 'cells')).toContain('master_enabled');
     expect(columns(db, 'cells')).toContain('harness');
@@ -58,6 +59,7 @@ describe('db migrations', () => {
     // The index on cell_id must be created after the column exists, or this throws.
     const db = openDb(file);
     expect(columns(db, 'requests')).toContain('cell_id');
+    expect(columns(db, 'requests')).toContain('harness');
     expect(columns(db, 'cells')).toContain('master_enabled');
     expect(columns(db, 'cells')).toContain('process_json');
     expect(columns(db, 'cells')).toContain('master_interval_minutes');

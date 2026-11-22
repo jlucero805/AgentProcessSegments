@@ -210,12 +210,18 @@ export const api = {
       body: JSON.stringify({ digest, index }),
     });
   },
-  getModels(refresh = false, harness?: HarnessId, cellId?: string): Promise<ModelsResult> {
+  getModels(
+    refresh = false,
+    harness?: HarnessId,
+    cellId?: string,
+    requestId?: string,
+  ): Promise<ModelsResult> {
     return request(
       withQuery('/api/models', {
         ...(refresh ? { refresh: 1 } : {}),
         ...(harness ? { harness } : {}),
         ...(cellId ? { cellId } : {}),
+        ...(requestId ? { requestId } : {}),
       }),
     );
   },

@@ -206,7 +206,7 @@ describe('App', () => {
     render(<App />);
     fireEvent.click(await screen.findByText('Cell card'));
 
-    expect(await screen.findByText('harness: opencode')).toBeInTheDocument();
+    expect(await screen.findByText('harness: OpenCode (cell Open cell)')).toBeInTheDocument();
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([url]) => String(url) === '/api/models?cellId=c1'),

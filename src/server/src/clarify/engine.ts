@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
-import { isHarnessId, type HarnessId } from '../domain/harness.js';
+import { isHarnessId, resolveHarness as resolveHarnessOrder, type HarnessId } from '../domain/harness.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import {
   KB_SESSION_ID,
@@ -132,7 +132,11 @@ export class Engine {
       ? request.cellId
       : (masterCellId(id) ?? summaryCellId(id));
     const cell = cellId ? (this.deps.cellConfig?.(cellId) ?? null) : null;
-    return cell?.harness ?? this.deps.harnesses.defaultId;
+    return resolveHarnessOrder({
+      request: request?.harness ?? null,
+      cell: cell?.harness ?? null,
+      process: this.deps.harnesses.defaultId,
+    }).harness;
   }
 
   private harnessFor(harnessId: HarnessId): AgentHarness {
@@ -341,14 +345,27 @@ export class Engine {
       ? request.cellId
       : (masterCellId(id) ?? summaryCellId(id));
     const cell = cellId ? (this.deps.cellConfig?.(cellId) ?? null) : null;
-    const harnessId = cell?.harness ?? this.deps.harnesses.defaultId;
+    const harnessId = resolveHarnessOrder({
+      request: request?.harness ?? null,
+      cell: cell?.harness ?? null,
+      process: this.deps.harnesses.defaultId,
+    }).harness;
+    const cellEffective = cell?.harness ?? this.deps.harnesses.defaultId;
+    const inheritsCell = cellEffective === harnessId;
     return {
       scope,
       requestId,
       cellId,
       harnessId,
-      model: request?.model ?? cell?.model ?? this.config.defaultModels[harnessId] ?? null,
-      effort: request?.effort ?? cell?.effort ?? null,
+      model:
+        request?.model ??
+        (inheritsCell ? cell?.model ?? null : null) ??
+        this.config.defaultModels[harnessId] ??
+        null,
+      effort:
+        harnessId === 'claude'
+          ? (request?.effort ?? (inheritsCell ? cell?.effort ?? null : null))
+          : null,
     };
   }
 

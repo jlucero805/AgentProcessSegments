@@ -851,6 +851,74 @@ describe('http api', () => {
     expect((await call('GET', '/api/models?cellId=missing')).status).toBe(404);
   });
 
+  it('stores a request harness override and resolves models from it', async () => {
+    const { h } = await makeApp();
+    const cell = await call('POST', '/api/cells', { name: 'Claude cell', harness: 'claude' });
+    const created = await call('POST', '/api/requests', {
+      title: 'Override harness',
+      cellId: cell.json().id,
+      harness: 'opencode',
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.json().harness).toBe('opencode');
+
+    const byRequest = await call('GET', `/api/models?requestId=${created.json().id}`);
+    expect(byRequest.status).toBe(200);
+    expect(byRequest.json()).toMatchObject({
+      harness: 'opencode',
+      supportsEffort: false,
+      defaultModel: 'opencode-go/deepseek-v4.1-flash',
+    });
+
+    h.repo.edit(created.json().id, { harness: null });
+    const inherited = await call('GET', `/api/models?requestId=${created.json().id}`);
+    expect(inherited.json()).toMatchObject({ harness: 'claude', supportsEffort: true });
+
+    expect((await call('GET', '/api/models?requestId=missing')).status).toBe(404);
+    expect(
+      (await call('GET', `/api/models?requestId=${created.json().id}&harness=claude`)).status,
+    ).toBe(400);
+    expect(
+      (await call('PATCH', `/api/requests/${created.json().id}`, { harness: 'gemini' })).status,
+    ).toBe(400);
+  });
+
+  it('clears a request model when an edit changes the effective harness', async () => {
+    const { h } = await makeApp();
+    const claudeCell = await call('POST', '/api/cells', {
+      name: 'Claude cell',
+      harness: 'claude',
+    });
+    const openCell = await call('POST', '/api/cells', {
+      name: 'Open cell',
+      harness: 'opencode',
+    });
+    const created = await call('POST', '/api/requests', {
+      title: 'Model reset',
+      cellId: claudeCell.json().id,
+    });
+    h.repo.edit(created.json().id, { model: 'claude-opus-5-5' });
+
+    const switched = await call('PATCH', `/api/requests/${created.json().id}`, {
+      harness: 'opencode',
+    });
+    expect(switched.json()).toMatchObject({ harness: 'opencode', model: null });
+
+    h.repo.edit(created.json().id, { model: 'claude-opus-5-5' });
+    const replaced = await call('PATCH', `/api/requests/${created.json().id}`, {
+      harness: 'claude',
+      model: 'claude-sonnet-5-5',
+    });
+    expect(replaced.json()).toMatchObject({ harness: 'claude', model: 'claude-sonnet-5-5' });
+
+    h.repo.edit(created.json().id, { model: 'claude-opus-5-5', harness: null });
+    const moved = await call('PATCH', `/api/requests/${created.json().id}`, {
+      cellId: openCell.json().id,
+    });
+    expect(moved.json()).toMatchObject({ cellId: openCell.json().id, model: null });
+  });
+
   it('validates a cell harness and clears incompatible model defaults', async () => {
     await makeApp();
     const created = await call('POST', '/api/cells', {

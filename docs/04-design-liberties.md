@@ -65,11 +65,15 @@ plugin content is copied into each request config; malformed commands are skippe
 ## 5. Effort is harness-specific
 
 **Chosen.** `/api/models` adds `harness` and `supportsEffort`; the drawer shows the
-harness and renders Effort as inert with a hint when the harness ignores it.
+effective harness and renders Effort as inert with a hint when the harness ignores it.
+The cell editor chooses a cell's adapter, and the request drawer can override that cell
+for one request. A cross-harness request does not inherit the cell's model or effort.
 
 **Alternatives.** Hide the field, or map effort to OpenCode model variants.
 
-**Why.** Effort is a Claude flag, and an inert control is misleading. Additive fields
+**Why.** Effort is a Claude flag, and an inert control is misleading. A layered override
+avoids duplicating an entire cell for a one-off request while keeping the adapter's model
+list honest. Additive fields
 keep older clients working.
 
 ## 6. KB search ranks literal terms

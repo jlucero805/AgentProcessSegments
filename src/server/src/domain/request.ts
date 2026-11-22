@@ -53,6 +53,8 @@ export interface Request {
   branch: string | null;
   crUrl: string | null;
   cellId: string | null;
+  /** Explicit request override; null inherits its cell, then the process default. */
+  harness: HarnessId | null;
   createdAt: number;
   updatedAt: number;
 }

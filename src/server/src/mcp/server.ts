@@ -300,6 +300,7 @@ export function buildMcpServer(options: McpOptions): McpServer {
         kbDigest: z.boolean().optional(),
         digest: z.string().nullable().optional(),
         cellId: z.string().nullable().optional(),
+        harness: z.enum(HARNESS_IDS).nullable().optional(),
       },
     },
     async (fields) =>

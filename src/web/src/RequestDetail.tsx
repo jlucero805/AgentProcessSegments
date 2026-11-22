@@ -7,6 +7,8 @@ import { mergeSlashCommands } from './slash';
 import { formatCost, formatTokens } from './usageFormat';
 import {
   EFFORT_LEVELS,
+  HARNESS_IDS,
+  HARNESS_LABELS,
   isTerminal,
   STATE_LABELS,
   type Cell,
@@ -111,21 +113,28 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     api.markSeen(id).catch(() => {});
   }, [id]);
 
-  // The request inherits its cell's harness. Follow a cell change and clear a
-  // model id that the new adapter does not advertise. The first load keeps the
-  // request's explicit model even when a probe falls back to a partial list.
+  // The request override wins, then its cell, then the brain default. Follow a
+  // harness/cell change and clear a model id that the new adapter does not
+  // advertise. The first load keeps the request's explicit model even when a
+  // probe falls back to a partial list.
   const modelContextRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     modelContextRef.current = undefined;
   }, [id]);
   const cellId = form?.cellId ?? '';
+  const requestHarness = form?.harness ?? '';
   useEffect(() => {
     if (!form) return;
+    const context = `${requestHarness}|${cellId}`;
     const previous = modelContextRef.current;
-    modelContextRef.current = cellId;
+    modelContextRef.current = context;
     let cancelled = false;
     api
-      .getModels(false, undefined, cellId || undefined)
+      .getModels(
+        false,
+        requestHarness ? (requestHarness as HarnessId) : undefined,
+        requestHarness ? undefined : cellId || undefined,
+      )
       .then((result) => {
         if (cancelled) return;
         const options = Array.isArray(result.models) ? result.models : [];
@@ -137,15 +146,15 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
         );
         setHarness(result.harness ?? null);
         setSupportsEffort(result.supportsEffort !== false);
-        setForm((current) =>
-          previous !== undefined &&
-          previous !== cellId &&
-          current &&
-          current.model &&
-          !options.some((option) => option.id === current.model)
-            ? { ...current, model: '' }
-            : current,
-        );
+        setForm((current) => {
+          if (!current || previous == null || !current.model) return current;
+          const previousHarness = previous.split('|')[0] ?? '';
+          if (previousHarness !== requestHarness) return { ...current, model: '' };
+          if (previous !== context && !options.some((option) => option.id === current.model)) {
+            return { ...current, model: '' };
+          }
+          return current;
+        });
       })
       .catch(() => {
         // Model discovery is optional.
@@ -153,10 +162,15 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     return () => {
       cancelled = true;
     };
-  }, [cellId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [requestHarness, cellId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <K extends keyof RequestFormState>(key: K, value: RequestFormState[K]) => {
-    setForm((current) => (current ? { ...current, [key]: value } : current));
+    setForm((current) => {
+      if (!current) return current;
+      const next = { ...current, [key]: value };
+      if (key === 'harness' && value !== current.harness) next.model = '';
+      return next;
+    });
     setSaved(false);
   };
 
@@ -273,6 +287,18 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   }
 
   const terminal = request ? isTerminal(request.state) : false;
+  const selectedCell = form?.cellId
+    ? cells.find((candidate) => candidate.id === form.cellId)
+    : undefined;
+  const effectiveHarness = form?.harness || selectedCell?.harness || harness;
+  const harnessLabel = effectiveHarness
+    ? (HARNESS_LABELS[effectiveHarness as HarnessId] ?? effectiveHarness)
+    : 'not resolved';
+  const harnessSource = form?.harness
+    ? 'request override'
+    : selectedCell?.harness
+      ? `cell ${selectedCell.name}`
+      : 'brain default';
 
   const actions = useMemo(() => {
     if (!request) return null;
@@ -373,9 +399,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   {request.targetRepo}
                 </span>
               ) : null}
-              {harness ? (
+              {effectiveHarness ? (
                 <span className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono">
-                  harness: {harness}
+                  harness: {harnessLabel} ({harnessSource})
                 </span>
               ) : null}
             </div>
@@ -410,6 +436,19 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                 Requests without a cell stay manual; assign one to let its master automate
                 this request.
               </p>
+              <Field label="Harness" hint={`effective: ${harnessLabel} (${harnessSource})`}>
+                <Select
+                  value={form.harness}
+                  onChange={(event) => set('harness', event.target.value)}
+                >
+                  <option value="">Inherit</option>
+                  {HARNESS_IDS.map((id) => (
+                    <option key={id} value={id}>
+                      {HARNESS_LABELS[id]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
               <Field label="Acceptance criteria">
                 <Textarea
                   rows={2}
@@ -436,7 +475,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Model">
                   <Select value={form.model} onChange={(event) => set('model', event.target.value)}>
-                    <option value="">CLI default</option>
+                    <option value="">Harness default</option>
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.label}

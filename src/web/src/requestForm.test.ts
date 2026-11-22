@@ -14,6 +14,7 @@ describe('request form mapping', () => {
         model: 'm1',
         effort: 'high',
         cellId: 'c1',
+        harness: 'opencode',
       }),
     );
 
@@ -23,6 +24,7 @@ describe('request form mapping', () => {
       skillsText: 'tdd, release',
       effort: 'high',
       cellId: 'c1',
+      harness: 'opencode',
     });
 
     expect(patchFromForm(form, '  ')).toEqual({
@@ -38,6 +40,7 @@ describe('request form mapping', () => {
       kbDigest: true,
       digest: null,
       cellId: 'c1',
+      harness: 'opencode',
     });
   });
 

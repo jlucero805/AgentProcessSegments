@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
+import { requestDir } from '../src/config.js';
 import { summarySessionId } from '../src/domain/sessions.js';
 
 let harness: Harness | null = null;
@@ -403,6 +406,69 @@ describe('turn engine', () => {
     expect(h.harness.sessions).toHaveLength(1);
     expect(h.harness.sessions[0]?.sessionId).toBeNull();
     expect(h.engine.transcript(request.id).length).toBeGreaterThan(0);
+  });
+
+  it('runs a request override on the other adapter and skips cell model defaults', async () => {
+    const h = fresh((text) => [initLine('sess-override'), textLine(`heard: ${text}`), resultLine()]);
+    const cell = h.cells.create('Claude cell', null, null, {
+      harness: 'claude',
+      model: 'cell-model',
+      effort: 'high',
+    });
+    const request = h.repo.create({
+      title: 'Override to OpenCode',
+      cellId: cell.id,
+      harness: 'opencode',
+    });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions).toHaveLength(0);
+    expect(h.opencode.sessions[0]).toMatchObject({
+      model: 'opencode-go/deepseek-v4.1-flash',
+      effort: null,
+    });
+
+    const sameHarness = h.repo.create({
+      title: 'Same harness',
+      cellId: cell.id,
+      harness: 'claude',
+    });
+    const second = await h.engine.start(sameHarness.id);
+    await second.promise;
+    await settle();
+    expect(h.harness.sessions[0]).toMatchObject({
+      model: 'cell-model',
+      effort: 'high',
+    });
+  });
+
+  it('discards the old process and session when a request harness changes', async () => {
+    const h = fresh((text) => [initLine('sess-request-switch'), textLine(`heard: ${text}`), resultLine()]);
+    const request = h.repo.create({ title: 'Switch request harness' });
+
+    const first = await h.engine.start(request.id);
+    await first.promise;
+    await settle();
+    const sessionFile = path.join(requestDir(h.config, request.id), 'session.json');
+    expect(JSON.parse(readFileSync(sessionFile, 'utf8'))).toMatchObject({
+      harness: 'claude',
+      sessionId: 'sess-request-switch',
+    });
+
+    h.repo.edit(request.id, { harness: 'opencode' });
+    const second = await h.engine.send(request.id, 'continue');
+    await second.promise;
+    await settle();
+
+    expect(h.harness.process?.killed).toBe(true);
+    expect(h.opencode.sessions[0]?.sessionId).toBeNull();
+    expect(JSON.parse(readFileSync(sessionFile, 'utf8'))).toMatchObject({
+      harness: 'opencode',
+      sessionId: 'sess-request-switch',
+    });
   });
 
   it('runs a separate setup chat for the cell wizard', async () => {

@@ -11,7 +11,7 @@ import type { HarnessModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
-import { HARNESS_IDS, isHarnessId, type HarnessId } from '../domain/harness.js';
+import { HARNESS_IDS, isHarnessId, resolveHarness, type HarnessId } from '../domain/harness.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -67,6 +67,7 @@ const createSchema = z.object({
   body: z.string().optional(),
   targetRepo: z.string().nullable().optional(),
   cellId: z.string().nullable().optional(),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
 });
 
 const editSchema = z.object({
@@ -82,6 +83,7 @@ const editSchema = z.object({
   kbDigest: z.boolean().optional(),
   digest: z.string().nullable().optional(),
   cellId: z.string().nullable().optional(),
+  harness: z.enum(HARNESS_IDS).nullable().optional(),
 });
 
 const listQuerySchema = z.object({
@@ -364,6 +366,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const terminal = new TerminalService(config.terminalEnabled, config.terminalCwd);
   const docs = deps.docs ?? new DocsService(config.docsDir);
 
+  const harnessForRequest = (request: Request) =>
+    resolveHarness({
+      request: request.harness,
+      cell: request.cellId ? (cells.get(request.cellId)?.harness ?? null) : null,
+      process: config.harness,
+    });
+
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: 'invalid', issues: error.issues });
@@ -448,6 +457,24 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const { id } = request.params as { id: string };
     const fields = editSchema.parse(request.body);
     assertCell(cells, fields.cellId);
+
+    // A model id belongs to one adapter. When an edit changes the effective
+    // harness, drop a stale request model unless the caller supplied a new one.
+    if (fields.harness !== undefined || fields.cellId !== undefined) {
+      const current = repo.require(id);
+      const after: Request = {
+        ...current,
+        harness: fields.harness !== undefined ? fields.harness : current.harness,
+        cellId: fields.cellId !== undefined ? fields.cellId : current.cellId,
+      };
+      if (
+        fields.model === undefined &&
+        harnessForRequest(current).harness !== harnessForRequest(after).harness
+      ) {
+        fields.model = null;
+      }
+    }
+
     return repo.edit(id, fields);
   });
 
@@ -585,13 +612,17 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         refresh: z.string().optional(),
         harness: z.string().optional(),
         cellId: z.string().optional(),
+        requestId: z.string().optional(),
       })
       .parse(request.query);
 
-    if (query.harness !== undefined && query.cellId !== undefined) {
+    const selectors = [query.harness, query.cellId, query.requestId].filter(
+      (value) => value !== undefined,
+    );
+    if (selectors.length > 1) {
       return reply.code(400).send({
         error: 'bad_harness',
-        message: 'use harness or cellId, not both',
+        message: 'use one of harness, cellId, or requestId',
       });
     }
 
@@ -607,6 +638,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     } else if (query.cellId !== undefined) {
       const cell = cells.require(query.cellId);
       harness = cell.harness ?? config.harness;
+    } else if (query.requestId !== undefined) {
+      harness = harnessForRequest(repo.require(query.requestId)).harness;
     }
 
     const catalog = await models.list(harness, query.refresh === '1');

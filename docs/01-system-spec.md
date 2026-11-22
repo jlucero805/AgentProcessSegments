@@ -119,7 +119,8 @@ restart.
 `model`, `effort`, `target_repo`, `acceptance_criteria`, `context`, `skills` (JSON
 array), `kb_digest` (0/1, default 1), `digest`, `agent_status`
 (`none|idle|working|blocked|error`, default `none`), `unchecked` (0/1), `hc_run_ids`
-(JSON array), `branch`, `cr_url`, `cell_id`, `created_at`, `updated_at`.
+(JSON array), `branch`, `cr_url`, `cell_id`, `harness` (null inherits the cell, then
+the process default), `created_at`, `updated_at`.
 
 Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after** the
 `cell_id` addColumn, because an index on a missing column fails on an older database.
@@ -128,8 +129,9 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 
 `id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`,
 `harness` (null inherits the process default), `model`, `effort`, nullable
-`monthly_budget_usd`, `process_json`, `created_at`. Requests inherit the cell harness; a
-cell master uses its cell's harness. `monthly_budget_usd` is the advisory monthly spend
+`monthly_budget_usd`, `process_json`, `created_at`. A request inherits its cell's
+harness unless it sets its own `requests.harness`; a cell master and summary use its
+cell's harness. `monthly_budget_usd` is the advisory monthly spend
 budget in USD; NULL means no cell budget. See the budget contract below.
 
 ### `budget_alerts`
@@ -253,9 +255,10 @@ object per line.
 
 ### Models, KB, plugins, cells
 
-- `GET /api/models[?refresh=1][&harness=<id>|&cellId=<id>]` returns
+- `GET /api/models[?refresh=1][&harness=<id>|&cellId=<id>|&requestId=<id>]` returns
   `{models[], source:'probe'|'fallback', effortLevels, harness, supportsEffort,
-  defaultModel}`. `harness` and `cellId` are mutually exclusive.
+  defaultModel}`. `harness`, `cellId`, and `requestId` are mutually exclusive; a request
+  resolves its override, then its cell, then the process default.
 - `GET /api/kb`, `GET /api/kb?q=…&limit=…`, `POST /api/kb {requestId,title,content}`
 - `GET /api/plugins`, `POST /api/plugins {url, subdir?, name?}`,
   `DELETE /api/plugins/:name`
@@ -289,10 +292,12 @@ object per line.
 ## 6. The agent engine
 
 One persistent child per request, carried across all workflow steps and resumed across
-restarts. The adapter is chosen per session: a request or cell master resolves through
-its cell (`cells.harness`, then `APS_HARNESS`; legacy `SBOX_HARNESS` still works), while
-setup, KB, and unassigned sessions use the process default. The same resolved adapter
-creates the parser and spawns the child.
+restarts. The adapter is chosen per session: a request resolves its own
+`requests.harness`, then its cell (`cells.harness`, then `APS_HARNESS`; legacy
+`SBOX_HARNESS` still works), while a cell master or summary uses its cell and setup, KB,
+and unassigned sessions use the process default. The same resolved adapter creates the
+parser and spawns the child. A cross-harness request skips the cell's model and effort
+defaults.
 
 - **Spawn:** Claude runs `claude -p --input-format stream-json --output-format
   stream-json --include-partial-messages --verbose --mcp-config <generated>
@@ -302,8 +307,8 @@ creates the parser and spawns the child.
   `opencode run --format json --auto --standalone --archived [--model …] [--session …]`.
   The `session_id` from the adapter's init event is captured to `session.json` with the
   harness id, then reused only by that adapter on later spawns. An in-flight turn keeps
-  its adapter; changing a cell's harness discards the cached child and session id before
-  the next turn.
+  its adapter; changing a cell's or request's effective harness discards the cached child
+  and session id before the next turn.
 - **Allowed tools:** request sessions get `Write, Read, Edit, Bash, Skill, Glob, Grep`,
   the harness MCP tools, and the user's own MCP servers (Claude reads
   `~/.claude.json`/`.mcp.json`; OpenCode reads its config). The KB session (`__kb__`) is
@@ -500,6 +505,7 @@ The server is the source of truth; the SPA mirrors these by hand.
 ```ts
 type State = 'clarify' | 'dispatch' | 'review' | 'finalize' | 'done' | 'dropped';
 type AgentStatus = 'none' | 'idle' | 'working' | 'blocked' | 'error';
+type HarnessId = 'claude' | 'opencode';
 
 interface Request {
   id: string; title: string; body: string;
@@ -519,10 +525,16 @@ interface Request {
   branch: string | null;         // aps/<id>, or legacy sbox/<id>
   crUrl: string | null;
   cellId: string | null;         // at most one cell; null means the unfiltered floor
+  harness: HarnessId | null;     // explicit override; null inherits cell then brain
   createdAt: number; updatedAt: number;
 }
 
-interface Cell { id: string; name: string; createdAt: number; }
+interface Cell {
+  id: string; name: string; masterEnabled: boolean;
+  masterIntervalMinutes: number | null; maxConcurrent: number;
+  harness: HarnessId | null; model: string | null; effort: string | null;
+  monthlyBudgetUsd: number | null; createdAt: number;
+}
 
 interface KbEntry {
   id: string; requestId: string; title: string; content: string; createdAt: number;
@@ -532,7 +544,7 @@ interface KbEntry {
 ### HTTP DTOs
 
 ```ts
-interface CreateInput { title: string; body?: string; targetRepo?: string | null; cellId?: string | null; }
+interface CreateInput { title: string; body?: string; targetRepo?: string | null; cellId?: string | null; harness?: HarnessId | null; }
 
 interface EditInput {
   title?: string; body?: string; targetRepo?: string | null;
@@ -540,6 +552,7 @@ interface EditInput {
   skills?: string[]; groomed?: boolean;
   model?: string | null; effort?: 'low'|'medium'|'high'|'xhigh'|'max' | null;
   kbDigest?: boolean; digest?: string | null; cellId?: string | null;
+  harness?: HarnessId | null;
 }
 
 // POST /api/requests/:id/transition   { to: State }

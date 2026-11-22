@@ -768,3 +768,29 @@ alert identity includes REAL budget amounts, which is acceptable for operator-en
 dollar values. Hard caps and external delivery remain separate work; usage retention uses
 D45, and long-range rollups remain deferred. A retention window shorter than the month
 makes spend a lower bound, which the docs and UI say explicitly.
+
+## D48. A request can override its cell's harness
+
+**Context.** The cell harness covers the normal workspace, but one request
+occasionally needs the other adapter: a provider-specific reproduction, a repo that
+only builds under one CLI, or a migration test. Creating a second cell would lose the
+request's queue, policy, and master. Keeping the harness process-wide would make the
+per-cell setting useless.
+
+**Decision.** Add nullable `requests.harness` and one resolution order: request, cell,
+process default. A request turn resolves once and uses the same adapter for parser,
+prepare, and spawn. The existing session/process pinning means a switch drops the cached
+child and starts a fresh provider session without losing the normalized transcript.
+KB/setup remain process-default; a master or summary remains cell-scoped.
+
+A cross-harness request does not inherit the cell's model or effort, because those were
+chosen for the other adapter. It uses its own model, then the resolved adapter's brain
+default. A patch that changes the effective harness clears `request.model` unless the
+same patch supplies a replacement; effort is retained because OpenCode ignores it and it
+is useful if the request returns to Claude. `GET /api/models?requestId=` resolves through
+the same helper, so the SPA cannot drift.
+
+**Cost.** An override can point at an adapter whose CLI is not installed; that turn then
+fails visibly rather than falling back. A harness change discards the provider session
+id. Direct API callers that set `harness` and a model in one patch remain responsible for
+choosing a compatible model.

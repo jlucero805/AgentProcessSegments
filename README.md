@@ -2,8 +2,8 @@
 
 Formerly Sandbox Harness.
 
-A local Node/TypeScript brain that drives headless Claude Code sessions through a
-request workflow. One origin serves the API, an optional SPA, and the websocket, so a
+A local Node/TypeScript brain that drives headless Claude Code or OpenCode sessions
+through a request workflow. One origin serves the API, an optional SPA, and the websocket, so a
 single port is all a tunnel needs.
 
 `Agent Process Segments` is the product name; a *process segment* is one stage in a
@@ -245,7 +245,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 290 vitest cases: 197 server cases (state machine, migrations including
+`npm test` runs 318 vitest cases: 214 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
@@ -254,7 +254,7 @@ real git clones, process definitions/store/follow-ups, per-cell policies/tickers
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
 stats/generation/scheduling, docs manifest/traversal/HTTP, error-log format/rotation,
 skill discovery, terminal session lifecycle, and the HTTP API
-over a real socket) and 93 web cases (shared contract re-exports, NDJSON client, chat
+over a real socket) and 104 web cases (shared contract re-exports, NDJSON client, chat
 folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
 the source link, board, create modal, composer, cell bar, cell creation, config/process
 editor, master detail and scorecard, the usage page and formatters, and the app shell

@@ -11,7 +11,7 @@ not the *why*. Rationale for choices made during this rebuild lives in
 ## 1. What it is
 
 A client-agnostic "brain": a local Node/TS service that orchestrates headless Claude
-Code agent sessions through an ISA-95-style request workflow (Intake → Plan →
+Code or OpenCode agent sessions through an ISA-95-style request workflow (Intake → Plan →
 Implement → Review → Finalize), with a streaming chat per request, a knowledge base,
 installable skill/command plugins, and named "cells" (floors). A web SPA is one
 front-end over its HTTP API; the design goal is that any client (for example a

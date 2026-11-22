@@ -28,8 +28,8 @@ handler and websocket registration revisited.
 ## D3. An `AgentHarness` seam instead of calling `spawn` from the engine
 
 **Context.** No `claude` binary existed on the rebuild machine, and the operator wants
-the agent substrate swappable (OpenCode today, others later), so an engine that spawns
-one CLI directly is both untestable and closed.
+the agent substrate swappable, so an engine that spawns one CLI directly is both
+untestable and closed.
 
 **Decision.** The engine takes an `AgentHarness`: prepare a session config, spawn a
 process, create its parser, and probe its models. Production registers `claude`

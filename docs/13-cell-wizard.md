@@ -29,7 +29,7 @@ advance targets, and set cell/segment limits before the cell exists.
 - Before each turn, the modal syncs its current fields to `PUT /api/cell-drafts/:id`, so
   the agent starts from what you see.
 - `get_cell_draft` returns the current draft; `update_cell_draft` can change the name,
-  limits, model/effort, a few segments via `segmentUpdates`, or the complete `segments`
+  limits, harness, model/effort, a few segments via `segmentUpdates`, or the complete `segments`
   array. `segmentUpdates` is a list of `{ id, ...fields }`; the server merges each into
   the current segment (including partial `followUps`) and validates the full process. Use
   it for simple edits instead of rebuilding all six segments.
@@ -106,7 +106,7 @@ Useful prompts ask for:
 - review and merge policy (draft CR, who pushes, one merger at a time);
 - cell and segment concurrency limits;
 - follow-up callouts and whether they should create intake requests;
-- model/effort defaults and where a request override is warranted.
+- harness plus model/effort defaults and where a request override is warranted.
 
 The merge bucket use case is documented in `docs/07-process-segments.md` and
 `docs/08-user-workflows.md`.

@@ -36,6 +36,7 @@ function makeCell(id = 'c1', name = 'Alpha'): CellDetail {
     masterEnabled: true,
     masterIntervalMinutes: 3,
     maxConcurrent: 3,
+    harness: null,
     model: null,
     effort: null,
     process: { version: process.version, segments: process.segments },

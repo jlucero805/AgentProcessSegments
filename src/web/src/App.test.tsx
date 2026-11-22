@@ -39,6 +39,7 @@ function makeCell(id = 'c1', name = 'Alpha'): CellDetail {
     harness: null,
     model: null,
     effort: null,
+    monthlyBudgetUsd: null,
     process: { version: process.version, segments: process.segments },
     createdAt: 1,
   };
@@ -88,7 +89,18 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
           prompt: 'summary prompt',
         },
         usage: { retentionDays: 90 },
+        budget: { monthlyUsd: null, alertAtPercent: 80 },
         path: '/tmp/config.json',
+      });
+    }
+    if (url === '/api/budgets') {
+      return jsonResponse({
+        periodStart: Date.UTC(2026, 10, 1),
+        periodEnd: Date.UTC(2026, 11, 1),
+        alertAtPercent: 80,
+        usageAvailable: true,
+        statuses: [],
+        alerts: [],
       });
     }
     if (url === '/api/process') return jsonResponse(makeProcessResponse());
@@ -184,6 +196,7 @@ describe('App', () => {
       harness: 'opencode',
       model: null,
       effort: null,
+      monthlyBudgetUsd: null,
       process: { version: process.version, segments: process.segments },
       createdAt: 1,
     };
@@ -265,6 +278,7 @@ describe('App', () => {
       harness: null,
       model: null,
       effort: null,
+      monthlyBudgetUsd: null,
       process: {
         version: process.version,
         segments: process.segments.map((segment) =>

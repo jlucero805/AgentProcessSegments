@@ -12,14 +12,42 @@ const CELLS = [
     maxConcurrent: 3,
     model: null,
     effort: null,
+    monthlyBudgetUsd: null,
     createdAt: 1,
   },
 ];
 
-function installFetch(response = makeUsageResponse()) {
+const BUDGETS = {
+  periodStart: Date.UTC(2026, 10, 1),
+  periodEnd: Date.UTC(2026, 11, 1),
+  alertAtPercent: 80,
+  usageAvailable: true,
+  statuses: [
+    {
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 100,
+      spendUsd: 85,
+      remainingUsd: 15,
+      percentUsed: 85,
+      pricedTurns: 3,
+      unknownCostTurns: 1,
+      spendIsLowerBound: true,
+      state: 'warning',
+    },
+  ],
+  alerts: [],
+};
+
+function installFetch(response = makeUsageResponse(), budgets = BUDGETS) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === '/api/cells') return jsonResponse(CELLS);
+    if (url === '/api/budgets') return jsonResponse(budgets);
     if (url.startsWith('/api/usage')) return jsonResponse(response);
     return jsonResponse([]);
   });
@@ -59,6 +87,38 @@ describe('UsagePage', () => {
 
     expect(await screen.findAllByText('unknown')).not.toHaveLength(0);
     expect(screen.queryByText('$0')).not.toBeInTheDocument();
+  });
+
+  it('shows current-month budget progress and lower-bound copy', async () => {
+    installFetch();
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
+    expect(screen.getByText(/warning at 80%/)).toBeInTheDocument();
+    expect(screen.getByText(/At least \$85\.00 of \$100\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/1 unpriced turn/)).toBeInTheDocument();
+  });
+
+  it('does not show an all-unpriced budget as zero', async () => {
+    installFetch(makeUsageResponse(), {
+      ...BUDGETS,
+      statuses: [
+        {
+          ...BUDGETS.statuses[0]!,
+          spendUsd: 0,
+          remainingUsd: 100,
+          percentUsed: 0,
+          pricedTurns: 0,
+          unknownCostTurns: 2,
+          state: 'unknown',
+        },
+      ],
+    });
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
+    expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\(0%\)/)).not.toBeInTheDocument();
   });
 
   it('refetches with hour buckets when the range changes', async () => {

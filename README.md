@@ -195,6 +195,19 @@ Rollback is manual: an older binary reads only `SBOX_*`, so a rollback unit or d
 must point `SBOX_DB`, `SBOX_DATA_DIR`, `SBOX_CONFIG`, and the other path variables at the
 migrated locations.
 
+## Spend budgets
+
+The Config page edits an advisory **overall monthly budget** and warning percentage; each
+cell has an optional monthly budget in its editor. Budgets use the UTC calendar month and
+only harness-reported `cost_usd`. Unpriced turns are shown as unknown or a lower bound,
+never as zero or a guessed estimate. Crossing the warning percentage or the budget creates
+a durable alert shown in a dismissible banner; acknowledging it silences that alert for the
+month. Budgets never pause or block work.
+
+The budget layer reads totals from the usage repository and is shown on both the Config
+page and the Usage page. Hard spend caps, long-range rollups, and external notification
+delivery are separate backlog items.
+
 ## Docs
 
 - `docs/01-system-spec.md` the governing contract
@@ -205,7 +218,7 @@ migrated locations.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (budgets, pricing, long-range usage rollups)
+- `docs/09-backlog.md` scoped follow-ups (long-range rollups, hard budget caps, pricing)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -222,9 +235,11 @@ src/server/src
   db.ts               schema, idempotent column migrations, boot reconcile
   domain/request.ts   states, transition table, entities, transcript types
   domain/sessions.ts  reserved KB/master session ids, per-cell master sessions
+  domain/budget.ts    pure budget contract: settings, UTC month, status, alert types
   requests/           RequestRepository: CRUD, edit, guarded transitions
   cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
-                      interval, concurrency cap, and model/effort defaults
+                      interval, concurrency cap, model/effort defaults, and budget
+  usage/              usage ledger queries plus budget status and durable alerts
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
@@ -266,9 +281,10 @@ src/web
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
-  src/ConfigPage.tsx  scheduler + global process editor + cell policy entry points
+  src/ConfigPage.tsx  scheduler + budgets + global process editor + cell policy entries
+  src/BudgetBanner.tsx dismissible warning/exceeded spend alerts
   src/ProcessEditor.tsx structured per-segment controls
-  src/CellModal.tsx   cell creation/edit flow with a process snapshot
+  src/CellModal.tsx   cell creation/edit flow with a process snapshot and budget
   src/MasterDetail.tsx first-class master drawer: status, prompts, activity, chat
   src/TerminalPanel.tsx desktop-only maximizable xterm/PTY drawer
   src/ui.tsx          hand-rolled shadcn-style kit
@@ -285,21 +301,20 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 344 vitest cases: 239 server cases (state machine, migrations including
+`npm test` runs 377 vitest cases: 264 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
-event capture and aggregation, engine
-turns over a fake harness, worktree isolation against a real git repo, the MCP tool
-surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
-real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
-the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, docs manifest/traversal/HTTP, error-log format/rotation,
-skill discovery, terminal session lifecycle, and the HTTP API
-over a real socket) and 105 web cases (shared contract re-exports, NDJSON client, chat
-folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
-the source link, board, create modal, composer, cell bar, cell creation, config/process
-editor, master detail and scorecard, the usage page and formatters, and the app shell
-with the drawer and chat mounted
-under jsdom).
+event capture and aggregation, engine turns over a fake harness, worktree isolation
+against a real git repo, the MCP tool surface, harness config/MCP/plugin mapping, model
+probing, the plugin manager against real git clones, process definitions/store/follow-ups,
+per-cell policies/tickers/limits, the generic master pipeline, segment caps and merge,
+turn watchdogs/stderr, scorecard stats/generation/scheduling, budget status/alerts, docs
+manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal session
+lifecycle, and the HTTP API over a real socket) and 113 web cases (shared contract
+re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
+docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
+cell creation, config/process editor, budget banner, master detail and scorecard, the
+usage page and formatters, and the app shell with the drawer and chat mounted under
+jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

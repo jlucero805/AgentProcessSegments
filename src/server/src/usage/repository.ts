@@ -121,6 +121,15 @@ export class UsageRepository {
       });
   }
 
+  /** Just the totals for a filter; budgets use this instead of re-querying. */
+  totals(filter: UsageFilter): UsageTotals {
+    const { sql, params } = this.where(filter);
+    const row = this.db
+      .prepare(`SELECT ${AGGREGATE_SELECT} FROM usage_events u ${sql}`)
+      .get(params) as AggregateRow | undefined;
+    return totals(row);
+  }
+
   query(filter: UsageFilter): UsageResponse {
     const bucketKey = filter.bucket ?? 'day';
     const limit = filter.limit ?? 20;

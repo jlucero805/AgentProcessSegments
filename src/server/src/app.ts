@@ -22,6 +22,9 @@ import { SkillCatalog } from './skills/catalog.js';
 import { SummaryRepository } from './summary/repository.js';
 import { SummaryScheduler } from './summary/scheduler.js';
 import { SummaryService } from './summary/service.js';
+import { BudgetAlertRepository } from './usage/budget-alerts.js';
+import { createBudgetUsageReader } from './usage/budget-usage.js';
+import { BudgetService } from './usage/budgets.js';
 import { UsageRepository } from './usage/repository.js';
 import { UsageRetention } from './usage/retention.js';
 
@@ -65,6 +68,13 @@ export async function main(): Promise<void> {
     });
     const skills = new SkillCatalog();
     const docs = new DocsService(config.docsDir);
+    const budgets = new BudgetService({
+      usage: createBudgetUsageReader(usage),
+      cells,
+      settings,
+      alerts: new BudgetAlertRepository(db),
+      errors,
+    });
     const masterEvents = new MasterEventRepository(db);
     const masterService = new MasterService({
       repo,
@@ -105,6 +115,7 @@ export async function main(): Promise<void> {
       models,
       plugins,
       settings,
+      budgets,
       master,
       masterEvents,
       summary,
@@ -122,11 +133,13 @@ export async function main(): Promise<void> {
     summary.start();
     // Fire-and-forget: a first-time prune must not delay readiness.
     usageRetention.start();
+    budgets.start();
 
     const shutdown = async () => {
       usageRetention.stop();
       master.stop();
       summary.stop();
+      budgets.stop();
       // Keep-alive sockets from a closed client can hold `close()` open forever.
       const force = setTimeout(() => process.exit(0), 3000);
       force.unref();

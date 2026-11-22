@@ -127,8 +127,39 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 ### `cells`
 
 `id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`,
-`harness` (null inherits the process default), `model`, `effort`, `process_json`,
-`created_at`. Requests inherit the cell harness; a cell master uses its cell's harness.
+`harness` (null inherits the process default), `model`, `effort`, nullable
+`monthly_budget_usd`, `process_json`, `created_at`. Requests inherit the cell harness; a
+cell master uses its cell's harness. `monthly_budget_usd` is the advisory monthly spend
+budget in USD; NULL means no cell budget. See the budget contract below.
+
+### `budget_alerts`
+
+`id` (uuid PK), `scope` (`overall|cell`), `scope_id` (empty for overall), `period_start`
+(UTC month start), `threshold` (`warning|exceeded`), `alert_at_percent`, `budget_usd`,
+`spend_usd`, `unknown_cost_turns`, `created_at`, `acknowledged_at`. The unique identity is
+`(scope, scope_id, period_start, threshold, budget_usd, alert_at_percent)` so changing the
+budget or warning percentage starts a new alert generation without deleting acknowledged
+history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
+
+### Spend budgets
+
+`src/server/src/domain/budget.ts` is pure and re-exported by the SPA. `config.json` carries
+`budget: { monthlyUsd: number|null, alertAtPercent: 1..100 }`; the default is no overall
+budget and an 80% warning. Budget periods are UTC calendar months `[start, end)`.
+
+`BudgetService` reads totals through a narrow `BudgetUsageReader` backed by
+`UsageRepository.totals`. Spend is the sum of known `cost_usd`; a NULL cost is unpriced,
+never zero or estimated. If every turn in the period is unpriced the status is `unknown`
+and no alert fires. Mixed data alerts against a known lower bound and the UI labels it
+"at least". The service evaluates on start, every 60 seconds, and when settings or cells
+change; a failed evaluation goes to the error sink as `usage.budgets` and never affects a
+turn. Alerts are advisory only: nothing pauses, blocks, or rejects work.
+
+`GET /api/budgets` returns the current period, statuses for configured budgets, and
+unacknowledged current-month alerts. `POST /api/budgets/alerts/:id/ack` is idempotent.
+Global budget writes use `PATCH /api/config`; cell budget writes use
+`PATCH /api/cells/:id`. `BudgetService` reads `UsageRepository.totals`; the Config page,
+Usage page, and app banner show the same current-month status.
 
 ### `kb_entries`
 
@@ -177,8 +208,9 @@ retained window.
   `RequestError('ILLEGAL_TRANSITION'|'NOT_FOUND')`, `addRun`, and agent-status, seen,
   and branch setters. `RequestError` maps to HTTP 404 or 409.
 - `cells/repository.ts`: `list` by name, `get`, `create`, `rename`, `delete` in a
-  transaction that nulls requests' `cell_id` before deleting the cell. No cascade
-  delete of requests.
+  transaction that nulls requests' `cell_id` before deleting the cell, plus policy,
+  model/effort, and `monthlyBudgetUsd` updates. No cascade delete of requests. Deleting a
+  cell also reconciles its unacknowledged budget alerts away.
 - `kb/repository.ts`: `store({requestId,title,content})` replaces the prior entry for
   that request, plus `list`, `getByRequest`, and a literal LIKE `search`.
 - `usage/repository.ts`: `record(input)` writes one event per completed turn and
@@ -433,6 +465,11 @@ carried in the `done` event:
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.
 - **SkillsPage** installs, lists, and removes plugins. **CellBar** creates, switches,
   renames, and deletes cells, filtering the board by `cellId`.
+- **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
+  monthly budget/warning percentage; it also shows the current UTC-month status for the
+  overall and per-cell budgets. `CellModal` carries the optional per-cell budget.
+  `BudgetBanner` polls `GET /api/budgets` every 60 seconds and shows dismissible warning/
+  exceeded alerts above the page, with lower-bound copy for unpriced turns.
 - `api.ts` is the typed client (fetch plus NDJSON readers). `ui.tsx` is the component
   kit. The bundle is vended by the brain at `/`.
 

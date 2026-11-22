@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
 import { formatCost, formatTokens } from './usageFormat';
 import {
+  Badge,
   Card,
   EmptyState,
   SectionTitle,
@@ -9,6 +10,9 @@ import {
   Spinner,
 } from './ui';
 import type {
+  BudgetAlert,
+  BudgetStatus,
+  BudgetsResponse,
   CellDetail,
   UsageBucket,
   UsageGroup,
@@ -46,6 +50,124 @@ function rangeQuery(range: RangeKey): {
     to,
     bucket: range === '24h' ? 'hour' : 'day',
   };
+}
+
+const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+function moneyLabel(value: number): string {
+  return money.format(value);
+}
+
+function budgetTone(status: BudgetStatus): 'neutral' | 'green' | 'amber' | 'red' {
+  if (status.state === 'exceeded') return 'red';
+  if (status.state === 'warning') return 'amber';
+  if (status.state === 'unknown') return 'neutral';
+  return 'green';
+}
+
+function BudgetSummary({
+  budgets,
+  onAck,
+}: {
+  budgets: BudgetsResponse | null;
+  onAck: (alert: BudgetAlert) => void;
+}) {
+  if (!budgets) return null;
+  const month = new Date(budgets.periodStart).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <SectionTitle>Monthly budgets</SectionTitle>
+          <p className="mt-1 text-[11px] text-zinc-600">
+            {month} (UTC) · advisory only; budgets never stop work.
+          </p>
+        </div>
+        <span className="text-xs text-zinc-500">warning at {budgets.alertAtPercent}%</span>
+      </div>
+
+      {!budgets.usageAvailable ? (
+        <p className="text-xs text-zinc-500">
+          Usage tracking is not available yet, so budgets cannot be measured.
+        </p>
+      ) : budgets.statuses.length === 0 ? (
+        <p className="text-xs text-zinc-500">
+          No budgets configured. Set an overall budget in Config or edit a cell.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {budgets.statuses.map((status) => (
+            <div
+              key={`${status.scope}:${status.cellId ?? ''}`}
+              className="space-y-1.5 rounded-lg border border-zinc-800 px-3 py-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-xs text-zinc-300">{status.label}</span>
+                <Badge tone={budgetTone(status)}>{status.state}</Badge>
+              </div>
+              {status.state === 'unknown' ? (
+                <p className="text-[11px] text-zinc-500">
+                  Spend unknown
+                  {status.unknownCostTurns > 0
+                    ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
+                    : ''}
+                </p>
+              ) : (
+                <>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                    <div
+                      className={
+                        status.state === 'exceeded'
+                          ? 'h-full rounded-full bg-red-500'
+                          : status.state === 'warning'
+                            ? 'h-full rounded-full bg-amber-400'
+                            : 'h-full rounded-full bg-emerald-500'
+                      }
+                      style={{
+                        width: `${Math.min(100, Math.max(0, status.percentUsed))}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-zinc-500">
+                    {status.spendIsLowerBound ? 'At least ' : ''}
+                    {moneyLabel(status.spendUsd)} of {moneyLabel(status.budgetUsd)} ·{' '}
+                    {status.percentUsed.toFixed(0)}% used · {moneyLabel(status.remainingUsd)}{' '}
+                    remaining
+                  </p>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {budgets.alerts.length > 0 ? (
+        <div className="space-y-1 border-t border-zinc-800 pt-2">
+          {budgets.alerts.map((alert) => (
+            <div key={alert.id} className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-amber-300">
+                {alert.scope === 'overall' ? 'Overall' : alert.cellName ?? 'Cell'} budget{' '}
+                {alert.threshold} ({moneyLabel(alert.spendUsd)} of{' '}
+                {moneyLabel(alert.budgetUsd)})
+              </span>
+              <button
+                type="button"
+                className="text-zinc-500 hover:text-zinc-200"
+                aria-label={`Dismiss budget alert for ${alert.scope === 'overall' ? 'overall spend' : alert.cellName ?? 'cell'}`}
+                onClick={() => onAck(alert)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Card>
+  );
 }
 
 function BreakdownTable({
@@ -213,6 +335,7 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
   const [cellId, setCellId] = useState('');
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [data, setData] = useState<UsageResponse | null>(null);
+  const [budgets, setBudgets] = useState<BudgetsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -234,11 +357,17 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
     setLoading(true);
     try {
       const query = rangeQuery(range);
-      const result = await api.getUsage({
-        ...query,
-        ...(cellId ? { cellId } : {}),
-      });
+      const [result, budgetResult] = await Promise.all([
+        api.getUsage({
+          ...query,
+          ...(cellId ? { cellId } : {}),
+        }),
+        api.getBudgets().catch(() => null),
+      ]);
       setData(result);
+      setBudgets(
+        budgetResult && Array.isArray(budgetResult.statuses) ? budgetResult : null,
+      );
     } catch (error) {
       onError(describeError(error));
     } finally {
@@ -249,6 +378,19 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const acknowledge = async (alert: BudgetAlert) => {
+    try {
+      await api.ackBudgetAlert(alert.id);
+      setBudgets((current) =>
+        current
+          ? { ...current, alerts: current.alerts.filter((item) => item.id !== alert.id) }
+          : current,
+      );
+    } catch (error) {
+      onError(describeError(error));
+    }
+  };
 
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -299,6 +441,7 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
       ) : data ? (
         <>
           <Summary totals={data.totals} />
+          <BudgetSummary budgets={budgets} onAck={(alert) => void acknowledge(alert)} />
           <CostChart data={data} />
           {data.totals.turns === 0 ? (
             <EmptyState

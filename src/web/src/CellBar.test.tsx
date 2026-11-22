@@ -13,6 +13,7 @@ const cells: Cell[] = [
     harness: null,
     model: null,
     effort: null,
+    monthlyBudgetUsd: null,
     createdAt: 1,
   },
 ];

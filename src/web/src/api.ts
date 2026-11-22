@@ -1,4 +1,7 @@
 import type {
+  BudgetAlert,
+  BudgetSettings,
+  BudgetsResponse,
   CellDetail,
   CellDraft,
   ClarifyEvent,
@@ -236,6 +239,7 @@ export const api = {
     harness?: HarnessId | null;
     model?: string | null;
     effort?: string | null;
+    monthlyBudgetUsd?: number | null;
   }): Promise<CellDetail> {
     return request('/api/cells', {
       method: 'POST',
@@ -252,6 +256,7 @@ export const api = {
       harness?: HarnessId | null;
       model?: string | null;
       effort?: string | null;
+      monthlyBudgetUsd?: number | null;
       process?: ProcessConfig | null;
     },
   ): Promise<CellDetail> {
@@ -302,12 +307,19 @@ export const api = {
   getConfig(): Promise<ConfigResponse> {
     return request('/api/config');
   },
-  patchConfig(input: {
+  patchConfig(patch: {
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;
+    budget?: Partial<BudgetSettings>;
   }): Promise<ConfigResponse> {
-    return request('/api/config', { method: 'PATCH', body: JSON.stringify(input) });
+    return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  getBudgets(): Promise<BudgetsResponse> {
+    return request('/api/budgets');
+  },
+  ackBudgetAlert(id: string): Promise<BudgetAlert> {
+    return request(`/api/budgets/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' });
   },
   getProcess(): Promise<ProcessResponse> {
     return request('/api/process');

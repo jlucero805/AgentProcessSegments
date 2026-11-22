@@ -1,6 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import {
+  DEFAULT_BUDGET_SETTINGS,
+  MAX_BUDGET_USD,
+  type BudgetSettings,
+} from './domain/budget.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
@@ -51,10 +56,17 @@ const usageSchema = z.object({
   retentionDays: z.number().int().min(0).max(MAX_USAGE_RETENTION_DAYS),
 }) satisfies z.ZodType<UsageSettings>;
 
+const budgetSchema = z.object({
+  monthlyUsd: z.number().positive().max(MAX_BUDGET_USD).nullable(),
+  alertAtPercent: z.number().int().min(1).max(100),
+}) satisfies z.ZodType<BudgetSettings>;
+
 const settingsSchema = z.object({
   master: masterSchema,
   summary: summarySchema,
   usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
+  // A legacy config with only `master`/`summary` loads with the default budget.
+  budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
 });
 
 export type MasterSettings = MasterConfig;
@@ -78,6 +90,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   usage: {
     retentionDays: DEFAULT_USAGE_RETENTION_DAYS,
   },
+  budget: { ...DEFAULT_BUDGET_SETTINGS },
 };
 
 export const settingsPatchSchema = z
@@ -85,10 +98,14 @@ export const settingsPatchSchema = z
     master: masterSchema.partial().optional(),
     summary: summarySchema.partial().optional(),
     usage: usageSchema.partial().optional(),
+    budget: budgetSchema.partial().optional(),
   })
   .refine(
     (value) =>
-      value.master !== undefined || value.summary !== undefined || value.usage !== undefined,
+      value.master !== undefined ||
+      value.summary !== undefined ||
+      value.usage !== undefined ||
+      value.budget !== undefined,
     {
       message: 'at least one settings block is required',
     },
@@ -117,9 +134,11 @@ export class SettingsStore {
     const parsed = settingsPatchSchema.parse(input);
     const current = this.get();
     const next = settingsSchema.parse({
+      ...current,
       master: { ...current.master, ...(parsed.master ?? {}) },
       summary: { ...current.summary, ...(parsed.summary ?? {}) },
       usage: { ...current.usage, ...(parsed.usage ?? {}) },
+      budget: { ...current.budget, ...(parsed.budget ?? {}) },
     });
     this.write(next);
     this.cached = next;

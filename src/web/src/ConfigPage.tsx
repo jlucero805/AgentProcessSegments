@@ -3,6 +3,7 @@ import { api, describeError } from './api';
 import { ACTION_TONES, eventDetail } from './masterView';
 import { ProcessEditor } from './ProcessEditor';
 import {
+  MAX_USAGE_RETENTION_DAYS,
   timeAgo,
   type CellDetail,
   type MasterConfig,
@@ -10,6 +11,7 @@ import {
   type ProcessConfig,
   type SegmentConfig,
   type SummaryConfig,
+  type UsageSettings,
 } from './types';
 import {
   Badge,
@@ -32,6 +34,7 @@ interface ConfigPageProps {
 export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [summary, setSummary] = useState<SummaryConfig | null>(null);
+  const [usage, setUsage] = useState<UsageSettings | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
   const [processPath, setProcessPath] = useState('');
@@ -39,6 +42,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [usageSaving, setUsageSaving] = useState(false);
+  const [usageSaved, setUsageSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
   const [processSaved, setProcessSaved] = useState(false);
 
@@ -52,6 +57,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       ]);
       setMaster(config.master);
       setSummary(config.summary);
+      setUsage(config.usage);
       setPath(config.path);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
@@ -77,6 +83,11 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   ) => {
     setSummary((current) => (current ? { ...current, [key]: value } : current));
     setSaved(false);
+  };
+
+  const setRetention = (days: number) => {
+    setUsage((current) => (current ? { ...current, retentionDays: days } : current));
+    setUsageSaved(false);
   };
 
   const setSegment = <K extends keyof SegmentConfig>(
@@ -133,6 +144,21 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     }
   }
 
+  async function saveUsage() {
+    if (!usage) return;
+    setUsageSaving(true);
+    try {
+      const config = await api.patchConfig({ usage });
+      setUsage(config.usage);
+      setPath(config.path);
+      setUsageSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setUsageSaving(false);
+    }
+  }
+
   async function saveProcess() {
     if (!process) return;
     setProcessSaving(true);
@@ -157,7 +183,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     }
   }
 
-  if (!master || !summary || !process) {
+  if (!master || !summary || !usage || !process) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
         <Spinner /> Loading settings...
@@ -258,6 +284,42 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           6 hours = 360 minutes. Saved with the schedule above. A failed report is retried
           with backoff.
         </p>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Usage retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Raw usage rows older than this window are pruned in the background. Cost is
+          reported by the harness, never estimated here.
+        </p>
+        <Field label="Retention (days)" hint="0 keeps history forever">
+          <Input
+            type="number"
+            min={0}
+            max={MAX_USAGE_RETENTION_DAYS}
+            step={1}
+            value={usage.retentionDays}
+            onChange={(event) => setRetention(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. All-time totals cover the retained
+            window.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {usageSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={usageSaving}
+              onClick={() => void saveUsage()}
+            >
+              {usageSaving ? <Spinner /> : 'Save usage retention'}
+            </Button>
+          </div>
+        </div>
       </Card>
 
       <ProcessEditor

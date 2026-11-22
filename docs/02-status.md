@@ -184,15 +184,21 @@ built and vended by the brain; real-CLI verification is still pending.
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
 - Settings: `$XDG_CONFIG_HOME/sandbox-harness/config.json` (or `SBOX_CONFIG`) holds the
-  master switch, interval, and the scorecard policy (`enabled`, `intervalMinutes`,
-  `windowMinutes`, `prompt`), validated with zod and written atomically. Older files
-  with only `master` keep their values and gain the default summary block.
-  `GET/PATCH /api/config` expose both blocks. `process.json` is the global process
+  master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
+  `windowMinutes`, `prompt`), and the usage retention window (`retentionDays`),
+  validated with zod and written atomically. Older files with only `master` keep their
+  values and gain the default summary and usage blocks. `GET/PATCH /api/config` expose
+  all three blocks. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. The files on this host are
   `/root/.config/sandbox-harness/config.json` and `process.json`.
+- Usage retention: `usage.retentionDays` (default 90, `0` keeps history forever) is
+  edited on the Config page and stored in `config.json`. A startup + hourly job deletes
+  `usage_events` older than the window in 1000-row batches, yields between batches,
+  joins overlapping runs, and records only `usage.prune` failures. It stops during
+  shutdown.
 - Error log: explicit failure paths append NDJSON to
   `$XDG_STATE_HOME/sandbox-harness/errors.log` (`SBOX_ERROR_LOG`,
   `SBOX_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/

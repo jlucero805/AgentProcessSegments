@@ -28,6 +28,7 @@ import type {
   TerminalStatus,
   UsageFilter,
   UsageResponse,
+  UsageSettings,
 } from './types';
 
 export class ApiError extends Error {
@@ -304,6 +305,7 @@ export const api = {
   patchConfig(input: {
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
+    usage?: Partial<UsageSettings>;
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(input) });
   },

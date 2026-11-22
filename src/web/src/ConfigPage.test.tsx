@@ -8,6 +8,7 @@ import type {
   MasterEvent,
   SegmentConfig,
   SummaryConfig,
+  UsageSettings,
 } from './types';
 
 const master: MasterConfig = {
@@ -24,6 +25,9 @@ const scorecard: SummaryConfig = {
   windowMinutes: 360,
   prompt: 'summary prompt',
 };
+
+const usage: UsageSettings = { retentionDays: 90 };
+
 const cell: Cell = {
   id: 'c1',
   name: 'Alpha',
@@ -46,7 +50,11 @@ const event: MasterEvent = {
 };
 
 interface Captured {
-  config?: { master?: Partial<MasterConfig>; summary?: Partial<SummaryConfig> };
+  config?: {
+    master?: Partial<MasterConfig>;
+    summary?: Partial<SummaryConfig>;
+    usage?: Partial<UsageSettings>;
+  };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
 }
@@ -61,11 +69,17 @@ function installFetch(): Captured {
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
+        usage: { ...usage, ...captured.config?.usage },
         path: '/tmp/sandbox-harness/config.json',
       });
     }
     if (url === '/api/config') {
-      return jsonResponse({ master, summary: scorecard, path: '/tmp/sandbox-harness/config.json' });
+      return jsonResponse({
+        master,
+        summary: scorecard,
+        usage,
+        path: '/tmp/sandbox-harness/config.json',
+      });
     }
     if (url === '/api/process' && init?.method === 'PATCH') {
       captured.process = JSON.parse(String(init.body)) as Captured['process'];
@@ -109,6 +123,24 @@ describe('ConfigPage', () => {
     expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
     expect(captured.config?.summary).toMatchObject({ intervalMinutes: 360, windowMinutes: 180 });
     expect(captured.config?.master).not.toHaveProperty('includeUnassigned');
+  });
+
+  it('loads and saves usage retention', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const retention = await screen.findByRole('spinbutton', { name: /retention/i });
+    expect(retention).toHaveValue(90);
+    expect(screen.getByText('0 keeps history forever')).toBeInTheDocument();
+
+    fireEvent.change(retention, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save usage retention' }));
+
+    await waitFor(() =>
+      expect(captured.config?.usage).toEqual({ retentionDays: 30 }),
+    );
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(retention).toHaveValue(30);
   });
 
   it('toggles the master switch', async () => {

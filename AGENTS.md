@@ -206,14 +206,16 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     are manual-only and never enter a bucket.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
-20. **Usage is recorded after completion.** Parsers expose a normalized `TurnUsage`;
-    the engine writes one `usage_events` row only when the harness emitted a final event
-    and reported usage. Cancelled, timed-out, and usage-less turns write nothing. Cost is
-    harness-reported only; an unreported cost stays NULL, never zero. Claude reports
-    cumulative usage on resumed sessions, so persist the last cumulative totals in
-    `session.json` and record per-turn deltas. Do not add guessed
-    pricing or partial usage writes. Retention, budgets, and estimated pricing follow
-    `docs/09-backlog.md`.
+20. **Usage is recorded after completion and retained, never guessed.** Parsers expose a
+    normalized `TurnUsage`; the engine writes one `usage_events` row only when the
+    harness emitted a final event and reported usage. Cancelled, timed-out, and
+    usage-less turns write nothing. Cost is harness-reported only; an unreported cost
+    stays NULL, never zero. Claude reports cumulative usage on resumed sessions, so
+    persist the last cumulative totals in `session.json` and record per-turn deltas.
+    `usage.retentionDays` (default 90, `0` = keep forever) drives the startup/hourly
+    prune job; delete usage rows only through that job. Do not add guessed pricing or
+    partial usage writes. Budgets and estimated pricing follow `docs/09-backlog.md`;
+    see D43.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.

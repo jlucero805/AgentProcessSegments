@@ -8,9 +8,9 @@ can be picked up without re-deciding the shape.
 Token/cost tracking is built: `usage_events`, parser normalization, engine capture,
 `GET /api/usage`, the **Usage** page, and the request Usage card. Deferred work:
 
-- **Retention and pruning.** `usage_events` grows one row per completed turn. Add a
-  validated retention setting, a bounded boot/daily purge, and a documented decision
-  about historical totals (prune-only or rollups).
+- **Long-range usage rollups.** Raw `usage_events` are pruned by
+  `usage.retentionDays` (default 90 days, `0` = forever), so "all time" totals cover the
+  retained window. Add daily rollups if operators need history beyond it.
 - **Budget alerts.** Add per-cell/global daily or monthly USD caps, advisory alerts from
   the usage aggregates, one deduplicated alert per period, and conservative wording when
   `unknownCostTurns > 0`. Enforcement is a separate decision.

@@ -4,6 +4,11 @@ import { z } from 'zod';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
+import {
+  DEFAULT_USAGE_RETENTION_DAYS,
+  MAX_USAGE_RETENTION_DAYS,
+  type UsageSettings,
+} from './usage/settings.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -42,7 +47,15 @@ const summarySchema = z.object({
   prompt: z.string().min(1).max(8000),
 }) satisfies z.ZodType<SummaryConfig>;
 
-const settingsSchema = z.object({ master: masterSchema, summary: summarySchema });
+const usageSchema = z.object({
+  retentionDays: z.number().int().min(0).max(MAX_USAGE_RETENTION_DAYS),
+}) satisfies z.ZodType<UsageSettings>;
+
+const settingsSchema = z.object({
+  master: masterSchema,
+  summary: summarySchema,
+  usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
+});
 
 export type MasterSettings = MasterConfig;
 export type SummarySettings = SummaryConfig;
@@ -62,16 +75,24 @@ export const DEFAULT_SETTINGS: AppSettings = {
     windowMinutes: 6 * 60,
     prompt: DEFAULT_SUMMARY_PROMPT,
   },
+  usage: {
+    retentionDays: DEFAULT_USAGE_RETENTION_DAYS,
+  },
 };
 
 export const settingsPatchSchema = z
   .object({
     master: masterSchema.partial().optional(),
     summary: summarySchema.partial().optional(),
+    usage: usageSchema.partial().optional(),
   })
-  .refine((value) => value.master !== undefined || value.summary !== undefined, {
-    message: 'at least one settings block is required',
-  });
+  .refine(
+    (value) =>
+      value.master !== undefined || value.summary !== undefined || value.usage !== undefined,
+    {
+      message: 'at least one settings block is required',
+    },
+  );
 
 /**
  * Persistent app settings, separate from the brain's environment/path config.
@@ -98,6 +119,7 @@ export class SettingsStore {
     const next = settingsSchema.parse({
       master: { ...current.master, ...(parsed.master ?? {}) },
       summary: { ...current.summary, ...(parsed.summary ?? {}) },
+      usage: { ...current.usage, ...(parsed.usage ?? {}) },
     });
     this.write(next);
     this.cached = next;
@@ -122,12 +144,13 @@ export class SettingsStore {
       const parsed: unknown = JSON.parse(raw);
       const source =
         typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
-      // Files written before the summary block existed carry only `master`.
-      // Merge each present block over the defaults so an upgrade does not
-      // silently reset operator customizations.
+      // Files written before the summary or usage blocks existed carry only
+      // `master`. Merge each present block over the defaults so an upgrade
+      // does not silently reset operator customizations.
       const candidate = {
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
+        usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,
       };
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {

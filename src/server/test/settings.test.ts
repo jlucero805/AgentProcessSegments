@@ -26,6 +26,31 @@ describe('SettingsStore', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('defaults usage retention and loads a legacy master-only file', () => {
+    const file = tempFile();
+    expect(new SettingsStore(file).get().usage).toEqual({ retentionDays: 90 });
+
+    writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
+    const legacy = new SettingsStore(file).get();
+    expect(legacy.usage).toEqual({ retentionDays: 90 });
+    expect(legacy.master).toEqual(DEFAULT_SETTINGS.master);
+  });
+
+  it('patches usage retention and rejects invalid values', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+
+    const saved = store.patch({ usage: { retentionDays: 30 } });
+    expect(saved.usage).toEqual({ retentionDays: 30 });
+    expect(JSON.parse(readFileSync(file, 'utf8')).usage).toEqual({ retentionDays: 30 });
+    expect(new SettingsStore(file).get().usage).toEqual({ retentionDays: 30 });
+
+    for (const bad of [-1, 1.5, 3651, 'x']) {
+      expect(() => store.patch({ usage: { retentionDays: bad as number } })).toThrow();
+    }
+    expect(store.get().usage).toEqual({ retentionDays: 30 });
+  });
+
   it('merges a patch, writes atomically, and notifies listeners', () => {
     const file = tempFile();
     const store = new SettingsStore(file);

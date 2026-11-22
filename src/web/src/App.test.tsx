@@ -87,6 +87,7 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
           windowMinutes: 360,
           prompt: 'summary prompt',
         },
+        usage: { retentionDays: 90 },
         path: '/tmp/config.json',
       });
     }

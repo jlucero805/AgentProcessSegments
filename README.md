@@ -152,6 +152,12 @@ adapter-specific value wins when both are set.
 `SBOX_DEFAULT_MODEL` sets the default harness's fallback model. OpenCode also has an
 implicit `opencode-go/deepseek-v4.1-flash` default; Claude has none unless configured.
 
+Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
+Config page. The default is 90 days; `0` keeps usage history forever. Raw
+`usage_events` rows older than the window are deleted shortly after startup and then
+hourly in small batches, so all-time usage totals cover the retained window. Cost is
+reported by the harness, never estimated.
+
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
 
@@ -165,7 +171,7 @@ main routes over a real socket.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (usage retention, budgets, pricing)
+- `docs/09-backlog.md` scoped follow-ups (budgets, pricing, long-range usage rollups)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close

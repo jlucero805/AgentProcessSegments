@@ -298,6 +298,7 @@ describe('http api', () => {
     expect(before.json()).toMatchObject({
       path: h.config.configPath,
       master: { intervalMinutes: 5, idleMinutes: 10, enabled: true },
+      usage: { retentionDays: 90 },
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -315,6 +316,23 @@ describe('http api', () => {
 
     const bad = await call('PATCH', '/api/config', { master: { intervalMinutes: 0 } });
     expect(bad.status).toBe(400);
+
+    const usagePatch = await call('PATCH', '/api/config', {
+      usage: { retentionDays: 30 },
+    });
+    expect(usagePatch.status).toBe(200);
+    expect(usagePatch.json().usage).toEqual({ retentionDays: 30 });
+
+    const afterUsage = await call('GET', '/api/config');
+    expect(afterUsage.json()).toMatchObject({
+      master: { intervalMinutes: 7 },
+      usage: { retentionDays: 30 },
+    });
+
+    const badUsage = await call('PATCH', '/api/config', {
+      usage: { retentionDays: -1 },
+    });
+    expect(badUsage.status).toBe(400);
   });
 
   it('reads and patches process segments through the API', async () => {

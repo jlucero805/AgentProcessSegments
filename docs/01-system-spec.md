@@ -138,6 +138,14 @@ and usage-less turns write nothing. Unknown cost stays null, never zero. Indexes
 `idx_usage_events_created`, `idx_usage_events_cell_created`,
 `idx_usage_events_request_created`, and unique `idx_usage_events_turn`.
 
+`usage.retentionDays` in the app settings file (`config.json`, editable from the Config
+page) bounds the ledger: default 90 days, `0` keeps history forever. A job runs once
+shortly after startup, then hourly, and immediately when the setting changes. It deletes
+rows whose `created_at` is strictly before `now - retentionDays`, in batches of 1000 with
+an event-loop yield between batches, and relies on `idx_usage_events_created`. It never
+runs `VACUUM`; SQLite reuses freed pages. "All time" usage queries therefore cover the
+retained window.
+
 ### Domain (`src/server/domain/request.ts`)
 
 - `STATES = clarify | dispatch | review | finalize | done | dropped`.

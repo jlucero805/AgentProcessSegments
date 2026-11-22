@@ -23,6 +23,7 @@ import { SummaryRepository } from './summary/repository.js';
 import { SummaryScheduler } from './summary/scheduler.js';
 import { SummaryService } from './summary/service.js';
 import { UsageRepository } from './usage/repository.js';
+import { UsageRetention } from './usage/retention.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -90,6 +91,7 @@ export async function main(): Promise<void> {
       summaries,
       errors,
     });
+    const usageRetention = new UsageRetention({ db, settings, errors });
 
     const app = await buildServer({
       repo,
@@ -116,8 +118,11 @@ export async function main(): Promise<void> {
     // Catch-up generations may call the harness MCP server, so start after the
     // HTTP brain is accepting connections.
     summary.start();
+    // Fire-and-forget: a first-time prune must not delay readiness.
+    usageRetention.start();
 
     const shutdown = async () => {
+      usageRetention.stop();
       master.stop();
       summary.stop();
       // Keep-alive sockets from a closed client can hold `close()` open forever.

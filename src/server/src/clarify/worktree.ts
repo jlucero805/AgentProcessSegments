@@ -6,6 +6,11 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 
 export function branchName(requestId: string): string {
+  return `aps/${requestId}`;
+}
+
+/** Branches created before the rebrand; reused so in-flight requests keep their checkout. */
+function legacyBranchName(requestId: string): string {
   return `sbox/${requestId}`;
 }
 
@@ -43,6 +48,16 @@ async function branchExists(repo: string, branch: string): Promise<boolean> {
   }
 }
 
+/** The branch a checkout is actually on, or null when it is detached or unreadable. */
+async function checkedOutBranch(dir: string): Promise<string | null> {
+  try {
+    const branch = await git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    return branch || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Give the agent a private checkout so two requests never write the same tree.
  * Any git problem falls back to the scratch workdir rather than blocking the request.
@@ -58,12 +73,25 @@ export async function ensureWorktree(input: WorktreeInput): Promise<WorktreeResu
     if (inside !== 'true') return fallback;
 
     const repoRoot = await git(targetRepo, ['rev-parse', '--show-toplevel']);
-    const branch = branchName(requestId);
     const dir = worktreePath(dataDir, requestId);
 
-    if (existsSync(dir)) return { cwd: dir, branch, isolated: true };
+    if (existsSync(dir)) {
+      const branch = await checkedOutBranch(dir);
+      return { cwd: dir, branch: branch ?? branchName(requestId), isolated: true };
+    }
 
-    if (await branchExists(repoRoot, branch)) {
+    // Prefer the canonical prefix, but keep using a legacy branch when it is the
+    // only one that exists. Renaming a branch under a live checkout would break it.
+    const canonical = branchName(requestId);
+    const legacy = legacyBranchName(requestId);
+    let branch = canonical;
+    let exists = await branchExists(repoRoot, canonical);
+    if (!exists && (await branchExists(repoRoot, legacy))) {
+      branch = legacy;
+      exists = true;
+    }
+
+    if (exists) {
       await git(repoRoot, ['worktree', 'add', dir, branch]);
     } else {
       await git(repoRoot, ['worktree', 'add', '-b', branch, dir, 'HEAD']);

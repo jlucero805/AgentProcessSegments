@@ -18,7 +18,24 @@ function makeRepo(): string {
   return dir;
 }
 
+function createBranch(repo: string, branch: string): string {
+  execFileSync('git', ['-C', repo, 'branch', branch]);
+  return execFileSync('git', ['-C', repo, 'rev-parse', `refs/heads/${branch}`], { encoding: 'utf8' }).trim();
+}
+
+function currentBranch(cwd: string): string {
+  return execFileSync('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim();
+}
+
+function branches(repo: string): string {
+  return execFileSync('git', ['-C', repo, 'branch', '--list'], { encoding: 'utf8' });
+}
+
 describe('per-request git worktrees', () => {
+  it('names new branches with the aps prefix', () => {
+    expect(branchName('req-a')).toBe('aps/req-a');
+  });
+
   it('gives each request an isolated checkout on its own branch', async () => {
     const repo = makeRepo();
     const base = tempDir();
@@ -62,8 +79,47 @@ describe('per-request git worktrees', () => {
     await removeWorktree({ ...input, targetRepo: repo, requestId: 'req-d' });
 
     expect(existsSync(worktree.cwd)).toBe(false);
-    const branches = execFileSync('git', ['-C', repo, 'branch', '--list'], { encoding: 'utf8' });
-    expect(branches).toContain('sbox/req-d');
+    expect(branches(repo)).toContain('aps/req-d');
+  });
+
+  it('reuses a legacy sbox branch instead of creating the new prefix', async () => {
+    const repo = makeRepo();
+    const base = tempDir();
+    const input = { dataDir: path.join(base, 'data'), scratchDir: path.join(base, 'scratch') };
+    const legacySha = createBranch(repo, 'sbox/req-legacy');
+
+    const first = await ensureWorktree({ ...input, targetRepo: repo, requestId: 'req-legacy' });
+    expect(first.isolated).toBe(true);
+    expect(first.branch).toBe('sbox/req-legacy');
+    expect(currentBranch(first.cwd)).toBe('sbox/req-legacy');
+
+    const second = await ensureWorktree({ ...input, targetRepo: repo, requestId: 'req-legacy' });
+    expect(second.cwd).toBe(first.cwd);
+    expect(second.branch).toBe('sbox/req-legacy');
+
+    expect(branches(repo)).not.toContain('aps/req-legacy');
+    const ref = execFileSync('git', ['-C', repo, 'rev-parse', 'refs/heads/sbox/req-legacy'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(ref).toBe(legacySha);
+  });
+
+  it('prefers the canonical aps branch when both prefixes exist', async () => {
+    const repo = makeRepo();
+    const base = tempDir();
+    const input = { dataDir: path.join(base, 'data'), scratchDir: path.join(base, 'scratch') };
+    const legacySha = createBranch(repo, 'sbox/req-both');
+    createBranch(repo, 'aps/req-both');
+
+    const worktree = await ensureWorktree({ ...input, targetRepo: repo, requestId: 'req-both' });
+
+    expect(worktree.branch).toBe('aps/req-both');
+    expect(currentBranch(worktree.cwd)).toBe('aps/req-both');
+    expect(branches(repo)).toContain('sbox/req-both');
+    const ref = execFileSync('git', ['-C', repo, 'rev-parse', 'refs/heads/sbox/req-both'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(ref).toBe(legacySha);
   });
 
   it('falls back to the scratch workdir without a repo or with a non-repo path', async () => {

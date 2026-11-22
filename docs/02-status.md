@@ -97,8 +97,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - Stream parser: the full claude stream-json mapping (init, deltas, tool_use,
   tool_result, result) with ordered transcript, duplicate-text protection, and capped
   tool output.
-- Worktrees: `sbox/<id>` branch per request, reuse of an existing checkout, branch kept
-  on removal, scratch fallback when git is unavailable.
+- Worktrees: `aps/<id>` branch per request (legacy `sbox/<id>` reused when it is the
+  only ref), reuse of an existing checkout, branch kept on removal, scratch fallback
+  when git is unavailable.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server scoped by `APS_REQUEST_ID`, proxying
   to the loopback API. Request sessions get `update_request`, `get_request`,
   `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and

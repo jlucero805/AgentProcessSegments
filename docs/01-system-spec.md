@@ -294,7 +294,8 @@ creates the parser and spawns the child.
 - **Agent status:** `working` on turn start, `idle` on end, `unchecked` when a turn
   finishes, cleared by `/seen`. Boot reconciles a stale `working` to `idle`.
 - **Per-request git worktree:** `agentCwd` resolves the session cwd to a worktree off
-  the target repo on branch `sbox/<requestId>`, via `ensureWorktree`,
+  the target repo on branch `aps/<requestId>`, or a legacy `sbox/<requestId>` when
+  that is the only ref that exists, via `ensureWorktree`,
   `removeWorktree`, and `branchName`. It falls back to the scratch workdir when there is
   no target repo or git fails. Transcript, session, and MCP config stay in the scratch
   workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
@@ -478,7 +479,7 @@ interface Request {
   agentStatus: AgentStatus;
   unchecked: boolean;            // agent finished, human has not opened it since
   hcRunIds: string[];            // provenance (dormant)
-  branch: string | null;         // sbox/<id>
+  branch: string | null;         // aps/<id>, or legacy sbox/<id>
   crUrl: string | null;
   cellId: string | null;         // at most one cell; null means the unfiltered floor
   createdAt: number; updatedAt: number;

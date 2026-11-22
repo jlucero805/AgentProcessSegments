@@ -500,13 +500,22 @@ describe('http api', () => {
   });
 
   it('reports an OpenCode harness without effort support', async () => {
-    await makeApp({ harness: 'opencode', harnessBin: 'opencode' });
+    await makeApp({
+      harness: 'opencode',
+      harnessBin: 'opencode',
+      defaultModel: 'opencode-go/deepseek-v4.1-flash',
+    });
     const response = await call('GET', '/api/models');
 
     expect(response.status).toBe(200);
-    const body = response.json() as { harness: string; supportsEffort: boolean };
+    const body = response.json() as {
+      harness: string;
+      supportsEffort: boolean;
+      defaultModel: string | null;
+    };
     expect(body.harness).toBe('opencode');
     expect(body.supportsEffort).toBe(false);
+    expect(body.defaultModel).toBe('opencode-go/deepseek-v4.1-flash');
   });
 
   it('reports a live clarify turn and clears it when the turn finishes', async () => {

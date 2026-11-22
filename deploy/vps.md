@@ -64,6 +64,10 @@ backlogged in `docs/09-backlog.md`.
 Both files are intentionally outside the repo and outside the systemd unit. The master
 scheduler runs inside the brain.
 
+The turn model falls back to `SBOX_DEFAULT_MODEL`. When unset, OpenCode uses
+`opencode-go/deepseek-v4.1-flash`; set it to an empty string to use the CLI default, or to
+another id from `GET /api/models`. Request and cell model settings still win.
+
 Turn safety is configurable:
 
 - `SBOX_TURN_TIMEOUT_MS` (default `600000`, ten minutes) caps one agent turn. A child

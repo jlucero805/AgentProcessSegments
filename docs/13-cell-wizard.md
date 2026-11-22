@@ -57,6 +57,14 @@ The wizard never leaves the chat spinner running forever.
 - A live driver turn is capped by `SBOX_TURN_TIMEOUT_MS` (default ten minutes). The
   engine emits `error`, appends the error to the transcript, kills the child, emits
   `done`, and writes `engine.timeout` with capped stderr.
+- Setup turns use the normal default-model chain, so they start from
+  `SBOX_DEFAULT_MODEL` (OpenCode defaults to `opencode-go/deepseek-v4.1-flash`) unless the
+  wizard's model field or the CLI overrides it.
+- Harness MCP tools are exposed directly (`codemode: false`), so the chat shows each
+  `get_cell_draft`/`update_cell_draft` call as a tool card instead of one opaque
+  `execute`. The setup prompt asks for one segment per update; the wizard refreshes its
+  structured fields after every successful draft update, and the running bar shows
+  elapsed time plus the last tool.
 - The seed prompt answers simple greetings directly and asks at most one or two
   plain-text configuration questions. It explicitly says not to use an interactive
   question tool or inspect the draft unless the answer needs it.

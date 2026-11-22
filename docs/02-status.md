@@ -73,7 +73,9 @@ built and vended by the brain; real-CLI verification is still pending.
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
   terminal transitions. Every turn has a `SBOX_TURN_TIMEOUT_MS` watchdog (default 10
   minutes) that emits an error, kills a silent child, records `engine.timeout`, and
-  finishes with `done`. Early exits and timeouts include capped child stderr.
+  finishes with `done`. Early exits and timeouts include capped child stderr. The turn
+  model falls back to `SBOX_DEFAULT_MODEL`; OpenCode defaults to
+  `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
 - Cell wizard failure handling: draft sync shows an inline error with Retry after 5 s
   instead of an endless “Starting setup chat…” spinner. Chat transport errors get an
   inline retry that remounts the setup chat without closing the wizard.
@@ -170,7 +172,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 238 vitest cases, all passing: 157 server across 19 files and 81 web across 16 files,
+- 240 vitest cases, all passing: 158 server across 19 files and 82 web across 16 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

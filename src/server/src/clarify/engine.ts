@@ -412,7 +412,7 @@ export class Engine {
       dir,
       cwd,
       sessionId: this.readSession(id),
-      model: request?.model ?? defaults?.model ?? null,
+      model: request?.model ?? defaults?.model ?? this.config.defaultModel ?? null,
       effort: request?.effort ?? defaults?.effort ?? null,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });

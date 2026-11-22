@@ -86,6 +86,15 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
             : EFFORT_LEVELS,
         );
         setSupportsEffort(result.supportsEffort !== false);
+        // New cells show the configured brain default instead of an opaque
+        // "CLI default" when the brain has one and the CLI advertises it.
+        if (
+          cell?.model == null &&
+          result.defaultModel &&
+          (result.models ?? []).some((option) => option.id === result.defaultModel)
+        ) {
+          setModel((current) => current || result.defaultModel || '');
+        }
       })
       .catch(() => {
         // Model discovery is optional; the CLI default remains usable.
@@ -413,6 +422,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
                 commands={commands}
                 onError={() => {}}
                 inlineErrors
+                onDraftChanged={() => void refreshDraft()}
                 onDone={() => void refreshDraft()}
                 placeholder="Ask how this cell should be configured…"
               />

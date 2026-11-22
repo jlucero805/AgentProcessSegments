@@ -65,6 +65,7 @@ export interface ModelsResult {
   /** Additive capability fields from the brain. */
   harness?: string;
   supportsEffort?: boolean;
+  defaultModel?: string | null;
 }
 
 export interface AppConfig {

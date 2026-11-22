@@ -35,6 +35,9 @@ export function opencodeHarnessServer(
       SBOX_SESSION_SCOPE: scope,
       ...(draftId ? { SBOX_SETUP_DRAFT_ID: draftId } : {}),
     },
+    // Keep harness tools native so each call is visible and small models do not
+    // have to generate Code Mode JavaScript between steps.
+    codemode: false,
     enabled: true,
   };
 }

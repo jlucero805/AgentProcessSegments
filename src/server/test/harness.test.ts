@@ -189,6 +189,7 @@ describe('OpencodeHarness', () => {
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
     expect(config.mcp.harness.type).toBe('local');
+    expect(config.mcp.harness.codemode).toBe(false);
     expect(config.mcp.harness.environment.SBOX_REQUEST_ID).toBe('req-2');
     expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
     expect(config.mcp.disabled.enabled).toBe(false);

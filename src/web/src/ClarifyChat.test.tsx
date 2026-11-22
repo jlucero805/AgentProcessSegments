@@ -233,6 +233,43 @@ describe('ClarifyChat live turns', () => {
     expect(sends).toEqual(['retry me', 'retry me']);
   });
 
+  it('notifies the wizard after a successful draft update tool result', async () => {
+    const changed = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          return ndjsonResponse([
+            '{"t":"tool","id":"t1","name":"harness_update_cell_draft","input":"{}"}\n',
+            '{"t":"tool_result","id":"t1","text":"ok","isError":false}\n',
+            doneEvent('updated'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat
+        requestId="req-draft"
+        started
+        commands={[]}
+        onError={() => {}}
+        onDraftChanged={changed}
+      />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...');
+    fireEvent.change(composer, { target: { value: 'enable review' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('updated')).toBeInTheDocument();
+  });
+
   it('does not open a stream when the turn is already finished', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

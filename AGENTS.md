@@ -36,7 +36,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 238 vitest cases: 157 server across 19 files and 81 web across 16 files, all green.
+- 240 vitest cases: 158 server across 19 files and 82 web across 16 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -69,7 +69,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 157 server + 81 web
+npm test                       # 158 server + 82 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -199,9 +199,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     tests, and pushes one request at a time before advancing to Finalize.
 22. **Wizard chat can edit its draft.** `__setup__:<draftId>` has no request row; setup
     scope gets only `Read` plus `get_cell_draft`/`update_cell_draft`, not board/KB tools.
-    The prompt and tool errors carry `SEGMENT_FLOW_GUIDE`; prefer `segmentUpdates` for
-    targeted edits. The draft is server-backed, validated, deleted on close, and any live
-    turn is stopped. An enabled intake prompt is included in the first clarification turn.
+    The harness MCP server uses `codemode: false` so calls are visible tool cards. The
+    prompt and tool errors carry `SEGMENT_FLOW_GUIDE`; prefer one `segmentUpdates` update
+    per segment. The chat refreshes the form after each successful update. The draft is
+    server-backed, validated, deleted on close, and any live turn is stopped. An enabled
+    intake prompt is included in the first clarification turn.
 23. **Errors go through the error sink.** Use the injected `ErrorSink` on genuine failure
     paths; it appends NDJSON to the XDG state log and must never throw. Keep context to
     ids/method/URL, never prompts, bodies, transcripts, tokens, or secrets. Expected 4xx
@@ -223,6 +225,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 28. **NDJSON POSTs must declare JSON.** `streamNdjson` sets
     `content-type: application/json` whenever it sends a body. A browser string body
     otherwise becomes `text/plain` and Fastify rejects the chat action validation.
+29. **Model defaults are brain-level.** `SBOX_DEFAULT_MODEL` applies when neither the
+    request nor its cell names a model. OpenCode defaults to
+    `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
+    Expose the default through `GET /api/models` so the wizard can show it.
 
 ## Extension recipes
 

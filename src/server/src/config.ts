@@ -20,6 +20,8 @@ export interface Config {
   errorLogMaxBytes: number;
   /** Hard ceiling for one agent turn; a silent child is killed with an error. */
   turnTimeoutMs: number;
+  /** Model used when neither the request nor its cell names one. */
+  defaultModel: string | null;
   terminalEnabled: boolean;
   terminalCwd: string;
 }
@@ -67,6 +69,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
       const value = Number(env.SBOX_TURN_TIMEOUT_MS ?? 10 * 60 * 1000);
       return Number.isFinite(value) && value > 0 ? value : 10 * 60 * 1000;
     })(),
+    // OpenCode's own default is a slow free tier. Prefer the configured fast
+    // model when no request or cell overrides it.
+    defaultModel:
+      env.SBOX_DEFAULT_MODEL === ''
+        ? null
+        : (env.SBOX_DEFAULT_MODEL ??
+          (harness === 'opencode' ? 'opencode-go/deepseek-v4.1-flash' : null)),
     // The browser terminal is a direct shell, separate from agent sessions.
     // Disable with SBOX_TERMINAL=0 when the brain is exposed beyond loopback.
     terminalEnabled: env.SBOX_TERMINAL !== '0',

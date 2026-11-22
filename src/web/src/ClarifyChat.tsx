@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError, streamNdjson } from './api';
 import { appendUser, applyEvent, fromTranscript, type ChatMessage } from './chat';
 import { useChatRuntime } from './runtime';
@@ -12,6 +12,8 @@ interface ClarifyChatProps {
   onError: (message: string) => void;
   onRequest?: (request: Request) => void;
   onDone?: () => void;
+  /** Called after a successful draft-update tool result (setup wizard). */
+  onDraftChanged?: () => void;
   disabled?: boolean;
   placeholder?: string;
   /** Render an inline error banner with a retry that replays the failed call. */
@@ -19,6 +21,13 @@ interface ClarifyChatProps {
 }
 
 type FailedAttempt = { kind: 'hydrate' } | { kind: 'send'; text: string };
+
+function toolLabel(name: string): string {
+  return name
+    .replace(/^mcp__harness__/, '')
+    .replace(/^harness_/, '')
+    .replace(/_/g, ' ');
+}
 
 function readQueue(key: string): string[] {
   try {
@@ -54,6 +63,7 @@ export function ClarifyChat({
   onError,
   onRequest,
   onDone,
+  onDraftChanged,
   disabled,
   placeholder,
   inlineErrors,
@@ -65,7 +75,9 @@ export function ClarifyChat({
   const [stopping, setStopping] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const failedAttempt = useRef<FailedAttempt | null>(null);
+  const toolNames = useRef(new Map<string, string>());
   const runningRef = useRef(false);
   const activeStream = useRef<AbortController | null>(null);
 
@@ -75,6 +87,8 @@ export function ClarifyChat({
   onRequestRef.current = onRequest;
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+  const onDraftChangedRef = useRef(onDraftChanged);
+  onDraftChangedRef.current = onDraftChanged;
 
   useEffect(() => {
     writeQueue(queueKey, queue);
@@ -98,6 +112,13 @@ export function ClarifyChat({
         return;
       }
       if (event.t === 'error') onErrorRef.current(event.message);
+      if (event.t === 'tool') toolNames.current.set(event.id, event.name);
+      if (event.t === 'tool_result') {
+        const name = toolNames.current.get(event.id) ?? '';
+        if (!event.isError && name.includes('update_cell_draft')) {
+          onDraftChangedRef.current?.();
+        }
+      }
       setMessages((current) => applyEvent(current, event));
     },
     [setBusy],
@@ -240,6 +261,29 @@ export function ClarifyChat({
     return () => window.clearTimeout(timer);
   }, [stopping, setBusy]);
 
+  useEffect(() => {
+    if (!running) {
+      setElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  const lastTool = useMemo(() => {
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const parts = messages[messageIndex]?.parts ?? [];
+      for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+        const part = parts[partIndex];
+        if (part?.type === 'tool') return part.name;
+      }
+    }
+    return null;
+  }, [messages]);
+
   const runtime = useChatRuntime({
     messages,
     running,
@@ -269,7 +313,11 @@ export function ClarifyChat({
         <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3 py-1">
           <span className="flex items-center gap-2 text-[11px] text-blue-400">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-            {stopping ? 'Stopping…' : 'Agent is working…'}
+            {stopping
+              ? 'Stopping…'
+              : `Agent is working…${elapsed > 0 ? ` ${elapsed}s` : ''}${
+                  lastTool ? ` · ${toolLabel(lastTool)}` : ''
+                }`}
           </span>
           <button
             type="button"

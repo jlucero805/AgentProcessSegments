@@ -238,6 +238,20 @@ describe('turn engine', () => {
     expect(h.harness.sessions[1]?.sessionId).toBe('sess-persist');
   });
 
+  it('uses the configured default model when no request or cell model is set', async () => {
+    const h = fresh(() => defaultScript());
+    h.config.defaultModel = 'opencode-go/deepseek-v4.1-flash';
+    const request = h.repo.create({ title: 'Default model' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions[0]).toMatchObject({
+      model: 'opencode-go/deepseek-v4.1-flash',
+    });
+  });
+
   it('uses cell model and effort defaults, with request overrides winning', async () => {
     const h = createHarness(defaultScript, () => ({
       model: 'cell-model',

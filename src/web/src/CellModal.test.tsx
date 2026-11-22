@@ -28,10 +28,17 @@ describe('CellModal', () => {
         if (url === '/api/process') return jsonResponse(makeProcessResponse());
         if (url === '/api/models') {
           return jsonResponse({
-            models: [{ id: 'm1', label: 'Model One' }],
+            models: [
+              {
+                id: 'opencode-go/deepseek-v4.1-flash',
+                label: 'DeepSeek V4.1 Flash',
+              },
+              { id: 'm1', label: 'Model One' },
+            ],
             source: 'probe',
             effortLevels: ['low', 'medium', 'high'],
             supportsEffort: true,
+            defaultModel: 'opencode-go/deepseek-v4.1-flash',
           });
         }
         if (url === '/api/cells' && init?.method === 'POST') {
@@ -61,6 +68,10 @@ describe('CellModal', () => {
     expect(await screen.findByText('Cell process segments')).toBeInTheDocument();
     expect(screen.getByText('Setup assistant')).toBeInTheDocument();
     expect(await screen.findByText('Model One')).toBeInTheDocument();
+    const modelSelect = screen.getByRole('combobox', { name: /default model/i });
+    await waitFor(() =>
+      expect(modelSelect).toHaveValue('opencode-go/deepseek-v4.1-flash'),
+    );
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
       target: { value: 'Work repo' },
     });

@@ -532,6 +532,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       ...catalog,
       harness: config.harness,
       supportsEffort: config.harness === 'claude',
+      defaultModel: config.defaultModel,
     };
   });
 

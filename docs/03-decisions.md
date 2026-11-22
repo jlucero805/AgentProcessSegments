@@ -564,3 +564,21 @@ of being ignored. That is the intended behavior: operators can put repo identity
 standing autonomy instructions there. The safe flow guide omits rarely used state-machine
 edges such as Review→Clarify; those remain valid for hand editing but are not advertised
 to the setup model.
+
+## D39. Setup is direct, incremental, and uses the fast default model
+
+**Context.** OpenCode fell back to its slow free default, and every harness call went
+through the opaque Code Mode `execute` tool. A simple setup turn could take minutes with
+no visible intermediate work.
+
+**Decision.** Add a brain-level `SBOX_DEFAULT_MODEL`; when the harness is OpenCode it
+defaults to `opencode-go/deepseek-v4.1-flash`. Requests and cells still override it, and
+`GET /api/models` exposes the default so the wizard can show it. Set `codemode: false` on
+the harness MCP server so tools are called directly and appear as tool cards. The setup
+prompt asks for one segment per update, and the chat refreshes the structured form after
+every successful `update_cell_draft` tool result. The running bar shows elapsed seconds
+and the last tool.
+
+**Cost.** Setup may make several small model/tool round trips instead of one large update,
+but each is visible and the form changes as it goes. A missing default model id must be
+overridden with `SBOX_DEFAULT_MODEL` or an empty string on other providers.

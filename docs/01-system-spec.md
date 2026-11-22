@@ -255,8 +255,10 @@ to update as models ship.
 
 **Source of truth is runtime, not this table.** `GET /api/models` returns the live list.
 The snapshot below is a default to override, and should be re-verified as models ship.
-Model and effort are per-request (`--model`, `--effort`; null means the CLI default)
-and apply to that request's one persistent session across every step.
+Model and effort are per-request (`--model`, `--effort`; null means the brain default,
+then the CLI default) and apply to that request's one persistent session across every
+step. `SBOX_DEFAULT_MODEL` sets the brain default; when the harness is OpenCode and the
+variable is unset, it defaults to `opencode-go/deepseek-v4.1-flash`.
 
 **Current family** (id, tier, when to pick it, first-party USD per million in and out):
 

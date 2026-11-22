@@ -203,4 +203,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   validation errors, stale-count/doc updates, and regression tests.
 - [x] **38. Setup flow contract** — intake prompt in the first turn, draft-only setup
   tools, legal-transition guide in the prompt/tool errors, regression tests and docs.
-- [ ] **Backlog 39. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **39. Incremental setup** — direct harness MCP tool cards, elapsed/last-tool
+  progress, per-update form refresh, deepseek-v4.1-flash brain default, tests and docs.
+- [ ] **Backlog 40. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

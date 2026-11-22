@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from '../config.js';
@@ -13,6 +14,8 @@ import {
 } from '../domain/sessions.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
+import type { UsageRepository } from '../usage/repository.js';
+import type { UsageScope } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
 import type { AgentHarness, TurnParserLike } from './harness.js';
 import {
@@ -48,6 +51,13 @@ export interface LiveTurn {
   cancelled: boolean;
   resolve: () => void;
   failure: string | null;
+  /** Identity and resolved settings captured once for usage recording. */
+  readonly turnId: string;
+  readonly scope: UsageScope;
+  readonly requestId: string | null;
+  readonly cellId: string | null;
+  readonly model: string | null;
+  readonly effort: Effort | null;
 }
 
 interface StoredSession {
@@ -58,6 +68,7 @@ export interface EngineDeps {
   repo: RequestRepository;
   harness: AgentHarness;
   config: Config;
+  usage: UsageRepository;
   pluginDirs?: () => string[];
   /** Cell-level model/effort defaults; a request's own values win. */
   cellDefaults?: (cellId: string) => { model: string | null; effort: Effort | null } | null;
@@ -241,6 +252,7 @@ export class Engine {
       resolve = done;
     });
 
+    const meta = this.turnMeta(id, request);
     const turn: LiveTurn = {
       events: [],
       subscribers: new Set(),
@@ -249,6 +261,8 @@ export class Engine {
       cancelled: false,
       resolve,
       failure: null,
+      turnId: randomUUID(),
+      ...meta,
     };
 
     this.turns.set(id, turn);
@@ -258,6 +272,35 @@ export class Engine {
 
     void this.runTurn(id, turn, message, request);
     return turn;
+  }
+
+  /**
+   * Resolve the effective scope and settings once per turn. The harness and the
+   * usage row must record the same model/effort, so both read this result.
+   */
+  private turnMeta(
+    id: string,
+    request: Request | null,
+  ): Pick<LiveTurn, 'scope' | 'requestId' | 'cellId' | 'model' | 'effort'> {
+    const scope: UsageScope = request
+      ? 'request'
+      : id === KB_SESSION_ID
+        ? 'kb'
+        : isSetupSession(id)
+          ? 'setup'
+          : 'master';
+    const requestId = request ? request.id : null;
+    const cellId = request
+      ? request.cellId
+      : (masterCellId(id) ?? summaryCellId(id));
+    const defaults = cellId ? (this.deps.cellDefaults?.(cellId) ?? null) : null;
+    return {
+      scope,
+      requestId,
+      cellId,
+      model: request?.model ?? defaults?.model ?? this.config.defaultModel ?? null,
+      effort: request?.effort ?? defaults?.effort ?? null,
+    };
   }
 
   private async runTurn(
@@ -270,7 +313,7 @@ export class Engine {
     if (!parser) return;
 
     try {
-      const proc = await this.ensureProc(id, request);
+      const proc = await this.ensureProc(id, request, turn);
       if (turn.cancelled || turn.done) {
         proc.kill();
         this.procs.delete(id);
@@ -317,12 +360,43 @@ export class Engine {
       this.repo.setUnchecked(id, true);
     }
 
+    this.recordUsage(id, turn, parser);
+
     const fresh = this.repo.get(id) ?? null;
     turn.done = true;
     this.broadcast(turn, { t: 'done', request: fresh, transcript });
 
     this.turns.delete(id);
     this.parsers.delete(id);
+  }
+
+  /** Best-effort persistence: a failed usage write never changes turn outcome. */
+  private recordUsage(id: string, turn: LiveTurn, parser: TurnParserLike | undefined): void {
+    const usage = parser?.usage ?? null;
+    if (!usage || !parser?.finished || turn.cancelled) return;
+    try {
+      this.deps.usage.record({
+        turnId: turn.turnId,
+        sessionId: id,
+        scope: turn.scope,
+        cellId: turn.cellId,
+        requestId: turn.requestId,
+        model: turn.model,
+        effort: turn.effort,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        reasoningTokens: usage.reasoningTokens,
+        costUsd: usage.costUsd,
+        createdAt: Date.now(),
+      });
+    } catch (error) {
+      this.deps.errors?.error('usage.record', error, {
+        session: id,
+        turnId: turn.turnId,
+      });
+    }
   }
 
   private broadcast(turn: LiveTurn, event: ClarifyEvent): void {
@@ -410,7 +484,11 @@ export class Engine {
     turn.resolve();
   }
 
-  private async ensureProc(id: string, request: Request | null): Promise<AgentProcess> {
+  private async ensureProc(
+    id: string,
+    request: Request | null,
+    turn: LiveTurn,
+  ): Promise<AgentProcess> {
     const existing = this.procs.get(id);
     if (existing) return existing;
 
@@ -430,19 +508,17 @@ export class Engine {
       if (worktree.branch !== request.branch) this.repo.setBranch(id, worktree.branch);
     }
 
-    const cellId = request?.cellId ?? masterCellId(id) ?? summaryCellId(id);
-    const defaults = cellId ? (this.deps.cellDefaults?.(cellId) ?? null) : null;
     const draftId = isSetupSession(id) ? (setupDraftId(id) ?? undefined) : undefined;
 
     const command = await this.harness.prepare({
-      scope: request ? 'request' : id === KB_SESSION_ID ? 'kb' : draftId ? 'setup' : 'master',
-      requestId: request ? id : '',
+      scope: turn.scope,
+      requestId: turn.requestId ?? '',
       ...(draftId ? { draftId } : {}),
       dir,
       cwd,
       sessionId: this.readSession(id),
-      model: request?.model ?? defaults?.model ?? this.config.defaultModel ?? null,
-      effort: request?.effort ?? defaults?.effort ?? null,
+      model: turn.model,
+      effort: turn.effort,
       pluginDirs: request ? (this.deps.pluginDirs?.() ?? []) : [],
     });
     const proc = this.harness.spawn(command);

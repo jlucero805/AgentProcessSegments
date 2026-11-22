@@ -114,4 +114,55 @@ describe('claude stream-json parser', () => {
     expect(parser.push('{}')).toEqual([]);
     expect(parser.push('null')).toEqual([]);
   });
+
+  it('captures usage and reported cost from the result event', () => {
+    const parser = new TurnParser();
+    parser.push(
+      resultLine('done', {
+        input_tokens: 120,
+        output_tokens: 30,
+        cache_read_input_tokens: 40,
+        cache_creation_input_tokens: 10,
+      }, 0.0042),
+    );
+
+    expect(parser.finished).toBe(true);
+    expect(parser.usage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      cacheReadTokens: 40,
+      cacheWriteTokens: 10,
+      reasoningTokens: 0,
+      costUsd: 0.0042,
+    });
+  });
+
+  it('leaves usage null when the result event reports no usage', () => {
+    const parser = new TurnParser();
+    parser.push(resultLine());
+    expect(parser.finished).toBe(true);
+    expect(parser.usage).toBeNull();
+  });
+
+  it('keeps tokens when a cost is missing and tolerates malformed usage', () => {
+    const parser = new TurnParser();
+    parser.push(
+      line({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'done',
+        usage: { input_tokens: 7, output_tokens: 'bad', cache_read_input_tokens: 3 },
+      }),
+    );
+
+    expect(parser.usage).toEqual({
+      inputTokens: 7,
+      outputTokens: 0,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: null,
+    });
+  });
 });

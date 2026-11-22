@@ -161,7 +161,7 @@ main routes over a real socket.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped but unbuilt work (token/cost tracking)
+- `docs/09-backlog.md` scoped follow-ups (usage retention, budgets, pricing)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -203,17 +203,21 @@ src/server/src
                       polling scheduler, persisted report history
   mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo
+  usage/types.ts      pure usage contract shared with the SPA
+  usage/repository.ts usage_events writes plus totals/series/group queries
   logging/errors.ts   structured error-only NDJSON log with size rotation
   terminal/service.ts server-owned PTY sessions with scrollback + attach/detach
   plugins/manager.ts  install, strip hooks/mcp, list, remove, slash-command discovery
 src/web
   vite.config.ts      dev server, proxying /api and /ws to the brain
   src/main.tsx        mounts the app and turns on the dark class
-  src/App.tsx         shell: nav, cell bar, board, detail drawer, pages, Help route
+  src/App.tsx         shell: nav, cell bar, board, usage page, detail drawer, Help route
   src/HelpPanel.tsx   full-height docs overlay: nav rail, markdown, on-this-page
   src/docs.ts         help slugs, relative link/image rewriting, heading anchors
   src/Board.tsx       six columns, drag-to-advance, agent badges
-  src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, digest
+  src/UsagePage.tsx   overall/cell usage dashboard and breakdown tables
+  src/usageFormat.ts  token/cost formatters that keep unknown cost distinct
+  src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, usage, digest
   src/ClarifyChat.tsx    per-request chat, reattach on mount
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
@@ -238,7 +242,8 @@ what is not built yet.
 ## Tests
 
 `npm test` runs 266 vitest cases: 179 server cases (state machine, migrations including
-the index ordering fix on a legacy database, repositories, both stream parsers, engine
+the index ordering fix on a legacy database, repositories, both stream parsers, usage
+event capture and aggregation, engine
 turns over a fake harness, worktree isolation against a real git repo, the MCP tool
 surface, harness config/MCP/plugin mapping, model probing, the plugin manager against
 real git clones, process definitions/store/follow-ups, per-cell policies/tickers/limits,
@@ -248,7 +253,8 @@ skill discovery, terminal session lifecycle, and the HTTP API
 over a real socket) and 87 web cases (shared contract re-exports, NDJSON client, chat
 folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay,
 the source link, board, create modal, composer, cell bar, cell creation, config/process
-editor, master detail and scorecard, and the app shell with the drawer and chat mounted
+editor, master detail and scorecard, the usage page and formatters, and the app shell
+with the drawer and chat mounted
 under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns

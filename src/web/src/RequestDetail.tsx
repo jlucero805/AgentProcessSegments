@@ -4,6 +4,7 @@ import { ClarifyChat } from './ClarifyChat';
 import { TranscriptList } from './TranscriptList';
 import { formFromRequest, patchFromForm, type RequestFormState } from './requestForm';
 import { mergeSlashCommands } from './slash';
+import { formatCost, formatTokens } from './usageFormat';
 import {
   EFFORT_LEVELS,
   isTerminal,
@@ -14,6 +15,7 @@ import {
   type Request,
   type State,
   type TranscriptMsg,
+  type UsageResponse,
 } from './types';
 import {
   Badge,
@@ -58,6 +60,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   const [supportsEffort, setSupportsEffort] = useState(true);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [transcript, setTranscript] = useState<TranscriptMsg[]>([]);
+  const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [digest, setDigest] = useState('');
   const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,6 +99,19 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadUsage = useCallback(async () => {
+    try {
+      setUsage(await api.getUsage({ requestId: id }));
+    } catch {
+      // Usage is supplementary; a failed card must not break the request drawer.
+      setUsage(null);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void loadUsage();
+  }, [loadUsage]);
 
   useEffect(() => {
     api.markSeen(id).catch(() => {});
@@ -140,6 +156,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               setForm(formFromRequest(event.request));
             }
             setTranscript(event.transcript);
+            void loadUsage();
             onChanged?.();
             if (key === 'finalize') {
               const text = event.transcript
@@ -458,6 +475,48 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               ) : null}
             </Card>
 
+            {usage ? (
+              <Card className="space-y-2 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <SectionTitle>Usage</SectionTitle>
+                  <span className="text-xs text-zinc-400">{formatCost(usage.totals)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-100">{usage.totals.turns}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-600">Turns</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-100">
+                      {formatTokens(usage.totals.totalTokens)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-600">Tokens</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-100">
+                      {usage.totals.unknownCostTurns}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-600">Unpriced</p>
+                  </div>
+                </div>
+                {usage.byModel.length > 0 ? (
+                  <div className="space-y-1 border-t border-zinc-900 pt-2">
+                    {usage.byModel.slice(0, 3).map((model) => (
+                      <div
+                        key={model.key || model.label}
+                        className="flex items-center justify-between gap-2 text-[11px]"
+                      >
+                        <span className="truncate text-zinc-500" title={model.label}>
+                          {model.label}
+                        </span>
+                        <span className="shrink-0 text-zinc-600">{formatCost(model)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </Card>
+            ) : null}
+
       {!terminal ? (
         <div className="space-y-2">
           <SectionTitle>Thread</SectionTitle>
@@ -471,6 +530,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                 setRequest(updated);
                 setForm(formFromRequest(updated));
               }}
+              onDone={() => void loadUsage()}
               placeholder="Message this thread…"
             />
           </Card>

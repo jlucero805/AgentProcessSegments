@@ -25,6 +25,8 @@ import type {
   SummaryStatus,
   TerminalSessionInfo,
   TerminalStatus,
+  UsageFilter,
+  UsageResponse,
 } from './types';
 
 export class ApiError extends Error {
@@ -334,5 +336,17 @@ export const api = {
   },
   runSummary(cellId: string): Promise<Summary> {
     return request(withQuery('/api/summaries/run', { cellId }), { method: 'POST' });
+  },
+  getUsage(filters: UsageFilter = {}): Promise<UsageResponse> {
+    return request(
+      withQuery('/api/usage', {
+        cellId: filters.cellId,
+        requestId: filters.requestId,
+        from: filters.from,
+        to: filters.to,
+        bucket: filters.bucket,
+        limit: filters.limit,
+      }),
+    );
   },
 };

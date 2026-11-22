@@ -26,6 +26,7 @@ describe('db migrations', () => {
     ).map((row) => row.name);
     expect(tables).toContain('master_events');
     expect(tables).toContain('cell_summaries');
+    expect(tables).toContain('usage_events');
     db.close();
   });
 
@@ -69,6 +70,10 @@ describe('db migrations', () => {
         name: string;
       }>).map((row) => row.name),
     ).toContain('cell_summaries');
+    expect(indexes).toContain('idx_usage_events_created');
+    expect(indexes).toContain('idx_usage_events_cell_created');
+    expect(indexes).toContain('idx_usage_events_request_created');
+    expect(indexes).toContain('idx_usage_events_turn');
     db.close();
   });
 

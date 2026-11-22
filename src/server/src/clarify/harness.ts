@@ -63,9 +63,21 @@ export interface HarnessCommand {
 export interface TurnParserLike {
   sessionId: string | null;
   finished: boolean;
+  /** Usage reported by the harness for this turn, or null when it reported none. */
+  usage: TurnUsage | null;
   readonly transcript: TranscriptMsg[];
   push(line: string): ClarifyEvent[];
   finalize(): TranscriptMsg[];
+}
+
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  /** Null when no sample reported a cost, or when only part of the turn did. */
+  costUsd: number | null;
 }
 
 /**

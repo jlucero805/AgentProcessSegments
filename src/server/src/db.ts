@@ -69,6 +69,24 @@ CREATE TABLE IF NOT EXISTS cell_summaries (
   stats_json     TEXT NOT NULL,
   created_at     INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS usage_events (
+  id                 TEXT PRIMARY KEY,
+  turn_id            TEXT NOT NULL,
+  session_id         TEXT NOT NULL,
+  scope              TEXT NOT NULL,
+  cell_id            TEXT,
+  request_id         TEXT,
+  model              TEXT,
+  effort             TEXT,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
+  cost_usd           REAL,
+  created_at         INTEGER NOT NULL
+);
 `;
 
 /**
@@ -122,6 +140,14 @@ export function migrate(db: Db): void {
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_cell_summaries_cell_created ON cell_summaries(cell_id, created_at)',
   );
+  db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_created ON usage_events(created_at)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_usage_events_cell_created ON usage_events(cell_id, created_at)',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_usage_events_request_created ON usage_events(request_id, created_at)',
+  );
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_turn ON usage_events(turn_id)');
 }
 
 /** A persisted `working` cannot survive a restart, because no child does. */

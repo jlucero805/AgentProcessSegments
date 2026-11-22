@@ -33,6 +33,8 @@ import { SkillCatalog } from '../skills/catalog.js';
 import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
+import type { UsageRepository } from '../usage/repository.js';
+import { USAGE_BUCKETS } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
 
 export interface ServerDeps {
@@ -42,6 +44,7 @@ export interface ServerDeps {
   kb: KbRepository;
   engine: Engine;
   models: ModelCatalog;
+  usage: UsageRepository;
   plugins: PluginManager;
   settings: SettingsStore;
   master: MasterScheduler;
@@ -175,6 +178,19 @@ const masterEventsQuerySchema = z.object({
   cellId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
+const usageQuerySchema = z
+  .object({
+    cellId: z.string().optional(),
+    requestId: z.string().optional(),
+    from: z.coerce.number().int().nonnegative().optional(),
+    to: z.coerce.number().int().nonnegative().optional(),
+    bucket: z.enum(USAGE_BUCKETS).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .refine((value) => value.from === undefined || value.to === undefined || value.from < value.to, {
+    message: 'from must be before to',
+    path: ['from'],
+  });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
 const summariesQuerySchema = z.object({
   cellId: z.string().min(1).optional(),
@@ -307,6 +323,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     kb,
     engine,
     models,
+    usage,
     plugins,
     settings,
     master,
@@ -741,6 +758,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const query = summaryCellQuerySchema.parse(request.query);
     cells.require(query.cellId);
     return summary.runNow(query.cellId);
+  });
+
+  app.get('/api/usage', async (request) => {
+    const query = usageQuerySchema.parse(request.query);
+    return usage.query(query);
   });
 
   await app.register(fastifyWebsocket);

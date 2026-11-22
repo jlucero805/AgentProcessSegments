@@ -63,9 +63,9 @@ built and vended by the brain; real-CLI verification is still pending.
   multi-term literal LIKE search (`%`, `_`, and `\` escaped) ranked by title/body term
   hits and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
-  clarify snapshot, dispatch, finalize, index, models, KB, cells, docs, websocket echo,
-  and optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch, and
-  finalize accept `?detach=1` to start a turn and return immediately.
+  clarify snapshot, dispatch, finalize, index, models, usage, KB, cells, docs, websocket
+  echo, and optional SPA vend with an `index.html` fallback. Clarify start/send, dispatch,
+  and finalize accept `?detach=1` to start a turn and return immediately.
 - In-app Help: a sidebar **Help** row opens a full-height documentation overlay, grouped
   by manifest order from `GET /api/docs`, with an article, sticky “On this page” anchors,
   “Copy as Markdown”, in-app doc links, external links in a new tab, and screenshots via
@@ -81,6 +81,12 @@ built and vended by the brain; real-CLI verification is still pending.
   finishes with `done`. Early exits and timeouts include capped child stderr. The turn
   model falls back to `SBOX_DEFAULT_MODEL`; OpenCode defaults to
   `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
+- Usage tracking: both parsers normalize token counts and harness-reported cost into a
+  `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
+  master, KB, and setup sessions. `GET /api/usage` returns totals, UTC bucket series,
+  and model/cell/request groups. The **Usage** page shows the overall and per-cell
+  timeline; the request drawer shows a compact per-request card. Unknown cost stays
+  null and renders as unknown, never zero.
 - Cell wizard failure handling: draft sync shows an inline error with Retry after 5 s
   instead of an endless “Starting setup chat…” spinner. Chat transport errors get an
   inline retry that remounts the setup chat without closing the wizard.
@@ -309,6 +315,7 @@ GET    /api/summaries[?cellId=…&limit=…]
 GET    /api/summaries/latest?cellId=…
 POST   /api/summaries/run?cellId=…
 GET    /api/summaries/status[?cellId=…]
+GET    /api/usage[?cellId=…][&requestId=…][&from=…][&to=…][&bucket=hour|day][&limit=…]
 GET    /api/terminal
 GET    /api/terminals
 POST   /api/terminals                     {cols?, rows?}

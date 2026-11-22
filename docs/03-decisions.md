@@ -424,7 +424,8 @@ chat also inherits the cell defaults.
 
 **Cost.** Concurrency is per cell; unassigned work uses the default cap of 3 until a cell
 is attached. Changing a cell model affects the next spawned turn, not a child that is
-already running. Token/cost tracking is backlogged in `docs/09-backlog.md`.
+already running. Usage tracking records the resolved model on each completed turn; see
+`docs/09-backlog.md` for retention, budget, and pricing follow-ups.
 
 ## D31. Persist only errors, through one sink
 

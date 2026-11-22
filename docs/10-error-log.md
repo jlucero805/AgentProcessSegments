@@ -46,7 +46,7 @@ environment values.
 | `engine.exit` | An agent process exits before completing a turn |
 | `master.turn` | A master turn fails for a request (cell, request, segment) |
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
-| `terminal.open` | A PTY cannot be opened or is refused |
+| `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |
 
 Expected client errors (400 validation, 404, 409 transitions) are **not** written to this
 file. They are returned to the caller and remain visible in the UI. Normal lifecycle

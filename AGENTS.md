@@ -30,11 +30,12 @@ digests.
 9. `docs/09-backlog.md` holds scoped but unbuilt work (token/cost tracking).
 10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
 11. `docs/11-skills.md` is slash-command/skill discovery and invocation in chats.
+12. `docs/12-terminals.md` is the server-owned PTY lifecycle, session list, and API.
 
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 202 vitest cases: 137 server across 18 files and 65 web across 14 files, all green.
+- 203 vitest cases: 138 server across 18 files and 65 web across 14 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -65,7 +66,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 137 server + 65 web
+npm test                       # 138 server + 65 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -106,10 +107,11 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
 - **Errors are the only persisted logs.** `$XDG_STATE_HOME/sandbox-harness/errors.log`
   (`SBOX_ERROR_LOG`, `SBOX_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.
-- **The browser terminal is a real PTY.** `SBOX_TERMINAL=0` disables it; `SBOX_TERMINAL_CWD`
-  sets its starting directory. It is desktop-only in the UI, but the WebSocket route is
-  live. Never expose the brain beyond loopback without auth/proxy controls, because the
-  terminal is a direct shell.
+- **The browser terminal is a real PTY.** `SBOX_TERMINAL=0` disables creation;
+  `SBOX_TERMINAL_CWD` sets its starting directory. Sessions are server-owned and listed
+  in the UI; hiding the panel only detaches, closing a session tab kills it. It is
+  desktop-only in the UI, but the session API is live. Never expose the brain beyond
+  loopback without auth/proxy controls, because the terminal is a direct shell.
 - **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
@@ -179,9 +181,10 @@ journalctl --user -u sandbox-harness -n 50 --no-pager
     explicit indexing path.
 16. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
     request/title; the `followup` event is the dedupe key.
-17. **The terminal is not an agent session.** Each WebSocket owns one `node-pty` shell in
-    `SBOX_TERMINAL_CWD`; it must never reuse an engine process or transcript. Keep the
-    UI desktop-only and the route disableable with `SBOX_TERMINAL=0`.
+17. **Terminal sessions are server-owned and visible.** A WebSocket attaches/detaches; it
+    must never kill the PTY on close. Hide detaches, an explicit close kills, and
+    `GET /api/terminals` lists every session. Keep scrollback bounded and the UI
+    desktop-only; `SBOX_TERMINAL=0` disables creation.
 18. **Concurrency is per cell.** The master counts `working` requests in the cell and
     stops starting turns at `max_concurrent` (default 3). Unassigned work uses 3.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,

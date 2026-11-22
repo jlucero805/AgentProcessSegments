@@ -85,12 +85,15 @@ KB but cannot mutate requests.
 
 ## 4b. Use the desktop terminal
 
-- On desktop, press **Terminal** in the sidebar. It opens a real shell in the brain’s
-  configured cwd (`SBOX_TERMINAL_CWD`), completely separate from every agent session.
-- Maximize/restore from the panel header. **Reconnect** starts a fresh shell; **Close**
-  ends it.
-- `SBOX_TERMINAL=0` disables it. The action is hidden below `md`, but the endpoint is
-  still a direct shell—protect the brain with loopback or an authenticated tunnel.
+- On desktop, press **Terminal** in the sidebar. It attaches to a server-owned shell in
+  the brain’s configured cwd (`SBOX_TERMINAL_CWD`), completely separate from every agent
+  session.
+- The session strip lists every shell with a status dot and a close button. **Hide** only
+  detaches, so reopening or reloading reattaches to the same shell and scrollback.
+  **Close** on a session tab kills that shell.
+- Maximize/restore from the panel header. **Reconnect** reattaches the active session.
+- `SBOX_TERMINAL=0` disables creation. The action is hidden below `md`, but the endpoint
+  is still a direct shell—protect the brain with loopback or an authenticated tunnel.
 
 ## 5. Review, finalize, and follow-ups
 

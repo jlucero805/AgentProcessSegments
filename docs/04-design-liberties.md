@@ -158,15 +158,18 @@ cell has its own timer and master chat.
 
 ## 13. Browser terminal uses node-pty and xterm.js
 
-**Chosen.** A real PTY per WebSocket, xterm.js in the SPA, desktop-only trigger and panel,
+**Chosen.** Server-owned PTY sessions with xterm.js in the SPA, a visible session strip,
+detach-on-hide with scrollback replay, explicit session close, desktop-only trigger,
 maximize/restore, `SBOX_TERMINAL=0` kill switch, and a configurable starting cwd.
 
-**Alternatives.** A command runner without a PTY (breaks interactive tools), reusing the
-agent’s child process (violates isolation), or a separate local terminal app.
+**Alternatives.** A command runner without a PTY (breaks interactive tools), killing the
+shell when the panel hides, reusing the agent’s child process (violates isolation), or a
+separate local terminal app.
 
-**Why.** The operator asked for occasional shell work without leaving the harness. The
-PTY is independent of agent sessions and behaves like a normal terminal. Cost: a native
-dependency, a powerful no-auth endpoint, and a desktop-only UI that relies on the
+**Why.** The operator asked for occasional shell work without leaving the harness and for
+reuse instead of a fresh shell every open. Server-owned sessions make hiding, reload, and
+phone/laptop handoff reattach to the same shell. Cost: a native dependency, a bounded
+scrollback buffer, a powerful no-auth endpoint, and a desktop-only UI that relies on the
 loopback/trusted-tunnel boundary.
 
 ## 14. Cell concurrency and model defaults over per-segment settings

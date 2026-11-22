@@ -39,11 +39,12 @@ built and vended by the brain; real-CLI verification is still pending.
   store a max-concurrency cap (default 3, pauses new work while that many requests are
   `working`) and default model/effort (a request’s own values win). The Cell master drawer
   shows the selected cell’s ticker, policy, activity, and chat.
-- Desktop terminal: a sidebar **Terminal** action opens a real PTY (`node-pty`) in
-  `SBOX_TERMINAL_CWD`, independent of every agent session. It can be maximized, restored,
-  reconnected, and closed; only one shell per WebSocket and up to four concurrent shells.
-  `SBOX_TERMINAL=0` disables it. The UI hides the action below `md`, but the WebSocket
-  route is live, so the brain must stay behind a trusted boundary.
+- Desktop terminal: a sidebar **Terminal** action attaches to a server-owned PTY
+  (`node-pty`) in `SBOX_TERMINAL_CWD`, independent of every agent session. Hiding the
+  panel only detaches; sessions stay listed with a status dot, the sidebar shows a session
+  count, and reopening replays scrollback. An explicit tab close kills the shell. Up to
+  four sessions; `SBOX_TERMINAL=0` disables it. The UI hides the action below `md`, but the
+  session API is live, so the brain must stay behind a trusted boundary.
 - Live master verification: a stalled dispatch request was prodded by the real OpenCode
   agent (`MASTERPROD` / `READY FOR REVIEW`), moved to Review in about 3 s, and logged
   prod, review, and cycle events.
@@ -149,7 +150,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 202 vitest cases, all passing: 137 server across 18 files and 65 web across 14 files,
+- 203 vitest cases, all passing: 138 server across 18 files and 65 web across 14 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -255,7 +256,10 @@ GET    /api/master/status[?cellId=…]
 POST   /api/master/run[?cellId=…]
 GET    /api/master/events?cellId=…&limit=…
 GET    /api/terminal
-GET    /ws/terminal                       PTY over WebSocket
+GET    /api/terminals
+POST   /api/terminals                     {cols?, rows?}
+DELETE /api/terminals/:id
+GET    /ws/terminal?sessionId=…           PTY attach over WebSocket
 GET    /ws
 ```
 

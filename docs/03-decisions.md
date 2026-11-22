@@ -397,15 +397,16 @@ read-only/advisory.
 **Context.** The operator does not want to switch apps for occasional shell work. The
 browser terminal must not share state, cwd, or the process with a harness agent session.
 
-**Decision.** Add a desktop-only **Terminal** action. Each WebSocket gets its own
-`node-pty` login shell in `SBOX_TERMINAL_CWD` (default: the brain’s cwd), with xterm.js
-in the SPA. The panel can be maximized, restored, reconnected, and closed. Up to four
-shells may run at once. `SBOX_TERMINAL=0` disables both the status route and new shells;
-`SBOX_TERMINAL_CWD` moves the start directory.
+**Decision.** Add a desktop-only **Terminal** action. A server-owned `node-pty` session
+runs in `SBOX_TERMINAL_CWD` (default: the brain’s cwd), with xterm.js in the SPA. Hiding
+the panel or closing the WebSocket **detaches**; the shell and up to 200 KB of scrollback
+remain and are reattached on reopen. The session strip lists every shell with a status
+dot and an explicit close that kills it. Up to four sessions exist at once.
+`SBOX_TERMINAL=0` disables creation and `SBOX_TERMINAL_CWD` moves the start directory.
 
 **Cost.** A direct shell is more powerful than the agent tools. The route has no auth of
 its own, so the brain must stay loopback-only or behind an authenticated tunnel. The UI
-hides the action below `md`, but that is presentation, not an access control.
+hides the action below `md`, but the session API remains reachable.
 
 ## D30. Per-cell concurrency and model defaults
 

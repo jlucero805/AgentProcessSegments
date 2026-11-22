@@ -90,12 +90,14 @@ Explicit error paths append NDJSON to
 
 ## Browser terminal
 
-The desktop SPA includes a real PTY shell. It starts in `SBOX_TERMINAL_CWD` (default: the
-brain’s working directory) and is independent of agent sessions. Disable it with
-`SBOX_TERMINAL=0` in the unit. The UI hides the action on phones, but the `/ws/terminal`
-route is a direct shell: keep the brain on loopback or behind an authenticated tunnel.
-The node-pty native module is built during `npm ci`; this host already has `make`, `g++`,
-and `python3`.
+The desktop SPA includes server-owned PTY sessions. They start in `SBOX_TERMINAL_CWD`
+(default: the brain’s working directory) and are independent of agent sessions. Hiding
+the panel detaches; reopening or reloading reattaches with scrollback. Closing a session
+tab kills it. Sessions are visible via `GET /api/terminals`, up to four at once. Disable
+creation with `SBOX_TERMINAL=0` in the unit. The UI hides the action on phones, but the
+session API is a direct shell: keep the brain on loopback or behind an authenticated
+tunnel. The node-pty native module is built during `npm ci`; this host already has
+`make`, `g++`, and `python3`.
 
 ## Install as a systemd user unit
 

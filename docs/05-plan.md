@@ -183,4 +183,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   startup/config/HTTP/engine/master/terminal instrumentation, tests and docs.
 - [x] **29. Chat skills** — skill discovery (global/project/request repo), merged slash
   menu, skill badge, prompt-text invocation, API and tests.
-- [ ] **Backlog 30. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.
+- [x] **30. Persistent terminals** — server-owned sessions, detach on hide, scrollback
+  replay, visible session strip, explicit close, list API, lifecycle tests.
+- [ ] **Backlog 31. Token/cost tracking per cell** — scoped in `docs/09-backlog.md`.

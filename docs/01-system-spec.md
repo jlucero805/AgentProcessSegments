@@ -482,7 +482,11 @@ defaults.
   idempotent; a second caller attaches.
 - **Turn parsing:** reads stream-json lines, accumulates text deltas and tool cards
   (input plus capped output), persists an ordered `transcript.json`, and resolves on the
-  `result` event.
+  `result` event. A `result` with `is_error: true` or an `error*` subtype, and any
+  parser-emitted `error` event (for example OpenCode's `error`), fails the turn once:
+  the engine broadcasts one `{t:'error'}`, persists one `⚠` transcript line, logs one
+  `engine.result` entry, and then finishes with `done`. The failure text is the CLI
+  result text, capped; an empty result uses a generic message. There is no in-turn retry.
 - **Prompts:** fresh sessions fold a role brief into the first message. `seedPrompt`
   grooms and tells the agent to maintain the ticket through `update_request`.
   `dispatchPrompt` says stop clarifying and build on an isolated branch, do not push,

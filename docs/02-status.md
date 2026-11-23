@@ -96,9 +96,11 @@ built and vended by the brain; real-CLI verification is still pending.
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
   terminal transitions. Every turn has an `APS_TURN_TIMEOUT_MS` watchdog (default 10
   minutes) that emits an error, kills a silent child, records `engine.timeout`, and
-  finishes with `done`. Early exits and timeouts include capped child stderr. The turn
-  model falls back to `APS_DEFAULT_MODEL`; OpenCode defaults to
-  `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
+  finishes with `done`. Early exits and timeouts include capped child stderr. A
+  harness-reported error result fails the turn once: one `error` event, one persisted
+  `⚠` line, and one `engine.result` log entry; a parser-emitted error is never dropped
+  from the saved transcript. The turn model falls back to `APS_DEFAULT_MODEL`; OpenCode
+  defaults to `opencode-go/deepseek-v4.1-flash` instead of its slower free default.
 - Usage tracking: both parsers normalize token counts and harness-reported cost into a
   `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
   master, KB, and setup sessions. `GET /api/usage` returns reported, estimated, and total
@@ -118,8 +120,9 @@ built and vended by the brain; real-CLI verification is still pending.
   instead of an endless “Starting setup chat…” spinner. Chat transport errors get an
   inline retry that remounts the setup chat without closing the wizard.
 - Stream parser: the full claude stream-json mapping (init, deltas, tool_use,
-  tool_result, result) with ordered transcript, duplicate-text protection, and capped
-  tool output.
+  tool_result, result) with ordered transcript, duplicate-text protection, capped tool
+  output, and error-result detection (`is_error` or an `error*` subtype) that emits one
+  `error` event. OpenCode error events follow the same engine path.
 - Worktrees: `aps/<id>` branch per request (legacy `sbox/<id>` reused when it is the
   only ref), reuse of an existing checkout, branch kept on removal, scratch fallback
   when git is unavailable. `npm run migrate:branches` retires finished requests'
@@ -283,7 +286,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 634 vitest cases, all passing: 458 server across 36 files and 176 web across 24 files,
+- 644 vitest cases, all passing: 468 server across 36 files and 176 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

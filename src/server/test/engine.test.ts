@@ -1,10 +1,22 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
+import {
+  createHarness,
+  defaultScript,
+  errorResultLine,
+  initLine,
+  line,
+  resultLine,
+  settle,
+  textLine,
+  type Harness,
+} from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
+import { OpencodeTurnParser } from '../src/clarify/harnesses/opencode.js';
+import type { ErrorSink } from '../src/logging/errors.js';
 import { requestDir } from '../src/config.js';
 import { masterSessionId, setupSessionId, summarySessionId } from '../src/domain/sessions.js';
 import type { SpendPause } from '../src/domain/budget.js';
@@ -14,6 +26,11 @@ let harness: Harness | null = null;
 
 function fresh(script?: (text: string) => string[]): Harness {
   harness = createHarness(script);
+  return harness;
+}
+
+function freshWithErrors(script: (text: string) => string[], errors: ErrorSink): Harness {
+  harness = createHarness(script, undefined, undefined, errors);
   return harness;
 }
 
@@ -859,6 +876,164 @@ describe('turn engine', () => {
         .transcript(request.id)
         .some((message) => message.text.includes('authentication failed: no credentials')),
     ).toBe(true);
+  });
+
+  it('surfaces a harness-reported error result once and persists it', async () => {
+    const errorSpy = vi.fn();
+    const h = freshWithErrors(
+      () => [
+        initLine('sess-error-result'),
+        textLine('partial output'),
+        errorResultLine('authentication expired', {
+          usage: { input_tokens: 4, output_tokens: 2 },
+          totalCostUsd: 0.002,
+        }),
+      ],
+      { error: errorSpy },
+    );
+    const request = h.repo.create({ title: 'Expired auth' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    const errors = turn.events.filter((event) => event.t === 'error');
+    expect(errors).toHaveLength(1);
+    if (errors[0]?.t === 'error') expect(errors[0].message).toBe('authentication expired');
+
+    const done = turn.events.find((event) => event.t === 'done');
+    expect(done?.t).toBe('done');
+    if (done?.t === 'done') {
+      expect(
+        done.transcript.filter((message) => message.text === '⚠ authentication expired'),
+      ).toHaveLength(1);
+    }
+    expect(
+      h.engine.transcript(request.id).filter((message) => message.text === '⚠ authentication expired'),
+    ).toHaveLength(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0]?.[0]).toBe('engine.result');
+    expect(errorSpy.mock.calls[0]?.[2]).toMatchObject({
+      session: request.id,
+      harness: 'claude',
+      request: request.id,
+    });
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
+    expect(h.repo.require(request.id).unchecked).toBe(true);
+    expect(h.engine.hasLive(request.id)).toBe(false);
+    expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
+    expect(h.usage.query({}).totals.turns).toBe(1);
+  });
+
+  it('does not report a successful result as an error', async () => {
+    const errorSpy = vi.fn();
+    const h = freshWithErrors(defaultScript, { error: errorSpy });
+    const request = h.repo.create({ title: 'Successful turn' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(turn.events.some((event) => event.t === 'error')).toBe(false);
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(h.engine.transcript(request.id).some((message) => message.text.startsWith('⚠'))).toBe(
+      false,
+    );
+  });
+
+  it('persists a fallback warning when an error result carries no text', async () => {
+    const h = freshWithErrors(() => [initLine('sess-empty-error'), errorResultLine()], {
+      error: vi.fn(),
+    });
+    const request = h.repo.create({ title: 'Empty error' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    const error = turn.events.find((event) => event.t === 'error');
+    expect(error?.t).toBe('error');
+    if (error?.t === 'error') expect(error.message).toBe('agent reported an error');
+    expect(
+      h.engine.transcript(request.id).filter((message) => message.text === '⚠ agent reported an error'),
+    ).toHaveLength(1);
+  });
+
+  it('suppresses duplicate error events and a late exit', async () => {
+    const errorSpy = vi.fn();
+    const h = freshWithErrors(
+      () => [initLine('sess-duplicate-error'), errorResultLine('first failure'), errorResultLine('second failure')],
+      { error: errorSpy },
+    );
+    const request = h.repo.create({ title: 'Duplicate error' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+    h.harness.process?.emitExit(1);
+    await settle();
+
+    const errors = turn.events.filter((event) => event.t === 'error');
+    expect(errors).toHaveLength(1);
+    if (errors[0]?.t === 'error') expect(errors[0].message).toBe('first failure');
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const warnings = h.engine
+      .transcript(request.id)
+      .filter((message) => message.kind === 'text' && message.text.startsWith('⚠'));
+    expect(warnings.map((message) => message.text)).toEqual(['⚠ first failure']);
+    expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
+  });
+
+  it('persists a repeated identical error once per turn', async () => {
+    const h = freshWithErrors(
+      () => [initLine('sess-repeat-error'), errorResultLine('rate limited')],
+      { error: vi.fn() },
+    );
+    const request = h.repo.create({ title: 'Repeat error' });
+
+    const first = await h.engine.start(request.id);
+    await first.promise;
+    await settle();
+    const second = await h.engine.send(request.id, 'try again');
+    await second.promise;
+    await settle();
+
+    expect(
+      h.engine.transcript(request.id).filter((message) => message.text === '⚠ rate limited'),
+    ).toHaveLength(2);
+    expect(first.events.filter((event) => event.t === 'error')).toHaveLength(1);
+    expect(second.events.filter((event) => event.t === 'error')).toHaveLength(1);
+  });
+
+  it('persists and logs an OpenCode error event once', async () => {
+    const errorSpy = vi.fn();
+    const h = freshWithErrors(
+      () => [line({ type: 'error', message: 'provider unavailable' })],
+      { error: errorSpy },
+    );
+    h.opencode.parserFactory = (transcript) => new OpencodeTurnParser(transcript);
+    const request = h.repo.create({ title: 'OpenCode error', harness: 'opencode' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+    h.opencode.process?.emitExit(1);
+    await settle();
+
+    const errors = turn.events.filter((event) => event.t === 'error');
+    expect(errors).toHaveLength(1);
+    if (errors[0]?.t === 'error') expect(errors[0].message).toBe('provider unavailable');
+    expect(
+      h.engine.transcript(request.id).filter((message) => message.text === '⚠ provider unavailable'),
+    ).toHaveLength(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0]?.[0]).toBe('engine.result');
+    expect(errorSpy.mock.calls[0]?.[2]).toMatchObject({
+      session: request.id,
+      harness: 'opencode',
+      request: request.id,
+    });
+    expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
   });
 
   it('times out a silent turn and emits an error plus done', async () => {

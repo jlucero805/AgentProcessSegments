@@ -44,6 +44,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `process.invalid` / `process.unreadable` | `process.json` is invalid or unreadable |
 | `http.request` | An unexpected 5xx from the HTTP layer (includes request id/method/URL) |
 | `engine.turn` | An agent turn throws or fails |
+| `engine.result` | The harness reports an error result or parser error event; includes `session`, `harness`, and `request` when present. The message is the capped result text, never the transcript. |
 | `engine.exit` | An agent process exits before completing a turn (includes recent stderr) |
 | `engine.timeout` | A turn exceeds `APS_TURN_TIMEOUT_MS`; the child is killed and the turn is closed |
 | `master.turn` | A master turn fails for a request (cell, request, segment) |

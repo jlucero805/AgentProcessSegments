@@ -18,6 +18,7 @@ import type { SpendPause } from '../src/domain/budget.js';
 import type { HarnessId } from '../src/domain/harness.js';
 import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
+import type { ErrorSink } from '../src/logging/errors.js';
 import { PluginManager } from '../src/plugins/manager.js';
 import { PricingRepository } from '../src/pricing/repository.js';
 import { RequestRepository } from '../src/requests/repository.js';
@@ -66,6 +67,25 @@ export function resultLine(
     result: text,
     ...(usage ? { usage } : {}),
     ...(totalCostUsd === undefined ? {} : { total_cost_usd: totalCostUsd }),
+  });
+}
+
+export function errorResultLine(
+  text = '',
+  options: {
+    subtype?: string;
+    isError?: boolean;
+    usage?: Record<string, number>;
+    totalCostUsd?: number;
+  } = {},
+): string {
+  return line({
+    type: 'result',
+    subtype: options.subtype ?? 'error_during_execution',
+    is_error: options.isError ?? true,
+    result: text,
+    ...(options.usage ? { usage: options.usage } : {}),
+    ...(options.totalCostUsd === undefined ? {} : { total_cost_usd: options.totalCostUsd }),
   });
 }
 
@@ -128,6 +148,8 @@ export class FakeHarness implements AgentHarness {
   readonly sessions: HarnessSession[] = [];
   readonly commands: HarnessCommand[] = [];
   process: FakeAgentProcess | null = null;
+  /** Override the real Claude parser when a test needs another harness format. */
+  parserFactory: ((transcript: TranscriptMsg[]) => TurnParserLike) | null = null;
 
   constructor(
     private readonly respond: (text: string) => string[] = () => [],
@@ -153,7 +175,7 @@ export class FakeHarness implements AgentHarness {
   }
 
   createParser(transcript: TranscriptMsg[]): TurnParserLike {
-    return new TurnParser(transcript);
+    return this.parserFactory?.(transcript) ?? new TurnParser(transcript);
   }
 
   async probeModels(): Promise<ModelOption[] | null> {
@@ -188,6 +210,7 @@ export function createHarness(
       }
     | null,
   spendCap?: (cellId: string | null) => SpendPause | null,
+  errors?: ErrorSink,
 ): Harness {
   const config = testConfig();
   const db = openDb(config.dbPath);
@@ -209,6 +232,7 @@ export function createHarness(
     usage,
     pluginDirs: () => plugins.installedPluginDirs(),
     spendCap,
+    ...(errors ? { errors } : {}),
     cellConfig:
       cellConfig ??
       ((cellId) => {

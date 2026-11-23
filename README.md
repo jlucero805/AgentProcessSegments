@@ -158,7 +158,9 @@ build.
 
 Agent turns are bounded by `APS_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
 child is killed and produces a visible error, and its recent stderr goes to the error log.
-Bundled `aps` MCP calls time out after `APS_MCP_TIMEOUT_MS` (default 15 seconds).
+A harness-reported error result (for example expired authentication or a rate limit) also
+fails the turn with a visible `⚠` message instead of ending silently. Bundled `aps` MCP
+calls time out after `APS_MCP_TIMEOUT_MS` (default 15 seconds).
 
 `APS_HARNESS=claude` (the default) or `opencode` sets the brain default. Each cell can
 choose its own harness in the cell editor; a cell with **Brain default** inherits this
@@ -396,7 +398,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 634 vitest cases: 458 server cases (state machine, migrations including
+`npm test` runs 644 vitest cases: 468 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, cutover run retention, engine turns over a fake harness, worktree

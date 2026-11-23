@@ -176,9 +176,15 @@ last five.
    allows only one merge worker at a time (`maxConcurrent: 1`), draining the bucket one
    rebase/test/push at a time. Each success advances to Finalize.
 4. Press **Finalize** (or let the Merge marker advance it). The finalize turn proposes a digest.
-5. Review the digest and press **Index and finalize**. This is the only step that writes
-   the KB entry and closes the request; the master cannot auto-advance Finalize.
-5. Out-of-scope findings can become intake requests automatically (follow-up markers) or
+5. Review the digest and press **Index and finalize**. This is the normal per-request
+   path that writes the KB entry and closes the request; the master cannot auto-advance
+   Finalize.
+6. To close several at once, press **Index all** beside the Finalize column title. It is
+   scoped to the cards under the current cell filter and asks for a second click within
+   four seconds. Each ready request is indexed and closed. Requests that are still working
+   or expect a KB digest but have none stay in Finalize and appear in the status line.
+   Requests with KB indexing disabled close without a KB entry.
+7. Out-of-scope findings can become intake requests automatically (follow-up markers) or
    through the agent’s `spawn_request` tool.
 
 ## 7. Run the end-to-end suite

@@ -75,10 +75,10 @@ built and vended by the brain; real-CLI verification is still pending.
   multi-term literal LIKE search (`%`, `_`, and `\` escaped) ranked by title/body term
   hits and recency.
 - HTTP: health, request CRUD, patch, transition, drop, seen, clarify start/send/stream,
-  clarify snapshot, dispatch, finalize, index, models, usage, pricing, KB, cells, config,
-  budgets, docs, websocket echo, and optional SPA vend with an `index.html` fallback.
-  Clarify start/send, dispatch, and finalize accept `?detach=1` to start a turn and
-  return immediately.
+  clarify snapshot, dispatch, finalize, index, index-all, models, usage, pricing, KB,
+  cells, config, budgets, docs, websocket echo, and optional SPA vend with an `index.html`
+  fallback. Clarify start/send, dispatch, and finalize accept `?detach=1` to start a turn
+  and return immediately.
 - In-app Help: a sidebar **Help** row opens a full-height documentation overlay, grouped
   by manifest order from `GET /api/docs`, with an article, sticky “On this page” anchors,
   “Copy as Markdown”, in-app doc links, external links in a new tab, and screenshots via
@@ -153,6 +153,7 @@ built and vended by the brain; real-CLI verification is still pending.
   accepted in addition to `http(s)`, `git`, and `ssh` (D9).
 - SPA (`src/web`): Vite + React 18 + Tailwind v3, dark by default. Five board columns
   with drag-to-advance, a cell bar with inline create/rename/delete, a create modal, a
+  Finalize-column **Index all** control with a four-second two-click confirm, a
   right-side request drawer with editable fields and two-step confirms, assistant-ui
   chat with markdown and tool cards, slash-command autocomplete from `/api/commands`,
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
@@ -336,6 +337,7 @@ GET    /api/requests/:id/clarify
 POST   /api/requests/:id/dispatch[?detach=1]             NDJSON or {started}
 POST   /api/requests/:id/finalize[?detach=1]             NDJSON or {started}
 POST   /api/requests/:id/index            {digest?,index?}
+POST   /api/requests/index-all            {cellId?}
 GET    /api/models?refresh=1
 GET    /api/kb[?q=…&limit=…]
 POST   /api/kb                            {requestId,title,content}

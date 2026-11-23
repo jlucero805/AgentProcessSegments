@@ -9,6 +9,8 @@ import {
   columnOf,
   timeAgo,
   type Column,
+  type IndexAllResult,
+  type IndexAllSkipReason,
   type Request,
 } from './types';
 import { Spinner, cn } from './ui';
@@ -28,6 +30,28 @@ const QUERIES: Record<Column, Record<string, string>> = {
   finalize: { state: 'finalize' },
 };
 
+const INDEX_ALL_SKIP_LABELS: Record<IndexAllSkipReason, string> = {
+  not_finalize: 'no longer in Finalize',
+  working: 'still working',
+  no_digest: 'no digest',
+};
+
+function describeIndexAll(result: IndexAllResult): { text: string; detail: string } {
+  const parts = [`Indexed ${result.indexed}`, `closed ${result.closed}`];
+  if (result.skipped.length > 0) {
+    const reasons = [...new Set(result.skipped.map((item) => INDEX_ALL_SKIP_LABELS[item.reason]))];
+    parts.push(`${result.skipped.length} skipped (${reasons.join(', ')})`);
+  }
+  if (result.failed.length > 0) parts.push(`${result.failed.length} failed`);
+
+  const detail = [
+    ...result.skipped.map((item) => `${item.title}: ${INDEX_ALL_SKIP_LABELS[item.reason]}`),
+    ...result.failed.map((item) => `${item.title}: ${item.message}`),
+  ].join('\n');
+
+  return { text: parts.join(' · '), detail };
+}
+
 /**
  * The request board. Columns map to workflow segments; cards move forward one
  * step at a time. Anything more involved belongs in the detail drawer.
@@ -37,6 +61,12 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<Column | null>(null);
+  const [indexAllPending, setIndexAllPending] = useState(false);
+  const [indexAllBusy, setIndexAllBusy] = useState(false);
+  const [indexAllNotice, setIndexAllNotice] = useState<{
+    text: string;
+    detail: string;
+  } | null>(null);
   const dragRef = useRef<{ id: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -55,6 +85,37 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A different cell is a different batch. Do not carry a confirmation or a
+  // result notice across the filter change.
+  useEffect(() => {
+    setIndexAllPending(false);
+    setIndexAllNotice(null);
+  }, [cellId]);
+
+  useEffect(() => {
+    if (!indexAllPending) return;
+    const timer = window.setTimeout(() => setIndexAllPending(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [indexAllPending]);
+
+  async function runIndexAll() {
+    setIndexAllPending(false);
+    setIndexAllBusy(true);
+    setIndexAllNotice(null);
+    try {
+      const result = await api.indexAll(cellId ?? undefined);
+      setIndexAllNotice(describeIndexAll(result));
+      if (result.failed.length > 0) {
+        onError(result.failed.map((item) => `${item.title}: ${item.message}`).join('; '));
+      }
+      await load();
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setIndexAllBusy(false);
+    }
+  }
 
   // While an agent is working, refresh so its status and state stay current.
   const anyWorking = useMemo(
@@ -164,12 +225,52 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
               over === column && 'border-zinc-700 bg-zinc-900/50',
             )}
           >
-            <header className="flex items-center justify-between px-1 pb-2 pt-1">
-              <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                {COLUMN_LABELS[column]}
-              </span>
+            <header className="flex flex-wrap items-center justify-between gap-1 px-1 pb-2 pt-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                  {COLUMN_LABELS[column]}
+                </span>
+                {column === 'finalize' ? (
+                  <button
+                    type="button"
+                    aria-label={
+                      indexAllPending ? 'Confirm index all' : 'Index all finalize requests'
+                    }
+                    title={
+                      cards.length === 0
+                        ? 'No requests in Finalize'
+                        : indexAllPending
+                          ? 'Click again within 4 seconds to index and close every ready request'
+                          : `Index and close ${cards.length} request${cards.length === 1 ? '' : 's'} in Finalize`
+                    }
+                    disabled={cards.length === 0 || indexAllBusy}
+                    onClick={() => {
+                      if (indexAllBusy || cards.length === 0) return;
+                      if (indexAllPending) void runIndexAll();
+                      else setIndexAllPending(true);
+                    }}
+                    className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-zinc-950 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {indexAllBusy
+                      ? 'Indexing…'
+                      : indexAllPending
+                        ? 'Confirm index all?'
+                        : 'Index all'}
+                  </button>
+                ) : null}
+              </div>
               <span className="text-[11px] tabular-nums text-zinc-600">{cards.length}</span>
             </header>
+            {column === 'finalize' && indexAllNotice ? (
+              <p
+                role="status"
+                aria-live="polite"
+                title={indexAllNotice.detail || undefined}
+                className="px-1 pb-2 text-[10px] leading-snug text-zinc-400"
+              >
+                {indexAllNotice.text}
+              </p>
+            ) : null}
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
               {cards.length === 0 ? (
                 <p className="py-6 text-center text-[11px] text-zinc-700">empty</p>

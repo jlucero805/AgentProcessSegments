@@ -814,3 +814,22 @@ there is no scraper, currency conversion, context-length tier, or effort multipl
 wrong effective date or model id leaves turns unpriced, which is visible as a lower bound
 rather than silently understating spend. Historical estimates change when an operator adds
 a backdated row, which is intentional because the row records the source and date.
+
+## D50. Index all is a scoped, human-triggered bulk close
+
+**Context.** Operators can accumulate several finalized requests with proposed digests.
+Closing them one drawer at a time is slow, but a background auto-finalizer would remove
+the human approval gate.
+
+**Decision.** Add `POST /api/requests/index-all {cellId?}` and a small **Index all**
+control in the Finalize column header. The scope is the current cell filter (omitted
+means all cells) and only `state = finalize`. A request is skipped and left in Finalize
+when it is still working or when it expects a KB digest but has none; `kbDigest = false`
+requests close without a KB entry. The SPA requires a second click within four seconds.
+The endpoint returns `{indexed, closed, skipped[], failed[]}`, and a per-request failure
+does not abort the batch.
+
+**Cost.** Bulk close is intentionally coarser than the drawer: it uses the saved digest
+and does not wait for review of every card. A working request or one with a missing
+digest needs the drawer. The action stays human-triggered; do not wire it into the master,
+scheduler, or a background job.

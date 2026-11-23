@@ -202,8 +202,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
     delete a live turn's maps without resolving its promise.
 15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
-    into the KB is a human action. Do not add an automatic finalize transition without an
-    explicit indexing path.
+    into the KB is a human action. The Finalize column's **Index all** is an explicit
+    human bulk action: keep it scoped to `finalize` and skip working requests or requests
+    with no digest instead of closing them silently. Do not add an automatic finalize
+    transition without an explicit indexing path.
 16. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
     request/title; the `followup` event is the dedupe key.
 17. **Terminal sessions are server-owned and visible.** A WebSocket attaches/detaches; it

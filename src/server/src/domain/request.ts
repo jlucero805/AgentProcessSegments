@@ -90,6 +90,30 @@ export interface KbEntry {
   createdAt: number;
 }
 
+export type IndexAllSkipReason = 'not_finalize' | 'working' | 'no_digest';
+
+export interface IndexAllSkipped {
+  id: string;
+  title: string;
+  reason: IndexAllSkipReason;
+}
+
+export interface IndexAllFailure {
+  id: string;
+  title: string;
+  message: string;
+}
+
+/** Result of the Finalize column's bulk index-and-close action. */
+export interface IndexAllResult {
+  /** Requests whose digest was written to the KB. */
+  indexed: number;
+  /** Requests moved to done, including indexed ones. */
+  closed: number;
+  skipped: IndexAllSkipped[];
+  failed: IndexAllFailure[];
+}
+
 /** Intake is a view over clarify, not its own state. */
 export function isIntake(request: Pick<Request, 'state' | 'clarifyStarted'>): boolean {
   return request.state === 'clarify' && !request.clarifyStarted;

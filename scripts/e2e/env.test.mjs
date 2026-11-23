@@ -495,13 +495,14 @@ test('proof pin builders reject missing strings and invalid ports', () => {
 });
 
 test('every proof script builds child env through the shared helper', () => {
-  const expected = new Map([
-    ['scripts/claude-mock-smoke.mjs', 1],
-    ['scripts/mcp-smoke.mjs', 2],
-    ['scripts/screenshots.mjs', 1],
-  ]);
+  const expected = [
+    ['scripts/e2e.mjs', 'buildE2eEnv', 1],
+    ['scripts/claude-mock-smoke.mjs', 'buildPinnedEnv', 1],
+    ['scripts/mcp-smoke.mjs', 'buildPinnedEnv', 2],
+    ['scripts/screenshots.mjs', 'buildPinnedEnv', 1],
+  ];
 
-  for (const [file, count] of expected) {
+  for (const [file, builder, count] of expected) {
     const source = readFileSync(path.join(repoRoot, file), 'utf8');
     assert.match(
       source,
@@ -509,9 +510,9 @@ test('every proof script builds child env through the shared helper', () => {
       `${file} must import the shared env helper`,
     );
     assert.equal(
-      (source.match(/env:\s*buildPinnedEnv\(/g) ?? []).length,
+      (source.match(new RegExp(`env:\\s*${builder}\\(`, 'g')) ?? []).length,
       count,
-      `${file} must build every spawn env through buildPinnedEnv`,
+      `${file} must build every spawn env through ${builder}`,
     );
     assert.doesNotMatch(source, /\.\.\.process\.env/, `${file} must not spread process.env`);
     assert.doesNotMatch(

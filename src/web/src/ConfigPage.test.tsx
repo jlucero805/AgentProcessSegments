@@ -50,6 +50,33 @@ const cell: Cell = {
 
 const budget = { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: false };
 
+const webhook: {
+  enabled: boolean;
+  url: string | null;
+  format: 'json' | 'slack' | 'discord';
+  secret: string | null;
+  secretSet: boolean;
+} = {
+  enabled: false,
+  url: null,
+  format: 'json',
+  secret: null,
+  secretSet: false,
+};
+
+const notificationStatus = {
+  webhook: {
+    enabled: false,
+    configured: false,
+    format: 'json' as const,
+    pending: 0,
+    failed: 0,
+    lastDeliveryAt: null,
+    lastDeliveryStatus: null,
+    lastError: null,
+  },
+};
+
 const budgetView: BudgetsResponse = {
   periodStart: Date.UTC(2026, 10, 1),
   periodEnd: Date.UTC(2026, 11, 1),
@@ -102,6 +129,14 @@ interface Captured {
       alertAtPercent?: number;
       pauseOnExceeded?: boolean;
     };
+    notifications?: {
+      webhook?: {
+        enabled?: boolean;
+        url?: string | null;
+        format?: string;
+        secret?: string | null;
+      };
+    };
   };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
@@ -114,6 +149,12 @@ function installFetch(
   events: MasterEvent[] = [event],
   prices: ModelPrice[] = [],
   postError?: { status: number; message: string },
+  webhookTest: { ok: boolean; status?: number; durationMs?: number; error?: string } = {
+    ok: true,
+    status: 204,
+    durationMs: 12,
+  },
+  webhookView: typeof webhook = webhook,
 ): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
@@ -131,12 +172,23 @@ function installFetch(
     if (url === '/api/pricing') return jsonResponse({ prices });
     if (url === '/api/config' && init?.method === 'PATCH') {
       captured.config = JSON.parse(String(init.body)) as Captured['config'];
+      const patchedWebhook = {
+        ...webhookView,
+        ...(captured.config?.notifications?.webhook ?? {}),
+      };
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
         usage: { ...usage, ...captured.config?.usage },
         retention: { ...retention, ...captured.config?.retention },
         budget: { ...budget, ...captured.config?.budget },
+        notifications: {
+          webhook: {
+            ...patchedWebhook,
+            secret: null,
+            secretSet: patchedWebhook.secret !== null,
+          },
+        },
         path: '/tmp/agent-process-segments/config.json',
       });
     }
@@ -147,8 +199,13 @@ function installFetch(
         usage,
         retention,
         budget,
+        notifications: { webhook: webhookView },
         path: '/tmp/agent-process-segments/config.json',
       });
+    }
+    if (url === '/api/notifications/status') return jsonResponse(notificationStatus);
+    if (url === '/api/notifications/webhook/test' && init?.method === 'POST') {
+      return jsonResponse(webhookTest, webhookTest.ok ? 200 : 502);
     }
     if (url === '/api/budgets') return jsonResponse(view);
     if (url === '/api/process' && init?.method === 'PATCH') {
@@ -299,6 +356,78 @@ describe('ConfigPage', () => {
       }),
     );
     expect(captured.config?.master).toBeUndefined();
+  });
+
+  it('configures and saves webhook delivery', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const toggle = await screen.findByRole('checkbox', {
+      name: /deliver budget alerts to a webhook/i,
+    });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText(/webhook url/i), {
+      target: { value: 'https://hooks.example.test/budget' },
+    });
+    fireEvent.change(screen.getByLabelText(/payload format/i), {
+      target: { value: 'slack' },
+    });
+    fireEvent.change(screen.getByLabelText(/signing secret/i), {
+      target: { value: '0123456789abcdef' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+
+    await waitFor(() =>
+      expect(captured.config?.notifications?.webhook).toEqual({
+        enabled: true,
+        url: 'https://hooks.example.test/budget',
+        format: 'slack',
+        secret: '0123456789abcdef',
+      }),
+    );
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('0123456789abcdef')).not.toBeInTheDocument();
+  });
+
+  it('clears a saved webhook secret only on request', async () => {
+    const captured = installFetch(budgetView, [event], [], undefined, undefined, {
+      ...webhook,
+      enabled: true,
+      url: 'https://hooks.example.test/budget',
+      secretSet: true,
+    });
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('A signing secret is saved.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear secret' }));
+    expect(screen.getByText(/will be cleared on save/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+
+    await waitFor(() =>
+      expect(captured.config?.notifications?.webhook).toMatchObject({
+        enabled: true,
+        url: 'https://hooks.example.test/budget',
+        secret: null,
+      }),
+    );
+  });
+
+  it('shows webhook test success and failure', async () => {
+    installFetch();
+    const view = render(<ConfigPage onError={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
+    expect(await screen.findByText(/Test delivered \(HTTP 204\)/)).toBeInTheDocument();
+    view.unmount();
+
+    installFetch(budgetView, [event], [], undefined, {
+      ok: false,
+      status: 500,
+      error: 'HTTP 500',
+    });
+    render(<ConfigPage onError={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
+    expect(await screen.findByText('HTTP 500')).toBeInTheDocument();
   });
 
   it('does not render an all-unpriced budget as measured zero', async () => {

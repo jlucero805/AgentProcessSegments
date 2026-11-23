@@ -154,6 +154,16 @@ last five.
    cap again. The Usage page shows paused scopes and cap spend.
 6. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
+7. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
+   paste an HTTPS URL (loopback may use http), pick JSON, Slack, or Discord, and optionally
+   set a 16-256 character signing secret. Save, then press **Send test** to verify. JSON
+   receivers should verify `X-APS-Signature`; Slack and Discord ignore it. The card also
+   shows pending/failed counts and the latest delivery.
+8. Each alert is sent once. Acknowledging it, clearing a budget, or changing the webhook
+   destination cancels a pending notification. Transient failures retry for about three
+   hours; permanent ones are marked failed in the Config card. Delivery problems never
+   stop work or hide the in-app banner.
+
 ## 4d. Read spend and maintain model prices
 
 - Open **Usage** from the sidebar. Pick 24h, 7d, 30d, or all time and optionally one
@@ -214,6 +224,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `pauseOnExceeded`) |
 | Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded` in SQLite |
 | Budget alert history | `budget_alerts` in SQLite |
+| Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |
+| Webhook delivery outbox | `budget_alert_deliveries` in SQLite |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` |

@@ -21,6 +21,7 @@ import type {
   ModelPriceInput,
   ModelPricesResponse,
   ModelsResult,
+  NotificationStatusResponse,
   PluginInfo,
   ProcessConfig,
   ProcessResponse,
@@ -37,6 +38,8 @@ import type {
   UsageFilter,
   UsageResponse,
   UsageSettings,
+  WebhookPatch,
+  WebhookTestResult,
 } from './types';
 
 export class ApiError extends Error {
@@ -332,6 +335,7 @@ export const api = {
     usage?: Partial<UsageSettings>;
     retention?: Partial<RetentionSettings>;
     budget?: Partial<BudgetSettings>;
+    notifications?: { webhook?: WebhookPatch };
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });
   },
@@ -340,6 +344,21 @@ export const api = {
   },
   ackBudgetAlert(id: string): Promise<BudgetAlert> {
     return request(`/api/budgets/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' });
+  },
+  getNotificationStatus(): Promise<NotificationStatusResponse> {
+    return request('/api/notifications/status');
+  },
+  async testWebhook(): Promise<WebhookTestResult> {
+    try {
+      return await request<WebhookTestResult>('/api/notifications/webhook/test', {
+        method: 'POST',
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false, durationMs: 0, error: describe(error) };
+      }
+      throw error;
+    }
   },
   getProcess(): Promise<ProcessResponse> {
     return request('/api/process');

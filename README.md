@@ -233,8 +233,23 @@ estimated cost, pauses new work at the cap, and leaves in-flight turns alone. Ov
 pauses every new agent turn; a cell pause affects only that cell's request, master, and
 summary work. Raise or clear the budget, turn the option off, or wait for the UTC month to
 roll over to resume. Acknowledging an alert does not override a pause. The same cap spend
-and pause state are shown on the Config and Usage pages and in the app banner. External
-notification delivery remains a separate backlog item.
+and pause state are shown on the Config and Usage pages and in the app banner.
+
+## Alert delivery
+
+The Config page's **Alert delivery** card sends each unacknowledged current-month alert
+once to an opt-in HTTPS webhook. Formats are `json` (the full event, signed with
+HMAC-SHA256), `slack` (`{ "text": … }`), and `discord` (`{ "content": … }`). Delivery is
+durable: `budget_alert_deliveries` stores one row per alert and channel, retries transient
+failures at 60 s, 5 min, 30 min, and 2 h up to five attempts, honors `Retry-After`, and
+never blocks budgets, turns, or the in-app banner. Acknowledging an alert, changing the
+budget or threshold, or changing the destination skips pending deliveries. JSON requests
+carry `X-APS-Signature: sha256=<hex>` (HMAC over the raw body) plus an
+`X-APS-Timestamp`; Slack and Discord ignore both headers.
+
+`GET /api/notifications/status` shows queue, failure, and last-delivery state, and
+`POST /api/notifications/webhook/test` sends a synthetic test event without writing alert
+or delivery rows. Email and native chat bots remain separate backlog items.
 
 ## Docs
 
@@ -246,7 +261,7 @@ notification delivery remains a separate backlog item.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (external budget delivery, hard-cap refinements, pricing maintenance)
+- `docs/09-backlog.md` scoped follow-ups (email/chat channels, hard-cap refinements, pricing maintenance)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -268,7 +283,7 @@ src/server/src
   cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
                       interval, concurrency cap, model/effort defaults, auto-compaction
                       threshold, and budget
-  usage/              usage ledger queries plus budget status and durable alerts
+  usage/              ledger queries, budget status/alerts, and durable webhook delivery
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
@@ -316,7 +331,7 @@ src/web
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
-  src/ConfigPage.tsx  scheduler, budgets, process editor, model pricing, cell policy
+  src/ConfigPage.tsx  scheduler, budgets/alert delivery, process editor, pricing, policy
   src/BudgetBanner.tsx dismissible warning/exceeded spend alerts
   src/ProcessEditor.tsx structured per-segment controls
   src/CellModal.tsx   cell creation/edit flow with a process snapshot and budget
@@ -336,7 +351,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 476 vitest cases: 327 server cases (state machine, migrations including
+`npm test` runs 508 vitest cases: 356 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, engine turns over a fake harness, worktree isolation against a real
@@ -344,13 +359,14 @@ git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts/hard caps, docs manifest/traversal/HTTP, error-log
+stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
+dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 149 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 152 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
-editor, budget banner, master detail and scorecard, the usage page and formatters, and
-the app shell with the drawer and chat mounted under jsdom).
+editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the
+usage page and formatters, and the app shell with the drawer and chat mounted under jsdom).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into

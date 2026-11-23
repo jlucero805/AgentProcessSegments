@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb } from '../src/db.js';
 import {
+  budgetAlertText,
   budgetPeriod,
+  type BudgetAlert,
   type BudgetUsageReader,
   type BudgetUsageTotals,
 } from '../src/domain/budget.js';
@@ -86,6 +88,39 @@ describe('budgets', () => {
       start: Date.UTC(2026, 1, 1),
       end: Date.UTC(2026, 2, 1),
     });
+  });
+
+  it('formats alert text for the banner and outbound payloads', () => {
+    const base: BudgetAlert = {
+      id: 'a1',
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      threshold: 'warning',
+      alertAtPercent: 80,
+      budgetUsd: 100,
+      spendUsd: 85,
+      unknownCostTurns: 0,
+      periodStart: PERIOD.start,
+      createdAt: NOW,
+      acknowledgedAt: null,
+    };
+    expect(budgetAlertText(base)).toBe(
+      'Overall spend reached 80% of its $100.00 monthly budget ($85.00).',
+    );
+    expect(budgetAlertText({ ...base, unknownCostTurns: 2, spendUsd: 81.25 })).toBe(
+      'Overall spend reached 80% of its $100.00 monthly budget (at least $81.25).',
+    );
+    expect(
+      budgetAlertText({
+        ...base,
+        scope: 'cell',
+        cellId: 'c1',
+        cellName: 'Alpha',
+        threshold: 'exceeded',
+        spendUsd: 110,
+      }),
+    ).toBe('Alpha is over its $100.00 monthly budget ($110.00).');
   });
 
   it('reports overall and cell statuses with known and unknown spend', () => {

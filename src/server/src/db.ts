@@ -131,6 +131,22 @@ CREATE TABLE IF NOT EXISTS budget_alerts (
   acknowledged_at    INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS budget_alert_deliveries (
+  id               TEXT PRIMARY KEY,
+  alert_id         TEXT NOT NULL REFERENCES budget_alerts(id) ON DELETE CASCADE,
+  channel          TEXT NOT NULL,
+  format           TEXT NOT NULL,
+  destination_hash TEXT NOT NULL,
+  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at  INTEGER NOT NULL,
+  last_error       TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  delivered_at     INTEGER,
+  UNIQUE(alert_id, channel)
+);
+
 CREATE TABLE IF NOT EXISTS model_pricing (
   id                       TEXT PRIMARY KEY,
   model                    TEXT NOT NULL,
@@ -220,6 +236,10 @@ export function migrate(db: Db): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_budget_alerts_created ON budget_alerts(created_at)');
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_budget_alerts_acknowledged ON budget_alerts(acknowledged_at)',
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_budget_alert_deliveries_due
+       ON budget_alert_deliveries(status, next_attempt_at)`,
   );
   db.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_model_effective ON model_pricing(model, effective_from)',

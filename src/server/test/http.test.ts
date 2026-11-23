@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,8 @@ import { SummaryRepository } from '../src/summary/repository.js';
 import { SummaryScheduler } from '../src/summary/scheduler.js';
 import { SummaryService } from '../src/summary/service.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
+import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
+import { BudgetNotifier, type FetchLike } from '../src/usage/budget-notifier.js';
 import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
@@ -35,6 +37,7 @@ let open: Open | null = null;
 async function makeApp(
   config: Partial<Harness['config']> = {},
   script?: (text: string) => string[],
+  send?: FetchLike,
 ): Promise<Open> {
   let admission: ((cellId: string | null) => SpendPause | null) | null = null;
   const h = createHarness(script, undefined, (cellId) => admission?.(cellId) ?? null);
@@ -74,11 +77,19 @@ async function makeApp(
     summaries,
     spendCap: (cellId) => admission?.(cellId) ?? null,
   });
+  const budgetAlerts = new BudgetAlertRepository(h.db);
+  const notifications = new BudgetNotifier({
+    deliveries: new BudgetAlertDeliveryRepository(h.db),
+    alerts: budgetAlerts,
+    cells: h.cells,
+    settings,
+    send: send ?? (async () => new Response(null, { status: 204 })),
+  });
   const budgets = new BudgetService({
     usage: createBudgetUsageReader(h.usage),
     cells: h.cells,
     settings,
-    alerts: new BudgetAlertRepository(h.db),
+    alerts: budgetAlerts,
   });
   admission = (cellId) => budgets.admission(cellId);
   const app = await buildServer({
@@ -96,6 +107,7 @@ async function makeApp(
     plugins: h.plugins,
     settings,
     budgets,
+    notifications,
     master,
     masterEvents,
     summary,
@@ -526,6 +538,120 @@ describe('http api', () => {
     expect(off.json()).toMatchObject({ pauseOnExceeded: false });
     const on = await call('PATCH', `/api/cells/${id}`, { pauseOnExceeded: true });
     expect(on.json()).toMatchObject({ pauseOnExceeded: true });
+  });
+
+  it('patches, redacts, and reloads webhook settings', async () => {
+    const { h } = await makeApp();
+
+    const before = await call('GET', '/api/config');
+    expect(before.json().notifications.webhook).toEqual({
+      enabled: false,
+      url: null,
+      format: 'json',
+      secret: null,
+      secretSet: false,
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      notifications: {
+        webhook: {
+          enabled: true,
+          url: 'https://hooks.example.test/budget',
+          format: 'slack',
+          secret: '0123456789abcdef',
+        },
+      },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().notifications.webhook).toEqual({
+      enabled: true,
+      url: 'https://hooks.example.test/budget',
+      format: 'slack',
+      secret: null,
+      secretSet: true,
+    });
+    expect(patched.text).not.toContain('0123456789abcdef');
+
+    const reloaded = new SettingsStore(h.config.configPath).get();
+    expect(reloaded.notifications.webhook).toEqual({
+      enabled: true,
+      url: 'https://hooks.example.test/budget',
+      format: 'slack',
+      secret: '0123456789abcdef',
+    });
+    expect(reloaded.budget).toEqual({
+      monthlyUsd: null,
+      alertAtPercent: 80,
+      pauseOnExceeded: false,
+    });
+    expect(readFileSync(h.config.configPath, 'utf8')).toContain('0123456789abcdef');
+
+    for (const webhook of [
+      { enabled: true, url: null },
+      { url: 'http://example.com/hook' },
+      { url: 'https://example.com/hook#frag' },
+      { format: 'teams' },
+      { secret: 'short' },
+    ]) {
+      const bad = await call('PATCH', '/api/config', { notifications: { webhook } });
+      expect(bad.status).toBe(400);
+    }
+    const after = await call('GET', '/api/config');
+    expect(after.json().notifications.webhook.url).toBe('https://hooks.example.test/budget');
+    expect(after.json().notifications.webhook.secretSet).toBe(true);
+  });
+
+  it('reports webhook delivery status', async () => {
+    await makeApp();
+    const status = await call('GET', '/api/notifications/status');
+    expect(status.status).toBe(200);
+    expect(status.json()).toEqual({
+      webhook: {
+        enabled: false,
+        configured: false,
+        format: 'json',
+        pending: 0,
+        failed: 0,
+        lastDeliveryAt: null,
+        lastDeliveryStatus: null,
+        lastError: null,
+      },
+    });
+  });
+
+  it('sends a webhook test event with the configured sender', async () => {
+    let calls = 0;
+    await makeApp({}, undefined, async () => {
+      calls += 1;
+      return new Response(null, { status: 204 });
+    });
+    await call('PATCH', '/api/config', {
+      notifications: {
+        webhook: { enabled: false, url: 'https://hooks.example.test/budget' },
+      },
+    });
+
+    const result = await call('POST', '/api/notifications/webhook/test');
+    expect(result.status).toBe(200);
+    expect(result.json()).toMatchObject({ ok: true, status: 204 });
+    expect(calls).toBe(1);
+  });
+
+  it('returns 502 when the webhook test is rejected', async () => {
+    await makeApp({}, undefined, async () => new Response(null, { status: 500 }));
+    await call('PATCH', '/api/config', {
+      notifications: { webhook: { url: 'https://hooks.example.test/budget' } },
+    });
+
+    const result = await call('POST', '/api/notifications/webhook/test');
+    expect(result.status).toBe(502);
+    expect(result.json()).toMatchObject({ ok: false, status: 500, error: 'HTTP 500' });
+  });
+
+  it('rejects a webhook test without a URL', async () => {
+    await makeApp();
+    const result = await call('POST', '/api/notifications/webhook/test');
+    expect(result.status).toBe(400);
   });
 
   it('acknowledges a budget alert over HTTP', async () => {

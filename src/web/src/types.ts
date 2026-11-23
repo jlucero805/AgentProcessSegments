@@ -43,9 +43,23 @@ export type {
   BudgetStatus,
   BudgetThreshold,
   BudgetsResponse,
+  DeliveryStatus,
+  NotificationsSettings,
+  NotificationsView,
   SpendPause,
+  WebhookFormat,
+  WebhookPatch,
+  WebhookSettings,
+  WebhookView,
 } from '../../server/src/domain/budget';
-export { DEFAULT_BUDGET_SETTINGS, MAX_BUDGET_USD } from '../../server/src/domain/budget';
+export {
+  DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_NOTIFICATIONS,
+  MAX_BUDGET_USD,
+  WEBHOOK_FORMATS,
+  budgetAlertText,
+  webhookUrlError,
+} from '../../server/src/domain/budget';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { SkillInfo } from '../../server/src/skills/types';
 export type {
@@ -98,7 +112,12 @@ export {
 
 import type { HarnessId } from '../../server/src/domain/harness';
 import type { AgentStatus, Effort, Request, State, TranscriptMsg } from '../../server/src/domain/request';
-import type { BudgetSettings } from '../../server/src/domain/budget';
+import type {
+  BudgetSettings,
+  DeliveryStatus,
+  NotificationsView,
+  WebhookFormat,
+} from '../../server/src/domain/budget';
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
 import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
@@ -122,6 +141,29 @@ export interface AppConfig {
   usage: UsageSettings;
   retention: RetentionSettings;
   budget: BudgetSettings;
+  notifications: NotificationsView;
+}
+
+export interface WebhookStatus {
+  enabled: boolean;
+  configured: boolean;
+  format: WebhookFormat;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+}
+
+export interface NotificationStatusResponse {
+  webhook: WebhookStatus;
+}
+
+export interface WebhookTestResult {
+  ok: boolean;
+  status?: number;
+  durationMs: number;
+  error?: string;
 }
 
 export interface ConfigResponse extends AppConfig {

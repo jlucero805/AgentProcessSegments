@@ -25,6 +25,8 @@ import { SummaryRepository } from './summary/repository.js';
 import { SummaryScheduler } from './summary/scheduler.js';
 import { SummaryService } from './summary/service.js';
 import { BudgetAlertRepository } from './usage/budget-alerts.js';
+import { BudgetAlertDeliveryRepository } from './usage/budget-deliveries.js';
+import { BudgetNotifier } from './usage/budget-notifier.js';
 import { createBudgetUsageReader } from './usage/budget-usage.js';
 import { BudgetService } from './usage/budgets.js';
 import { UsageRepository } from './usage/repository.js';
@@ -52,12 +54,21 @@ export async function main(): Promise<void> {
       () => defaultProcess(settings.get().master),
       errors,
     );
+    const budgetAlerts = new BudgetAlertRepository(db);
+    const notifications = new BudgetNotifier({
+      deliveries: new BudgetAlertDeliveryRepository(db),
+      alerts: budgetAlerts,
+      cells,
+      settings,
+      errors,
+    });
     const budgets = new BudgetService({
       usage: createBudgetUsageReader(usage),
       cells,
       settings,
-      alerts: new BudgetAlertRepository(db),
+      alerts: budgetAlerts,
       errors,
+      onAlerts: (alerts) => notifications.observe(alerts),
     });
     const harnesses = createHarnessRegistry(config);
     const engine = new Engine({
@@ -131,6 +142,7 @@ export async function main(): Promise<void> {
       plugins,
       settings,
       budgets,
+      notifications,
       master,
       masterEvents,
       summary,
@@ -150,12 +162,14 @@ export async function main(): Promise<void> {
     usageRetention.start();
     dataRetention.start();
     budgets.start();
+    notifications.start();
 
     const shutdown = async () => {
       dataRetention.stop();
       usageRetention.stop();
       master.stop();
       summary.stop();
+      notifications.stop();
       budgets.stop();
       // Keep-alive sockets from a closed client can hold `close()` open forever.
       const force = setTimeout(() => process.exit(0), 3000);

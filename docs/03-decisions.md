@@ -923,6 +923,7 @@ tick; they never fail a turn.
 audit; raising it later cannot restore pruned rows. Follow-up markers survive regardless,
 so the table is not perfectly bounded, but their growth is tied to actual created work.
 There is no per-cell policy, manual prune button, new index, schema migration, or rollup.
+
 ## D54. Hard spend caps are opt-in admission checks
 
 **Context.** Advisory alerts tell operators when spend crosses a budget, but some cells
@@ -952,3 +953,29 @@ pause flag adds an additive cell column and one optional budget field. This also
 `SettingsStore.load()`, which previously dropped the saved budget block on restart, because
 the new overall flag must persist. External delivery, a manual one-turn override, and a
 strict unknown-cost policy remain separate.
+## D55. Budget alerts are delivered by a durable, signed webhook outbox
+
+**Context.** Advisory budget alerts were in-app only (D47). Operators need them to reach a
+team channel or local automation without the brain offering credentials, OAuth, or a
+second delivery stack. A webhook can be retried safely only if delivery is idempotent and
+a configuration change cannot replay an old alert with new credentials.
+
+**Decision.** Add `notifications.webhook` to `config.json` (`enabled`, `url`, `format`,
+`secret`) and an opt-in outbound HTTPS webhook. `format` is `json`, `slack`, or `discord`;
+JSON events are signed with HMAC-SHA256 over the raw body. `BudgetNotifier` enqueues one
+`budget_alert_deliveries` row per `(alert_id, channel)`; the unique key is the idempotency
+record across evaluations and restarts. Each row stores the `destination_hash` it was
+enqueued under, so URL/format/secret changes mark old rows `skipped` while a newly enabled
+webhook still sends the alert enqueued in that same evaluation. Attempts are bounded to
+five on a 60 s/5 min/30 min/2 h schedule, honor `Retry-After`, do not follow redirects,
+and time out after 10 seconds. Acknowledgement, prior months, budget/threshold changes,
+and cell deletion skip pending rows through the existing alert reconciliation and FK
+cascade. The secret is never returned by `GET/PATCH /api/config`; failures go to
+`budget.notify` with ids and a short reason only.
+
+**Cost.** A generic webhook plus Slack/Discord text bodies covers external delivery
+without SMTP or bot credentials. Email, native chat apps, delivery history/resend, and
+general event notifications remain separate requests. The outbox adds one small table and
+one `unref()`'d timer; delivery is advisory and never changes budgets, turns, or the HTTP
+response path. `destination_hash` is a one-way hash stored only in the local database and
+is never logged.

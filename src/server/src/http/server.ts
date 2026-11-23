@@ -31,10 +31,11 @@ import type { ProcessStore } from '../process/store.js';
 import type { CellDraftStore } from '../cells/drafts.js';
 import type { RequestRepository } from '../requests/repository.js';
 import { RequestError } from '../requests/repository.js';
-import type { SettingsStore } from '../settings.js';
+import { redactSettings, type SettingsStore } from '../settings.js';
 import { SkillCatalog } from '../skills/catalog.js';
 import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
+import type { BudgetNotifier } from '../usage/budget-notifier.js';
 import type { BudgetService } from '../usage/budgets.js';
 import { SpendCapError } from '../usage/spend-cap.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
@@ -54,6 +55,7 @@ export interface ServerDeps {
   plugins: PluginManager;
   settings: SettingsStore;
   budgets: BudgetService;
+  notifications: BudgetNotifier;
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
   summary: SummaryScheduler;
@@ -381,6 +383,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     plugins,
     settings,
     budgets,
+    notifications,
     master,
     masterEvents,
     summary,
@@ -926,11 +929,33 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return skills?.list() ?? [];
   });
 
-  app.get('/api/config', async () => ({ ...settings.get(), path: settings.path }));
+  app.get('/api/config', async () => ({
+    ...redactSettings(settings.get()),
+    path: settings.path,
+  }));
   app.patch('/api/config', async (request) => {
     const next = settings.patch(request.body);
     budgets.evaluate();
-    return { ...next, path: settings.path };
+    return { ...redactSettings(next), path: settings.path };
+  });
+
+  app.get('/api/notifications/status', async () => notifications.status());
+  app.post('/api/notifications/webhook/test', async (request, reply) => {
+    if (settings.get().notifications.webhook.url === null) {
+      return reply.code(400).send({
+        error: 'invalid',
+        message: 'configure a webhook URL before sending a test',
+      });
+    }
+    const result = await notifications.testWebhook();
+    if (result.ok) {
+      return { ok: true, status: result.status, durationMs: result.durationMs };
+    }
+    return reply.code(502).send({
+      ok: false,
+      ...(result.status !== undefined ? { status: result.status } : {}),
+      error: result.error ?? 'webhook test failed',
+    });
   });
 
   app.get('/api/budgets', async () => budgets.statuses());

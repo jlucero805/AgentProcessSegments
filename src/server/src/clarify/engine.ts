@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
@@ -20,6 +20,7 @@ import type { UsageRepository } from '../usage/repository.js';
 import { SpendCapError } from '../usage/spend-cap.js';
 import type { UsageScope } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
+import { ensurePrivateDir, writePrivateFile } from '../util/files.js';
 import type {
   AgentHarness,
   HarnessRegistry,
@@ -602,6 +603,14 @@ export class Engine {
     turn.resolve();
   }
 
+  /** Session state dir, kept owner-only so transcripts are not world-readable. */
+  private privateDir(id: string): string {
+    ensurePrivateDir(path.join(this.config.dataDir, 'requests'));
+    const dir = requestDir(this.config, id);
+    ensurePrivateDir(dir);
+    return dir;
+  }
+
   private async ensureProc(
     id: string,
     request: Request | null,
@@ -617,9 +626,9 @@ export class Engine {
       force.unref();
     }
 
-    const dir = requestDir(this.config, id);
+    const dir = this.privateDir(id);
     const scratch = path.join(dir, 'cwd');
-    mkdirSync(scratch, { recursive: true });
+    ensurePrivateDir(scratch);
 
     let cwd = scratch;
     if (request?.targetRepo) {
@@ -681,10 +690,9 @@ export class Engine {
   }
 
   private writeSession(id: string, harness: HarnessId, sessionId: string): void {
-    const dir = requestDir(this.config, id);
-    mkdirSync(dir, { recursive: true });
+    const dir = this.privateDir(id);
     const current = this.readStoredSession(id);
-    writeFileSync(
+    writePrivateFile(
       path.join(dir, 'session.json'),
       JSON.stringify({ ...current, harness, sessionId }, null, 2),
     );
@@ -704,10 +712,9 @@ export class Engine {
   }
 
   private writeStoredUsage(id: string, usage: StoredUsage): void {
-    const dir = requestDir(this.config, id);
-    mkdirSync(dir, { recursive: true });
+    const dir = this.privateDir(id);
     const current = this.readStoredSession(id);
-    writeFileSync(
+    writePrivateFile(
       path.join(dir, 'session.json'),
       JSON.stringify({ ...current, usage }, null, 2),
     );
@@ -724,9 +731,8 @@ export class Engine {
   }
 
   private saveTranscript(id: string, transcript: TranscriptMsg[]): void {
-    const dir = requestDir(this.config, id);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, 'transcript.json'), JSON.stringify(transcript, null, 2));
+    const dir = this.privateDir(id);
+    writePrivateFile(path.join(dir, 'transcript.json'), JSON.stringify(transcript, null, 2));
   }
 
   private appendUserMessage(id: string, text: string): void {

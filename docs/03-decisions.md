@@ -1060,3 +1060,22 @@ handling, provider APIs, or OAuth2; those are separate work. The password lives 
 ten, and per-cell routing, native bot delivery, delivery history/resend, and non-budget
 events remain separate requests. The dependency is one runtime package with its own types
 and no transitive dependencies.
+
+## D58. Request workdirs are owner-only
+
+**Context.** `session.json` and `transcript.json` live under `$APS_DATA_DIR/requests/<id>/`.
+The engine created the directory with the default `0755` and wrote both files with the
+default `0644`, so under the usual `umask 022` any local account could read the full
+conversation (user text, model output, tool inputs, command output, and file contents)
+and the adapter session ids.
+
+**Decision.** The `requests/` parent and every per-session workdir are created `0700`;
+`session.json` and `transcript.json` are written through `writePrivateFile` (same-directory
+temp file, rename, `chmod 0600`) so a write also repairs a loose file left by an older
+version. Directory creation goes through `ensurePrivateDir`. A chmod or rename failure
+propagates, matching `settings.ts` and `process/store.ts`. Mode tests skip on Windows; the
+product targets Linux/systemd.
+
+**Cost.** This is not encryption at rest, and root can still read the files. The SQLite
+database and other data-dir artifacts are separate work, as is a bulk repair of old,
+terminal workdirs that are not written again.

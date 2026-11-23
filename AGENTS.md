@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 632 vitest cases: 456 server across 36 files and 176 web across 24 files, all green.
+- 634 vitest cases: 458 server across 36 files and 176 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -87,7 +87,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 456 server + 176 web, plus the e2e env guard
+npm test                       # 458 server + 176 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -365,6 +365,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     new credentials. Delivery retries are bounded, failures go to `budget.notify` with
     ids only, and a notifier failure must never throw into budget evaluation, an HTTP
     handler, or a turn. Tests inject the sender; no external network traffic.
+36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
+    workdir are `0700`; `transcript.json` and `session.json` are written atomically as
+    `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
+    workdir or file left by an older version is repaired on the next write. Never write
+    conversation state with a bare `writeFileSync`; transcripts can contain tool output
+    and secrets.
 
 ## Extension recipes
 

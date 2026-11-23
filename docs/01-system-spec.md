@@ -506,7 +506,10 @@ defaults.
   its legacy `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`).
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
-  (`mcp-config.json` or `opencode/opencode.json`). An existing legacy
+  (`mcp-config.json` or `opencode/opencode.json`). The `requests/` parent and each
+  `<id>` workdir are created `0700`; `transcript.json` and `session.json` are written
+  atomically with mode `0600`. A loose workdir or file left by an older version is
+  repaired on the next write. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That
   script refuses to run while `agent-process-segments.service` or
   `sandbox-harness.service` is active; `--allow-running` is the unsafe override.

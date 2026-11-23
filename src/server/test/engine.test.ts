@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
@@ -31,6 +31,11 @@ function gitRepo(): string {
 
 function gitBranches(repo: string): string {
   return execFileSync('git', ['-C', repo, 'branch', '--list'], { encoding: 'utf8' });
+}
+
+/** POSIX permission bits for a path (owner/group/other). */
+function modeOf(target: string): number {
+  return statSync(target).mode & 0o777;
 }
 
 afterEach(() => {
@@ -490,6 +495,67 @@ describe('turn engine', () => {
       sessionId: 'sess-request-switch',
     });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'writes request state with owner-only permissions',
+    async () => {
+      const h = fresh(() => defaultScript());
+      const request = h.repo.create({ title: 'Owner-only state' });
+
+      const turn = await h.engine.start(request.id);
+      await turn.promise;
+      await settle();
+
+      const dir = requestDir(h.config, request.id);
+      expect(modeOf(path.join(h.config.dataDir, 'requests'))).toBe(0o700);
+      expect(modeOf(dir)).toBe(0o700);
+      expect(modeOf(path.join(dir, 'cwd'))).toBe(0o700);
+      expect(modeOf(path.join(dir, 'session.json'))).toBe(0o600);
+      expect(modeOf(path.join(dir, 'transcript.json'))).toBe(0o600);
+      expect(readdirSync(dir).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'repairs a world-readable request workdir on the next write',
+    async () => {
+      const h = fresh(() => defaultScript());
+      const request = h.repo.create({ title: 'Repair request state' });
+      const dir = requestDir(h.config, request.id);
+      const requests = path.join(h.config.dataDir, 'requests');
+      mkdirSync(dir, { recursive: true, mode: 0o755 });
+      chmodSync(requests, 0o755);
+      chmodSync(dir, 0o755);
+
+      const sessionFile = path.join(dir, 'session.json');
+      const transcriptFile = path.join(dir, 'transcript.json');
+      writeFileSync(
+        sessionFile,
+        JSON.stringify({ harness: 'claude', sessionId: 'old-session' }, null, 2),
+        { mode: 0o644 },
+      );
+      chmodSync(sessionFile, 0o644);
+      writeFileSync(
+        transcriptFile,
+        JSON.stringify([{ role: 'you', kind: 'text', text: 'old', ts: 1 }], null, 2),
+        { mode: 0o644 },
+      );
+      chmodSync(transcriptFile, 0o644);
+
+      const turn = await h.engine.start(request.id);
+      await turn.promise;
+      await settle();
+
+      expect(modeOf(requests)).toBe(0o700);
+      expect(modeOf(dir)).toBe(0o700);
+      expect(modeOf(sessionFile)).toBe(0o600);
+      expect(modeOf(transcriptFile)).toBe(0o600);
+      expect(
+        h.engine.transcript(request.id).some((message) => message.text === 'old'),
+      ).toBe(true);
+      expect(readdirSync(dir).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    },
+  );
 
   it('runs a separate setup chat for the cell wizard', async () => {
     const h = fresh(() => defaultScript());

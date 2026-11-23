@@ -122,11 +122,15 @@ async function makeApp(
   return open;
 }
 
+// Test responses are arbitrary JSON fixtures; each assertion narrows inline.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- fixture JSON is untyped by design
+type JsonBody = any;
+
 async function call(
   method: string,
   url: string,
   body?: unknown,
-): Promise<{ status: number; json: () => any; text: string }> {
+): Promise<{ status: number; json: () => JsonBody; text: string }> {
   if (!open) throw new Error('no server');
   const response = await fetch(`${open.base}${url}`, {
     method,

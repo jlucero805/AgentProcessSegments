@@ -87,6 +87,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
+npm run lint                   # eslint over src, zero warnings allowed
 npm test                       # 387 server + 159 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the scripts/e2e spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -171,6 +172,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.
+- **`NODE_ENV=production` hides devDependencies from npm.** The brain unit exports it and
+  agent shells inherit it, so a bare `npm install`/`npm ci` omits `typescript`, `vitest`,
+  ESLint, and the rest of the devDependencies, and `npm run lint`/`typecheck`/`test` fail
+  with missing binaries. Install with `--include=dev` (or unset `NODE_ENV`) in agent
+  shells.
 - **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
   On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
   `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.

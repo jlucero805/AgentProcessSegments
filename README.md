@@ -130,7 +130,7 @@ unknown or as an explicit lower bound, never as zero.
 
 ## Requirements
 
-- Node 20 or newer
+- Node 22.13 or newer (Vite 8 and Vitest 5 already need 22.12; ESLint 10 needs 22.13).
 - `git` for per-request worktrees
 - `claude` and/or `opencode` on `PATH` to run real agent turns. `APS_HARNESS` picks the
   brain default (legacy `SBOX_HARNESS` still works), and each cell can override it, so one
@@ -381,6 +381,10 @@ usage page and formatters, and the app shell with the drawer and chat mounted un
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environment the
 E2E suite hands to the brain; it is not counted in the vitest totals.
 
+`npm run lint` runs ESLint 10 over `src/**/*.{ts,tsx}` from one flat config
+(`eslint.config.mjs`) in both workspaces, with the classic React hook rules for the SPA,
+and fails on any warning.
+
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into
 SQLite.
@@ -419,7 +423,7 @@ is absent.
 `docs/screenshots/board.png` and `docs/screenshots/master.png` from a staged temp board.
 It needs `npm run build` first and skips when Puppeteer is absent.
 
-CI (`deploy/ci-workflow.yml`) runs typecheck, the full test suite, the build, the E2E
-API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
+CI (`deploy/ci-workflow.yml`) runs lint, typecheck, the full test suite, the build, the
+E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
 `.github/workflows/ci.yml` with a credential that has the `workflow` scope to activate
 it.

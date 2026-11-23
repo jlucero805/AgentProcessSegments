@@ -773,7 +773,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return draft;
   });
 
-  app.put('/api/cell-drafts/:id', async (request, reply) => {
+  app.put('/api/cell-drafts/:id', async (request) => {
     const { id } = request.params as { id: string };
     const input = cellDraftSchema.parse(request.body);
     return drafts.put({ id, ...input, harness: input.harness ?? null });

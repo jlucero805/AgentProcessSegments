@@ -261,7 +261,7 @@ describe('turn engine', () => {
   });
 
   it('stops a live turn and keeps the saved session for the next message', async () => {
-    const h = fresh((text) => [initLine('sess-stop')]);
+    const h = fresh(() => [initLine('sess-stop')]);
     const request = h.repo.create({ title: 'Stop me' });
 
     const first = await h.engine.start(request.id);

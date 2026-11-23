@@ -1,10 +1,11 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { TranscriptMsg } from '../../domain/request.js';
 import { isRecord } from '../../util/json.js';
+import { writePrivateFile } from '../../util/files.js';
 import {
   HARNESS_MCP_SERVER,
   KB_TOOLS,
@@ -169,9 +170,8 @@ export class ClaudeHarness implements AgentHarness {
       },
     };
 
-    mkdirSync(session.dir, { recursive: true });
     const configPath = path.join(session.dir, 'mcp-config.json');
-    writeFileSync(configPath, `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`);
+    writePrivateFile(configPath, `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`);
 
     const args = [
       '-p',

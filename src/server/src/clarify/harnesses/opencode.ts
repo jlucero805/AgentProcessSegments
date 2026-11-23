@@ -1,10 +1,11 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
 import { isRecord } from '../../util/json.js';
+import { writePrivateFile } from '../../util/files.js';
 import {
   HARNESS_MCP_SERVER,
   type AgentHarness,
@@ -169,8 +170,10 @@ export class OpencodeHarness implements AgentHarness {
     }
 
     const configDir = path.join(session.dir, 'opencode');
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(path.join(configDir, 'opencode.json'), `${JSON.stringify(config, null, 2)}\n`);
+    writePrivateFile(
+      path.join(configDir, 'opencode.json'),
+      `${JSON.stringify(config, null, 2)}\n`,
+    );
 
     // --standalone keeps each turn's server private so OPENCODE_CONFIG_DIR applies.
     // --archived keeps scripted brain sessions out of the user's session list.

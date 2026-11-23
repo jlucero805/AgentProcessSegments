@@ -1,5 +1,27 @@
-import { existsSync, readdirSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
+
+/**
+ * Write a generated file atomically with owner-only permissions.
+ *
+ * `writeFileSync`'s `mode` applies only when the file is created, so an
+ * existing file is replaced rather than reopened. The explicit `chmod` keeps
+ * the result `0600` even under an unusual umask.
+ */
+export function writePrivateFile(file: string, contents: string): void {
+  mkdirSync(path.dirname(file), { recursive: true });
+  const temp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(temp, contents, { mode: 0o600 });
+  renameSync(temp, file);
+  chmodSync(file, 0o600);
+}
 
 /** Recursively list files below `dir`, relative to `base`. Missing dirs are empty. */
 export function walkFiles(dir: string, base = dir): string[] {

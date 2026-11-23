@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -93,6 +101,35 @@ describe('ClaudeHarness', () => {
     expect(command.cwd).toBe(cwd);
     expect(command.env).toMatchObject({ CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'writes mcp-config.json owner-only and repairs an existing file',
+    async () => {
+      const { home, cwd, dir } = workspace();
+      const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+      const configPath = path.join(dir, 'mcp-config.json');
+      const session = {
+        scope: 'request' as const,
+        requestId: 'req-perms',
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      };
+
+      await harness.prepare(session);
+      expect(statSync(configPath).mode & 0o777).toBe(0o600);
+
+      chmodSync(configPath, 0o644);
+      await harness.prepare(session);
+      expect(statSync(configPath).mode & 0o777).toBe(0o600);
+      const config = JSON.parse(readFileSync(configPath, 'utf8'));
+      expect(config.mcpServers.harness.env.APS_REQUEST_ID).toBe('req-perms');
+      expect(readdirSync(dir).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    },
+  );
 
   it('sets the request auto-compaction threshold and leaves other scopes alone', async () => {
     const { home, cwd, dir } = workspace();
@@ -243,6 +280,37 @@ describe('OpencodeHarness', () => {
     // Request sessions keep the user's permission posture, minus interactive questions.
     expect(config.permission).toEqual({ bash: 'ask', question: 'deny' });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'writes opencode.json owner-only and repairs an existing file',
+    async () => {
+      const { home, cwd, dir } = workspace();
+      const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+      const configPath = path.join(dir, 'opencode', 'opencode.json');
+      const session = {
+        scope: 'request' as const,
+        requestId: 'req-perms',
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      };
+
+      await harness.prepare(session);
+      expect(statSync(configPath).mode & 0o777).toBe(0o600);
+
+      chmodSync(configPath, 0o644);
+      await harness.prepare(session);
+      expect(statSync(configPath).mode & 0o777).toBe(0o600);
+      const config = JSON.parse(readFileSync(configPath, 'utf8'));
+      expect(config.mcp.harness.environment.APS_REQUEST_ID).toBe('req-perms');
+      expect(readdirSync(path.dirname(configPath)).filter((name) => name.includes('.tmp-'))).toEqual(
+        [],
+      );
+    },
+  );
 
   it('writes request compaction from the cell percentage', async () => {
     const { home, cwd, dir } = workspace();

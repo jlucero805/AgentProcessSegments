@@ -833,3 +833,22 @@ does not abort the batch.
 and does not wait for review of every card. A working request or one with a missing
 digest needs the drawer. The action stays human-triggered; do not wire it into the master,
 scheduler, or a background job.
+
+## D51. Generated harness configs are owner-only
+
+**Context.** The generated harness config files merge the user's MCP server definitions,
+which can carry `env` tokens and remote headers. Under a normal `umask 022`,
+`writeFileSync` creates them `0644`, readable by other local users.
+
+**Decision.** Write `mcp-config.json` and `opencode/opencode.json` through
+`writePrivateFile`: a sibling temp file with `mode: 0o600`, an atomic rename over the
+target, then an explicit `chmod 0600`. The rename matters because `writeFileSync`'s `mode`
+is ignored when the file already exists, so a request dir written before this change is
+repaired on its next `prepare()`; the explicit chmod keeps the guarantee independent of
+the process umask. A chmod failure fails the `prepare()` call rather than running the
+harness with a world-readable config.
+
+**Cost.** Generated configs are rewritten on every turn (they were already), so there is
+no incremental-write optimization. Symlinks, ACLs, Windows ACLs, and encryption at rest
+are not addressed; the request directory, transcript, and session files keep their
+current modes.

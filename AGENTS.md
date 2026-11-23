@@ -294,6 +294,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and into Claude as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
     `autoCompactEnabled: true`. Note that Claude cannot raise its built-in threshold.
     KB, master, setup, and summary sessions keep the harness/global behavior.
+34. **Generated harness configs are owner-only.** `mcp-config.json` and
+    `opencode/opencode.json` are written atomically with mode `0600` through
+    `writePrivateFile`; an existing file is repaired on the next `prepare()`. They can
+    include the user's MCP servers with `env` and `headers`, so never write them with the
+    process default mode.
 
 ## Extension recipes
 

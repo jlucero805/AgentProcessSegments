@@ -386,7 +386,8 @@ defaults.
   terminal transitions.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
-  (`mcp-config.json` or `opencode/opencode.json`). An existing legacy
+  (`mcp-config.json` or `opencode/opencode.json`). Generated harness config files are
+  written atomically with owner-only `0600` permissions. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it.
 
 ### Models
@@ -471,6 +472,11 @@ Input to the child is written to stdin as
 ```
 
 `APS_REQUEST_ID` is empty for the `__kb__` session.
+
+Both generated harness config files (`mcp-config.json` and `opencode/opencode.json`) are
+written atomically with owner-only `0600` permissions, and an existing file is repaired on
+the next `prepare()`. They can include the user's MCP server definitions, including `env`
+and headers.
 
 **TranscriptMsg**, persisted to `transcript.json`, returned by `GET /clarify`, and
 carried in the `done` event:

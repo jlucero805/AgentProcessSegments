@@ -59,7 +59,7 @@ jobs:
         run: node scripts/e2e.mjs
 
       - name: HTTP smoke
-        run: bash scripts/smoke.sh
+        run: ./scripts/smoke.sh
 
       - name: MCP stdio smoke
         run: node scripts/mcp-smoke.mjs

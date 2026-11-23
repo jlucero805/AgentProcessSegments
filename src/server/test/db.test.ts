@@ -150,6 +150,34 @@ describe('db migrations', () => {
     db.close();
   });
 
+  it('stores an email delivery beside a webhook delivery without a migration', () => {
+    const db = openDb(':memory:');
+    db.prepare(
+      `INSERT INTO budget_alerts
+         (id, scope, scope_id, period_start, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, created_at, acknowledged_at)
+       VALUES ('a1', 'overall', '', 100, 'warning', 80, 100, 85, 0, 10, NULL)`,
+    ).run();
+    const insert = db.prepare(
+      `INSERT INTO budget_alert_deliveries
+         (id, alert_id, channel, format, destination_hash, status, attempts,
+          next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES (?, 'a1', ?, ?, 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+    );
+    insert.run('d-webhook', 'webhook', 'json');
+    insert.run('d-email', 'email', 'email');
+    const rows = db
+      .prepare(
+        `SELECT channel, format FROM budget_alert_deliveries ORDER BY channel`,
+      )
+      .all() as Array<{ channel: string; format: string }>;
+    expect(rows).toEqual([
+      { channel: 'email', format: 'email' },
+      { channel: 'webhook', format: 'json' },
+    ]);
+    db.close();
+  });
+
   it('reconciles a stale working status to idle on boot', () => {
     const db = openDb(':memory:');
     db.prepare(

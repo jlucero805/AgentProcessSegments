@@ -231,20 +231,25 @@ built and vended by the brain; real-CLI verification is still pending.
   pauses are cell-scoped; in-flight turns finish.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
-  Discord text format. `budget_alert_deliveries` is a durable outbox keyed by
-  `(alert_id, channel)`; it retries transient failures, honors `Retry-After`, skips
-  acknowledged/prior-month/stale-destination rows, and prunes after 400 days. The Config
-  page edits and tests it, and `GET /api/notifications/status` reports queue state.
-  Delivery is advisory and never blocks budgets, turns, or the in-app banner. Email,
-  native chat bots, and delivery history/resend are not built.
+  Discord text format. An independent SMTP channel in `notifications.email` sends the
+  same alerts to up to ten recipients with implicit TLS or required STARTTLS, optional
+  credentials, a redacted password, and a plain-text body. `budget_alert_deliveries` is a
+  durable outbox keyed by `(alert_id, channel)`; it retries transient failures per
+  channel, honors `Retry-After`, skips acknowledged/prior-month/stale-destination rows,
+  and prunes after 400 days. The Config page edits and tests both channels, and
+  `GET /api/notifications/status` reports per-channel queue state. Delivery is advisory
+  and never blocks budgets, turns, or the in-app banner. Native chat bots, per-cell
+  routing, and delivery history/resend are not built.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
   retention (`masterEventsDays`), spend budget (`monthlyUsd`, `alertAtPercent`,
-  `pauseOnExceeded`), and webhook delivery (`enabled`, `url`, `format`, `secret`),
-  validated with zod and written atomically. Each saved block is merged over defaults on
-  load, including older files written before a block existed. `GET/PATCH /api/config`
-  expose all blocks and redact the signing secret as `secret: null` with `secretSet`.
+  `pauseOnExceeded`), and webhook delivery (`enabled`, `url`, `format`, `secret`) plus
+  email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`, `from`,
+  `to`), validated with zod and written atomically. Each saved block is merged over
+  defaults on load, including older files written before a block existed. `GET/PATCH
+  /api/config` expose all blocks and redact the signing secret as `secret: null` with
+  `secretSet` and the SMTP password as `password: null` with `passwordSet`.
   `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
@@ -278,7 +283,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 594 vitest cases, all passing: 422 server across 35 files and 172 web across 24 files,
+- 632 vitest cases, all passing: 456 server across 36 files and 176 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -358,10 +363,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
 - Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
-  per-turn applied-price audit). Advisory budget alerts, webhook delivery, effective-dated
-  estimates, and daily usage rollups are built.
-- Email (SMTP) and native Slack/Discord bot delivery, delivery history/resend, and
-  reusing the outbox for non-budget events; the webhook outbox is built.
+  per-turn applied-price audit). Advisory budget alerts, webhook and email delivery,
+  effective-dated estimates, and daily usage rollups are built.
+- Native Slack/Discord bot delivery, per-cell routing, delivery history/resend, and
+  reusing the outbox for non-budget events; the webhook and email channels are built.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
@@ -405,11 +410,12 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?}}
+PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?}}
 GET    /api/budgets                       statuses + unacknowledged alerts + active pauses
 POST   /api/budgets/alerts/:id/ack
-GET    /api/notifications/status          webhook enabled/configured, pending/failed, last delivery
+GET    /api/notifications/status          per-channel enabled/configured, pending/failed, last delivery
 POST   /api/notifications/webhook/test    synthetic test event; 400 without a URL, 502 on rejection
+POST   /api/notifications/email/test      synthetic test email; 400 unconfigured, 502 on rejection
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]

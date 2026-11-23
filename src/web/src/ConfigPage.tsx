@@ -4,16 +4,21 @@ import { ACTION_TONES, eventDetail } from './masterView';
 import { ProcessEditor } from './ProcessEditor';
 import {
   DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_NOTIFICATIONS,
   MAX_BUDGET_USD,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
   WEBHOOK_FORMATS,
+  emailAddressError,
+  emailRecipientsError,
+  smtpHostError,
   timeAgo,
   webhookUrlError,
   type BudgetSettings,
   type BudgetStatus,
   type BudgetsResponse,
   type CellDetail,
+  type EmailPatch,
   type MasterConfig,
   type MasterEvent,
   type ModelPrice,
@@ -54,6 +59,21 @@ function moneyLabel(value: number): string {
 
 function pct(value: number): string {
   return `${value.toFixed(0)}%`;
+}
+
+/** Split the recipients box on commas, semicolons, or newlines and dedupe. */
+function parseRecipients(value: string): string[] {
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  for (const raw of value.split(/[\n,;]+/)) {
+    const recipient = raw.trim();
+    if (recipient === '') continue;
+    const key = recipient.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipients.push(recipient);
+  }
+  return recipients;
 }
 
 function budgetTone(status: BudgetStatus): 'neutral' | 'green' | 'amber' | 'red' {
@@ -150,6 +170,20 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [webhookSaved, setWebhookSaved] = useState(false);
   const [webhookTesting, setWebhookTesting] = useState(false);
   const [webhookTest, setWebhookTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [email, setEmail] = useState<NotificationsView['email'] | null>(null);
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [emailHost, setEmailHost] = useState('');
+  const [emailPort, setEmailPort] = useState('587');
+  const [emailSecure, setEmailSecure] = useState(false);
+  const [emailUsername, setEmailUsername] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+  const [emailClearPassword, setEmailClearPassword] = useState(false);
+  const [emailFrom, setEmailFrom] = useState('');
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
   const [notificationStatus, setNotificationStatus] =
     useState<NotificationStatusResponse | null>(null);
   const [prices, setPrices] = useState<ModelPrice[]>([]);
@@ -177,6 +211,11 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         secret: null,
         secretSet: false,
       };
+      const loadedEmail = config.notifications?.email ?? {
+        ...DEFAULT_NOTIFICATIONS.email,
+        password: null,
+        passwordSet: false,
+      };
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
@@ -201,7 +240,17 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setWebhookFormat(loadedWebhook.format);
       setWebhookSecret('');
       setWebhookClearSecret(false);
-      setNotificationStatus(statusResponse?.webhook ? statusResponse : null);
+      setEmail(loadedEmail);
+      setEmailEnabled(loadedEmail.enabled);
+      setEmailHost(loadedEmail.host ?? '');
+      setEmailPort(String(loadedEmail.port));
+      setEmailSecure(loadedEmail.secure);
+      setEmailUsername(loadedEmail.username ?? '');
+      setEmailPassword('');
+      setEmailClearPassword(false);
+      setEmailFrom(loadedEmail.from ?? '');
+      setEmailTo(loadedEmail.to.join(', '));
+      setNotificationStatus(statusResponse ?? null);
     } catch (error) {
       onError(describeError(error));
     }
@@ -452,6 +501,108 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setNotificationStatus(status);
     } finally {
       setWebhookTesting(false);
+    }
+  }
+
+  async function saveEmail() {
+    const host = emailHost.trim();
+    const from = emailFrom.trim();
+    const username = emailUsername.trim();
+    const recipients = parseRecipients(emailTo);
+    const port = Number(emailPort);
+
+    if (host !== '') {
+      const problem = smtpHostError(host);
+      if (problem !== null) {
+        onError(`The SMTP host ${problem}.`);
+        return;
+      }
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      onError('The SMTP port must be a whole number from 1 to 65535.');
+      return;
+    }
+    if (emailEnabled && (host === '' || from === '' || recipients.length === 0)) {
+      onError('Host, From address, and at least one recipient are required.');
+      return;
+    }
+    if (from !== '') {
+      const problem = emailAddressError(from);
+      if (problem !== null) {
+        onError(`The From address ${problem}.`);
+        return;
+      }
+    }
+    if (recipients.length > 0) {
+      const problem = emailRecipientsError(recipients);
+      if (problem !== null) {
+        onError(`The recipients ${problem}.`);
+        return;
+      }
+    }
+    const keepsSavedPassword = email?.passwordSet === true && !emailClearPassword;
+    const hasPassword = emailPassword !== '' || keepsSavedPassword;
+    if ((username !== '') !== hasPassword) {
+      onError('Set both a username and a password, or clear both.');
+      return;
+    }
+
+    const patch: EmailPatch = {
+      enabled: emailEnabled,
+      host: host === '' ? null : host,
+      port,
+      secure: emailSecure,
+      username: username === '' ? null : username,
+      from: from === '' ? null : from,
+      to: recipients,
+    };
+    if (emailClearPassword) patch.password = null;
+    else if (emailPassword !== '') patch.password = emailPassword;
+
+    setEmailSaving(true);
+    try {
+      const config = await api.patchConfig({ notifications: { email: patch } });
+      const saved = config.notifications?.email ?? {
+        ...DEFAULT_NOTIFICATIONS.email,
+        password: null,
+        passwordSet: false,
+      };
+      setEmail(saved);
+      setEmailEnabled(saved.enabled);
+      setEmailHost(saved.host ?? '');
+      setEmailPort(String(saved.port));
+      setEmailSecure(saved.secure);
+      setEmailUsername(saved.username ?? '');
+      setEmailPassword('');
+      setEmailClearPassword(false);
+      setEmailFrom(saved.from ?? '');
+      setEmailTo(saved.to.join(', '));
+      const status = await api.getNotificationStatus().catch(() => null);
+      setNotificationStatus(status);
+      setEmailSaved(true);
+      setEmailTest(null);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
+  async function testEmail() {
+    setEmailTesting(true);
+    setEmailTest(null);
+    try {
+      const result = await api.testEmail();
+      setEmailTest({
+        ok: result.ok,
+        message: result.ok
+          ? `Test email sent in ${result.durationMs} ms.`
+          : result.error ?? 'The email test failed.',
+      });
+      const status = await api.getNotificationStatus().catch(() => null);
+      setNotificationStatus(status);
+    } finally {
+      setEmailTesting(false);
     }
   }
 
@@ -991,6 +1142,186 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onClick={() => void saveWebhook()}
             >
               {webhookSaving ? <Spinner /> : 'Save delivery'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Email delivery</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            Send budget warning and exceeded alerts over SMTP. Email is advisory and
+            independent of the webhook; a failed send never pauses work or hides the
+            in-app banner.
+          </p>
+        </div>
+
+        <Checkbox
+          label="Deliver budget alerts by email"
+          checked={emailEnabled}
+          onChange={(event) => {
+            setEmailEnabled(event.target.checked);
+            setEmailSaved(false);
+          }}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="SMTP host" hint="hostname or IP address">
+            <Input
+              value={emailHost}
+              placeholder="smtp.example.com"
+              onChange={(event) => {
+                setEmailHost(event.target.value);
+                setEmailSaved(false);
+              }}
+            />
+          </Field>
+          <Field label="SMTP port" hint="587 STARTTLS, 465 implicit TLS">
+            <Input
+              type="number"
+              min={1}
+              max={65535}
+              value={emailPort}
+              onChange={(event) => {
+                setEmailPort(event.target.value);
+                setEmailSaved(false);
+              }}
+            />
+          </Field>
+        </div>
+
+        <Checkbox
+          label="Implicit TLS (usually port 465)"
+          checked={emailSecure}
+          onChange={(event) => {
+            setEmailSecure(event.target.checked);
+            setEmailSaved(false);
+          }}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Username" hint="optional; clear both to use an open relay">
+            <Input
+              autoComplete="off"
+              value={emailUsername}
+              placeholder="smtp-user"
+              onChange={(event) => {
+                setEmailUsername(event.target.value);
+                setEmailSaved(false);
+              }}
+            />
+          </Field>
+          <Field label="Password" hint="blank keeps the saved password">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={emailPassword}
+              placeholder={email?.passwordSet ? 'Saved password (leave blank to keep)' : 'Optional'}
+              onChange={(event) => {
+                setEmailPassword(event.target.value);
+                setEmailClearPassword(false);
+                setEmailSaved(false);
+              }}
+            />
+          </Field>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-zinc-500">
+            {email?.passwordSet ? 'A password is saved.' : 'No password saved.'}
+          </span>
+          {email?.passwordSet && !emailClearPassword ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setEmailClearPassword(true);
+                setEmailPassword('');
+                setEmailSaved(false);
+              }}
+            >
+              Clear password
+            </Button>
+          ) : null}
+          {emailClearPassword ? (
+            <>
+              <span className="text-amber-400">The password will be cleared on save.</span>
+              <Button size="sm" onClick={() => setEmailClearPassword(false)}>
+                Keep password
+              </Button>
+            </>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="From address" hint="addr@domain or Name <addr@domain>">
+            <Input
+              type="email"
+              value={emailFrom}
+              placeholder="APS Alerts <alerts@example.com>"
+              onChange={(event) => {
+                setEmailFrom(event.target.value);
+                setEmailSaved(false);
+              }}
+            />
+          </Field>
+          <Field label="Recipients" hint="comma or newline separated; up to 10">
+            <Textarea
+              rows={2}
+              value={emailTo}
+              placeholder="ops@example.com"
+              onChange={(event) => {
+                setEmailTo(event.target.value);
+                setEmailSaved(false);
+              }}
+            />
+          </Field>
+        </div>
+
+        <p className="text-[11px] text-zinc-600">
+          STARTTLS is required for remote hosts when implicit TLS is off. Credentials are
+          stored in the settings file and never returned by the API.
+        </p>
+
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            {notificationStatus?.email ? (
+              <p className="text-[11px] text-zinc-600">
+                {notificationStatus.email.configured
+                  ? 'Email configured'
+                  : 'No email configured'}{' '}
+                · {notificationStatus.email.pending} pending ·{' '}
+                {notificationStatus.email.failed} failed
+                {notificationStatus.email.lastDeliveryAt !== null
+                  ? ` · last ${notificationStatus.email.lastDeliveryStatus ?? 'unknown'} ${timeAgo(notificationStatus.email.lastDeliveryAt)} ago`
+                  : ' · no deliveries yet'}
+                {notificationStatus.email.lastError
+                  ? ` · ${notificationStatus.email.lastError}`
+                  : ''}
+              </p>
+            ) : null}
+            {emailTest ? (
+              <p
+                role="status"
+                className={emailTest.ok ? 'text-[11px] text-emerald-400' : 'text-[11px] text-red-400'}
+              >
+                {emailTest.message}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {emailSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button disabled={emailTesting} onClick={() => void testEmail()}>
+              {emailTesting ? <Spinner /> : 'Send test email'}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={emailSaving}
+              onClick={() => void saveEmail()}
+            >
+              {emailSaving ? <Spinner /> : 'Save email delivery'}
             </Button>
           </div>
         </div>

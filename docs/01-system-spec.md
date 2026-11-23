@@ -149,13 +149,14 @@ history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
 ### `budget_alert_deliveries`
 
 `id` (uuid PK), `alert_id` (FK to `budget_alerts`, `ON DELETE CASCADE`), `channel`
-(currently `webhook`), `format` (`json|slack|discord`), `destination_hash`, `status`
+(`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`, `status`
 (`pending|delivering|delivered|failed|skipped`), `attempts`, `next_attempt_at`,
 `last_error`, `created_at`, `updated_at`, `delivered_at`. `UNIQUE(alert_id, channel)` is
 the delivery idempotency key; `idx_budget_alert_deliveries_due` covers
-`(status, next_attempt_at)`. `destination_hash` is a SHA-256 of the URL, format, and
-secret (never logged or returned) so a configuration change cannot send an old alert with
-new credentials. Deliveries older than 400 days are pruned on notifier start.
+`(status, next_attempt_at)`. `destination_hash` is a SHA-256 of the channel route
+(URL/format/secret, or host/port/TLS/from/recipients/credentials), never logged or
+returned, so a configuration change cannot send an old alert with new credentials.
+Deliveries older than 400 days are pruned on notifier start.
 
 ### Spend budgets
 
@@ -165,8 +166,14 @@ the default is no overall budget, an 80% warning, and enforcement off. Budget pe
 UTC calendar months `[start, end)`. `notifications.webhook` defaults to
 `{ enabled: false, url: null, format: "json", secret: null }`; `enabled` requires an https
 URL (http is accepted only for loopback hosts), `format` is `json|slack|discord`, and a
-16–256 character secret signs JSON payloads. The API returns the webhook with
-`secret: null` and `secretSet`.
+16–256 character secret signs JSON payloads. `notifications.email` defaults to
+`{ enabled: false, host: null, port: 587, secure: false, username: null, password: null,
+from: null, to: [] }`; enabling it requires a host, a `from` address (plain or
+`Display Name <addr>`), and 1–10 unique plain recipients. `secure: true` uses implicit TLS
+(usually 465); otherwise STARTTLS is required for every non-loopback host. Username and
+password are either both set or both null. `to` is replaced whole on patch, and an omitted
+password keeps the saved one while `null` clears it. The API returns the webhook with
+`secret: null`/`secretSet` and email with `password: null`/`passwordSet`.
 
 `BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
 budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
@@ -213,19 +220,27 @@ lives in `cell_summaries`. The job never runs `VACUUM`; SQLite reuses freed page
 
 `BudgetService` hands each evaluation's unacknowledged alerts to `BudgetNotifier`.
 `BudgetNotifier` owns a 60-second `unref()`'d timer and enqueues one delivery row per
-alert/channel. It posts JSON as the v1 event (alert fields plus `periodEnd` and `text`),
-or the text-only Slack/Discord bodies. Each attempt has a 10-second abort, does not follow
-redirects, and uses at most five attempts at 0 s, 60 s, 5 min, 30 min, and 2 h. `2xx`
-delivers, `4xx` except `408`/`429` fails permanently, and `5xx`/`408`/`429`/network/
-timeout retries with `Retry-After` honored up to one hour. Acknowledged alerts, prior
-months, and stale destinations are marked `skipped`; failures go to the error sink as
-`budget.notify` with ids and a short reason only. A disabled or unreachable webhook never
-affects budgets, turns, or the banner.
+enabled alert/channel, deduped by `(alert_id, channel)`. Webhook attempts post JSON as the
+v1 event (alert fields plus `periodEnd` and `text`), or the text-only Slack/Discord bodies.
+Email attempts send a plain-text message whose subject names the scope and threshold and
+whose body carries the alert sentence, UTC period, and alert id, with alert/delivery
+headers and a stable `Message-ID`; one nodemailer transport is opened per send, TLS
+verification stays on, and it is closed on success, failure, or abort. Each attempt has a
+10-second timeout and uses at most five attempts at 0 s, 60 s, 5 min, 30 min, and 2 h.
+Webhook `2xx` delivers, `4xx` except `408`/`429` fails permanently, and
+`5xx`/`408`/`429`/network/timeout retries with `Retry-After` honored up to one hour. Email
+maps auth/envelope/message/protocol codes to permanent failures and connection, socket,
+DNS-temporary, timeout, and unknown errors to retries. Acknowledged alerts, prior months,
+and stale destinations are marked `skipped` per channel; disabling one channel never skips
+the other. Failures go to the error sink as `budget.notify` with ids, channel, attempt, and
+a short reason only. A disabled or unreachable destination never affects budgets, turns,
+or the banner.
 
-`GET /api/notifications/status` reports enabled/configured, format, pending, failed, and
-the latest delivery. `POST /api/notifications/webhook/test` sends a synthetic
-`budget.test` event with the same format, signing, and timeout path; it requires a URL,
-writes no alert or delivery rows, and returns `200` or `502`.
+`GET /api/notifications/status` reports per-channel enabled/configured, pending, failed,
+and the latest delivery (webhook also reports format). `POST
+/api/notifications/webhook/test` and `POST /api/notifications/email/test` send synthetic
+`budget.test` events through the same timeout and transport paths; they require a
+configured destination, write no alert or delivery rows, and return `200` or `502`.
 
 ### `kb_entries`
 
@@ -636,9 +651,11 @@ carried in the `done` event:
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
   monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
   shows the current UTC-month status for the overall and per-cell budgets. Its **Alert
-  delivery** card edits the webhook URL, format, and signing secret, shows
-  queue/failure/last-delivery state, and can send a test. `CellModal` carries the optional
-  per-cell budget and pause option. `BudgetBanner` polls `GET /api/budgets` every 60
+  delivery** card edits the webhook URL, format, and signing secret, and its **Email
+  delivery** card edits the SMTP host, port, TLS mode, optional credentials, From address,
+  and recipients. Both cards show queue/failure/last-delivery state, can send a test, and
+  save independently; a saved password is never rendered back. `CellModal` carries the
+  optional per-cell budget and pause option. `BudgetBanner` polls `GET /api/budgets` every 60
   seconds, shows dismissible warning/exceeded alerts above the page, and shows
   non-dismissible hard-cap pause notices, with lower-bound copy for unpriced turns.
 - `api.ts` is the typed client (fetch plus NDJSON readers). `ui.tsx` is the component

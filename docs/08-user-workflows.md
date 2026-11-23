@@ -159,10 +159,16 @@ last five.
    set a 16-256 character signing secret. Save, then press **Send test** to verify. JSON
    receivers should verify `X-APS-Signature`; Slack and Discord ignore it. The card also
    shows pending/failed counts and the latest delivery.
-8. Each alert is sent once. Acknowledging it, clearing a budget, or changing the webhook
-   destination cancels a pending notification. Transient failures retry for about three
-   hours; permanent ones are marked failed in the Config card. Delivery problems never
-   stop work or hide the in-app banner.
+8. For email, use the separate **Email delivery** card: enable it, set the SMTP host and
+   port (465 for implicit TLS, 587 for STARTTLS), optional username and password, a From
+   address, and up to ten recipients. Save, then **Send test email**. A blank password
+   keeps the saved one; **Clear password** removes it, and the username must be cleared at
+   the same time. Remote hosts require STARTTLS when implicit TLS is off.
+9. Each alert is sent once per enabled channel. Acknowledging it, clearing a budget, or
+   changing a channel's destination cancels that channel's pending notification without
+   touching the other. Transient failures retry for about three hours; permanent ones are
+   marked failed in the Config card. Delivery problems never stop work or hide the in-app
+   banner.
 
 ## 4d. Read spend and maintain model prices
 
@@ -227,7 +233,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded` in SQLite |
 | Budget alert history | `budget_alerts` in SQLite |
 | Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |
-| Webhook delivery outbox | `budget_alert_deliveries` in SQLite |
+| Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |
+| Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and channel |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` |

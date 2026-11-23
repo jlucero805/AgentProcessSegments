@@ -364,3 +364,120 @@ describe('SettingsStore', () => {
     expect(() => readFileSync(file)).toThrow();
   });
 });
+
+describe('email notification settings', () => {
+  const email = {
+    enabled: true,
+    host: 'smtp.example.com',
+    port: 587,
+    secure: false,
+    username: 'aps',
+    password: 'super-secret',
+    from: 'APS Alerts <alerts@example.com>',
+    to: ['ops@example.com', 'oncall@example.com'],
+  };
+
+  it('defaults email delivery and keeps it across reloads', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    expect(store.get().notifications.email).toEqual({
+      enabled: false,
+      host: null,
+      port: 587,
+      secure: false,
+      username: null,
+      password: null,
+      from: null,
+      to: [],
+    });
+
+    store.patch({ notifications: { email } });
+    const reloaded = new SettingsStore(file).get();
+    expect(reloaded.notifications.email).toEqual(email);
+  });
+
+  it('adds the email block to a webhook-only legacy file', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        notifications: { webhook: { enabled: true, url: 'https://hooks.example.test/b' } },
+      }),
+    );
+    const settings = new SettingsStore(file).get();
+    expect(settings.notifications.webhook.url).toBe('https://hooks.example.test/b');
+    expect(settings.notifications.email).toEqual({
+      enabled: false,
+      host: null,
+      port: 587,
+      secure: false,
+      username: null,
+      password: null,
+      from: null,
+      to: [],
+    });
+  });
+
+  it('merges email patches, replaces recipients, and clears the password explicitly', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({ notifications: { email } });
+
+    const rotated = store.patch({
+      notifications: { email: { password: 'rotated-secret', to: ['other@example.com'] } },
+    });
+    expect(rotated.notifications.email).toMatchObject({
+      enabled: true,
+      host: 'smtp.example.com',
+      username: 'aps',
+      password: 'rotated-secret',
+      to: ['other@example.com'],
+    });
+
+    const kept = store.patch({ notifications: { email: { port: 465, secure: true } } });
+    expect(kept.notifications.email.password).toBe('rotated-secret');
+
+    const cleared = store.patch({
+      notifications: { email: { username: null, password: null } },
+    });
+    expect(cleared.notifications.email.password).toBeNull();
+    expect(cleared.notifications.email.username).toBeNull();
+  });
+
+  it('rejects invalid email settings without writing', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const invalid = [
+      { enabled: true, host: null },
+      { enabled: true, from: null },
+      { enabled: true, to: [] },
+      { host: 'smtp example.com' },
+      { port: 0 },
+      { port: 70000 },
+      { port: 587.5 },
+      { secure: 'yes' },
+      { from: 'not-an-address' },
+      { to: ['Ops@example.com', 'ops@example.com'] },
+      { to: ['APS <ops@example.com>'] },
+      { to: Array.from({ length: 11 }, (_v, index) => `u${index}@example.com`) },
+      { username: 'aps' },
+      { password: 'secret' },
+      { password: '' },
+    ];
+
+    for (const patch of invalid) {
+      expect(() => store.patch({ notifications: { email: patch } })).toThrow();
+    }
+    expect(store.get().notifications.email).toEqual({
+      enabled: false,
+      host: null,
+      port: 587,
+      secure: false,
+      username: null,
+      password: null,
+      from: null,
+      to: [],
+    });
+    expect(() => readFileSync(file)).toThrow();
+  });
+});

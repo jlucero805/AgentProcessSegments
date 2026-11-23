@@ -141,7 +141,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
-  with `--auto`. Read-only KB sessions exclude user servers and plugins.
+  with `--auto`. Read-only KB sessions exclude user servers and plugins. The bundled `aps`
+  key is reserved: a user entry with that name is replaced by the bundled server, with a
+  one-time warning naming its config file.
 - Installed plugins reach OpenCode too: `commands/**/*.md` become `commands` templates
   and `skills/*/SKILL.md` become skill paths in the generated config, with plugin-prefixed
   names that match `/api/commands`. Verified end to end (`/demo-plugin:hello` →

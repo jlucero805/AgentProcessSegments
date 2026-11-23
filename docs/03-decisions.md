@@ -853,13 +853,15 @@ names its tool events `aps_<tool>`. `HarnessId`, `AgentHarness`, `APS_HARNESS`, 
 `clarify/harness*.ts` files, and the `requests.harness`/`cells.harness` columns keep the
 "harness" name, because they describe the agent adapter rather than this MCP server. The
 `aps` key is reserved: a user MCP server with the same key is replaced by the bundled
-server, matching the old `harness` precedence. Persisted transcripts are normalized at
+server, matching the old `harness` precedence, and the brain logs one warning naming the
+user's config file when that happens. Persisted transcripts are normalized at
 the web boundary (`mcp__harness__*` to `mcp__aps__*`, `harness_*` to `aps_*`) rather than
 rewritten in storage. The MCP `version` stays `0.1.0` because the app has no separate
 release version.
 
-**Cost.** A user cannot name their own MCP server `aps` without it being overridden; a
-clearer warning is separate work. Old and new tool labels appear as one canonical name in
+**Cost.** A user cannot name their own MCP server `aps` without it being overridden; the
+one-time warning names the config file so the operator can rename or remove the entry.
+Old and new tool labels appear as one canonical name in
 the UI, while the raw stored transcripts still contain the old prefix for audit purposes.
 No database or session migration is needed because the generated config is recreated
 every turn.

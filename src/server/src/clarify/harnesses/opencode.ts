@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
 import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
+import { warnOnce } from '../../util/warn-once.js';
 import {
   HARNESS_MCP_SERVER,
   type AgentHarness,
@@ -45,24 +46,31 @@ export function opencodeHarnessServer(
   };
 }
 
+export interface OpencodeConfigFile {
+  config: Record<string, unknown>;
+  /** The file that supplied the config, or null when none parsed. */
+  path: string | null;
+}
+
 /** Reads the user's OpenCode config so its MCP servers and settings survive injection. */
 export function readOpencodeConfig(
   home = os.homedir(),
   env: NodeJS.ProcessEnv = process.env,
-): Record<string, unknown> {
+): OpencodeConfigFile {
   const dir =
     env.OPENCODE_CONFIG_DIR ??
     path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'opencode');
 
   for (const name of ['opencode.json', 'opencode.jsonc']) {
+    const file = path.join(dir, name);
     try {
-      const parsed: unknown = JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
-      if (isRecord(parsed)) return parsed;
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+      if (isRecord(parsed)) return { config: parsed, path: file };
     } catch {
       // Missing or non-JSON config: fall through.
     }
   }
-  return {};
+  return { config: {}, path: null };
 }
 
 /** Accepts both the documented direct `mcp.<name>` shape and the encoded `mcp.servers` shape. */
@@ -106,10 +114,17 @@ export class OpencodeHarness implements AgentHarness {
   ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
-    const user = readOpencodeConfig(this.home, this.env);
+    const { config: user, path: configPath } = readOpencodeConfig(this.home, this.env);
     const requestScope = session.scope === 'request';
     // User MCP servers, plugins, and user permissions are request-session only.
     const userServers = requestScope ? opencodeMcpServers(user) : {};
+    if (requestScope && configPath !== null && userServers[MCP_SERVER_KEY] !== undefined) {
+      warnOnce(
+        `mcp-reserved:${configPath}`,
+        `ignoring user MCP server "${MCP_SERVER_KEY}" from ${configPath}: ` +
+          `the bundled "${MCP_SERVER_KEY}" server takes precedence`,
+      );
+    }
     const config: Record<string, unknown> = {
       ...user,
       mcp: {

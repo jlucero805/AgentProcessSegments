@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import { ClaudeHarness } from '../src/clarify/harnesses/claude.js';
 import {
@@ -26,6 +26,8 @@ function workspace() {
   mkdirSync(cwd, { recursive: true });
   return { base, home, cwd, dir };
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('ClaudeHarness', () => {
   it('merges user, local, and project MCP servers into the generated config', async () => {
@@ -95,9 +97,11 @@ describe('ClaudeHarness', () => {
   });
 
   it('keeps the bundled aps server when the user also defines one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { home, cwd, dir } = workspace();
+    const userFile = path.join(home, '.claude.json');
     writeFileSync(
-      path.join(home, '.claude.json'),
+      userFile,
       JSON.stringify({
         mcpServers: {
           aps: { command: 'user-aps', args: ['user.js'] },
@@ -122,6 +126,112 @@ describe('ClaudeHarness', () => {
     expect(config.mcpServers.aps.command).toBe(process.execPath);
     expect(config.mcpServers.aps.args[0]).toContain('mcp/server.js');
     expect(config.mcpServers.user.command).toBe('node');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('aps');
+    expect(warn.mock.calls[0]?.[0]).toContain(userFile);
+  });
+
+  it('names the config file that supplied the overridden aps server', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { aps: { command: 'user-aps' } } }),
+    );
+    const projectFile = path.join(cwd, '.mcp.json');
+    writeFileSync(
+      projectFile,
+      JSON.stringify({ mcpServers: { aps: { command: 'project-aps' } } }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-1',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain(projectFile);
+  });
+
+  it('warns only once per config file across turns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { aps: { command: 'user-aps' } } }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+    const session = {
+      scope: 'request' as const,
+      requestId: 'req-1',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    };
+
+    await harness.prepare(session);
+    await harness.prepare(session);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not warn when the user defines other MCP servers', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { user: { command: 'node', args: ['user.js'] } } }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-1',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('does not warn for read-only or setup scopes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(home, '.claude.json'),
+      JSON.stringify({ mcpServers: { aps: { command: 'user-aps' } } }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    for (const scope of ['kb', 'master', 'setup'] as const) {
+      await harness.prepare({
+        scope,
+        requestId: '',
+        ...(scope === 'setup' ? { draftId: 'draft-1' } : {}),
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      });
+    }
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('sets the request auto-compaction threshold and leaves other scopes alone', async () => {
@@ -275,10 +385,12 @@ describe('OpencodeHarness', () => {
   });
 
   it('keeps the bundled aps server when the user also defines one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { home, cwd, dir } = workspace();
     mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    const configFile = path.join(home, '.config', 'opencode', 'opencode.json');
     writeFileSync(
-      path.join(home, '.config', 'opencode', 'opencode.json'),
+      configFile,
       JSON.stringify({
         mcp: {
           aps: { type: 'remote', url: 'https://user.example.test/sse' },
@@ -303,6 +415,65 @@ describe('OpencodeHarness', () => {
     expect(config.mcp.aps.type).toBe('local');
     expect(config.mcp.aps.command[0]).toBe(process.execPath);
     expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('aps');
+    expect(warn.mock.calls[0]?.[0]).toContain(configFile);
+  });
+
+  it('warns for an aps server in the encoded mcp.servers shape', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    const configFile = path.join(home, '.config', 'opencode', 'opencode.json');
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        mcp: { servers: { aps: { type: 'remote', url: 'https://user.example.test/sse' } } },
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-2',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.aps.type).toBe('local');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain(configFile);
+  });
+
+  it('does not warn for read-only scopes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({ mcp: { aps: { type: 'remote', url: 'https://user.example.test/sse' } } }),
+    );
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+
+    for (const scope of ['kb', 'master'] as const) {
+      await harness.prepare({
+        scope,
+        requestId: '',
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      });
+    }
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('writes request compaction from the cell percentage', async () => {

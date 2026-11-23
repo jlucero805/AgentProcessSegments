@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import type { TranscriptMsg } from '../../domain/request.js';
 import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
+import { warnOnce } from '../../util/warn-once.js';
 import {
   HARNESS_MCP_SERVER,
   KB_TOOLS,
@@ -85,6 +86,12 @@ export async function probeClaudeModels(bin: string): Promise<ModelOption[] | nu
   }
 }
 
+export interface ClaudeUserMcpServers {
+  servers: McpServerMap;
+  /** The config file that defined each server, after scope precedence. */
+  sources: Map<string, string>;
+}
+
 /**
  * Servers Claude Code already knows about, read from the files the CLI writes:
  * user/local scope in `~/.claude.json`, project scope in `<cwd>/.mcp.json`.
@@ -93,7 +100,7 @@ export async function probeClaudeModels(bin: string): Promise<ModelOption[] | nu
 export function claudeUserMcpServers(
   home = os.homedir(),
   cwd = process.cwd(),
-): McpServerMap {
+): ClaudeUserMcpServers {
   const readJson = (file: string): unknown => {
     try {
       return JSON.parse(readFileSync(file, 'utf8'));
@@ -102,24 +109,33 @@ export function claudeUserMcpServers(
     }
   };
 
-  const merged: McpServerMap = {};
-  const user = readJson(path.join(home, '.claude.json'));
+  const loaded: ClaudeUserMcpServers = { servers: {}, sources: new Map() };
+  const merge = (raw: Record<string, unknown>, file: string): void => {
+    for (const [name, definition] of Object.entries(pickServers(raw))) {
+      loaded.servers[name] = definition;
+      loaded.sources.set(name, file);
+    }
+  };
+
+  const userFile = path.join(home, '.claude.json');
+  const user = readJson(userFile);
   if (isRecord(user)) {
-    if (isRecord(user['mcpServers'])) Object.assign(merged, pickServers(user['mcpServers']));
+    if (isRecord(user['mcpServers'])) merge(user['mcpServers'], userFile);
     if (isRecord(user['projects'])) {
       const project = user['projects'][cwd];
       if (isRecord(project) && isRecord(project['mcpServers'])) {
-        Object.assign(merged, pickServers(project['mcpServers']));
+        merge(project['mcpServers'], userFile);
       }
     }
   }
 
-  const projectFile = readJson(path.join(cwd, '.mcp.json'));
-  if (isRecord(projectFile) && isRecord(projectFile['mcpServers'])) {
-    Object.assign(merged, pickServers(projectFile['mcpServers']));
+  const projectFile = path.join(cwd, '.mcp.json');
+  const project = readJson(projectFile);
+  if (isRecord(project) && isRecord(project['mcpServers'])) {
+    merge(project['mcpServers'], projectFile);
   }
 
-  return merged;
+  return loaded;
 }
 
 function pickServers(raw: Record<string, unknown>): McpServerMap {
@@ -144,7 +160,18 @@ export class ClaudeHarness implements AgentHarness {
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
     // The KB and master sessions are read-only: no user servers, no plugins.
     const requestScope = session.scope === 'request';
-    const userServers = requestScope ? claudeUserMcpServers(this.home, session.cwd) : {};
+    const loaded = requestScope ? claudeUserMcpServers(this.home, session.cwd) : null;
+    const userServers = loaded?.servers ?? {};
+    if (loaded) {
+      const source = loaded.sources.get(MCP_SERVER_KEY);
+      if (source) {
+        warnOnce(
+          `mcp-reserved:${source}`,
+          `ignoring user MCP server "${MCP_SERVER_KEY}" from ${source}: ` +
+            `the bundled "${MCP_SERVER_KEY}" server takes precedence`,
+        );
+      }
+    }
     const baseTools =
       session.scope === 'kb'
         ? KB_TOOLS

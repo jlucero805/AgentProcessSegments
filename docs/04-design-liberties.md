@@ -276,9 +276,9 @@ transcripts in the database.
 **Why.** `aps` matches the canonical runtime prefix and keeps tool names short, while a
 reserved key mirrors the old `harness` precedence and avoids a hard failure in a turn.
 Normalizing only at render time keeps stored history auditable and needs no migration.
-Cost: a user MCP server named `aps` is silently replaced, and a future warning is separate
-work. The stored transcript still contains the old prefix, so raw exports show the
-historical name.
+Cost: a user MCP server named `aps` is replaced by the bundled server, and the brain logs
+one warning naming the user's config file. The stored transcript still contains the old
+prefix, so raw exports show the historical name.
 
 ## Open items for review
 

@@ -734,11 +734,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           </p>
         </div>
 
-        {budgetView && !budgetView.usageAvailable ? (
-          <p className="rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-300">
-            Usage tracking is unavailable, so budgets cannot be measured right now.
-          </p>
-        ) : budgetView && budgetView.statuses.length > 0 ? (
+        {budgetView && budgetView.statuses.length > 0 ? (
           <div className="space-y-2">
             {budgetView.statuses.map((status) => (
               <div

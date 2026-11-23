@@ -21,7 +21,6 @@ import { SummaryService } from '../src/summary/service.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
 import { BudgetNotifier, type FetchLike } from '../src/usage/budget-notifier.js';
-import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import type { SpendPause } from '../src/domain/budget.js';
@@ -86,7 +85,7 @@ async function makeApp(
     send: send ?? (async () => new Response(null, { status: 204 })),
   });
   const budgets = new BudgetService({
-    usage: createBudgetUsageReader(h.usage),
+    usage: h.usage,
     cells: h.cells,
     settings,
     alerts: budgetAlerts,
@@ -410,9 +409,9 @@ describe('http api', () => {
 
     const budgets = await call('GET', '/api/budgets');
     expect(budgets.status).toBe(200);
+    expect(budgets.json()).not.toHaveProperty('usageAvailable');
     expect(budgets.json()).toMatchObject({
       alertAtPercent: 90,
-      usageAvailable: true,
       alerts: [],
     });
     expect(budgets.json().statuses).toHaveLength(1);

@@ -167,13 +167,13 @@ URL (http is accepted only for loopback hosts), `format` is `json|slack|discord`
 16–256 character secret signs JSON payloads. The API returns the webhook with
 `secret: null` and `secretSet`.
 
-`BudgetService` reads totals through a narrow `BudgetUsageReader` backed by
-`UsageRepository.totals`. Advisory alert spend is the sum of known `cost_usd`; a NULL cost
-is unpriced, never zero or estimated. If every turn in the period is unpriced the status is
-`unknown` and no alert fires. Mixed data alerts against a known lower bound and the UI
-labels it "at least". The service evaluates on start, every 60 seconds, and when settings
-or cells change; a failed evaluation goes to the error sink as `usage.budgets` and never
-affects a turn.
+`BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
+budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
+sum of known `cost_usd`; a NULL cost is unpriced, never zero or estimated. If every turn in
+the period is unpriced the status is `unknown` and no alert fires. Mixed data alerts against
+a known lower bound and the UI labels it "at least". The service evaluates on start, every
+60 seconds, and when settings or cells change; a failed evaluation goes to the error sink as
+`usage.budgets` and never affects a turn.
 
 A scope with `pauseOnExceeded`/`pause_on_exceeded` is a **hard cap**. Its cap spend is
 reported plus estimated cost; `capSpendIsLowerBound` is true when any turn has neither.

@@ -9,15 +9,15 @@ import {
   type BudgetAlert,
   type BudgetStatus,
   type BudgetsResponse,
-  type BudgetUsageReader,
   type SpendPause,
 } from '../domain/budget.js';
 import { BudgetAlertRepository, type BudgetAlertRecord } from './budget-alerts.js';
+import type { UsageRepository } from './repository.js';
 
 const DEFAULT_INTERVAL_MS = 60_000;
 
 export interface BudgetServiceDeps {
-  usage: BudgetUsageReader;
+  usage: Pick<UsageRepository, 'totals'>;
   cells: Pick<CellRepository, 'list' | 'get'>;
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
   alerts: BudgetAlertRepository;
@@ -34,7 +34,7 @@ export interface BudgetServiceDeps {
  * affect a turn, the master, or the HTTP layer.
  */
 export class BudgetService {
-  private readonly usage: BudgetUsageReader;
+  private readonly usage: Pick<UsageRepository, 'totals'>;
   private readonly cells: Pick<CellRepository, 'list' | 'get'>;
   private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
   private readonly alerts: BudgetAlertRepository;
@@ -81,7 +81,6 @@ export class BudgetService {
     const period = budgetPeriod(now);
     const settings = this.settings.get();
     const cells = this.cells.list();
-    const usageAvailable = this.usage.available();
     const statuses: BudgetStatus[] = [];
 
     if (settings.budget.monthlyUsd !== null) {
@@ -93,8 +92,7 @@ export class BudgetService {
           budgetUsd: settings.budget.monthlyUsd,
           alertAtPercent: settings.budget.alertAtPercent,
           period,
-          totals: this.totals(period.start, period.end, usageAvailable),
-          usageAvailable,
+          totals: this.usage.totals({ from: period.start, to: period.end }),
           pauseOnExceeded: settings.budget.pauseOnExceeded,
         }),
       );
@@ -110,8 +108,11 @@ export class BudgetService {
           budgetUsd: cell.monthlyBudgetUsd,
           alertAtPercent: settings.budget.alertAtPercent,
           period,
-          totals: this.totals(period.start, period.end, usageAvailable, cell.id),
-          usageAvailable,
+          totals: this.usage.totals({
+            from: period.start,
+            to: period.end,
+            cellId: cell.id,
+          }),
           pauseOnExceeded: cell.pauseOnExceeded,
         }),
       );
@@ -128,7 +129,6 @@ export class BudgetService {
       periodStart: period.start,
       periodEnd: period.end,
       alertAtPercent: settings.budget.alertAtPercent,
-      usageAvailable,
       statuses,
       alerts: this.alerts
         .listUnacknowledged(period.start)
@@ -147,8 +147,6 @@ export class BudgetService {
     const period = budgetPeriod(now);
 
     try {
-      const usageAvailable = this.usage.available();
-      if (!usageAvailable) return null;
       const settings = this.settings.get();
       if (settings.budget.monthlyUsd !== null && settings.budget.pauseOnExceeded) {
         const status = budgetStatus({
@@ -158,8 +156,7 @@ export class BudgetService {
           budgetUsd: settings.budget.monthlyUsd,
           alertAtPercent: settings.budget.alertAtPercent,
           period,
-          totals: this.totals(period.start, period.end, usageAvailable),
-          usageAvailable,
+          totals: this.usage.totals({ from: period.start, to: period.end }),
           pauseOnExceeded: true,
         });
         if (status.paused) return spendPause(status);
@@ -179,8 +176,11 @@ export class BudgetService {
             budgetUsd: cell.monthlyBudgetUsd,
             alertAtPercent: settings.budget.alertAtPercent,
             period,
-            totals: this.totals(period.start, period.end, usageAvailable, cell.id),
-            usageAvailable,
+            totals: this.usage.totals({
+              from: period.start,
+              to: period.end,
+              cellId: cell.id,
+            }),
             pauseOnExceeded: true,
           });
           if (status.paused) return spendPause(status);
@@ -202,7 +202,6 @@ export class BudgetService {
     try {
       const response = this.statuses(now);
       periodStart = response.periodStart;
-      if (!response.usageAvailable) return;
 
       const configured = new Set<string>();
       for (const status of response.statuses) {
@@ -276,30 +275,6 @@ export class BudgetService {
     const record = this.alerts.acknowledge(id, now);
     if (!record) return null;
     return this.toAlert(record, this.cells.list());
-  }
-
-  private totals(
-    from: number,
-    to: number,
-    usageAvailable: boolean,
-    cellId?: string,
-  ): {
-    turns: number;
-    costUsd: number | null;
-    estimatedCostUsd: number | null;
-    unpricedTurns: number;
-    unknownCostTurns: number;
-  } {
-    if (!usageAvailable) {
-      return {
-        turns: 0,
-        costUsd: null,
-        estimatedCostUsd: null,
-        unpricedTurns: 0,
-        unknownCostTurns: 0,
-      };
-    }
-    return this.usage.totals({ from, to, ...(cellId ? { cellId } : {}) });
   }
 
   private toAlert(

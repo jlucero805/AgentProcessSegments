@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 530 vitest cases: 377 server across 32 files and 153 web across 23 files, all green.
+- 535 vitest cases: 382 server across 33 files and 153 web across 23 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -63,7 +63,9 @@ digests.
   Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
-  a systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
+  a systemd user unit for a VPS, a reviewed live-VPS cutover script
+  (`deploy/cutover-vps.sh`, `npm run cutover:vps`) that detaches, drains, moves, verifies,
+  and rolls back, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, configurable master-activity retention for `master_events`,
@@ -85,7 +87,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 377 server + 153 web, plus the e2e env guard
+npm test                       # 382 server + 153 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the scripts/e2e spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -98,6 +100,8 @@ node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
                                # and optional Puppeteer
+npm run migrate:paths           # move legacy Sandbox Harness paths to APS names
+npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart agent-process-segments
 journalctl --user -u agent-process-segments -n 50 --no-pager

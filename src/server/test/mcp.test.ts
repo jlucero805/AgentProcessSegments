@@ -103,7 +103,12 @@ afterEach(async () => {
   close = null;
 });
 
-describe('harness mcp server', () => {
+describe('bundled aps mcp server', () => {
+  it('identifies as the bundled aps server', async () => {
+    const { client } = await connect('req-1');
+    expect(client.getServerVersion()).toMatchObject({ name: 'aps', version: '0.1.0' });
+  });
+
   it('exposes the request tools scoped to one request', async () => {
     const { client } = await connect('req-1');
     const { tools } = await client.listTools();

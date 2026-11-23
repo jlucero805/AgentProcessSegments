@@ -1,3 +1,4 @@
+import { normalizeToolName } from './chat';
 import type { TranscriptMsg } from './types';
 import { EmptyState, cn } from './ui';
 
@@ -22,7 +23,7 @@ export function TranscriptList({ transcript }: { transcript: TranscriptMsg[] }) 
             {message.role === 'you'
               ? 'You'
               : message.kind === 'tool'
-                ? message.toolName ?? 'Tool'
+                ? normalizeToolName(message.toolName ?? 'Tool')
                 : 'Agent'}
           </div>
           <pre className="whitespace-pre-wrap font-sans text-zinc-300">

@@ -138,7 +138,7 @@ export async function main(): Promise<void> {
     });
     master.start();
     await app.listen({ host: config.host, port: config.port });
-    // Catch-up generations may call the harness MCP server, so start after the
+    // Catch-up generations may call the bundled `aps` MCP server, so start after the
     // HTTP brain is accepting connections.
     summary.start();
     // Fire-and-forget: a first-time prune must not delay readiness.

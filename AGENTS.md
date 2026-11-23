@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 414 vitest cases: 285 server across 28 files and 129 web across 21 files, all green.
+- 432 vitest cases: 290 server across 28 files and 142 web across 22 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -79,7 +79,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 285 server + 129 web
+npm test                       # 290 server + 142 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -164,10 +164,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
    sessions are read-only; the master scope gets board read tools in addition to the KB
    tools.
 3. **MCP tool names must match the harness allowlist.** Registering a tool does not
-   grant it. Add it to `REQUEST_TOOLS`, `KB_TOOLS`, `MASTER_TOOLS`, or `SETUP_TOOLS` in
-   `clarify/harness.ts` or the Claude agent cannot call it under auto-approve. OpenCode
+   grant it. Build the string with `mcpTool()` from `mcp/identity.ts`, add it to
+   `REQUEST_TOOLS`, `KB_TOOLS`, `MASTER_TOOLS`, or `SETUP_TOOLS` in
+   `clarify/harness.ts`, or the Claude agent cannot call it under auto-approve. OpenCode
    request sessions use `--auto`; its read-only/setup sessions use explicit deny
-   permissions.
+   permissions. The bundled server key is `aps`; "harness" is the agent adapter.
 4. **One turn at a time per id.** `start`/`send`/`dispatch`/`finalize` return the
    existing `LiveTurn` while one is in flight. Do not start a second.
 5. **A finished turn is dropped.** `attach()` returns false after completion; clients
@@ -239,8 +240,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     tests, and pushes one request at a time before advancing to Finalize.
 22. **Wizard chat can edit its draft.** `__setup__:<draftId>` has no request row; setup
     scope gets only `Read` plus `get_cell_draft`/`update_cell_draft`, not board/KB tools.
-    The harness MCP server uses `codemode: false` so calls are visible tool cards. The
-    prompt and tool errors carry `SEGMENT_FLOW_GUIDE`; prefer one `segmentUpdates` update
+    The bundled `aps` MCP server uses `codemode: false` so calls are visible tool cards.
+    The prompt and tool errors carry `SEGMENT_FLOW_GUIDE`; prefer one `segmentUpdates` update
     per segment. The chat refreshes the form after each successful update. The draft is
     server-backed, validated, deleted on close, and any live turn is stopped. An enabled
     intake prompt is included in the first clarification turn.
@@ -303,8 +304,8 @@ central; throw `RequestError`, `CellNotFoundError`, or `PluginError` rather than
 status codes by hand.
 
 **Add an MCP tool.** Register it in `src/mcp/server.ts` with a zod raw shape and an
-annotation, add the `mcp__harness__<name>` string to the engine allowlist, then a test in
-`test/mcp.test.ts` asserting the recorded HTTP method, path, and body.
+annotation, add `mcpTool('<name>')` from `src/mcp/identity.ts` to the engine allowlist,
+then a test in `test/mcp.test.ts` asserting the recorded HTTP method, path, and body.
 
 **Add a column.** Add it to `BASE_SCHEMA` and to `COLUMNS` in `db.ts`. Indexes go after
 the migrations. Add a legacy-database test in `test/db.test.ts`, because that ordering is

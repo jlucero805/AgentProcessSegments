@@ -263,6 +263,23 @@ or plan. Guessing would make estimates look authoritative when they are not. Cos
 operator must enter prices before estimates appear. Matching is exact and USD-only; tiered
 pricing, currencies, and bulk import are follow-ups.
 
+## 20. The bundled MCP key is reserved and old transcript labels are normalized
+
+**Chosen.** Key the bundled stdio MCP server `aps`, reserve that key, and normalize
+legacy `mcp__harness__*` / `harness_*` tool labels in the web client instead of
+rewriting persisted transcripts.
+
+**Alternatives.** Keep `harness` as the MCP key; use the full product name
+`agent-process-segments`; reject a user config that already defines `aps`; migrate old
+transcripts in the database.
+
+**Why.** `aps` matches the canonical runtime prefix and keeps tool names short, while a
+reserved key mirrors the old `harness` precedence and avoids a hard failure in a turn.
+Normalizing only at render time keeps stored history auditable and needs no migration.
+Cost: a user MCP server named `aps` is silently replaced, and a future warning is separate
+work. The stored transcript still contains the old prefix, so raw exports show the
+historical name.
+
 ## Open items for review
 
 - Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.

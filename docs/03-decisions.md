@@ -584,7 +584,7 @@ no visible intermediate work.
 **Decision.** Add a brain-level `APS_DEFAULT_MODEL`; when the harness is OpenCode it
 defaults to `opencode-go/deepseek-v4.1-flash`. Requests and cells still override it, and
 `GET /api/models` exposes the default so the wizard can show it. Set `codemode: false` on
-the harness MCP server so tools are called directly and appear as tool cards. The setup
+the bundled `aps` MCP server so tools are called directly and appear as tool cards. The setup
 prompt asks for one segment per update, and the chat refreshes the structured form after
 every successful `update_cell_draft` tool result. The running bar shows elapsed seconds
 and the last tool.
@@ -833,3 +833,28 @@ does not abort the batch.
 and does not wait for review of every card. A working request or one with a missing
 digest needs the drawer. The action stays human-triggered; do not wire it into the master,
 scheduler, or a background job.
+
+## D51. The bundled MCP server key is `aps`
+
+**Context.** The product renamed from Sandbox Harness to Agent Process Segments, but the
+bundled stdio MCP server still registered as `harness` and was injected as
+`mcpServers.harness` / `mcp.harness`. That key is not the agent-substrate seam: it is the
+config key and tool namespace the harnesses receive, and it was leaking the old product
+name into generated configs, tool cards, transcripts, and docs.
+
+**Decision.** The bundled server key and handshake identity are `aps`. Claude receives
+`mcpServers.aps` and the allow-list uses `mcp__aps__*`; OpenCode receives `mcp.aps` and
+names its tool events `aps_<tool>`. `HarnessId`, `AgentHarness`, `APS_HARNESS`, the
+`clarify/harness*.ts` files, and the `requests.harness`/`cells.harness` columns keep the
+"harness" name, because they describe the agent adapter rather than this MCP server. The
+`aps` key is reserved: a user MCP server with the same key is replaced by the bundled
+server, matching the old `harness` precedence. Persisted transcripts are normalized at
+the web boundary (`mcp__harness__*` to `mcp__aps__*`, `harness_*` to `aps_*`) rather than
+rewritten in storage. The MCP `version` stays `0.1.0` because the app has no separate
+release version.
+
+**Cost.** A user cannot name their own MCP server `aps` without it being overridden; a
+clearer warning is separate work. Old and new tool labels appear as one canonical name in
+the UI, while the raw stored transcripts still contain the old prefix for audit purposes.
+No database or session migration is needed because the generated config is recreated
+every turn.

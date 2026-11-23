@@ -158,7 +158,7 @@ build.
 
 Agent turns are bounded by `APS_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
 child is killed and produces a visible error, and its recent stderr goes to the error log.
-Harness MCP calls time out after `APS_MCP_TIMEOUT_MS` (default 15 seconds).
+Bundled `aps` MCP calls time out after `APS_MCP_TIMEOUT_MS` (default 15 seconds).
 
 `APS_HARNESS=claude` (the default) or `opencode` sets the brain default. Each cell can
 choose its own harness in the cell editor; a cell with **Brain default** inherits this
@@ -278,7 +278,8 @@ src/server/src
   master/scheduler.ts per-cell timers, per-cell manual run, one dispatch cycle per cell
   summary/            per-cell scorecard policy, deterministic stats, read-only generation,
                       polling scheduler, persisted report history
-  mcp/server.ts       stdio MCP server exposing harness tools, proxied to the API
+  mcp/server.ts       stdio `aps` MCP server exposing harness tools, proxied to the API
+  mcp/identity.ts     shared MCP server key, tool prefix, and allow-list helper
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo
   usage/types.ts      pure usage contract shared with the SPA
   usage/repository.ts usage_events writes plus totals/series/group queries
@@ -321,7 +322,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 414 vitest cases: 285 server cases (state machine, migrations including
+`npm test` runs 432 vitest cases: 290 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, engine turns over a
 fake harness, worktree isolation against a real git repo, the MCP tool surface, harness
@@ -330,7 +331,7 @@ process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-comp
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
 stats/generation/scheduling, budget status/alerts, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 129 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 142 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget banner, master detail and scorecard, the usage page and formatters, and

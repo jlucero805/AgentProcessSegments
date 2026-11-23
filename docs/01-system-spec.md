@@ -351,7 +351,7 @@ defaults.
   its adapter; changing a cell's or request's effective harness discards the cached child
   and session id before the next turn.
 - **Allowed tools:** request sessions get `Write, Read, Edit, Bash, Skill, Glob, Grep`,
-  the harness MCP tools, and the user's own MCP servers (Claude reads
+  the bundled `aps` MCP tools, and the user's own MCP servers (Claude reads
   `~/.claude.json`/`.mcp.json`; OpenCode reads its config). The KB session (`__kb__`) is
   read-only: `Read` plus the KB MCP tools, no plugins, no user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.
@@ -439,13 +439,14 @@ agentic work repays `high` or `xhigh`; chat, classification, and bulk work do we
 Pricing varies by platform and contract. The relative capability and cost ordering is
 what this guidance keys on.
 
-### Harness MCP server
+### Bundled MCP server (`aps`)
 
 A stdio MCP server the engine launches per session through `--mcp-config`, scoped by
-env `APS_REQUEST_ID` and `APS_BRAIN_URL`, proxying to the loopback REST API. Tools:
-`update_request`, `get_request`, `spawn_request`, `list_requests`, `index_to_kb` for
-request sessions; `search_kb`, `list_kb` for the KB session. Namespaced
-`mcp__harness__*` and allow-listed so the agent can call them under auto-approve.
+env `APS_REQUEST_ID` and `APS_BRAIN_URL`, proxying to the loopback REST API. It is keyed
+and registered as `aps`; "harness" remains the name of the agent-substrate seam, not the
+MCP server. Tools: `update_request`, `get_request`, `spawn_request`, `list_requests`,
+`index_to_kb` for request sessions; `search_kb`, `list_kb` for the KB session. Namespaced
+`mcp__aps__*` and allow-listed so the agent can call them under auto-approve.
 
 ### Wire contracts
 
@@ -465,7 +466,7 @@ Input to the child is written to stdin as
 `--mcp-config … --strict-mcp-config`:
 
 ```json
-{ "mcpServers": { "harness": {
+{ "mcpServers": { "aps": {
   "command": "<node>", "args": ["<dist>/mcp/server.js"],
   "env": { "APS_BRAIN_URL": "http://127.0.0.1:7391", "APS_REQUEST_ID": "<id or ''>" } } } }
 ```
@@ -652,7 +653,7 @@ camelCase domain types.
 ## 10. Status at extraction
 
 - **Implemented:** request CRUD and state machine, clarify/implement/finalize streaming
-  with reattach, per-request sessions with resume, harness MCP plus user MCP servers,
+  with reattach, per-request sessions with resume, `aps` MCP plus user MCP servers,
   per-request git worktrees, KB store and KB chat, plugins with slash menu, cells,
   agent-status and unchecked indicators, SPA, single-origin vend plus an SSO tunnel.
 - **Not built:** no process supervisor (manual restarts), no CI pipeline integration

@@ -293,6 +293,30 @@ export const settingsPatchSchema = z
     },
   );
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Merge a saved settings value over its default. Present objects merge field by
+ * field; arrays and scalars replace the default. A `null` whole block means
+ * "use the default block", while a `null` inside a nullable field is a value
+ * and is preserved. Keys absent from the default are dropped; the schema would
+ * strip them anyway.
+ */
+function mergeSettings<T>(defaults: T, saved: unknown): T {
+  if (saved === undefined) return structuredClone(defaults);
+  if (!isPlainObject(defaults)) return saved as T;
+  if (saved === null) return structuredClone(defaults);
+  if (!isPlainObject(saved)) return saved as T;
+
+  const merged: Record<string, unknown> = {};
+  for (const key of Object.keys(defaults)) {
+    merged[key] = mergeSettings(defaults[key], saved[key]);
+  }
+  return merged as unknown as T;
+}
+
 /**
  * Persistent app settings, separate from the brain's environment/path config.
  * Unknown keys are stripped; an invalid file falls back to defaults until the
@@ -354,44 +378,13 @@ export class SettingsStore {
 
     try {
       const parsed: unknown = JSON.parse(raw);
-      const source =
-        typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
-      // Files written before a later block existed carry only `master`. Merge
-      // each present block over the defaults so an upgrade or restart does not
-      // silently reset operator customizations.
-      const savedBudget = source?.['budget'];
-      const savedNotifications = source?.['notifications'];
-      const notificationsSource =
-        typeof savedNotifications === 'object' && savedNotifications !== null
-          ? (savedNotifications as Record<string, unknown>)
-          : {};
-      const savedWebhook = notificationsSource['webhook'];
-      const savedEmail = notificationsSource['email'];
-      const candidate = {
-        master: source?.['master'] ?? DEFAULT_SETTINGS.master,
-        summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
-        usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,
-        retention: source?.['retention'] ?? DEFAULT_SETTINGS.retention,
-        // Merge the budget block over defaults so a file written before
-        // `pauseOnExceeded` existed still loads, and so a saved budget is not
-        // silently reset on restart.
-        budget: {
-          ...DEFAULT_SETTINGS.budget,
-          ...(typeof savedBudget === 'object' && savedBudget !== null ? savedBudget : {}),
-        },
-        // Merge each notification channel over defaults for the same reason: a
-        // webhook-only file must still gain the email block.
-        notifications: {
-          webhook: {
-            ...DEFAULT_SETTINGS.notifications.webhook,
-            ...(typeof savedWebhook === 'object' && savedWebhook !== null ? savedWebhook : {}),
-          },
-          email: {
-            ...DEFAULT_SETTINGS.notifications.email,
-            ...(typeof savedEmail === 'object' && savedEmail !== null ? savedEmail : {}),
-          },
-        },
-      };
+      const source = isPlainObject(parsed) ? parsed : null;
+      // Merge every present block over its default so an upgrade or a partial
+      // hand-edited file keeps the saved values (budget included) and gains new
+      // defaults. A `null` inside a nullable field is preserved; a `null` whole
+      // block means "use the default block". Only an invalid value below falls
+      // back to the full defaults.
+      const candidate = mergeSettings(DEFAULT_SETTINGS, source);
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {
         this.errors?.error('settings.invalid', new Error(result.error.message), {

@@ -303,6 +303,68 @@ Rollback is manual. An older binary reads only `SBOX_*`, so a rollback unit or d
 must set `SBOX_DB`, `SBOX_DATA_DIR`, `SBOX_CONFIG`, `SBOX_PROCESS`, and `SBOX_ERROR_LOG`
 to the migrated paths and point `WorkingDirectory` at the renamed clone.
 
+## Cutting over a live, self-hosted brain
+
+The steps above assume an operator shell outside the service. This host runs the brain
+that orchestrates its own migration, so a normal shell session cannot perform it:
+`systemctl --user stop sandbox-harness` kills the service cgroup, including the script
+that would do the cutover. Use the bundled cutover script, which detaches itself into a
+transient user unit and survives the stop.
+
+The script pauses `master.enabled`, waits for every request with `agentStatus=working`
+to leave that state, fast-forwards and builds the clone, then stops the old unit, moves
+the clone and paths, repairs git worktrees, installs the renamed unit with the migrated
+harness drop-in, verifies the database and UI, and restores the master setting. If
+anything fails it restores the old unit in place — it never moves migrated data back.
+
+```bash
+cd ~/AgentProcessSegments          # this host's legacy clone name
+npm run cutover:vps -- --dry-run   # inspect the full plan; changes nothing
+npm run cutover:vps -- --detach --request-id <request-id>
+```
+
+`--detach` copies the script to `~/.aps-cutover/runs/<UTC>/cutover.sh` and launches it
+with `systemd-run --user`. Watch it with:
+
+```bash
+journalctl --user -f | grep aps-cutover
+cat ~/.aps-cutover/latest/state
+cat ~/.aps-cutover/latest/cutover.log
+```
+
+The launch prints the exact transient unit name; use `journalctl --user -u <name>` for
+that unit if it is still present.
+
+After it finishes, verify the new unit and paths:
+
+```bash
+systemctl --user is-active agent-process-segments
+systemctl --user show agent-process-segments -p FragmentPath -p WorkingDirectory -p Environment
+curl -s http://127.0.0.1:7391/health
+curl -s http://127.0.0.1:7391/api/models
+git -C ~/agent-process-segments worktree list
+```
+
+Notes for this host and similar installs:
+
+- The legacy clone is `~/AgentProcessSegments`, not `~/sandbox-harness`; pass
+  `--old-clone` if the default does not match.
+- `harness.conf` must be migrated to `APS_HARNESS=opencode` and
+  `APS_HARNESS_BIN=$HOME/.opencode/bin/opencode`. This host has no `claude` binary, so
+  dropping the harness drop-in leaves `/health` green while every turn fails.
+- Do not copy `verify.conf`: its `WorkingDirectory`/`SBOX_*` path overrides are now the
+  new unit's defaults.
+- The cutover drains **all** active turns, not only `--request-id`, because the service
+  stop kills every child. `--allow-busy` skips the drain and accepts that loss; use it
+  only for an emergency.
+- Moving the clone and `~/.sandbox-harness` breaks absolute gitdir links. The script
+  runs `git worktree repair` and `git worktree prune`; verify the worktree used by the
+  request that launched the cutover before resuming it.
+- The new unit keeps the old port. If the old unit used a non-default port or host, the
+  script writes `port.conf`/`host.conf` drop-ins to preserve it.
+- `~/.aps-cutover/latest/backup` holds the old unit file, drop-ins, and the pre-build
+  `dist` directories. Keep it until the new unit has run for a while.
+
 ## System-wide variant
 
 On a multi-user host, install as a system unit instead, running as the account that owns

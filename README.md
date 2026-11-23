@@ -198,6 +198,12 @@ Rollback is manual: an older binary reads only `SBOX_*`, so a rollback unit or d
 must point `SBOX_DB`, `SBOX_DATA_DIR`, `SBOX_CONFIG`, and the other path variables at the
 migrated locations.
 
+On a running host, especially one whose brain is orchestrating its own cutover, use
+`npm run cutover:vps -- --dry-run` and then `--detach` instead of the manual sequence.
+The script drains active turns, moves the clone and paths, repairs worktrees, verifies
+the new unit, and rolls back in place on failure. See
+[`deploy/vps.md`](deploy/vps.md#cutting-over-a-live-self-hosted-brain).
+
 ## Spend budgets
 
 The Config page edits an advisory **overall monthly budget** and warning percentage; each

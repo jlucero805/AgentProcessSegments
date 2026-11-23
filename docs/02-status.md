@@ -215,9 +215,9 @@ built and vended by the brain; real-CLI verification is still pending.
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
-  `docs/07-process-segments.md`. The files on this host are still at
-  `/root/.config/sandbox-harness/config.json` and `process.json` until the VPS cutover
-  runs `npm run migrate:paths`; the brain keeps using that legacy location automatically.
+  `docs/07-process-segments.md`. This host runs the renamed unit from
+  `/root/agent-process-segments`; its `config.json` and `process.json` live at
+  `/root/.config/agent-process-segments/` after the cutover.
 - Usage retention: `usage.retentionDays` (default 90, `0` keeps history forever) is
   edited on the Config page and stored in `config.json`. A startup + hourly job deletes
   `usage_events` older than the window in 1000-row batches, yields between batches,
@@ -235,7 +235,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 392 vitest cases, all passing: 274 server across 27 files and 118 web across 20 files,
+- 395 vitest cases, all passing: 277 server across 28 files and 118 web across 20 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -245,11 +245,12 @@ built and vended by the brain; real-CLI verification is still pending.
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
   Anthropic account was needed; the mock API answered the Messages stream and the
   `StructuredOutput` probe tool.
-- Deployment: a systemd user unit in `deploy/agent-process-segments.service` and a VPS runbook
-  in `deploy/vps.md`. Verified on this host: enabled and active, bound to
-  `127.0.0.1:7391`, SPA and API served with `/api` winning over the SPA fallback, a
-  `kill -9` of the main process triggered `Restart=on-failure`, and a clean restart kept
-  serving. `loginctl enable-linger` is set so the user manager starts at boot.
+- Deployment: the systemd user unit in `deploy/agent-process-segments.service` and the VPS
+  runbook in `deploy/vps.md`. This host runs `agent-process-segments.service` from
+  `/root/agent-process-segments` with APS paths, bound to `127.0.0.1:7391`; SPA and API
+  are served with `/api` winning over the SPA fallback. The legacy
+  `sandbox-harness.service` is disabled and its unit/drop-ins are backed up under
+  `~/.aps-cutover`. `loginctl enable-linger` is set so the user manager starts at boot.
 - E2E API workflow: `npm run e2e` boots the built brain with a temp DB and deterministic
   mock Claude CLI, creates a dedicated `E2E` cell, and covers clarify, dispatch,
   master prod/review, follow-up creation, per-cell master chat, finalize, and the

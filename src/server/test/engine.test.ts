@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
@@ -13,6 +15,22 @@ let harness: Harness | null = null;
 function fresh(script?: (text: string) => string[]): Harness {
   harness = createHarness(script);
   return harness;
+}
+
+/** A real repo, since the engine only creates worktrees for a real checkout. */
+function gitRepo(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'aps-engine-git-'));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  execFileSync(
+    'git',
+    ['-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '--allow-empty', '-m', 'init'],
+    { cwd: dir },
+  );
+  return dir;
+}
+
+function gitBranches(repo: string): string {
+  return execFileSync('git', ['-C', repo, 'branch', '--list'], { encoding: 'utf8' });
 }
 
 afterEach(() => {
@@ -809,5 +827,43 @@ describe('turn engine', () => {
       h.engine.transcript(request.id).some((message) => message.text.includes('timed out after')),
     ).toBe(true);
     expect(h.usage.query({}).totals.turns).toBe(0);
+  });
+});
+
+describe('request worktree branches', () => {
+  it('creates the worktree on aps/<id> and records the branch', async () => {
+    const h = fresh();
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Branch me', targetRepo: repo });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    const dir = path.join(h.config.dataDir, 'worktrees', request.id);
+    expect(h.repo.require(request.id).branch).toBe(`aps/${request.id}`);
+    expect(existsSync(dir)).toBe(true);
+    expect(h.harness.commands[0]?.cwd).toBe(dir);
+  });
+
+  it('reuses a legacy sbox/<id> branch and keeps it in the dispatch prompt', async () => {
+    const h = fresh();
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Legacy branch', targetRepo: repo });
+    execFileSync('git', ['-C', repo, 'branch', `sbox/${request.id}`]);
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+
+    const turn = await h.engine.kickoffDispatch(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(h.repo.require(request.id).branch).toBe(`sbox/${request.id}`);
+    expect(gitBranches(repo)).not.toContain(`aps/${request.id}`);
+    const prompt = h.harness.process?.messages[0] ?? '';
+    expect(prompt).toContain(`sbox/${request.id}`);
+    expect(prompt).not.toContain(`aps/${request.id}`);
+    expect(h.harness.commands[0]?.cwd).toBe(
+      path.join(h.config.dataDir, 'worktrees', request.id),
+    );
   });
 });

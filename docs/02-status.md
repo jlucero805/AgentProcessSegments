@@ -28,9 +28,12 @@ built and vended by the brain; real-CLI verification is still pending.
   waiting for the turns, then settles each completion in the background, recording
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events and advancing on
   exact markers through legal transitions. A segment can also create follow-up requests
-  from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
-  event history are cell-scoped. The Config page edits the global schedule/template, and
-  the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
+  from `FOLLOW-UP:` callouts; those children inherit the source request’s cell, harness
+  override, and target repo. The `spawn_request` MCP tool applies the same inheritance,
+  except that naming a different cell skips the harness/repo copy. Each cell has its own
+  master chat; manual run, status, and event history are cell-scoped. The Config page
+  edits the global schedule/template, and the Cell master drawer shows the selected
+  cell’s status, prompts, activity, and chat.
   Both Activity lists cap at 20rem and scroll internally; the drawer's master chat stays
   in reach even when activity is busy.
 - Process configuration lives in `$XDG_CONFIG_HOME/agent-process-segments/process.json`

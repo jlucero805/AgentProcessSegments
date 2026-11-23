@@ -17,7 +17,18 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function makeBrain(): { calls: Recorded[]; fetchImpl: FetchLike } {
+const PARENT = {
+  id: 'req-1',
+  title: 'Scoped',
+  cellId: 'cell-1',
+  harness: 'opencode',
+  targetRepo: 'https://example.test/repo',
+};
+
+function makeBrain(parent: Record<string, unknown> = PARENT): {
+  calls: Recorded[];
+  fetchImpl: FetchLike;
+} {
   const calls: Recorded[] = [];
 
   const fetchImpl: FetchLike = async (url, init) => {
@@ -41,7 +52,7 @@ function makeBrain(): { calls: Recorded[]; fetchImpl: FetchLike } {
       return json({ id: 'spawned' }, 201);
     }
     if (parsed.pathname === '/api/kb') return json([{ id: 'kb-1', content: 'cells are floors' }]);
-    if (parsed.pathname === '/api/requests/req-1') return json({ id: 'req-1', title: 'Scoped' });
+    if (parsed.pathname === '/api/requests/req-1') return json(parent);
     if (parsed.pathname === '/api/requests') return json([{ id: 'req-1' }]);
     if (parsed.pathname === '/api/cell-drafts/draft-1') {
       return method === 'PATCH'
@@ -60,13 +71,17 @@ async function connect(
   requestId: string,
   scope?: 'request' | 'kb' | 'master' | 'setup',
   draftId?: string,
-  options: { fetchImpl?: FetchLike; timeoutMs?: number } = {},
+  options: {
+    fetchImpl?: FetchLike;
+    timeoutMs?: number;
+    parent?: Record<string, unknown>;
+  } = {},
 ): Promise<{
   client: Client;
   calls: Recorded[];
   call: (name: string, args?: Record<string, unknown>) => Promise<CallToolResult>;
 }> {
-  const { calls, fetchImpl } = makeBrain();
+  const { calls, fetchImpl } = makeBrain(options.parent);
   const server = buildMcpServer({
     brainUrl: 'http://brain.test',
     requestId,
@@ -264,10 +279,108 @@ describe('bundled aps mcp server', () => {
     await call('index_to_kb', { content: 'what we learned' });
 
     const spawn = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/requests');
-    expect(spawn?.body).toEqual({ title: 'Follow-up' });
+    expect(spawn?.body).toEqual({
+      title: 'Follow-up',
+      cellId: 'cell-1',
+      harness: 'opencode',
+      targetRepo: 'https://example.test/repo',
+    });
 
     const store = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/kb');
     expect(store?.body).toEqual({ requestId: 'req-1', title: 'Scoped', content: 'what we learned' });
+  });
+
+  it('inherits the parent harness when the same cell is passed explicitly', async () => {
+    const { call, calls } = await connect('req-1');
+
+    await call('spawn_request', { title: 'Same cell', cellId: 'cell-1' });
+
+    const spawn = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/requests');
+    expect(spawn?.body).toEqual({
+      title: 'Same cell',
+      cellId: 'cell-1',
+      harness: 'opencode',
+      targetRepo: 'https://example.test/repo',
+    });
+  });
+
+  it('does not leak the parent harness or repo into a different cell', async () => {
+    const { call, calls } = await connect('req-1');
+
+    await call('spawn_request', { title: 'Elsewhere', cellId: 'cell-2' });
+
+    const spawn = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/requests');
+    expect(spawn?.body).toEqual({ title: 'Elsewhere', cellId: 'cell-2' });
+  });
+
+  it('keeps explicit spawn fields and clears them with null', async () => {
+    const { call, calls } = await connect('req-1');
+
+    await call('spawn_request', {
+      title: 'Moved',
+      cellId: 'cell-2',
+      harness: 'claude',
+      targetRepo: null,
+    });
+
+    const spawn = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/requests');
+    expect(spawn?.body).toEqual({
+      title: 'Moved',
+      cellId: 'cell-2',
+      harness: 'claude',
+      targetRepo: null,
+    });
+  });
+
+  it('clears only the inherited harness with an explicit null', async () => {
+    const { call, calls } = await connect('req-1');
+
+    await call('spawn_request', { title: 'No override', harness: null });
+
+    const spawn = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/requests');
+    expect(spawn?.body).toEqual({
+      title: 'No override',
+      cellId: 'cell-1',
+      harness: null,
+      targetRepo: 'https://example.test/repo',
+    });
+  });
+
+  it('spawns without invented fields when the parent has none', async () => {
+    const { call, calls } = await connect('req-1', undefined, undefined, {
+      parent: { id: 'req-1', title: 'Scoped', cellId: null, harness: null, targetRepo: null },
+    });
+
+    await call('spawn_request', { title: 'Unassigned' });
+
+    const spawn = calls.find((entry) => entry.method === 'POST' && entry.path === '/api/requests');
+    expect(spawn?.body).toEqual({ title: 'Unassigned' });
+  });
+
+  it('refuses to spawn when the parent request cannot be read', async () => {
+    const calls: Recorded[] = [];
+    const failing: FetchLike = async (url, init) => {
+      const method = init?.method ?? 'GET';
+      calls.push({ method, path: new URL(url).pathname, body: undefined });
+      return method === 'GET' ? json({ error: 'not_found' }, 404) : json({ id: 'spawned' }, 201);
+    };
+    const { call } = await connect('req-1', undefined, undefined, { fetchImpl: failing });
+
+    const result = await call('spawn_request', { title: 'Orphan' });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('404');
+    expect(calls.some((entry) => entry.method === 'POST')).toBe(false);
+  });
+
+  it('advertises the spawn inheritance fields', async () => {
+    const { client } = await connect('req-1');
+    const { tools } = await client.listTools();
+    const spawn = tools.find((tool) => tool.name === 'spawn_request');
+
+    expect(spawn?.description).toContain('inherits');
+    expect(spawn?.inputSchema.properties).toHaveProperty('cellId');
+    expect(spawn?.inputSchema.properties).toHaveProperty('harness');
   });
 
   it('passes the query and limit through to the knowledge base', async () => {

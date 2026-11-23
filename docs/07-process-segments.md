@@ -290,9 +290,14 @@ If you discover work that should happen later, list each item on its own line as
 ```
 
 After the turn, each matching line creates a new request in the same cell, linked in the
-activity log as a `followup` event. Titles are deduplicated per source request, so the
-same callout cannot be re-created on a later cycle. The agent’s `spawn_request` MCP tool
-is still available for richer follow-ups.
+activity log as a `followup` event. The child inherits the source request’s harness
+override and target repo; a `null` value stays `null`. Titles are deduplicated per source
+request, so the same callout cannot be re-created on a later cycle. The agent’s
+`spawn_request` MCP tool is still available for richer follow-ups. It defaults the new
+request’s cell, harness override, and target repo to the calling request’s values;
+explicit arguments win, and naming a different `cellId` skips the harness/repo copy so the
+new cell’s defaults apply. A failed parent read returns an error instead of creating an
+unassigned request.
 
 ## UI
 

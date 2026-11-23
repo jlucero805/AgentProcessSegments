@@ -6,7 +6,9 @@ import {
   DEFAULT_BUDGET_SETTINGS,
   MAX_BUDGET_USD,
   MAX_USAGE_RETENTION_DAYS,
+  WEBHOOK_FORMATS,
   timeAgo,
+  webhookUrlError,
   type BudgetSettings,
   type BudgetStatus,
   type BudgetsResponse,
@@ -15,10 +17,14 @@ import {
   type MasterEvent,
   type ModelPrice,
   type ModelPriceInput,
+  type NotificationStatusResponse,
+  type NotificationsView,
   type ProcessConfig,
   type SegmentConfig,
   type SummaryConfig,
   type UsageSettings,
+  type WebhookFormat,
+  type WebhookPatch,
 } from './types';
 import {
   Badge,
@@ -28,6 +34,7 @@ import {
   Field,
   Input,
   SectionTitle,
+  Select,
   Spinner,
   Textarea,
 } from './ui';
@@ -127,6 +134,18 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaved, setBudgetSaved] = useState(false);
+  const [webhook, setWebhook] = useState<NotificationsView['webhook'] | null>(null);
+  const [webhookEnabled, setWebhookEnabled] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookFormat, setWebhookFormat] = useState<WebhookFormat>('json');
+  const [webhookSecret, setWebhookSecret] = useState('');
+  const [webhookClearSecret, setWebhookClearSecret] = useState(false);
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookSaved, setWebhookSaved] = useState(false);
+  const [webhookTesting, setWebhookTesting] = useState(false);
+  const [webhookTest, setWebhookTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [notificationStatus, setNotificationStatus] =
+    useState<NotificationStatusResponse | null>(null);
   const [prices, setPrices] = useState<ModelPrice[]>([]);
   const [priceForm, setPriceForm] = useState<PriceFormState>(emptyPriceForm);
   const [priceSaving, setPriceSaving] = useState(false);
@@ -135,15 +154,23 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
 
   const load = useCallback(async () => {
     try {
-      const [config, processConfig, cellList, eventList, budgetResponse] =
+      const [config, processConfig, cellList, eventList, budgetResponse, statusResponse] =
         await Promise.all([
           api.getConfig(),
           api.getProcess(),
           api.getCells(),
           api.getMasterEvents({ limit: 20 }),
           api.getBudgets().catch(() => null),
+          api.getNotificationStatus().catch(() => null),
         ]);
       const loadedBudget = config.budget ?? { ...DEFAULT_BUDGET_SETTINGS };
+      const loadedWebhook = config.notifications?.webhook ?? {
+        enabled: false,
+        url: null,
+        format: 'json' as const,
+        secret: null,
+        secretSet: false,
+      };
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
@@ -160,6 +187,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setBudgetView(
         budgetResponse && Array.isArray(budgetResponse.statuses) ? budgetResponse : null,
       );
+      setWebhook(loadedWebhook);
+      setWebhookEnabled(loadedWebhook.enabled);
+      setWebhookUrl(loadedWebhook.url ?? '');
+      setWebhookFormat(loadedWebhook.format);
+      setWebhookSecret('');
+      setWebhookClearSecret(false);
+      setNotificationStatus(statusResponse?.webhook ? statusResponse : null);
     } catch (error) {
       onError(describeError(error));
     }
@@ -311,6 +345,78 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setBudgetSaving(false);
+    }
+  }
+
+  async function saveWebhook() {
+    const url = webhookUrl.trim();
+    if (webhookEnabled && url === '') {
+      onError('A webhook URL is required when alert delivery is enabled.');
+      return;
+    }
+    if (url !== '') {
+      const problem = webhookUrlError(url);
+      if (problem !== null) {
+        onError(`The webhook URL ${problem}.`);
+        return;
+      }
+    }
+    if (webhookSecret !== '' && (webhookSecret.length < 16 || webhookSecret.length > 256)) {
+      onError('The signing secret must be 16 to 256 characters.');
+      return;
+    }
+
+    const patch: WebhookPatch = {
+      enabled: webhookEnabled,
+      url: url === '' ? null : url,
+      format: webhookFormat,
+    };
+    if (webhookClearSecret) patch.secret = null;
+    else if (webhookSecret !== '') patch.secret = webhookSecret;
+
+    setWebhookSaving(true);
+    try {
+      const config = await api.patchConfig({ notifications: { webhook: patch } });
+      const saved =
+        config.notifications?.webhook ?? {
+          enabled: false,
+          url: null,
+          format: 'json' as const,
+          secret: null,
+          secretSet: false,
+        };
+      setWebhook(saved);
+      setWebhookEnabled(saved.enabled);
+      setWebhookUrl(saved.url ?? '');
+      setWebhookFormat(saved.format);
+      setWebhookSecret('');
+      setWebhookClearSecret(false);
+      const status = await api.getNotificationStatus().catch(() => null);
+      setNotificationStatus(status);
+      setWebhookSaved(true);
+      setWebhookTest(null);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setWebhookSaving(false);
+    }
+  }
+
+  async function testWebhook() {
+    setWebhookTesting(true);
+    setWebhookTest(null);
+    try {
+      const result = await api.testWebhook();
+      setWebhookTest({
+        ok: result.ok,
+        message: result.ok
+          ? `Test delivered (HTTP ${result.status ?? 200}) in ${result.durationMs} ms.`
+          : result.error ?? 'The webhook test failed.',
+      });
+      const status = await api.getNotificationStatus().catch(() => null);
+      setNotificationStatus(status);
+    } finally {
+      setWebhookTesting(false);
     }
   }
 
@@ -659,6 +765,141 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
             {budgetSaved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
             <Button variant="primary" disabled={budgetSaving} onClick={() => void saveBudget()}>
               {budgetSaving ? <Spinner /> : 'Save budgets'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Alert delivery</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            Send budget warning and exceeded alerts to an HTTPS webhook. Delivery is
+            advisory; a failed webhook never pauses work or hides the in-app banner.
+          </p>
+        </div>
+
+        <Checkbox
+          label="Deliver budget alerts to a webhook"
+          checked={webhookEnabled}
+          onChange={(event) => {
+            setWebhookEnabled(event.target.checked);
+            setWebhookSaved(false);
+          }}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Webhook URL" hint="https required; localhost may use http">
+            <Input
+              type="url"
+              value={webhookUrl}
+              placeholder="https://example.com/hooks/budget"
+              onChange={(event) => {
+                setWebhookUrl(event.target.value);
+                setWebhookSaved(false);
+              }}
+            />
+          </Field>
+          <Field label="Payload format" hint="Slack/Discord ignore signatures">
+            <Select
+              value={webhookFormat}
+              onChange={(event) => {
+                setWebhookFormat(event.target.value as WebhookFormat);
+                setWebhookSaved(false);
+              }}
+            >
+              {WEBHOOK_FORMATS.map((format) => (
+                <option key={format} value={format}>
+                  {format === 'json' ? 'JSON' : format === 'slack' ? 'Slack' : 'Discord'}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <Field label="Signing secret" hint="16-256 chars; blank keeps the saved secret">
+          <Input
+            type="password"
+            autoComplete="off"
+            value={webhookSecret}
+            placeholder={webhook?.secretSet ? 'Saved secret (leave blank to keep)' : 'Optional'}
+            onChange={(event) => {
+              setWebhookSecret(event.target.value);
+              setWebhookSaved(false);
+            }}
+          />
+        </Field>
+
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-zinc-500">
+            {webhook?.secretSet ? 'A signing secret is saved.' : 'No signing secret saved.'}
+          </span>
+          {webhook?.secretSet && !webhookClearSecret ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setWebhookClearSecret(true);
+                setWebhookSaved(false);
+              }}
+            >
+              Clear secret
+            </Button>
+          ) : null}
+          {webhookClearSecret ? (
+            <>
+              <span className="text-amber-400">The secret will be cleared on save.</span>
+              <Button size="sm" onClick={() => setWebhookClearSecret(false)}>
+                Keep secret
+              </Button>
+            </>
+          ) : null}
+        </div>
+
+        <p className="text-[11px] text-zinc-600">
+          JSON payloads carry an HMAC-SHA256 signature in{' '}
+          <code className="text-zinc-500">X-APS-Signature</code>. Slack and Discord incoming
+          webhooks accept the text-only format and ignore that header.
+        </p>
+
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            {notificationStatus?.webhook ? (
+              <p className="text-[11px] text-zinc-600">
+                {notificationStatus.webhook.configured
+                  ? 'Webhook configured'
+                  : 'No webhook configured'}{' '}
+                · {notificationStatus.webhook.pending} pending ·{' '}
+                {notificationStatus.webhook.failed} failed
+                {notificationStatus.webhook.lastDeliveryAt !== null
+                  ? ` · last ${notificationStatus.webhook.lastDeliveryStatus ?? 'unknown'} ${timeAgo(notificationStatus.webhook.lastDeliveryAt)} ago`
+                  : ' · no deliveries yet'}
+                {notificationStatus.webhook.lastError
+                  ? ` · ${notificationStatus.webhook.lastError}`
+                  : ''}
+              </p>
+            ) : null}
+            {webhookTest ? (
+              <p
+                role="status"
+                className={webhookTest.ok ? 'text-[11px] text-emerald-400' : 'text-[11px] text-red-400'}
+              >
+                {webhookTest.message}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {webhookSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button disabled={webhookTesting} onClick={() => void testWebhook()}>
+              {webhookTesting ? <Spinner /> : 'Send test'}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={webhookSaving}
+              onClick={() => void saveWebhook()}
+            >
+              {webhookSaving ? <Spinner /> : 'Save delivery'}
             </Button>
           </div>
         </div>

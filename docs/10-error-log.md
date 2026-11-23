@@ -50,6 +50,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
 | `summary.generate` | A scorecard turn fails, times out without text, or returns no text (cell id only) |
 | `usage.budgets` | A budget status/alerts evaluation fails; includes `periodStart` and scope/cell ids only |
+| `budget.notify` | A webhook enqueue/send/delivery update fails; includes alert/delivery ids, attempt, and a short HTTP/network reason only—never the URL, secret, headers, or body |
 | `usage.rollup` | A rollup chunk fails before pruning; includes the day-aligned cutoff and committed watermark only |
 | `usage.prune` | Raw usage deletion fails after the rollup watermark commits; includes the cutoff and deleted count only |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |

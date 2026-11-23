@@ -176,4 +176,111 @@ describe('SettingsStore', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).summary.windowMinutes).toBe(180);
     expect(new SettingsStore(file).get().summary.windowMinutes).toBe(180);
   });
+
+  it('defaults webhook delivery and preserves saved settings across reloads', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    expect(store.get().notifications.webhook).toEqual({
+      enabled: false,
+      url: null,
+      format: 'json',
+      secret: null,
+    });
+
+    store.patch({
+      budget: { monthlyUsd: 120, alertAtPercent: 75 },
+      notifications: {
+        webhook: {
+          enabled: true,
+          url: 'https://hooks.example.test/budget',
+          format: 'slack',
+          secret: '0123456789abcdef',
+        },
+      },
+    });
+
+    const reloaded = new SettingsStore(file).get();
+    expect(reloaded.budget).toEqual({ monthlyUsd: 120, alertAtPercent: 75 });
+    expect(reloaded.notifications.webhook).toEqual({
+      enabled: true,
+      url: 'https://hooks.example.test/budget',
+      format: 'slack',
+      secret: '0123456789abcdef',
+    });
+  });
+
+  it('fills missing webhook fields from defaults on load', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        budget: { monthlyUsd: 50, alertAtPercent: 70 },
+        notifications: { webhook: { enabled: true, url: 'https://hooks.example.test/b' } },
+      }),
+    );
+    const settings = new SettingsStore(file).get();
+    expect(settings.budget).toEqual({ monthlyUsd: 50, alertAtPercent: 70 });
+    expect(settings.notifications.webhook).toEqual({
+      enabled: true,
+      url: 'https://hooks.example.test/b',
+      format: 'json',
+      secret: null,
+    });
+  });
+
+  it('merges a webhook patch field by field', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({
+      notifications: {
+        webhook: {
+          enabled: true,
+          url: 'https://hooks.example.test/budget',
+          format: 'discord',
+          secret: '0123456789abcdef',
+        },
+      },
+    });
+
+    const urlOnly = store.patch({
+      notifications: { webhook: { url: 'https://hooks.example.test/other' } },
+    });
+    expect(urlOnly.notifications.webhook).toEqual({
+      enabled: true,
+      url: 'https://hooks.example.test/other',
+      format: 'discord',
+      secret: '0123456789abcdef',
+    });
+
+    const cleared = store.patch({ notifications: { webhook: { secret: null } } });
+    expect(cleared.notifications.webhook.secret).toBeNull();
+    expect(cleared.notifications.webhook.format).toBe('discord');
+  });
+
+  it('rejects invalid webhook settings without writing', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const invalid = [
+      { enabled: true, url: null },
+      { url: 'http://example.com/hook' },
+      { url: 'https://user:pass@example.com/hook' },
+      { url: 'https://example.com/hook#fragment' },
+      { url: 'not a url' },
+      { url: `https://example.com/${'x'.repeat(2048)}` },
+      { format: 'teams' },
+      { secret: 'short' },
+      { secret: 'x'.repeat(257) },
+    ];
+
+    for (const webhook of invalid) {
+      expect(() => store.patch({ notifications: { webhook } })).toThrow();
+    }
+    expect(store.get().notifications.webhook).toEqual({
+      enabled: false,
+      url: null,
+      format: 'json',
+      secret: null,
+    });
+    expect(() => readFileSync(file)).toThrow();
+  });
 });

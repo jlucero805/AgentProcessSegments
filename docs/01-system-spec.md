@@ -144,11 +144,26 @@ budget. See the budget contract below.
 budget or warning percentage starts a new alert generation without deleting acknowledged
 history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
 
+### `budget_alert_deliveries`
+
+`id` (uuid PK), `alert_id` (FK to `budget_alerts`, `ON DELETE CASCADE`), `channel`
+(currently `webhook`), `format` (`json|slack|discord`), `destination_hash`, `status`
+(`pending|delivering|delivered|failed|skipped`), `attempts`, `next_attempt_at`,
+`last_error`, `created_at`, `updated_at`, `delivered_at`. `UNIQUE(alert_id, channel)` is
+the delivery idempotency key; `idx_budget_alert_deliveries_due` covers
+`(status, next_attempt_at)`. `destination_hash` is a SHA-256 of the URL, format, and
+secret (never logged or returned) so a configuration change cannot send an old alert with
+new credentials. Deliveries older than 400 days are pruned on notifier start.
+
 ### Spend budgets
 
 `src/server/src/domain/budget.ts` is pure and re-exported by the SPA. `config.json` carries
 `budget: { monthlyUsd: number|null, alertAtPercent: 1..100 }`; the default is no overall
 budget and an 80% warning. Budget periods are UTC calendar months `[start, end)`.
+`notifications.webhook` defaults to `{ enabled: false, url: null, format: "json",
+secret: null }`; `enabled` requires an https URL (http is accepted only for loopback
+hosts), `format` is `json|slack|discord`, and a 16–256 character secret signs JSON
+payloads. The API returns the webhook with `secret: null` and `secretSet`.
 
 `BudgetService` reads totals through a narrow `BudgetUsageReader` backed by
 `UsageRepository.totals`. Spend is the sum of known `cost_usd`; a NULL cost is unpriced,
@@ -163,6 +178,22 @@ unacknowledged current-month alerts. `POST /api/budgets/alerts/:id/ack` is idemp
 Global budget writes use `PATCH /api/config`; cell budget writes use
 `PATCH /api/cells/:id`. `BudgetService` reads `UsageRepository.totals`; the Config page,
 Usage page, and app banner show the same current-month status.
+
+`BudgetService` hands each evaluation's unacknowledged alerts to `BudgetNotifier`.
+`BudgetNotifier` owns a 60-second `unref()`'d timer and enqueues one delivery row per
+alert/channel. It posts JSON as the v1 event (alert fields plus `periodEnd` and `text`),
+or the text-only Slack/Discord bodies. Each attempt has a 10-second abort, does not follow
+redirects, and uses at most five attempts at 0 s, 60 s, 5 min, 30 min, and 2 h. `2xx`
+delivers, `4xx` except `408`/`429` fails permanently, and `5xx`/`408`/`429`/network/
+timeout retries with `Retry-After` honored up to one hour. Acknowledged alerts, prior
+months, and stale destinations are marked `skipped`; failures go to the error sink as
+`budget.notify` with ids and a short reason only. A disabled or unreachable webhook never
+affects budgets, turns, or the banner.
+
+`GET /api/notifications/status` reports enabled/configured, format, pending, failed, and
+the latest delivery. `POST /api/notifications/webhook/test` sends a synthetic
+`budget.test` event with the same format, signing, and timeout path; it requires a URL,
+writes no alert or delivery rows, and returns `200` or `502`.
 
 ### `kb_entries`
 
@@ -561,7 +592,9 @@ carried in the `done` event:
   renames, and deletes cells, filtering the board by `cellId`.
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
   monthly budget/warning percentage; it also shows the current UTC-month status for the
-  overall and per-cell budgets. `CellModal` carries the optional per-cell budget.
+  overall and per-cell budgets. Its **Alert delivery** card edits the webhook URL, format,
+  and signing secret, shows queue/failure/last-delivery state, and can send a test.
+  `CellModal` carries the optional per-cell budget.
   `BudgetBanner` polls `GET /api/budgets` every 60 seconds and shows dismissible warning/
   exceeded alerts above the page, with lower-bound copy for unpriced turns.
 - `api.ts` is the typed client (fetch plus NDJSON readers). `ui.tsx` is the component

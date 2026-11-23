@@ -893,3 +893,30 @@ A custom range that starts or ends inside a rolled day has day resolution at tha
 The `usage_daily` table grows with distinct requests/models per day, not with turns, and
 rollups add bounded synchronous transactions to the retention job. There is no `VACUUM`,
 new dependency, or per-cell retention policy.
+
+## D53. Budget alerts are delivered by a durable, signed webhook outbox
+
+**Context.** Advisory budget alerts were in-app only (D47). Operators need them to reach a
+team channel or local automation without the brain offering credentials, OAuth, or a
+second delivery stack. A webhook can be retried safely only if delivery is idempotent and
+a configuration change cannot replay an old alert with new credentials.
+
+**Decision.** Add `notifications.webhook` to `config.json` (`enabled`, `url`, `format`,
+`secret`) and an opt-in outbound HTTPS webhook. `format` is `json`, `slack`, or `discord`;
+JSON events are signed with HMAC-SHA256 over the raw body. `BudgetNotifier` enqueues one
+`budget_alert_deliveries` row per `(alert_id, channel)`; the unique key is the idempotency
+record across evaluations and restarts. Each row stores the `destination_hash` it was
+enqueued under, so URL/format/secret changes mark old rows `skipped` while a newly enabled
+webhook still sends the alert enqueued in that same evaluation. Attempts are bounded to
+five on a 60 s/5 min/30 min/2 h schedule, honor `Retry-After`, do not follow redirects,
+and time out after 10 seconds. Acknowledgement, prior months, budget/threshold changes,
+and cell deletion skip pending rows through the existing alert reconciliation and FK
+cascade. The secret is never returned by `GET/PATCH /api/config`; failures go to
+`budget.notify` with ids and a short reason only.
+
+**Cost.** A generic webhook plus Slack/Discord text bodies covers external delivery
+without SMTP or bot credentials. Email, native chat apps, delivery history/resend, and
+general event notifications remain separate requests. The outbox adds one small table and
+one `unref()`'d timer; delivery is advisory and never changes budgets, turns, or the HTTP
+response path. `destination_hash` is a one-way hash stored only in the local database and
+is never logged.

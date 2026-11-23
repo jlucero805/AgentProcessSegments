@@ -215,12 +215,22 @@ built and vended by the brain; real-CLI verification is still pending.
   progress, and an app-wide banner surfaces active alerts. Unpriced turns are reported as
   unknown or a lower bound, never guessed. The layer reads `UsageRepository.totals` and
   never stops work.
+- Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
+  unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
+  Discord text format. `budget_alert_deliveries` is a durable outbox keyed by
+  `(alert_id, channel)`; it retries transient failures, honors `Retry-After`, skips
+  acknowledged/prior-month/stale-destination rows, and prunes after 400 days. The Config
+  page edits and tests it, and `GET /api/notifications/status` reports queue state.
+  Delivery is advisory and never blocks budgets, turns, or the in-app banner. Email,
+  native chat bots, and delivery history/resend are not built.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
-  `windowMinutes`, `prompt`), usage retention (`retentionDays`), and spend budget
-  (`monthlyUsd`, `alertAtPercent`), validated with zod and written atomically. Older files
-  with only `master` keep their values and gain the default summary, usage, and budget
-  blocks. `GET/PATCH /api/config` expose all blocks. `process.json` is the global process
+  `windowMinutes`, `prompt`), usage retention (`retentionDays`), spend budget
+  (`monthlyUsd`, `alertAtPercent`), and webhook delivery (`enabled`, `url`, `format`,
+  `secret`), validated with zod and written atomically. Older files with only `master`
+  keep their values and gain the default summary, usage, budget, and notifications blocks.
+  `GET/PATCH /api/config` expose all blocks and redact the signing secret as `secret: null`
+  with `secretSet`. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
@@ -246,7 +256,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 432 vitest cases, all passing: 290 server across 28 files and 142 web across 22 files,
+- 481 vitest cases, all passing: 332 server across 30 files and 149 web across 22 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -315,8 +325,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
 - Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
-  per-turn applied-price audit). Advisory budget alerts, effective-dated estimates, and
-  daily usage rollups are built.
+  per-turn applied-price audit). Advisory budget alerts, webhook delivery, effective-dated
+  estimates, and daily usage rollups are built.
+- Email (SMTP) and native Slack/Discord bot delivery, delivery history/resend, and
+  reusing the outbox for non-budget events; the webhook outbox is built.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
@@ -360,9 +372,11 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master?:{…}, summary?:{…}, budget?:{monthlyUsd?, alertAtPercent?}}
+PATCH  /api/config                        {master?, summary?, usage?, budget?, notifications?:{webhook?}}
 GET    /api/budgets                       statuses + unacknowledged current-month alerts
 POST   /api/budgets/alerts/:id/ack
+GET    /api/notifications/status          webhook enabled/configured, pending/failed, last delivery
+POST   /api/notifications/webhook/test    synthetic test event; 400 without a URL, 502 on rejection
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]

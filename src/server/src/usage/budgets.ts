@@ -20,6 +20,8 @@ export interface BudgetServiceDeps {
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
   alerts: BudgetAlertRepository;
   errors?: ErrorSink;
+  /** Receives the current unacknowledged alerts after reconciliation. */
+  onAlerts?: (alerts: BudgetAlert[]) => void;
   now?: () => number;
   intervalMs?: number;
 }
@@ -35,6 +37,7 @@ export class BudgetService {
   private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
   private readonly alerts: BudgetAlertRepository;
   private readonly errors?: ErrorSink;
+  private readonly onAlerts?: (alerts: BudgetAlert[]) => void;
   private readonly clock: () => number;
   private readonly intervalMs: number;
 
@@ -47,6 +50,7 @@ export class BudgetService {
     this.settings = options.settings;
     this.alerts = options.alerts;
     this.errors = options.errors;
+    this.onAlerts = options.onAlerts;
     this.clock = options.now ?? (() => Date.now());
     this.intervalMs =
       options.intervalMs && options.intervalMs > 0
@@ -193,6 +197,13 @@ export class BudgetService {
       }
 
       this.alerts.removeUnacknowledgedBefore(response.periodStart);
+      // Delivery is a separate hazard domain: a notifier bug must not be
+      // reported as a budget-evaluation failure or block the next run.
+      try {
+        this.onAlerts?.(response.alerts);
+      } catch (error) {
+        this.errors?.error('budget.notify', error, { phase: 'observe' });
+      }
     } catch (error) {
       this.errors?.error('usage.budgets', error, { periodStart });
     }

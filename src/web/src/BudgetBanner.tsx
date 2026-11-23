@@ -1,27 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, describeError } from './api';
-import type { BudgetAlert } from './types';
+import { budgetAlertText, type BudgetAlert } from './types';
 import { cn } from './ui';
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const POLL_MS = 60_000;
-
-function moneyLabel(value: number): string {
-  return money.format(value);
-}
-
-function pct(value: number): string {
-  return `${value.toFixed(0)}%`;
-}
-
-function alertText(alert: BudgetAlert): string {
-  const label = alert.scope === 'overall' ? 'Overall spend' : alert.cellName ?? 'Cell spend';
-  const spend = alert.unknownCostTurns > 0 ? `at least ${moneyLabel(alert.spendUsd)}` : moneyLabel(alert.spendUsd);
-  if (alert.threshold === 'exceeded') {
-    return `${label} is over its ${moneyLabel(alert.budgetUsd)} monthly budget (${spend}).`;
-  }
-  return `${label} reached ${pct(alert.alertAtPercent)} of its ${moneyLabel(alert.budgetUsd)} monthly budget (${spend}).`;
-}
 
 /** Durable, dismissible budget alerts shared by every page. */
 export function BudgetBanner({ onError }: { onError?: (message: string) => void }) {
@@ -79,7 +61,7 @@ export function BudgetBanner({ onError }: { onError?: (message: string) => void 
             )}
           >
             <div className="min-w-0">
-              <p className="break-words">{alertText(alert)}</p>
+              <p className="break-words">{budgetAlertText(alert)}</p>
               {alert.unknownCostTurns > 0 ? (
                 <p className="mt-0.5 text-[11px] opacity-80">
                   {alert.unknownCostTurns} unpriced turn

@@ -34,6 +34,7 @@ describe('db migrations', () => {
     expect(tables).toContain('usage_daily');
     expect(tables).toContain('usage_rollup_state');
     expect(tables).toContain('budget_alerts');
+    expect(tables).toContain('budget_alert_deliveries');
     expect(tables).toContain('model_pricing');
     expect(
       db.prepare('SELECT rolled_through FROM usage_rollup_state WHERE id = 1').get(),
@@ -108,6 +109,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_usage_events_request_created');
     expect(indexes).toContain('idx_usage_events_turn');
     expect(indexes).toContain('idx_budget_alerts_identity');
+    expect(indexes).toContain('idx_budget_alert_deliveries_due');
     expect(indexes).toContain('idx_model_pricing_model_effective');
     const legacyTables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
@@ -117,6 +119,32 @@ describe('db migrations', () => {
     expect(legacyTables).toContain('model_pricing');
     expect(legacyTables).toContain('usage_daily');
     expect(legacyTables).toContain('usage_rollup_state');
+    db.close();
+  });
+
+  it('enforces delivery identity and cascades deletes from alerts', () => {
+    const db = openDb(':memory:');
+    db.prepare(
+      `INSERT INTO budget_alerts
+         (id, scope, scope_id, period_start, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, created_at, acknowledged_at)
+       VALUES ('a1', 'overall', '', 100, 'warning', 80, 100, 85, 0, 10, NULL)`,
+    ).run();
+    const insert = db.prepare(
+      `INSERT INTO budget_alert_deliveries
+         (id, alert_id, channel, format, destination_hash, status, attempts,
+          next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES (?, 'a1', 'webhook', 'json', 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+    );
+    insert.run('d1');
+    expect(() => insert.run('d2')).toThrow();
+
+    db.prepare("DELETE FROM budget_alerts WHERE id = 'a1'").run();
+    expect(
+      (db.prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries').get() as {
+        count: number;
+      }).count,
+    ).toBe(0);
     db.close();
   });
 

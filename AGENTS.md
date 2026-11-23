@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 432 vitest cases: 290 server across 28 files and 142 web across 22 files, all green.
+- 481 vitest cases: 332 server across 30 files and 149 web across 22 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -57,7 +57,7 @@ digests.
   polling scheduler with catch-up and backoff), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
-  budgets with durable alerts and an in-app banner, an optional single-worker Merge step
+  budgets with durable alerts, an in-app banner, and opt-in signed webhook delivery, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
   a systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
@@ -68,8 +68,9 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, hard budget caps, and pricing maintenance at scale such as
-  bulk import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`).
+- Not built: KB embeddings, hard budget caps, email/native-chat alert delivery, delivery
+  history/resend, and pricing maintenance at scale such as bulk import, tiers, or non-USD
+  currencies (scoped in `docs/09-backlog.md`).
   Usage retention with daily rollups is built.
   Review/finalize automation is configurable per cell but finalize remains human-gated;
   the CI workflow is not published yet and needs the
@@ -80,7 +81,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 290 server + 142 web
+npm test                       # 332 server + 149 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -302,6 +303,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and into Claude as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
     `autoCompactEnabled: true`. Note that Claude cannot raise its built-in threshold.
     KB, master, setup, and summary sessions keep the harness/global behavior.
+34. **Webhook alert delivery is advisory, idempotent, and signed.** One
+    `budget_alert_deliveries` row per `(alert_id, channel)` is the dedupe record; never
+    send a delivered alert twice. Rows carry the `destination_hash` they were enqueued
+    under so a URL/format/secret change skips pending rows instead of sending them with
+    new credentials. Delivery retries are bounded, failures go to `budget.notify` with
+    ids only, and a notifier failure must never throw into budget evaluation, an HTTP
+    handler, or a turn. Tests inject the sender; no external network traffic.
 
 ## Extension recipes
 
@@ -317,6 +325,11 @@ then a test in `test/mcp.test.ts` asserting the recorded HTTP method, path, and 
 **Add a column.** Add it to `BASE_SCHEMA` and to `COLUMNS` in `db.ts`. Indexes go after
 the migrations. Add a legacy-database test in `test/db.test.ts`, because that ordering is
 where it broke before.
+
+**Add a notification channel.** Reuse `budget_alert_deliveries` rather than a second
+outbox: add the channel value, a destination identity, and a sender with the same
+timeout/retry/error classification. Redact credentials from `redactSettings`, never log a
+URL or secret, and inject the transport in tests.
 
 **Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
 `collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points

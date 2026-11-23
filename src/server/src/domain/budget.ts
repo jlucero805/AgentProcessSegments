@@ -92,6 +92,143 @@ export interface BudgetsResponse {
   alerts: BudgetAlert[];
 }
 
+export const WEBHOOK_FORMATS = ['json', 'slack', 'discord'] as const;
+export type WebhookFormat = (typeof WEBHOOK_FORMATS)[number];
+
+/** Outbound budget-alert webhook policy. The secret is never returned by the API. */
+export interface WebhookSettings {
+  enabled: boolean;
+  url: string | null;
+  format: WebhookFormat;
+  secret: string | null;
+}
+
+/** A webhook patch may omit any field; omitted fields keep their stored value. */
+export type WebhookPatch = Partial<WebhookSettings>;
+
+export interface NotificationsSettings {
+  webhook: WebhookSettings;
+}
+
+/** The API view: the secret is always redacted and `secretSet` reports its presence. */
+export interface WebhookView {
+  enabled: boolean;
+  url: string | null;
+  format: WebhookFormat;
+  secret: null;
+  secretSet: boolean;
+}
+
+export interface NotificationsView {
+  webhook: WebhookView;
+}
+
+export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
+  webhook: { enabled: false, url: null, format: 'json', secret: null },
+};
+
+export const DELIVERY_STATUSES = [
+  'pending',
+  'delivering',
+  'delivered',
+  'failed',
+  'skipped',
+] as const;
+export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
+
+const WEBHOOK_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+/**
+ * Validate an operator-supplied webhook URL. https is required except for a
+ * loopback collector, which is useful for local testing.
+ */
+export function webhookUrlError(value: string): string | null {
+  if (value.length > 2048) return 'must be at most 2048 characters';
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return 'must be a valid URL';
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    return 'must use http or https';
+  }
+  if (url.username !== '' || url.password !== '') {
+    return 'must not contain credentials';
+  }
+  if (url.hash !== '') return 'must not contain a fragment';
+  if (url.protocol === 'http:' && !WEBHOOK_LOOPBACK_HOSTS.has(url.hostname)) {
+    return 'http is only allowed for localhost or loopback addresses';
+  }
+  return null;
+}
+
+const alertMoney = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
+/** Human-readable alert sentence shared by the banner and outbound delivery. */
+export function budgetAlertText(alert: BudgetAlert): string {
+  const label = alert.scope === 'overall' ? 'Overall spend' : alert.cellName ?? 'Cell spend';
+  const spend =
+    alert.unknownCostTurns > 0
+      ? `at least ${alertMoney.format(alert.spendUsd)}`
+      : alertMoney.format(alert.spendUsd);
+  if (alert.threshold === 'exceeded') {
+    return `${label} is over its ${alertMoney.format(alert.budgetUsd)} monthly budget (${spend}).`;
+  }
+  return `${label} reached ${alert.alertAtPercent.toFixed(0)}% of its ${alertMoney.format(alert.budgetUsd)} monthly budget (${spend}).`;
+}
+
+export interface BudgetAlertEvent {
+  version: 1;
+  event: 'budget.alert' | 'budget.test';
+  alert: {
+    id: string;
+    scope: BudgetScope;
+    cellId: string | null;
+    cellName: string | null;
+    threshold: BudgetThreshold;
+    alertAtPercent: number;
+    budgetUsd: number;
+    spendUsd: number;
+    spendIsLowerBound: boolean;
+    unknownCostTurns: number;
+    periodStart: number;
+    periodEnd: number;
+    createdAt: number;
+  };
+  text: string;
+}
+
+/** Build the stable JSON event sent to a webhook. */
+export function budgetAlertEvent(
+  alert: BudgetAlert,
+  event: BudgetAlertEvent['event'] = 'budget.alert',
+): BudgetAlertEvent {
+  return {
+    version: 1,
+    event,
+    alert: {
+      id: alert.id,
+      scope: alert.scope,
+      cellId: alert.cellId,
+      cellName: alert.cellName,
+      threshold: alert.threshold,
+      alertAtPercent: alert.alertAtPercent,
+      budgetUsd: alert.budgetUsd,
+      spendUsd: alert.spendUsd,
+      spendIsLowerBound: alert.unknownCostTurns > 0,
+      unknownCostTurns: alert.unknownCostTurns,
+      periodStart: alert.periodStart,
+      periodEnd: budgetPeriod(alert.periodStart).end,
+      createdAt: alert.createdAt,
+    },
+    text: budgetAlertText(alert),
+  };
+}
+
 export interface BudgetPeriod {
   start: number;
   end: number;

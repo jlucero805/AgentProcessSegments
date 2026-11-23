@@ -3,8 +3,14 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_NOTIFICATIONS,
   MAX_BUDGET_USD,
+  WEBHOOK_FORMATS,
+  webhookUrlError,
   type BudgetSettings,
+  type NotificationsSettings,
+  type NotificationsView,
+  type WebhookSettings,
 } from './domain/budget.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
@@ -61,12 +67,49 @@ const budgetSchema = z.object({
   alertAtPercent: z.number().int().min(1).max(100),
 }) satisfies z.ZodType<BudgetSettings>;
 
+const webhookSchema: z.ZodType<WebhookSettings, z.ZodTypeDef, unknown> = z
+  .object({
+    enabled: z.boolean().default(false),
+    url: z.string().max(2048).nullable().default(null),
+    format: z.enum(WEBHOOK_FORMATS).default('json'),
+    secret: z.string().min(16).max(256).nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (value.enabled && value.url === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['url'],
+        message: 'a webhook URL is required when delivery is enabled',
+      });
+      return;
+    }
+    if (value.url === null) return;
+    const problem = webhookUrlError(value.url);
+    if (problem) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['url'], message: problem });
+    }
+  });
+
+const notificationsSchema: z.ZodType<NotificationsSettings, z.ZodTypeDef, unknown> = z.object({
+  webhook: webhookSchema.default(() => ({ ...DEFAULT_NOTIFICATIONS.webhook })),
+});
+
+const webhookPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  url: z.string().max(2048).nullable().optional(),
+  format: z.enum(WEBHOOK_FORMATS).optional(),
+  secret: z.string().min(16).max(256).nullable().optional(),
+});
+
 const settingsSchema = z.object({
   master: masterSchema,
   summary: summarySchema,
   usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
   // A legacy config with only `master`/`summary` loads with the default budget.
   budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
+  notifications: notificationsSchema.default(() => ({
+    webhook: { ...DEFAULT_NOTIFICATIONS.webhook },
+  })),
 });
 
 export type MasterSettings = MasterConfig;
@@ -91,7 +134,29 @@ export const DEFAULT_SETTINGS: AppSettings = {
     retentionDays: DEFAULT_USAGE_RETENTION_DAYS,
   },
   budget: { ...DEFAULT_BUDGET_SETTINGS },
+  notifications: { webhook: { ...DEFAULT_NOTIFICATIONS.webhook } },
 };
+
+export type RedactedSettings = Omit<AppSettings, 'notifications'> & {
+  notifications: NotificationsView;
+};
+
+/** The HTTP view of settings: never expose a stored webhook signing secret. */
+export function redactSettings(settings: AppSettings): RedactedSettings {
+  const webhook = settings.notifications.webhook;
+  return {
+    ...settings,
+    notifications: {
+      webhook: {
+        enabled: webhook.enabled,
+        url: webhook.url,
+        format: webhook.format,
+        secret: null,
+        secretSet: webhook.secret !== null,
+      },
+    },
+  };
+}
 
 export const settingsPatchSchema = z
   .object({
@@ -99,13 +164,18 @@ export const settingsPatchSchema = z
     summary: summarySchema.partial().optional(),
     usage: usageSchema.partial().optional(),
     budget: budgetSchema.partial().optional(),
+    notifications: z
+      .object({ webhook: webhookPatchSchema.optional() })
+      .partial()
+      .optional(),
   })
   .refine(
     (value) =>
       value.master !== undefined ||
       value.summary !== undefined ||
       value.usage !== undefined ||
-      value.budget !== undefined,
+      value.budget !== undefined ||
+      value.notifications !== undefined,
     {
       message: 'at least one settings block is required',
     },
@@ -139,6 +209,12 @@ export class SettingsStore {
       summary: { ...current.summary, ...(parsed.summary ?? {}) },
       usage: { ...current.usage, ...(parsed.usage ?? {}) },
       budget: { ...current.budget, ...(parsed.budget ?? {}) },
+      notifications: {
+        webhook: {
+          ...current.notifications.webhook,
+          ...(parsed.notifications?.webhook ?? {}),
+        },
+      },
     });
     this.write(next);
     this.cached = next;
@@ -163,13 +239,15 @@ export class SettingsStore {
       const parsed: unknown = JSON.parse(raw);
       const source =
         typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
-      // Files written before the summary or usage blocks existed carry only
-      // `master`. Merge each present block over the defaults so an upgrade
+      // Files written before a block existed carry only the older blocks.
+      // Merge every present block over the defaults so an upgrade or restart
       // does not silently reset operator customizations.
       const candidate = {
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
         usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,
+        budget: source?.['budget'] ?? DEFAULT_SETTINGS.budget,
+        notifications: source?.['notifications'] ?? DEFAULT_SETTINGS.notifications,
       };
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {

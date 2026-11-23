@@ -500,6 +500,10 @@ and registered as `aps`; "harness" remains the name of the agent-substrate seam,
 MCP server. Tools: `update_request`, `get_request`, `spawn_request`, `list_requests`,
 `index_to_kb` for request sessions; `search_kb`, `list_kb` for the KB session. Namespaced
 `mcp__aps__*` and allow-listed so the agent can call them under auto-approve.
+`spawn_request` defaults the new request's cell, harness override, and target repo to the
+calling request's values; explicit arguments win, and a different `cellId` opts out of
+the harness/repo copy. If the calling request cannot be read, the tool returns an error
+instead of creating an unassigned request.
 
 ### Wire contracts
 

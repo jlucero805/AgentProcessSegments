@@ -4,7 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { HARNESS_IDS } from '../domain/harness.js';
+import { HARNESS_IDS, isHarnessId, type HarnessId } from '../domain/harness.js';
 import { EFFORT_LEVELS, STATES } from '../domain/request.js';
 import { readEnv } from '../env.js';
 import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
@@ -104,6 +104,27 @@ async function respond(pending: Promise<BrainResponse>): Promise<CallToolResult>
 
 function defined<T extends Record<string, unknown>>(fields: T): Record<string, unknown> {
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
+}
+
+interface SpawnParent {
+  cellId: string | null;
+  harness: HarnessId | null;
+  targetRepo: string | null;
+}
+
+/** Parent fields a spawned request can inherit; malformed values count as absent. */
+function spawnParent(data: unknown): SpawnParent {
+  const record =
+    typeof data === 'object' && data !== null && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  const text = (value: unknown): string | null =>
+    typeof value === 'string' && value !== '' ? value : null;
+  return {
+    cellId: text(record['cellId']),
+    harness: isHarnessId(record['harness']) ? record['harness'] : null,
+    targetRepo: text(record['targetRepo']),
+  };
 }
 
 const listFilterSchema = {
@@ -319,15 +340,45 @@ export function buildMcpServer(options: McpOptions): McpServer {
     'spawn_request',
     {
       title: 'Create a request',
-      description: 'Create a follow-up request on the board and return it.',
+      description:
+        'Create a follow-up request on the board and return it. It inherits this request’s ' +
+        'cell, harness override, and target repo unless you pass them explicitly; moving it ' +
+        'to a different cell uses that cell’s defaults instead.',
       inputSchema: {
         title: z.string().min(1),
         body: z.string().optional(),
         targetRepo: z.string().nullable().optional(),
+        cellId: z.string().nullable().optional(),
+        harness: z.enum(HARNESS_IDS).nullable().optional(),
       },
     },
-    async (input) =>
-      respond(api.call('POST', '/api/requests', defined(input))),
+    async (input) => {
+      const fields = defined(input);
+      if (requestId !== '') {
+        const parent = await api.call('GET', `/api/requests/${encodeURIComponent(requestId)}`);
+        if (!parent.ok) return respond(Promise.resolve(parent));
+
+        const defaults = spawnParent(parent.data);
+        if (fields['cellId'] === undefined && defaults.cellId !== null) {
+          fields['cellId'] = defaults.cellId;
+        }
+        // A harness override or repo belongs to the parent's cell. If the caller
+        // deliberately moves the child, let the new cell decide those defaults.
+        const cellId =
+          fields['cellId'] === undefined
+            ? defaults.cellId
+            : (fields['cellId'] as string | null);
+        if (cellId === defaults.cellId) {
+          if (fields['harness'] === undefined && defaults.harness !== null) {
+            fields['harness'] = defaults.harness;
+          }
+          if (fields['targetRepo'] === undefined && defaults.targetRepo !== null) {
+            fields['targetRepo'] = defaults.targetRepo;
+          }
+        }
+      }
+      return respond(api.call('POST', '/api/requests', fields));
+    },
   );
 
   server.registerTool(

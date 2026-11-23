@@ -229,6 +229,8 @@ export class MasterService {
         title,
         body: `Follow-up from "${source.title}" (${source.id}).\n\nCreated by the ${segment.label} segment.`,
         cellId,
+        harness: source.harness,
+        targetRepo: source.targetRepo,
       });
       this.record({ cellId, requestId: source.id, action: 'followup', detail: title });
       this.note(cellId, `Created follow-up "${title}" from "${source.title}".`);

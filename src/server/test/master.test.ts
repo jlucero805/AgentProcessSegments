@@ -616,6 +616,9 @@ describe('MasterService', () => {
       .list()
       .filter((item) => item.title === 'Add metrics' || item.title === 'Write docs');
     expect(created).toHaveLength(2);
+    expect(created.every((item) => item.cellId === cell.id)).toBe(true);
+    expect(created.every((item) => item.harness === null)).toBe(true);
+    expect(created.every((item) => item.targetRepo === null)).toBe(true);
     expect(fixture.events.list().filter((event) => event.action === 'followup')).toHaveLength(2);
 
     age(fixture, request.id, 2 * 60_000);
@@ -624,6 +627,35 @@ describe('MasterService', () => {
     expect(
       fixture.repo.list().filter((item) => item.title === 'Add metrics' || item.title === 'Write docs'),
     ).toHaveLength(2);
+  });
+
+  it('carries the source harness and target repo into follow-ups', async () => {
+    const repoUrl = 'https://github.com/example/repo';
+    const process = processFor((config) => {
+      const implement = segment(config, 'implement');
+      implement.idleMinutes = 1;
+      implement.readyMarker = null;
+      implement.advanceTo = null;
+      implement.followUps.enabled = true;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Override cell');
+    const request = dispatchRequest(fixture, 'Build it', cell.id);
+    fixture.repo.edit(request.id, { harness: 'opencode', targetRepo: repoUrl });
+    age(fixture, request.id, 10 * 60_000);
+    (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
+      { role: 'agent', kind: 'text', text: 'FOLLOW-UP: Ship the fix', ts: 1 },
+    ]);
+
+    const result = await runEnabledCells(fixture);
+
+    expect(result.followUps).toBe(1);
+    const [followUp] = fixture.repo.list().filter((item) => item.title === 'Ship the fix');
+    expect(followUp).toMatchObject({
+      cellId: cell.id,
+      harness: 'opencode',
+      targetRepo: repoUrl,
+    });
   });
 });
 

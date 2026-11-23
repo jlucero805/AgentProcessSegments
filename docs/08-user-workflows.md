@@ -189,7 +189,9 @@ last five.
    or expect a KB digest but have none stay in Finalize and appear in the status line.
    Requests with KB indexing disabled close without a KB entry.
 7. Out-of-scope findings can become intake requests automatically (follow-up markers) or
-   through the agent’s `spawn_request` tool.
+   through the agent’s `spawn_request` tool. Both carry over the source request’s cell,
+   harness override, and target repo; a `spawn_request` that names a different cell uses
+   that cell’s defaults instead of inheriting the old harness and repo.
 
 ## 7. Run the end-to-end suite
 

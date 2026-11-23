@@ -742,7 +742,9 @@ falls back to `SBOX_<name>`. Default paths use the new names, but choose an exis
 then the new location; explicit env paths always win. Startup never moves data. An
 operator-invoked `npm run migrate:paths` moves the default data, config, and state
 directories and the SQLite file (with WAL/SHM), never overwrites an existing destination,
-and is idempotent. The unit template moves to `deploy/agent-process-segments.service`.
+and is idempotent. It refuses to run while a known brain unit is active unless
+`--allow-running` is passed; moving under a live brain can corrupt the database and
+sessions. The unit template moves to `deploy/agent-process-segments.service`.
 Startup logs one warning naming every `SBOX_*` variable that is still set, with names
 only and never values; renaming them to `APS_*` clears it.
 

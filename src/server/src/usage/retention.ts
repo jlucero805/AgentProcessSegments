@@ -1,5 +1,6 @@
 import type { Db } from '../db.js';
 import type { ErrorSink } from '../logging/errors.js';
+import { deleteInBatches } from '../retention/batches.js';
 import type { SettingsStore } from '../settings.js';
 import { UsageRollups } from './rollups.js';
 import { USAGE_BUCKET_MS, usageBucketStart } from './types.js';
@@ -160,15 +161,11 @@ export class UsageRetention {
     let deleted = 0;
     try {
       const statement = this.db.prepare(DELETE_SQL);
-      for (;;) {
-        const changes = Number(statement.run(watermark, this.batchSize).changes);
-        deleted += changes;
-        if (changes < this.batchSize) break;
-        // better-sqlite3 is synchronous; yield so a large drain cannot block
-        // other requests and timers.
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        if (this.stopping) break;
-      }
+      deleted = await deleteInBatches({
+        runBatch: () => Number(statement.run(watermark, this.batchSize).changes),
+        batchSize: this.batchSize,
+        shouldStop: () => this.stopping,
+      });
       return { deleted, cutoff, rolledThrough: watermark || null };
     } catch (error) {
       this.errors?.error('usage.prune', error, {

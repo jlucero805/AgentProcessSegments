@@ -5,6 +5,7 @@ import { ProcessEditor } from './ProcessEditor';
 import {
   DEFAULT_BUDGET_SETTINGS,
   MAX_BUDGET_USD,
+  MAX_MASTER_EVENTS_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
   timeAgo,
   type BudgetSettings,
@@ -16,6 +17,7 @@ import {
   type ModelPrice,
   type ModelPriceInput,
   type ProcessConfig,
+  type RetentionSettings,
   type SegmentConfig,
   type SummaryConfig,
   type UsageSettings,
@@ -110,6 +112,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [summary, setSummary] = useState<SummaryConfig | null>(null);
   const [usage, setUsage] = useState<UsageSettings | null>(null);
+  const [retention, setRetentionSettings] = useState<RetentionSettings | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
   const [processPath, setProcessPath] = useState('');
@@ -119,6 +122,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [saved, setSaved] = useState(false);
   const [usageSaving, setUsageSaving] = useState(false);
   const [usageSaved, setUsageSaved] = useState(false);
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  const [retentionSaved, setRetentionSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
   const [processSaved, setProcessSaved] = useState(false);
   const [budget, setBudget] = useState<BudgetSettings | null>(null);
@@ -147,6 +152,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
+      setRetentionSettings(config.retention);
       setPath(config.path);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
@@ -200,6 +206,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const setRetention = (days: number) => {
     setUsage((current) => (current ? { ...current, retentionDays: days } : current));
     setUsageSaved(false);
+  };
+
+  const setMasterEventsDays = (days: number) => {
+    setRetentionSettings((current) =>
+      current ? { ...current, masterEventsDays: days } : current,
+    );
+    setRetentionSaved(false);
   };
 
   const setSegment = <K extends keyof SegmentConfig>(
@@ -268,6 +281,21 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setUsageSaving(false);
+    }
+  }
+
+  async function saveRetention() {
+    if (!retention) return;
+    setRetentionSaving(true);
+    try {
+      const config = await api.patchConfig({ retention });
+      setRetentionSettings(config.retention);
+      setPath(config.path);
+      setRetentionSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setRetentionSaving(false);
     }
   }
 
@@ -407,7 +435,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     }
   }
 
-  if (!master || !summary || !usage || !process) {
+  if (!master || !summary || !usage || !retention || !process) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
         <Spinner /> Loading settings...
@@ -519,6 +547,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         <Field label="Retention (days)" hint="0 keeps raw turns forever">
           <Input
             type="number"
+            aria-label="Usage retention (days)"
             min={0}
             max={MAX_USAGE_RETENTION_DAYS}
             step={1}
@@ -541,6 +570,43 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onClick={() => void saveUsage()}
             >
               {usageSaving ? <Spinner /> : 'Save usage retention'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Master activity retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Master cycles write activity rows for every prod, review, advance, skip, and
+          follow-up. Old rows are pruned in the background; activity is not rolled up.
+        </p>
+        <Field label="Activity retention (days)" hint="0 keeps all master activity forever">
+          <Input
+            type="number"
+            aria-label="Activity retention (days)"
+            min={0}
+            max={MAX_MASTER_EVENTS_RETENTION_DAYS}
+            step={1}
+            value={retention.masterEventsDays}
+            onChange={(event) => setMasterEventsDays(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. Follow-up markers are kept so
+            follow-up requests stay deduplicated.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {retentionSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={retentionSaving}
+              onClick={() => void saveRetention()}
+            >
+              {retentionSaving ? <Spinner /> : 'Save activity retention'}
             </Button>
           </div>
         </div>

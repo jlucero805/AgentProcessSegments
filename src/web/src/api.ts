@@ -25,6 +25,7 @@ import type {
   ProcessConfig,
   ProcessResponse,
   Request,
+  RetentionSettings,
   SegmentConfig,
   SkillInfo,
   State,
@@ -327,6 +328,7 @@ export const api = {
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;
+    retention?: Partial<RetentionSettings>;
     budget?: Partial<BudgetSettings>;
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });

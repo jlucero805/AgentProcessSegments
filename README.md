@@ -179,6 +179,13 @@ the retained raw window and older daily totals. Once a day is rolled up its esti
 cost is frozen, and raising the window later cannot restore already-pruned raw detail.
 Cost reported by the harness always wins; only unreported turns are estimated.
 
+Master activity retention lives in `config.json` as `retention.masterEventsDays`, also
+editable from the Config page. The default is 90 days; `0` keeps activity forever. A
+startup/hourly job deletes older `master_events` rows in batches. Activity is not rolled
+up: the UI reads only the latest events, and scorecard history stays in `cell_summaries`.
+Rows that record a created follow-up (`action = 'followup'`) are never pruned, because
+they are the deduplication key for repeated `FOLLOW-UP:` titles.
+
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
 
@@ -326,16 +333,17 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 432 vitest cases: 290 server cases (state machine, migrations including
+`npm test` runs 459 vitest cases: 312 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
-event capture and aggregation, effective-dated pricing and estimation, engine turns over a
-fake harness, worktree isolation against a real git repo, the MCP tool surface, harness
+event capture and aggregation, effective-dated pricing and estimation, usage rollups and
+activity retention, engine turns over a fake harness, worktree isolation against a real
+git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
 stats/generation/scheduling, budget status/alerts, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 142 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 147 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget banner, master detail and scorecard, the usage page and formatters, and

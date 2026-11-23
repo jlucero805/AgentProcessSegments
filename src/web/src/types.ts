@@ -60,6 +60,11 @@ export {
   DEFAULT_USAGE_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
 } from '../../server/src/usage/settings';
+export type { RetentionSettings } from '../../server/src/retention/settings';
+export {
+  DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+  MAX_MASTER_EVENTS_RETENTION_DAYS,
+} from '../../server/src/retention/settings';
 export type {
   ModelPrice,
   ModelPriceInput,
@@ -98,6 +103,7 @@ import type { ModelOption } from '../../server/src/clarify/models';
 import type { CellDetail, ProcessConfig } from '../../server/src/process/definition';
 import type { SummaryConfig } from '../../server/src/summary/types';
 import type { UsageSettings } from '../../server/src/usage/settings';
+import type { RetentionSettings } from '../../server/src/retention/settings';
 
 export interface ModelsResult {
   models: ModelOption[];
@@ -113,6 +119,7 @@ export interface AppConfig {
   master: MasterConfig;
   summary: SummaryConfig;
   usage: UsageSettings;
+  retention: RetentionSettings;
   budget: BudgetSettings;
 }
 

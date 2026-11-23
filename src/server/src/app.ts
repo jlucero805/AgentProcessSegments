@@ -18,6 +18,7 @@ import { PricingRepository } from './pricing/repository.js';
 import { defaultProcess } from './process/defaults.js';
 import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
+import { DataRetention } from './retention/service.js';
 import { SettingsStore } from './settings.js';
 import { SkillCatalog } from './skills/catalog.js';
 import { SummaryRepository } from './summary/repository.js';
@@ -113,6 +114,7 @@ export async function main(): Promise<void> {
       errors,
     });
     const usageRetention = new UsageRetention({ db, settings, errors });
+    const dataRetention = new DataRetention({ db, settings, errors });
 
     const app = await buildServer({
       repo,
@@ -143,9 +145,11 @@ export async function main(): Promise<void> {
     summary.start();
     // Fire-and-forget: a first-time prune must not delay readiness.
     usageRetention.start();
+    dataRetention.start();
     budgets.start();
 
     const shutdown = async () => {
+      dataRetention.stop();
       usageRetention.stop();
       master.stop();
       summary.stop();

@@ -217,10 +217,11 @@ built and vended by the brain; real-CLI verification is still pending.
   never stops work.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
-  `windowMinutes`, `prompt`), usage retention (`retentionDays`), and spend budget
-  (`monthlyUsd`, `alertAtPercent`), validated with zod and written atomically. Older files
-  with only `master` keep their values and gain the default summary, usage, and budget
-  blocks. `GET/PATCH /api/config` expose all blocks. `process.json` is the global process
+  `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
+  retention (`masterEventsDays`), and spend budget (`monthlyUsd`, `alertAtPercent`),
+  validated with zod and written atomically. Older files with only `master` keep their
+  values and gain the default summary, usage, activity-retention, and budget blocks.
+  `GET/PATCH /api/config` expose all blocks. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
@@ -234,6 +235,13 @@ built and vended by the brain; real-CLI verification is still pending.
   in 1000-row batches. Queries merge daily and raw rows around the watermark, so all-time
   totals and monthly budgets survive pruning. It records `usage.rollup`/`usage.prune`
   failures, joins overlapping runs, and stops during shutdown.
+- Master activity retention: `retention.masterEventsDays` (default 90, `0` keeps activity
+  forever) is edited on its own Config card and stored in `config.json`. A startup + hourly
+  job deletes `master_events` older than the window in 1000-row batches. Activity is not
+  rolled up; scorecards keep their own `cell_summaries` reports. Rows with
+  `action = 'followup'` are never pruned, because they are the deduplication key for
+  `FOLLOW-UP:` titles. It records only `retention.prune` failures and joins overlapping
+  runs. Usage and activity retention are independent settings and save actions.
 - Error log: explicit failure paths append NDJSON to
   `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
   `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
@@ -246,7 +254,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 432 vitest cases, all passing: 290 server across 28 files and 142 web across 22 files,
+- 459 vitest cases, all passing: 312 server across 30 files and 147 web across 22 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

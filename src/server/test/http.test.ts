@@ -310,6 +310,7 @@ describe('http api', () => {
       path: h.config.configPath,
       master: { intervalMinutes: 5, idleMinutes: 10, enabled: true },
       usage: { retentionDays: 90 },
+      retention: { masterEventsDays: 90 },
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -344,6 +345,24 @@ describe('http api', () => {
       usage: { retentionDays: -1 },
     });
     expect(badUsage.status).toBe(400);
+
+    const retentionPatch = await call('PATCH', '/api/config', {
+      retention: { masterEventsDays: 30 },
+    });
+    expect(retentionPatch.status).toBe(200);
+    expect(retentionPatch.json().retention).toEqual({ masterEventsDays: 30 });
+
+    const afterRetention = await call('GET', '/api/config');
+    expect(afterRetention.json()).toMatchObject({
+      master: { intervalMinutes: 7 },
+      usage: { retentionDays: 30 },
+      retention: { masterEventsDays: 30 },
+    });
+
+    const badRetention = await call('PATCH', '/api/config', {
+      retention: { masterEventsDays: 1.5 },
+    });
+    expect(badRetention.status).toBe(400);
   });
 
   it('reads and patches budget settings and exposes budget status', async () => {

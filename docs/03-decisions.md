@@ -893,3 +893,33 @@ A custom range that starts or ends inside a rolled day has day resolution at tha
 The `usage_daily` table grows with distinct requests/models per day, not with turns, and
 rollups add bounded synchronous transactions to the retention job. There is no `VACUUM`,
 new dependency, or per-cell retention policy.
+
+## D53. Master activity retention keeps follow-up markers
+
+**Context.** `master_events` records one row per scheduler cycle, prod, review, advance,
+skip, and created follow-up. Nothing pruned it, so a long-running brain accumulated cycle
+and skip noise forever even after D45/D52 bounded `usage_events`. The activity UI reads
+only the latest 50 rows, and scorecard history lives separately in `cell_summaries`.
+
+**Decision.** Add `retention.masterEventsDays` to `config.json` and the Config page,
+default 90 days, `0` keeps activity forever. A `DataRetention` job runs after startup,
+hourly, and immediately when the setting changes. It deletes rows with
+`created_at < now - masterEventsDays` in 1000-row batches with an event-loop yield between
+batches and an in-flight promise guard, relying on `idx_master_events_created`. Deletion
+is strict at the cutoff, uses `config.json` as the only source of truth, and never runs
+`VACUUM`.
+
+Rows with `action = 'followup'` are exempt. `MasterEventRepository.hasEvent()` is the
+permanent deduplication key for `FOLLOW-UP:` titles (invariant 16); deleting an old marker
+could recreate a follow-up if a stale request advanced again. These rows grow with created
+follow-ups, not with scheduler cycles, so they stay small.
+
+Activity is not rolled up. Unlike usage, there is no need for an aggregate table: the
+reader wants recent rows, and scorecards persist their own reports. Failures go to the
+error sink as `retention.prune` with table/cutoff/deleted counts only and retry on the next
+tick; they never fail a turn.
+
+**Cost.** A window shorter than 90 days can drop activity that an operator wanted for
+audit; raising it later cannot restore pruned rows. Follow-up markers survive regardless,
+so the table is not perfectly bounded, but their growth is tied to actual created work.
+There is no per-cell policy, manual prune button, new index, schema migration, or rollup.

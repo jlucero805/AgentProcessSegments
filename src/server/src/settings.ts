@@ -8,6 +8,11 @@ import {
 } from './domain/budget.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
+import {
+  DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+  MAX_MASTER_EVENTS_RETENTION_DAYS,
+  type RetentionSettings,
+} from './retention/settings.js';
 import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
 import {
   DEFAULT_USAGE_RETENTION_DAYS,
@@ -61,10 +66,17 @@ const budgetSchema = z.object({
   alertAtPercent: z.number().int().min(1).max(100),
 }) satisfies z.ZodType<BudgetSettings>;
 
+const retentionSchema = z.object({
+  masterEventsDays: z.number().int().min(0).max(MAX_MASTER_EVENTS_RETENTION_DAYS),
+}) satisfies z.ZodType<RetentionSettings>;
+
 const settingsSchema = z.object({
   master: masterSchema,
   summary: summarySchema,
   usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
+  retention: retentionSchema.default({
+    masterEventsDays: DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+  }),
   // A legacy config with only `master`/`summary` loads with the default budget.
   budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
 });
@@ -90,6 +102,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   usage: {
     retentionDays: DEFAULT_USAGE_RETENTION_DAYS,
   },
+  retention: {
+    masterEventsDays: DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+  },
   budget: { ...DEFAULT_BUDGET_SETTINGS },
 };
 
@@ -98,6 +113,7 @@ export const settingsPatchSchema = z
     master: masterSchema.partial().optional(),
     summary: summarySchema.partial().optional(),
     usage: usageSchema.partial().optional(),
+    retention: retentionSchema.partial().optional(),
     budget: budgetSchema.partial().optional(),
   })
   .refine(
@@ -105,6 +121,7 @@ export const settingsPatchSchema = z
       value.master !== undefined ||
       value.summary !== undefined ||
       value.usage !== undefined ||
+      value.retention !== undefined ||
       value.budget !== undefined,
     {
       message: 'at least one settings block is required',
@@ -138,6 +155,7 @@ export class SettingsStore {
       master: { ...current.master, ...(parsed.master ?? {}) },
       summary: { ...current.summary, ...(parsed.summary ?? {}) },
       usage: { ...current.usage, ...(parsed.usage ?? {}) },
+      retention: { ...current.retention, ...(parsed.retention ?? {}) },
       budget: { ...current.budget, ...(parsed.budget ?? {}) },
     });
     this.write(next);
@@ -170,6 +188,7 @@ export class SettingsStore {
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
         usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,
+        retention: source?.['retention'] ?? DEFAULT_SETTINGS.retention,
       };
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {

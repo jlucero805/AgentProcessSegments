@@ -111,6 +111,7 @@ describe('api client', () => {
     await api.getSummaryStatus('c1');
     await api.runSummary('c1');
     await api.patchConfig({ summary: { intervalMinutes: 60 } });
+    await api.patchConfig({ retention: { masterEventsDays: 30 } });
 
     const calls = fetchMock.mock.calls.map((call) => ({
       url: String(call[0]),
@@ -124,6 +125,10 @@ describe('api client', () => {
     expect(calls[4]?.url).toBe('/api/config');
     expect(calls[4]?.init?.body).toBe(
       JSON.stringify({ summary: { intervalMinutes: 60 } }),
+    );
+    expect(calls[5]?.url).toBe('/api/config');
+    expect(calls[5]?.init?.body).toBe(
+      JSON.stringify({ retention: { masterEventsDays: 30 } }),
     );
   });
 

@@ -164,6 +164,22 @@ Global budget writes use `PATCH /api/config`; cell budget writes use
 `PATCH /api/cells/:id`. `BudgetService` reads `UsageRepository.totals`; the Config page,
 Usage page, and app banner show the same current-month status.
 
+### `master_events`
+
+`id` (uuid PK), `cell_id`, `request_id`, `action`
+(`cycle|start|prod|review|advance|followup|skip`), `detail`, `created_at`. Indexes:
+`idx_master_events_created` and `idx_master_events_request`. One row is written per
+scheduler cycle, prod, review, advance, skip, and created follow-up.
+
+`retention.masterEventsDays` in `config.json` (editable from the Config page) bounds the
+table: default 90 days, `0` keeps activity forever. A job runs shortly after startup, then
+hourly, and immediately when the setting changes. It deletes rows whose `created_at` is
+strictly before `now - masterEventsDays`, in batches of 1000 with an event-loop yield
+between batches, relying on `idx_master_events_created`. Rows with
+`action = 'followup'` are never deleted, because `hasEvent` uses them as the permanent
+deduplication key for `FOLLOW-UP:` titles. Activity is not rolled up; scorecard history
+lives in `cell_summaries`. The job never runs `VACUUM`; SQLite reuses freed pages.
+
 ### `kb_entries`
 
 `id` (uuid PK), `request_id`, `title`, `content`, `created_at`; index

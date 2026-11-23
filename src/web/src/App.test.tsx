@@ -90,6 +90,7 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
           prompt: 'summary prompt',
         },
         usage: { retentionDays: 90 },
+        retention: { masterEventsDays: 90 },
         budget: { monthlyUsd: null, alertAtPercent: 80 },
         path: '/tmp/config.json',
       });

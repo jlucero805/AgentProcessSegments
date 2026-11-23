@@ -9,6 +9,7 @@ import type {
   MasterEvent,
   ModelPrice,
   ModelPriceInput,
+  RetentionSettings,
   SegmentConfig,
   SummaryConfig,
   UsageSettings,
@@ -30,6 +31,7 @@ const scorecard: SummaryConfig = {
 };
 
 const usage: UsageSettings = { retentionDays: 90 };
+const retention: RetentionSettings = { masterEventsDays: 90 };
 
 const cell: Cell = {
   id: 'c1',
@@ -87,6 +89,7 @@ interface Captured {
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;
+    retention?: Partial<RetentionSettings>;
     budget?: { monthlyUsd?: number | null; alertAtPercent?: number };
   };
   process?: { segments?: SegmentConfig[] };
@@ -121,6 +124,7 @@ function installFetch(
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
         usage: { ...usage, ...captured.config?.usage },
+        retention: { ...retention, ...captured.config?.retention },
         budget: { ...budget, ...captured.config?.budget },
         path: '/tmp/agent-process-segments/config.json',
       });
@@ -130,6 +134,7 @@ function installFetch(
         master,
         summary: scorecard,
         usage,
+        retention,
         budget,
         path: '/tmp/agent-process-segments/config.json',
       });
@@ -183,7 +188,9 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const retention = await screen.findByRole('spinbutton', { name: /retention/i });
+    const retention = await screen.findByRole('spinbutton', {
+      name: 'Usage retention (days)',
+    });
     expect(retention).toHaveValue(90);
     expect(screen.getByText('0 keeps raw turns forever')).toBeInTheDocument();
     expect(screen.getByText(/summarized into daily totals/)).toBeInTheDocument();
@@ -196,6 +203,29 @@ describe('ConfigPage', () => {
     );
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(retention).toHaveValue(30);
+  });
+
+  it('loads and saves master activity retention independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const activity = await screen.findByRole('spinbutton', {
+      name: 'Activity retention (days)',
+    });
+    expect(activity).toHaveValue(90);
+    expect(screen.getByText('0 keeps all master activity forever')).toBeInTheDocument();
+    expect(screen.getByText(/not rolled up/)).toBeInTheDocument();
+    expect(screen.getByText(/Follow-up markers are kept/)).toBeInTheDocument();
+
+    fireEvent.change(activity, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save activity retention' }));
+
+    await waitFor(() =>
+      expect(captured.config?.retention).toEqual({ masterEventsDays: 30 }),
+    );
+    expect(captured.config?.usage).toBeUndefined();
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(activity).toHaveValue(30);
   });
 
   it('toggles the master switch', async () => {

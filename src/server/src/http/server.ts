@@ -12,6 +12,7 @@ import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
 import { HARNESS_IDS, isHarnessId, resolveHarness, type HarnessId } from '../domain/harness.js';
+import { emailDeliveryConfigured } from '../domain/budget.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -955,6 +956,23 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       ok: false,
       ...(result.status !== undefined ? { status: result.status } : {}),
       error: result.error ?? 'webhook test failed',
+    });
+  });
+  app.post('/api/notifications/email/test', async (request, reply) => {
+    if (!emailDeliveryConfigured(settings.get().notifications.email)) {
+      return reply.code(400).send({
+        error: 'invalid',
+        message: 'configure email delivery before sending a test',
+      });
+    }
+    const result = await notifications.testEmail();
+    if (result.ok) {
+      return { ok: true, durationMs: result.durationMs };
+    }
+    return reply.code(502).send({
+      ok: false,
+      durationMs: result.durationMs,
+      error: result.error ?? 'email test failed',
     });
   });
 

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 576 vitest cases: 404 server across 34 files and 172 web across 24 files, all green.
+- 615 vitest cases: 439 server across 35 files and 176 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -59,9 +59,8 @@ digests.
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
-  an in-app alert/pause banner, opt-in signed webhook delivery, an optional single-worker
-  Merge step
-  with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
+  an in-app alert/pause banner, opt-in signed webhook and SMTP email delivery, an
+  optional single-worker Merge step with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
   a systemd user unit for a VPS, a reviewed live-VPS cutover script
   (`deploy/cutover-vps.sh`, `npm run cutover:vps`) that detaches, drains, moves, verifies,
@@ -74,8 +73,8 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, hard-cap cancellation/override, email/native-chat alert
-  delivery, delivery history/resend, and pricing maintenance at scale such as bulk
+- Not built: KB embeddings, hard-cap cancellation/override, native-chat alert delivery,
+  per-cell routing, delivery history/resend, and pricing maintenance at scale such as bulk
   import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`). Usage retention
   with daily rollups is built.
   Review/finalize automation is configurable per cell but finalize remains human-gated;
@@ -88,7 +87,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 404 server + 172 web, plus the e2e env guard
+npm test                       # 439 server + 176 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -381,8 +380,10 @@ where it broke before.
 
 **Add a notification channel.** Reuse `budget_alert_deliveries` rather than a second
 outbox: add the channel value, a destination identity, and a sender with the same
-timeout/retry/error classification. Redact credentials from `redactSettings`, never log a
-URL or secret, and inject the transport in tests.
+timeout/retry/error classification. Redact every credential from `redactSettings` (the
+webhook secret and the SMTP password are redacted today), never log a URL, recipient list,
+or secret, and inject the transport in tests. Webhook and email are the current channels;
+see `usage/budget-email.ts` for the nodemailer seam.
 
 **Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
 `collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points

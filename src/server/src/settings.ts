@@ -4,10 +4,17 @@ import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_NOTIFICATIONS,
+  DEFAULT_SMTP_PORT,
   MAX_BUDGET_USD,
+  MAX_EMAIL_ADDRESS_LENGTH,
+  MAX_EMAIL_RECIPIENTS,
   WEBHOOK_FORMATS,
+  emailAddressError,
+  emailRecipientsError,
+  smtpHostError,
   webhookUrlError,
   type BudgetSettings,
+  type EmailSettings,
   type NotificationsSettings,
   type NotificationsView,
   type WebhookSettings,
@@ -100,8 +107,69 @@ const webhookSchema: z.ZodType<WebhookSettings, z.ZodTypeDef, unknown> = z
     }
   });
 
+const emailSchema: z.ZodType<EmailSettings, z.ZodTypeDef, unknown> = z
+  .object({
+    enabled: z.boolean().default(false),
+    host: z.string().max(253).nullable().default(null),
+    port: z.number().int().min(1).max(65535).default(DEFAULT_SMTP_PORT),
+    secure: z.boolean().default(false),
+    username: z.string().min(1).max(MAX_EMAIL_ADDRESS_LENGTH).nullable().default(null),
+    password: z.string().min(1).max(1024).nullable().default(null),
+    from: z.string().max(MAX_EMAIL_ADDRESS_LENGTH).nullable().default(null),
+    to: z.array(z.string().max(MAX_EMAIL_ADDRESS_LENGTH)).max(MAX_EMAIL_RECIPIENTS).default([]),
+  })
+  .superRefine((value, ctx) => {
+    const host = value.host === null ? null : value.host.trim();
+    if (host === null) {
+      if (value.enabled) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['host'], message: 'is required' });
+      }
+    } else {
+      const problem = smtpHostError(host);
+      if (problem) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['host'], message: problem });
+      }
+    }
+
+    const from = value.from === null ? null : value.from.trim();
+    if (from === null) {
+      if (value.enabled) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['from'], message: 'is required' });
+      }
+    } else {
+      const problem = emailAddressError(from);
+      if (problem) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['from'], message: problem });
+      }
+    }
+
+    if (value.to.length === 0) {
+      if (value.enabled) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['to'],
+          message: 'at least one recipient is required',
+        });
+      }
+    } else {
+      const problem = emailRecipientsError(value.to);
+      if (problem) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: problem });
+      }
+    }
+
+    if ((value.username === null) !== (value.password === null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['password'],
+        message: 'username and password must be set together',
+      });
+    }
+  });
+
 const notificationsSchema: z.ZodType<NotificationsSettings, z.ZodTypeDef, unknown> = z.object({
   webhook: webhookSchema.default(() => ({ ...DEFAULT_NOTIFICATIONS.webhook })),
+  email: emailSchema,
 });
 
 const webhookPatchSchema = z.object({
@@ -109,6 +177,17 @@ const webhookPatchSchema = z.object({
   url: z.string().max(2048).nullable().optional(),
   format: z.enum(WEBHOOK_FORMATS).optional(),
   secret: z.string().min(16).max(256).nullable().optional(),
+});
+
+const emailPatchSchema: z.ZodType<Partial<EmailSettings>, z.ZodTypeDef, unknown> = z.object({
+  enabled: z.boolean().optional(),
+  host: z.string().max(253).nullable().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  secure: z.boolean().optional(),
+  username: z.string().min(1).max(MAX_EMAIL_ADDRESS_LENGTH).nullable().optional(),
+  password: z.string().min(1).max(1024).nullable().optional(),
+  from: z.string().max(MAX_EMAIL_ADDRESS_LENGTH).nullable().optional(),
+  to: z.array(z.string().max(MAX_EMAIL_ADDRESS_LENGTH)).max(MAX_EMAIL_RECIPIENTS).optional(),
 });
 
 const settingsSchema = z.object({
@@ -150,16 +229,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
     masterEventsDays: DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
   },
   budget: { ...DEFAULT_BUDGET_SETTINGS },
-  notifications: { webhook: { ...DEFAULT_NOTIFICATIONS.webhook } },
+  notifications: {
+    webhook: { ...DEFAULT_NOTIFICATIONS.webhook },
+    email: { ...DEFAULT_NOTIFICATIONS.email, to: [] },
+  },
 };
 
 export type RedactedSettings = Omit<AppSettings, 'notifications'> & {
   notifications: NotificationsView;
 };
 
-/** The HTTP view of settings: never expose a stored webhook signing secret. */
+/** The HTTP view of settings: never expose a stored webhook secret or SMTP password. */
 export function redactSettings(settings: AppSettings): RedactedSettings {
   const webhook = settings.notifications.webhook;
+  const email = settings.notifications.email;
   return {
     ...settings,
     notifications: {
@@ -169,6 +252,17 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
         format: webhook.format,
         secret: null,
         secretSet: webhook.secret !== null,
+      },
+      email: {
+        enabled: email.enabled,
+        host: email.host,
+        port: email.port,
+        secure: email.secure,
+        username: email.username,
+        password: null,
+        passwordSet: email.password !== null,
+        from: email.from,
+        to: [...email.to],
       },
     },
   };
@@ -182,7 +276,7 @@ export const settingsPatchSchema = z
     retention: retentionSchema.partial().optional(),
     budget: budgetSchema.partial().optional(),
     notifications: z
-      .object({ webhook: webhookPatchSchema.optional() })
+      .object({ webhook: webhookPatchSchema.optional(), email: emailPatchSchema.optional() })
       .partial()
       .optional(),
   })
@@ -233,6 +327,10 @@ export class SettingsStore {
           ...current.notifications.webhook,
           ...(parsed.notifications?.webhook ?? {}),
         },
+        email: {
+          ...current.notifications.email,
+          ...(parsed.notifications?.email ?? {}),
+        },
       },
     });
     this.write(next);
@@ -262,6 +360,13 @@ export class SettingsStore {
       // each present block over the defaults so an upgrade or restart does not
       // silently reset operator customizations.
       const savedBudget = source?.['budget'];
+      const savedNotifications = source?.['notifications'];
+      const notificationsSource =
+        typeof savedNotifications === 'object' && savedNotifications !== null
+          ? (savedNotifications as Record<string, unknown>)
+          : {};
+      const savedWebhook = notificationsSource['webhook'];
+      const savedEmail = notificationsSource['email'];
       const candidate = {
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
@@ -274,7 +379,18 @@ export class SettingsStore {
           ...DEFAULT_SETTINGS.budget,
           ...(typeof savedBudget === 'object' && savedBudget !== null ? savedBudget : {}),
         },
-        notifications: source?.['notifications'] ?? DEFAULT_SETTINGS.notifications,
+        // Merge each notification channel over defaults for the same reason: a
+        // webhook-only file must still gain the email block.
+        notifications: {
+          webhook: {
+            ...DEFAULT_SETTINGS.notifications.webhook,
+            ...(typeof savedWebhook === 'object' && savedWebhook !== null ? savedWebhook : {}),
+          },
+          email: {
+            ...DEFAULT_SETTINGS.notifications.email,
+            ...(typeof savedEmail === 'object' && savedEmail !== null ? savedEmail : {}),
+          },
+        },
       };
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {

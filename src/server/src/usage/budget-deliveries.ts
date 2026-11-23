@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import type {
+  DeliveryChannel,
+  DeliveryFormat,
   DeliveryStatus,
-  WebhookFormat,
 } from '../domain/budget.js';
 
 export const WEBHOOK_CHANNEL = 'webhook';
@@ -10,8 +11,8 @@ export const WEBHOOK_CHANNEL = 'webhook';
 export interface DeliveryRecord {
   id: string;
   alertId: string;
-  channel: string;
-  format: WebhookFormat;
+  channel: DeliveryChannel;
+  format: DeliveryFormat;
   destinationHash: string;
   status: DeliveryStatus;
   attempts: number;
@@ -24,7 +25,9 @@ export interface DeliveryRecord {
 
 export interface DeliveryInput {
   alertId: string;
-  format: WebhookFormat;
+  /** Defaults to the webhook channel so older callers keep their shape. */
+  channel?: DeliveryChannel;
+  format: DeliveryFormat;
   destinationHash: string;
   now: number;
 }
@@ -41,7 +44,7 @@ interface DeliveryRow {
   id: string;
   alert_id: string;
   channel: string;
-  format: WebhookFormat;
+  format: DeliveryFormat;
   destination_hash: string;
   status: DeliveryStatus;
   attempts: number;
@@ -56,7 +59,7 @@ function toRecord(row: DeliveryRow): DeliveryRecord {
   return {
     id: row.id,
     alertId: row.alert_id,
-    channel: row.channel,
+    channel: row.channel as DeliveryChannel,
     format: row.format,
     destinationHash: row.destination_hash,
     status: row.status,
@@ -78,6 +81,7 @@ export class BudgetAlertDeliveryRepository {
   constructor(private readonly db: Db) {}
 
   enqueue(input: DeliveryInput): DeliveryRecord {
+    const channel = input.channel ?? WEBHOOK_CHANNEL;
     this.db
       .prepare(
         `INSERT OR IGNORE INTO budget_alert_deliveries
@@ -88,14 +92,14 @@ export class BudgetAlertDeliveryRepository {
       .run(
         randomUUID(),
         input.alertId,
-        WEBHOOK_CHANNEL,
+        channel,
         input.format,
         input.destinationHash,
         input.now,
         input.now,
         input.now,
       );
-    return this.getForAlert(input.alertId);
+    return this.getForAlert(input.alertId, channel);
   }
 
   get(id: string): DeliveryRecord | null {
@@ -105,18 +109,19 @@ export class BudgetAlertDeliveryRepository {
     return row ? toRecord(row) : null;
   }
 
-  getForAlert(alertId: string): DeliveryRecord {
+  getForAlert(alertId: string, channel: DeliveryChannel = WEBHOOK_CHANNEL): DeliveryRecord {
     const row = this.db
       .prepare(
         `SELECT * FROM budget_alert_deliveries
           WHERE alert_id = ? AND channel = ?
           LIMIT 1`,
       )
-      .get(alertId, WEBHOOK_CHANNEL) as DeliveryRow;
+      .get(alertId, channel) as DeliveryRow;
     return toRecord(row);
   }
 
   listDue(
+    channel: DeliveryChannel,
     destinationHash: string,
     periodStart: number,
     now: number,
@@ -127,6 +132,7 @@ export class BudgetAlertDeliveryRepository {
         `SELECT d.* FROM budget_alert_deliveries d
            JOIN budget_alerts a ON a.id = d.alert_id
           WHERE d.status = 'pending'
+            AND d.channel = ?
             AND d.next_attempt_at <= ?
             AND d.destination_hash = ?
             AND a.acknowledged_at IS NULL
@@ -134,7 +140,7 @@ export class BudgetAlertDeliveryRepository {
           ORDER BY d.next_attempt_at ASC, d.created_at ASC
           LIMIT ?`,
       )
-      .all(now, destinationHash, periodStart, limit) as DeliveryRow[];
+      .all(channel, now, destinationHash, periodStart, limit) as DeliveryRow[];
     return rows.map(toRecord);
   }
 
@@ -200,14 +206,14 @@ export class BudgetAlertDeliveryRepository {
       .run(now, id);
   }
 
-  skipPending(now: number): number {
+  skipPending(channel: DeliveryChannel, now: number): number {
     return this.db
       .prepare(
         `UPDATE budget_alert_deliveries
             SET status = 'skipped', updated_at = ?
-          WHERE status = 'pending'`,
+          WHERE status = 'pending' AND channel = ?`,
       )
-      .run(now).changes;
+      .run(now, channel).changes;
   }
 
   skipAcknowledged(now: number): number {
@@ -223,14 +229,14 @@ export class BudgetAlertDeliveryRepository {
       .run(now).changes;
   }
 
-  skipStaleDestination(destinationHash: string, now: number): number {
+  skipStaleDestination(channel: DeliveryChannel, destinationHash: string, now: number): number {
     return this.db
       .prepare(
         `UPDATE budget_alert_deliveries
             SET status = 'skipped', updated_at = ?
-          WHERE status = 'pending' AND destination_hash <> ?`,
+          WHERE status = 'pending' AND channel = ? AND destination_hash <> ?`,
       )
-      .run(now, destinationHash).changes;
+      .run(now, channel, destinationHash).changes;
   }
 
   skipBeforePeriod(periodStart: number, now: number): number {
@@ -263,22 +269,25 @@ export class BudgetAlertDeliveryRepository {
       .run(cutoff).changes;
   }
 
-  status(): DeliveryStatusSummary {
+  /** Summary for one channel, or for every channel when omitted. */
+  status(channel?: DeliveryChannel): DeliveryStatusSummary {
+    const where = channel === undefined ? '' : ' WHERE channel = ?';
+    const params = channel === undefined ? [] : [channel];
     const counts = this.db
       .prepare(
         `SELECT
            COALESCE(SUM(CASE WHEN status IN ('pending', 'delivering') THEN 1 ELSE 0 END), 0) AS pending,
            COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed
-         FROM budget_alert_deliveries`,
+         FROM budget_alert_deliveries${where}`,
       )
-      .get() as { pending: number; failed: number };
+      .get(...params) as { pending: number; failed: number };
     const latest = this.db
       .prepare(
-        `SELECT * FROM budget_alert_deliveries
+        `SELECT * FROM budget_alert_deliveries${where}
           ORDER BY updated_at DESC, created_at DESC
           LIMIT 1`,
       )
-      .get() as DeliveryRow | undefined;
+      .get(...params) as DeliveryRow | undefined;
     return {
       pending: counts.pending,
       failed: counts.failed,

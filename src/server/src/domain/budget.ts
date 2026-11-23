@@ -121,11 +121,49 @@ export interface WebhookSettings {
 /** A webhook patch may omit any field; omitted fields keep their stored value. */
 export type WebhookPatch = Partial<WebhookSettings>;
 
-export interface NotificationsSettings {
-  webhook: WebhookSettings;
+export const DELIVERY_CHANNELS = ['webhook', 'email'] as const;
+export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
+/** The stored delivery format. Email rows store `email`; webhook rows keep their format. */
+export type DeliveryFormat = WebhookFormat | 'email';
+
+export const DEFAULT_SMTP_PORT = 587;
+export const MAX_EMAIL_RECIPIENTS = 10;
+export const MAX_EMAIL_ADDRESS_LENGTH = 320;
+
+/** Outbound budget-alert email policy. The password is never returned by the API. */
+export interface EmailSettings {
+  enabled: boolean;
+  host: string | null;
+  port: number;
+  /** True uses implicit TLS (usually 465); false requires STARTTLS off loopback. */
+  secure: boolean;
+  username: string | null;
+  password: string | null;
+  from: string | null;
+  to: string[];
 }
 
-/** The API view: the secret is always redacted and `secretSet` reports its presence. */
+/** An email patch may omit any field; omitted fields keep their stored value. */
+export type EmailPatch = Partial<EmailSettings>;
+
+export interface EmailView {
+  enabled: boolean;
+  host: string | null;
+  port: number;
+  secure: boolean;
+  username: string | null;
+  password: null;
+  passwordSet: boolean;
+  from: string | null;
+  to: string[];
+}
+
+export interface NotificationsSettings {
+  webhook: WebhookSettings;
+  email: EmailSettings;
+}
+
+/** The API view: secrets are always redacted and `*Set` reports their presence. */
 export interface WebhookView {
   enabled: boolean;
   url: string | null;
@@ -136,11 +174,27 @@ export interface WebhookView {
 
 export interface NotificationsView {
   webhook: WebhookView;
+  email: EmailView;
 }
 
 export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
   webhook: { enabled: false, url: null, format: 'json', secret: null },
+  email: {
+    enabled: false,
+    host: null,
+    port: DEFAULT_SMTP_PORT,
+    secure: false,
+    username: null,
+    password: null,
+    from: null,
+    to: [],
+  },
 };
+
+/** True when email has enough settings to attempt a send. */
+export function emailDeliveryConfigured(email: EmailSettings): boolean {
+  return email.host !== null && email.from !== null && email.to.length > 0;
+}
 
 export const DELIVERY_STATUSES = [
   'pending',
@@ -152,6 +206,68 @@ export const DELIVERY_STATUSES = [
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 
 const WEBHOOK_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+const SMTP_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const EMAIL_ADDRESS_RE = /^[^\s@<>]+@[^\s@<>]+$/;
+
+/** A local SMTP relay may stay plaintext, matching the webhook loopback exception. */
+export function isLoopbackSmtpHost(host: string): boolean {
+  return SMTP_LOOPBACK_HOSTS.has(host.trim().toLowerCase().replace(/^\[|\]$/g, ''));
+}
+
+/** Validate an SMTP hostname or IP literal without resolving it. */
+export function smtpHostError(value: string): string | null {
+  const host = value.trim();
+  if (host === '') return 'is required';
+  if (host.length > 253) return 'must be at most 253 characters';
+  if (/\s/.test(host) || host.includes('/') || host.includes('@')) {
+    return 'must be a hostname or IP address';
+  }
+  return null;
+}
+
+/**
+ * Validate one email address. `from` also accepts `Display Name <addr@domain>`;
+ * recipients use `emailRecipientsError`, which rejects display names.
+ */
+export function emailAddressError(value: string): string | null {
+  const raw = value.trim();
+  if (raw === '') return 'is required';
+  if (raw.length > MAX_EMAIL_ADDRESS_LENGTH) {
+    return `must be at most ${MAX_EMAIL_ADDRESS_LENGTH} characters`;
+  }
+  const angled = /^(.*)<([^<>]*)>\s*$/.exec(raw);
+  if (angled) {
+    const display = angled[1]?.trim() ?? '';
+    const address = angled[2]?.trim() ?? '';
+    if (display === '') return 'must include a display name before the address';
+    if (display.length > 128) return 'must have a display name of at most 128 characters';
+    if (!EMAIL_ADDRESS_RE.test(address)) return 'must contain a valid email address';
+    return null;
+  }
+  if (!EMAIL_ADDRESS_RE.test(raw)) return 'must be a valid email address';
+  return null;
+}
+
+/** Validate the recipient list: plain addresses, unique, at most ten. */
+export function emailRecipientsError(to: string[]): string | null {
+  if (to.length === 0) return 'at least one recipient is required';
+  if (to.length > MAX_EMAIL_RECIPIENTS) {
+    return `must have at most ${MAX_EMAIL_RECIPIENTS} recipients`;
+  }
+  const seen = new Set<string>();
+  for (const raw of to) {
+    const value = raw.trim();
+    if (value.includes('<') || value.includes('>')) {
+      return 'recipients must be plain email addresses';
+    }
+    const problem = emailAddressError(value);
+    if (problem) return problem;
+    const key = value.toLowerCase();
+    if (seen.has(key)) return 'recipients must be unique';
+    seen.add(key);
+  }
+  return null;
+}
 
 /**
  * Validate an operator-supplied webhook URL. https is required except for a
@@ -242,6 +358,37 @@ export function budgetAlertEvent(
     },
     text: budgetAlertText(alert),
   };
+}
+
+/** Subject line shared by the email channel and its test message. */
+export function budgetAlertSubject(
+  alert: BudgetAlert,
+  event: BudgetAlertEvent['event'] = 'budget.alert',
+): string {
+  if (event === 'budget.test') return '[APS] Test budget alert';
+  const label = alert.scope === 'overall' ? 'Overall' : alert.cellName ?? 'Cell';
+  if (alert.threshold === 'exceeded') {
+    return `[APS] ${label} over budget (${alertMoney.format(alert.budgetUsd)})`;
+  }
+  return `[APS] ${label} budget warning (${alert.alertAtPercent.toFixed(0)}%)`;
+}
+
+/** Plain-text email body: the alert sentence, its UTC period, and the alert id. */
+export function budgetEmailText(
+  alert: BudgetAlert,
+  event: BudgetAlertEvent['event'] = 'budget.alert',
+): string {
+  const period = budgetPeriod(alert.periodStart);
+  const lines = [
+    budgetAlertText(alert),
+    '',
+    `Period: ${new Date(period.start).toISOString()} to ${new Date(period.end).toISOString()} (UTC)`,
+    `Alert: ${alert.id}`,
+  ];
+  if (event === 'budget.test') {
+    lines.unshift('This is a test budget alert from Agent Process Segments.', '');
+  }
+  return lines.join('\n');
 }
 
 export interface BudgetPeriod {

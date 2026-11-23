@@ -2,12 +2,13 @@ import { createHmac } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
 import {
   budgetPeriod,
   type BudgetAlert,
+  type EmailSettings,
   type WebhookSettings,
 } from '../src/domain/budget.js';
 import type { ErrorSink } from '../src/logging/errors.js';
@@ -23,6 +24,12 @@ import {
   destinationHash,
   type FetchLike,
 } from '../src/usage/budget-notifier.js';
+import {
+  EmailSendError,
+  emailDestinationHash,
+  type EmailMessage,
+  type EmailSendLike,
+} from '../src/usage/budget-email.js';
 
 const NOW = Date.UTC(2026, 10, 15, 12, 0, 0);
 const PERIOD = budgetPeriod(NOW);
@@ -48,6 +55,35 @@ function ok(): Response {
   return new Response(null, { status: 204 });
 }
 
+interface SentEmail {
+  email: EmailSettings;
+  message: EmailMessage;
+  signal: AbortSignal;
+}
+
+function emailSender(
+  handler: (sent: SentEmail, call: number) => void | Promise<void> = () => undefined,
+): { calls: SentEmail[]; send: EmailSendLike } {
+  const calls: SentEmail[] = [];
+  const send: EmailSendLike = async (email, message, signal) => {
+    const sent = { email, message, signal };
+    calls.push(sent);
+    await handler(sent, calls.length);
+  };
+  return { calls, send };
+}
+
+const EMAIL: Partial<EmailSettings> = {
+  enabled: true,
+  host: 'smtp.example.test',
+  port: 587,
+  secure: false,
+  username: null,
+  password: null,
+  from: 'APS <alerts@example.test>',
+  to: ['ops@example.test'],
+};
+
 function makeClock(start = NOW): { now: () => number; advance: (ms: number) => void; set: (value: number) => void } {
   let value = start;
   return {
@@ -64,6 +100,8 @@ function makeClock(start = NOW): { now: () => number; advance: (ms: number) => v
 interface SetupOptions {
   send: FetchLike;
   webhook?: Partial<WebhookSettings>;
+  email?: Partial<EmailSettings>;
+  sendEmail?: EmailSendLike;
   maxAttempts?: number;
   timeoutMs?: number;
   errors?: ErrorSink;
@@ -86,6 +124,7 @@ function setup(options: SetupOptions) {
         secret: null,
         ...options.webhook,
       },
+      ...(options.email ? { email: { ...EMAIL, ...options.email } } : {}),
     },
   });
   const clock = options.clock ?? makeClock();
@@ -95,6 +134,7 @@ function setup(options: SetupOptions) {
     cells,
     settings,
     send: options.send,
+    ...(options.sendEmail ? { sendEmail: options.sendEmail } : {}),
     now: clock.now,
     ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
@@ -575,5 +615,221 @@ describe('BudgetNotifier', () => {
       lastError: null,
     });
     expect(context.notifier.status().webhook.lastDeliveryAt).not.toBeNull();
+  });
+});
+
+describe('BudgetNotifier email channel', () => {
+  it('enqueues and delivers one row per enabled channel without duplicates', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender();
+    const context = setup({ send: fake.send, sendEmail: mail.send, email: {} });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(1);
+    expect(mail.calls).toHaveLength(1);
+    expect(context.deliveries.getForAlert(record.id, 'webhook').status).toBe('delivered');
+    expect(context.deliveries.getForAlert(record.id, 'email').status).toBe('delivered');
+  });
+
+  it('builds the documented email subject, body, and headers', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender();
+    const context = setup({ send: fake.send, sendEmail: mail.send, email: {} });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    const sent = mail.calls[0]!;
+    expect(sent.message).toMatchObject({
+      from: 'APS <alerts@example.test>',
+      to: ['ops@example.test'],
+      subject: '[APS] Overall budget warning (80%)',
+      alertId: record.id,
+      messageId: `<budget-${record.id}@aps.local>`,
+    });
+    expect(sent.message.text).toContain('Alert: ' + record.id);
+    expect(sent.message.text).toContain('(UTC)');
+    expect(sent.message.text).not.toContain('<html');
+    expect(sent.email.host).toBe('smtp.example.test');
+  });
+
+  it('skips only the disabled channel', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender();
+    const context = setup({
+      send: fake.send,
+      sendEmail: mail.send,
+      email: { enabled: false },
+    });
+    const record = addAlert(context.alerts);
+    context.deliveries.enqueue({
+      alertId: record.id,
+      channel: 'email',
+      format: 'email',
+      destinationHash: 'stale',
+      now: NOW,
+    });
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(1);
+    expect(mail.calls).toHaveLength(0);
+    expect(context.deliveries.getForAlert(record.id, 'webhook').status).toBe('delivered');
+    expect(context.deliveries.getForAlert(record.id, 'email').status).toBe('skipped');
+  });
+
+  it('skips stale email destinations without touching webhook rows', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender();
+    const context = setup({ send: fake.send, sendEmail: mail.send, email: {} });
+    const record = addAlert(context.alerts);
+    const current = context.settings.get().notifications;
+
+    context.deliveries.enqueue({
+      alertId: record.id,
+      channel: 'webhook',
+      format: 'json',
+      destinationHash: destinationHash(current.webhook),
+      now: NOW,
+    });
+    context.deliveries.enqueue({
+      alertId: record.id,
+      channel: 'email',
+      format: 'email',
+      destinationHash: emailDestinationHash(current.email),
+      now: NOW,
+    });
+    context.settings.patch({
+      notifications: { email: { host: 'smtp.rotated.test' } },
+    });
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(1);
+    expect(mail.calls).toHaveLength(0);
+    expect(context.deliveries.getForAlert(record.id, 'webhook').status).toBe('delivered');
+    expect(context.deliveries.getForAlert(record.id, 'email').status).toBe('skipped');
+  });
+
+  it('retries transient email failures and fails permanent ones immediately', async () => {
+    const fake = sender(() => ok());
+    let permanent = false;
+    const mail = emailSender(() => {
+      if (permanent) throw new EmailSendError('recipient rejected', true);
+      throw new EmailSendError('econnection', false);
+    });
+    const context = setup({
+      send: fake.send,
+      sendEmail: mail.send,
+      email: {},
+    });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+    const retry = context.deliveries.getForAlert(record.id, 'email');
+    expect(retry).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+      nextAttemptAt: NOW + 60_000,
+      lastError: 'econnection',
+    });
+
+    permanent = true;
+    context.clock.advance(60_000);
+    await context.notifier.flush();
+    expect(context.deliveries.getForAlert(record.id, 'email')).toMatchObject({
+      status: 'failed',
+      attempts: 2,
+      lastError: 'recipient rejected',
+    });
+  });
+
+  it('times out a send and schedules a retry', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender(() => new Promise<void>(() => undefined));
+    const context = setup({
+      send: fake.send,
+      sendEmail: mail.send,
+      email: {},
+      timeoutMs: 20,
+    });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    expect(mail.calls[0]!.signal.aborted).toBe(true);
+    expect(context.deliveries.getForAlert(record.id, 'email')).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+      lastError: 'timeout',
+    });
+  });
+
+  it('sends a test email without writing alert or delivery rows', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender();
+    const context = setup({ send: fake.send, sendEmail: mail.send, email: {} });
+
+    const result = await context.notifier.testEmail();
+
+    expect(result.ok).toBe(true);
+    expect(mail.calls).toHaveLength(1);
+    expect(mail.calls[0]!.message.subject).toBe('[APS] Test budget alert');
+    expect(
+      (context.db.prepare('SELECT COUNT(*) AS count FROM budget_alerts').get() as {
+        count: number;
+      }).count,
+    ).toBe(0);
+    expect(
+      (context.db.prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries').get() as {
+        count: number;
+      }).count,
+    ).toBe(0);
+  });
+
+  it('reports per-channel status and safe failure reasons', async () => {
+    const fake = sender(() => ok());
+    const errors = { error: vi.fn() };
+    const mail = emailSender(() => {
+      throw new EmailSendError('eauth', true);
+    });
+    const context = setup({
+      send: fake.send,
+      sendEmail: mail.send,
+      email: {},
+      errors: errors as unknown as ErrorSink,
+    });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    const status = context.notifier.status();
+    expect(status.webhook).toMatchObject({ configured: true, pending: 0, failed: 0 });
+    expect(status.email).toEqual({
+      enabled: true,
+      configured: true,
+      pending: 0,
+      failed: 1,
+      lastDeliveryAt: NOW,
+      lastDeliveryStatus: 'failed',
+      lastError: 'eauth',
+    });
+    expect(errors.error).toHaveBeenCalledWith(
+      'budget.notify',
+      expect.any(Error),
+      expect.objectContaining({ channel: 'email', alertId: record.id, reason: 'eauth' }),
+    );
+    const logged = JSON.stringify(errors.error.mock.calls);
+    expect(logged).not.toContain('smtp.example.test');
+    expect(logged).not.toContain('ops@example.test');
   });
 });

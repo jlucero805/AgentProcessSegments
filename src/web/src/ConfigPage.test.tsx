@@ -64,11 +64,42 @@ const webhook: {
   secretSet: false,
 };
 
+const email: {
+  enabled: boolean;
+  host: string | null;
+  port: number;
+  secure: boolean;
+  username: string | null;
+  password: null;
+  passwordSet: boolean;
+  from: string | null;
+  to: string[];
+} = {
+  enabled: false,
+  host: null,
+  port: 587,
+  secure: false,
+  username: null,
+  password: null,
+  passwordSet: false,
+  from: null,
+  to: [],
+};
+
 const notificationStatus = {
   webhook: {
     enabled: false,
     configured: false,
     format: 'json' as const,
+    pending: 0,
+    failed: 0,
+    lastDeliveryAt: null,
+    lastDeliveryStatus: null,
+    lastError: null,
+  },
+  email: {
+    enabled: false,
+    configured: false,
     pending: 0,
     failed: 0,
     lastDeliveryAt: null,
@@ -135,6 +166,16 @@ interface Captured {
         format?: string;
         secret?: string | null;
       };
+      email?: {
+        enabled?: boolean;
+        host?: string | null;
+        port?: number;
+        secure?: boolean;
+        username?: string | null;
+        password?: string | null;
+        from?: string | null;
+        to?: string[];
+      };
     };
   };
   process?: { segments?: SegmentConfig[] };
@@ -154,6 +195,11 @@ function installFetch(
     durationMs: 12,
   },
   webhookView: typeof webhook = webhook,
+  emailView: typeof email = email,
+  emailTest: { ok: boolean; durationMs?: number; error?: string } = {
+    ok: true,
+    durationMs: 15,
+  },
 ): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
@@ -175,6 +221,14 @@ function installFetch(
         ...webhookView,
         ...(captured.config?.notifications?.webhook ?? {}),
       };
+      const emailPatch = captured.config?.notifications?.email;
+      const patchedEmail = { ...emailView, ...(emailPatch ?? {}) };
+      const passwordSet =
+        emailPatch?.password === null
+          ? false
+          : emailPatch?.password !== undefined
+            ? true
+            : emailView.passwordSet;
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
@@ -187,6 +241,7 @@ function installFetch(
             secret: null,
             secretSet: patchedWebhook.secret !== null,
           },
+          email: { ...patchedEmail, password: null, passwordSet },
         },
         path: '/tmp/agent-process-segments/config.json',
       });
@@ -198,13 +253,16 @@ function installFetch(
         usage,
         retention,
         budget,
-        notifications: { webhook: webhookView },
+        notifications: { webhook: webhookView, email: emailView },
         path: '/tmp/agent-process-segments/config.json',
       });
     }
     if (url === '/api/notifications/status') return jsonResponse(notificationStatus);
     if (url === '/api/notifications/webhook/test' && init?.method === 'POST') {
       return jsonResponse(webhookTest, webhookTest.ok ? 200 : 502);
+    }
+    if (url === '/api/notifications/email/test' && init?.method === 'POST') {
+      return jsonResponse(emailTest, emailTest.ok ? 200 : 502);
     }
     if (url === '/api/budgets') return jsonResponse(view);
     if (url === '/api/process' && init?.method === 'PATCH') {
@@ -565,6 +623,124 @@ describe('ConfigPage', () => {
     expect(
       await screen.findByText('a price already exists for model-a'),
     ).toBeInTheDocument();
+  });
+
+  it('configures and saves email delivery independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const toggle = await screen.findByRole('checkbox', {
+      name: /deliver budget alerts by email/i,
+    });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText(/smtp host/i), {
+      target: { value: 'smtp.example.test' },
+    });
+    fireEvent.change(screen.getByLabelText(/smtp port/i), { target: { value: '465' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /implicit tls/i }));
+    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'aps' } });
+    fireEvent.change(screen.getByLabelText(/^password/i), {
+      target: { value: 'super-secret' },
+    });
+    fireEvent.change(screen.getByLabelText(/from address/i), {
+      target: { value: 'APS <alerts@example.test>' },
+    });
+    fireEvent.change(screen.getByLabelText(/recipients/i), {
+      target: { value: 'ops@example.test, oncall@example.test\nOPS@example.test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+
+    await waitFor(() =>
+      expect(captured.config?.notifications?.email).toEqual({
+        enabled: true,
+        host: 'smtp.example.test',
+        port: 465,
+        secure: true,
+        username: 'aps',
+        password: 'super-secret',
+        from: 'APS <alerts@example.test>',
+        to: ['ops@example.test', 'oncall@example.test'],
+      }),
+    );
+    expect(captured.config?.notifications?.webhook).toBeUndefined();
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('super-secret')).not.toBeInTheDocument();
+  });
+
+  it('keeps a saved email password unless cleared with the username', async () => {
+    const captured = installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      {
+        ...email,
+        enabled: true,
+        host: 'smtp.example.test',
+        username: 'aps',
+        passwordSet: true,
+        from: 'alerts@example.test',
+        to: ['ops@example.test'],
+      },
+    );
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('A password is saved.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    await waitFor(() => expect(captured.config).toBeDefined());
+    expect(captured.config?.notifications?.email).not.toHaveProperty('password');
+    expect(captured.config?.notifications?.email).toMatchObject({ username: 'aps' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear password' }));
+    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    await waitFor(() =>
+      expect(captured.config?.notifications?.email).toMatchObject({
+        username: null,
+        password: null,
+      }),
+    );
+  });
+
+  it('validates email delivery and reports a test result', async () => {
+    const onError = vi.fn();
+    const captured = installFetch();
+    const view = render(<ConfigPage onError={onError} />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: /deliver budget alerts by email/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        'Host, From address, and at least one recipient are required.',
+      ),
+    );
+    expect(captured.config).toBeUndefined();
+
+    fireEvent.change(screen.getByLabelText(/smtp host/i), {
+      target: { value: 'smtp.example.test' },
+    });
+    fireEvent.change(screen.getByLabelText(/from address/i), {
+      target: { value: 'alerts@example.test' },
+    });
+    fireEvent.change(screen.getByLabelText(/recipients/i), {
+      target: { value: 'ops@example.test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send test email' }));
+    expect(await screen.findByText(/Test email sent in 15 ms/)).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('shows email test failures', async () => {
+    installFetch(budgetView, [event], [], undefined, undefined, webhook, email, {
+      ok: false,
+      error: 'eauth',
+    });
+    render(<ConfigPage onError={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test email' }));
+    expect(await screen.findByText('eauth')).toBeInTheDocument();
   });
 
   it('deletes a price after an inline confirmation', async () => {

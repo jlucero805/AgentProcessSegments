@@ -1020,3 +1020,71 @@ path would churn imports, tests, and docs for no behavioral gain. The pins stay 
 and per-script, so adding a script means adding a builder and a hostile-env test rather
 than reusing one global env. `scripts/smoke.sh` is bash and keeps its own pinning; making
 it share the contract is separate work.
+
+## D57. Budget alerts also deliver by SMTP email
+
+**Context.** D55 built one durable, signed webhook channel. Operators without a webhook
+collector still need alerts outside the app, and a provider-specific chat API would add
+credentials and API-version maintenance before the generic webhook formats were exhausted.
+The outbox already keys rows by `(alert_id, channel)` and stores `channel`/`format` as
+unconstrained text.
+
+**Decision.** Add `notifications.email` (`enabled`, `host`, `port`, `secure`, `username`,
+`password`, `from`, `to`) and an SMTP channel in the same `budget_alert_deliveries`
+outbox. Email rows store `channel = "email"` and `format = "email"`; no migration is
+needed. `nodemailer` is the transport, loaded lazily behind an injected `EmailSendLike` so
+tests never open a socket and no real transport is constructed unless email is enabled and
+a send is attempted. `secure: true` uses implicit TLS; `secure: false` requires STARTTLS
+for every non-loopback host, matching the webhook loopback exception for local relays.
+Certificates are always verified, credentials are optional but paired, and one transport
+is created per send and closed on success, failure, or abort. The destination hash covers
+host, port, TLS mode, from, sorted recipients, username, and password, so rotating any of
+them skips queued mail instead of sending it with new credentials. Each channel is drained
+and skipped independently; acknowledgement, prior months, and budget/threshold changes
+still skip both. Subjects and bodies come from pure helpers in `domain/budget.ts`; the
+message carries the alert sentence, UTC period, alert id, a stable `Message-ID`, and
+`X-APS-Alert-Id`/`X-APS-Delivery-Id`. Auth/envelope/message/protocol failures are
+permanent; connection, socket, DNS-temporary, timeout, and unknown failures retry on the
+D55 schedule. The API returns `password: null` with `passwordSet` and reports per-channel
+status, and `POST /api/notifications/email/test` exercises the sender without writing rows.
+
+**Cost.** Email is plain text with a fixed layout and no HTML, attachments, DKIM, bounce
+handling, provider APIs, or OAuth2; those are separate work. The password lives in
+`config.json` (mode `0600`) because the brain has no keyring. A recipient list is capped at
+ten, and per-cell routing, native bot delivery, delivery history/resend, and non-budget
+events remain separate requests. The dependency is one runtime package with its own types
+and no transitive dependencies.
+
+## D57. Budget alerts also deliver by SMTP email
+
+**Context.** D55 built one durable, signed webhook channel. Operators without a webhook
+collector still need alerts outside the app, and a provider-specific chat API would add
+credentials and API-version maintenance before the generic webhook formats were exhausted.
+The outbox already keys rows by `(alert_id, channel)` and stores `channel`/`format` as
+unconstrained text.
+
+**Decision.** Add `notifications.email` (`enabled`, `host`, `port`, `secure`, `username`,
+`password`, `from`, `to`) and an SMTP channel in the same `budget_alert_deliveries`
+outbox. Email rows store `channel = "email"` and `format = "email"`; no migration is
+needed. `nodemailer` is the transport, loaded lazily behind an injected `EmailSendLike` so
+tests never open a socket and no real transport is constructed unless email is enabled and
+a send is attempted. `secure: true` uses implicit TLS; `secure: false` requires STARTTLS
+for every non-loopback host, matching the webhook loopback exception for local relays.
+Certificates are always verified, credentials are optional but paired, and one transport
+is created per send and closed on success, failure, or abort. The destination hash covers
+host, port, TLS mode, from, sorted recipients, username, and password, so rotating any of
+them skips queued mail instead of sending it with new credentials. Each channel is drained
+and skipped independently; acknowledgement, prior months, and budget/threshold changes
+still skip both. Subjects and bodies come from pure helpers in `domain/budget.ts`; the
+message carries the alert sentence, UTC period, alert id, a stable `Message-ID`, and
+`X-APS-Alert-Id`/`X-APS-Delivery-Id`. Auth/envelope/message/protocol failures are
+permanent; connection, socket, DNS-temporary, timeout, and unknown failures retry on the
+D55 schedule. The API returns `password: null` with `passwordSet` and reports per-channel
+status, and `POST /api/notifications/email/test` exercises the sender without writing rows.
+
+**Cost.** Email is plain text with a fixed layout and no HTML, attachments, DKIM, bounce
+handling, provider APIs, or OAuth2; those are separate work. The password lives in
+`config.json` (mode `0600`) because the brain has no keyring. A recipient list is capped at
+ten, and per-cell routing, native bot delivery, delivery history/resend, and non-budget
+events remain separate requests. The dependency is one runtime package with its own types
+and no transitive dependencies.

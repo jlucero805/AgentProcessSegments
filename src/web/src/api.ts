@@ -40,6 +40,8 @@ import type {
   UsageSettings,
   WebhookPatch,
   WebhookTestResult,
+  EmailPatch,
+  EmailTestResult,
 } from './types';
 
 export class ApiError extends Error {
@@ -335,7 +337,7 @@ export const api = {
     usage?: Partial<UsageSettings>;
     retention?: Partial<RetentionSettings>;
     budget?: Partial<BudgetSettings>;
-    notifications?: { webhook?: WebhookPatch };
+    notifications?: { webhook?: WebhookPatch; email?: EmailPatch };
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });
   },
@@ -351,6 +353,18 @@ export const api = {
   async testWebhook(): Promise<WebhookTestResult> {
     try {
       return await request<WebhookTestResult>('/api/notifications/webhook/test', {
+        method: 'POST',
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false, durationMs: 0, error: describe(error) };
+      }
+      throw error;
+    }
+  },
+  async testEmail(): Promise<EmailTestResult> {
+    try {
+      return await request<EmailTestResult>('/api/notifications/email/test', {
         method: 'POST',
       });
     } catch (error) {

@@ -43,7 +43,11 @@ export type {
   BudgetStatus,
   BudgetThreshold,
   BudgetsResponse,
+  DeliveryFormat,
   DeliveryStatus,
+  EmailPatch,
+  EmailSettings,
+  EmailView,
   NotificationsSettings,
   NotificationsView,
   SpendPause,
@@ -58,6 +62,9 @@ export {
   MAX_BUDGET_USD,
   WEBHOOK_FORMATS,
   budgetAlertText,
+  emailAddressError,
+  emailRecipientsError,
+  smtpHostError,
   webhookUrlError,
 } from '../../server/src/domain/budget';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
@@ -157,6 +164,17 @@ export interface WebhookStatus {
 
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
+  email: EmailStatus;
+}
+
+export interface EmailStatus {
+  enabled: boolean;
+  configured: boolean;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
 }
 
 export interface WebhookTestResult {
@@ -165,6 +183,8 @@ export interface WebhookTestResult {
   durationMs: number;
   error?: string;
 }
+
+export type EmailTestResult = WebhookTestResult;
 
 export interface ConfigResponse extends AppConfig {
   path: string;

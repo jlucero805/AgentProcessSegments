@@ -268,9 +268,17 @@ budget or threshold, or changing the destination skips pending deliveries. JSON 
 carry `X-APS-Signature: sha256=<hex>` (HMAC over the raw body) plus an
 `X-APS-Timestamp`; Slack and Discord ignore both headers.
 
-`GET /api/notifications/status` shows queue, failure, and last-delivery state, and
-`POST /api/notifications/webhook/test` sends a synthetic test event without writing alert
-or delivery rows. Email and native chat bots remain separate backlog items.
+The independent **Email delivery** card adds SMTP as a second channel. Set a host, port,
+optional username and password, `From` address, and up to ten recipients. Port 465 uses
+implicit TLS; other ports require STARTTLS for any non-loopback host. Email and webhook
+rows share the same outbox and retry schedule but dedupe per channel, so disabling or
+re-pointing one channel never cancels the other. A saved password is redacted from the API
+and only cleared when the operator asks.
+
+`GET /api/notifications/status` shows per-channel queue, failure, and last-delivery state.
+`POST /api/notifications/webhook/test` and `POST /api/notifications/email/test` send
+synthetic test events without writing alert or delivery rows. Native chat bots, per-cell
+routing, and delivery history remain separate backlog items.
 
 ## Docs
 
@@ -304,7 +312,7 @@ src/server/src
   cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
                       interval, concurrency cap, model/effort defaults, auto-compaction
                       threshold, and budget
-  usage/              ledger queries, budget status/alerts, and durable webhook delivery
+  usage/              ledger queries, budget status/alerts, and durable webhook/email delivery
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
@@ -372,7 +380,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 576 vitest cases: 404 server cases (state machine, migrations including
+`npm test` runs 615 vitest cases: 439 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, cutover run retention, engine turns over a fake harness, worktree
@@ -384,7 +392,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 172 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 176 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

@@ -21,6 +21,7 @@ import { SummaryService } from '../src/summary/service.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
 import { BudgetNotifier, type FetchLike } from '../src/usage/budget-notifier.js';
+import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import type { SpendPause } from '../src/domain/budget.js';
@@ -37,6 +38,7 @@ async function makeApp(
   config: Partial<Harness['config']> = {},
   script?: (text: string) => string[],
   send?: FetchLike,
+  sendEmail?: EmailSendLike,
 ): Promise<Open> {
   let admission: ((cellId: string | null) => SpendPause | null) | null = null;
   const h = createHarness(script, undefined, (cellId) => admission?.(cellId) ?? null);
@@ -83,6 +85,7 @@ async function makeApp(
     cells: h.cells,
     settings,
     send: send ?? (async () => new Response(null, { status: 204 })),
+    ...(sendEmail ? { sendEmail } : {}),
   });
   const budgets = new BudgetService({
     usage: h.usage,
@@ -604,7 +607,7 @@ describe('http api', () => {
     expect(after.json().notifications.webhook.secretSet).toBe(true);
   });
 
-  it('reports webhook delivery status', async () => {
+  it('reports webhook and email delivery status', async () => {
     await makeApp();
     const status = await call('GET', '/api/notifications/status');
     expect(status.status).toBe(200);
@@ -619,7 +622,127 @@ describe('http api', () => {
         lastDeliveryStatus: null,
         lastError: null,
       },
+      email: {
+        enabled: false,
+        configured: false,
+        pending: 0,
+        failed: 0,
+        lastDeliveryAt: null,
+        lastDeliveryStatus: null,
+        lastError: null,
+      },
     });
+  });
+
+  it('patches, redacts, and reloads email settings', async () => {
+    const { h } = await makeApp();
+
+    const before = await call('GET', '/api/config');
+    expect(before.json().notifications.email).toEqual({
+      enabled: false,
+      host: null,
+      port: 587,
+      secure: false,
+      username: null,
+      password: null,
+      passwordSet: false,
+      from: null,
+      to: [],
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      notifications: {
+        email: {
+          enabled: true,
+          host: 'smtp.example.test',
+          port: 587,
+          secure: false,
+          username: 'aps',
+          password: 'super-secret',
+          from: 'APS <alerts@example.test>',
+          to: ['ops@example.test'],
+        },
+      },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().notifications.email).toEqual({
+      enabled: true,
+      host: 'smtp.example.test',
+      port: 587,
+      secure: false,
+      username: 'aps',
+      password: null,
+      passwordSet: true,
+      from: 'APS <alerts@example.test>',
+      to: ['ops@example.test'],
+    });
+    expect(patched.text).not.toContain('super-secret');
+
+    const reloaded = new SettingsStore(h.config.configPath).get();
+    expect(reloaded.notifications.email.password).toBe('super-secret');
+    expect(readFileSync(h.config.configPath, 'utf8')).toContain('super-secret');
+
+    for (const email of [
+      { enabled: true, host: null },
+      { port: 0 },
+      { from: 'nope' },
+      { to: ['Ops@example.test', 'ops@example.test'] },
+      { password: null },
+    ]) {
+      const bad = await call('PATCH', '/api/config', { notifications: { email } });
+      expect(bad.status).toBe(400);
+    }
+    const after = await call('GET', '/api/config');
+    expect(after.json().notifications.email.host).toBe('smtp.example.test');
+    expect(after.json().notifications.email.passwordSet).toBe(true);
+  });
+
+  it('sends an email test event with the configured sender', async () => {
+    let calls = 0;
+    const sent: Array<{ subject: string; to: string[] }> = [];
+    await makeApp({}, undefined, undefined, async (_email, message) => {
+      calls += 1;
+      sent.push({ subject: message.subject, to: message.to });
+    });
+    await call('PATCH', '/api/config', {
+      notifications: {
+        email: {
+          host: 'smtp.example.test',
+          from: 'alerts@example.test',
+          to: ['ops@example.test'],
+        },
+      },
+    });
+
+    const result = await call('POST', '/api/notifications/email/test');
+    expect(result.status).toBe(200);
+    expect(result.json()).toMatchObject({ ok: true });
+    expect(calls).toBe(1);
+    expect(sent[0]).toEqual({
+      subject: '[APS] Test budget alert',
+      to: ['ops@example.test'],
+    });
+  });
+
+  it('returns 502 when the email test is rejected and 400 without settings', async () => {
+    await makeApp({}, undefined, undefined, async () => {
+      throw new Error('smtp down');
+    });
+    const missing = await call('POST', '/api/notifications/email/test');
+    expect(missing.status).toBe(400);
+
+    await call('PATCH', '/api/config', {
+      notifications: {
+        email: {
+          host: 'smtp.example.test',
+          from: 'alerts@example.test',
+          to: ['ops@example.test'],
+        },
+      },
+    });
+    const result = await call('POST', '/api/notifications/email/test');
+    expect(result.status).toBe(502);
+    expect(result.json()).toMatchObject({ ok: false, error: 'smtp error' });
   });
 
   it('sends a webhook test event with the configured sender', async () => {

@@ -4,10 +4,14 @@ import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import {
   budgetAlertEvent,
+  budgetAlertSubject,
+  budgetEmailText,
   budgetPeriod,
+  emailDeliveryConfigured,
   type BudgetAlert,
   type BudgetAlertEvent,
   type DeliveryStatus,
+  type EmailSettings,
   type WebhookFormat,
   type WebhookSettings,
 } from '../domain/budget.js';
@@ -17,6 +21,13 @@ import type {
   BudgetAlertDeliveryRepository,
   DeliveryRecord,
 } from './budget-deliveries.js';
+import {
+  createEmailSender,
+  emailDestinationHash,
+  emailErrorReason,
+  type EmailMessage,
+  type EmailSendLike,
+} from './budget-email.js';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -35,6 +46,7 @@ export interface BudgetNotifierDeps {
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
   errors?: ErrorSink;
   send?: FetchLike;
+  sendEmail?: EmailSendLike;
   now?: () => number;
   intervalMs?: number;
   timeoutMs?: number;
@@ -53,8 +65,19 @@ export interface WebhookStatus {
   lastError: string | null;
 }
 
+export interface EmailStatus {
+  enabled: boolean;
+  configured: boolean;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+}
+
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
+  email: EmailStatus;
 }
 
 export interface WebhookTestResult {
@@ -63,6 +86,8 @@ export interface WebhookTestResult {
   durationMs: number;
   error?: string;
 }
+
+export type EmailTestResult = WebhookTestResult;
 
 /** The identity a delivery was enqueued for. Never returned or logged. */
 export function destinationHash(webhook: WebhookSettings): string {
@@ -73,6 +98,11 @@ export function destinationHash(webhook: WebhookSettings): string {
 
 function isSuccess(status: number): boolean {
   return status >= 200 && status < 300;
+}
+
+/** Stable Message-ID so a retried alert is recognizable to mail clients. */
+function messageIdFor(alertId: string): string {
+  return `<budget-${alertId.replace(/[^A-Za-z0-9._-]/g, '')}@aps.local>`;
 }
 
 function isRetryable(status: number): boolean {
@@ -147,6 +177,7 @@ export class BudgetNotifier {
   private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
   private readonly errors?: ErrorSink;
   private readonly send: FetchLike;
+  private readonly sendEmail: EmailSendLike;
   private readonly clock: () => number;
   private readonly intervalMs: number;
   private readonly timeoutMs: number;
@@ -181,6 +212,8 @@ export class BudgetNotifier {
         : DEFAULT_NOTIFY_MAX_ATTEMPTS;
     this.batchSize =
       options.batchSize && options.batchSize > 0 ? options.batchSize : DEFAULT_BATCH_SIZE;
+    this.sendEmail =
+      options.sendEmail ?? createEmailSender({ timeoutMs: this.timeoutMs });
   }
 
   start(): void {
@@ -209,18 +242,40 @@ export class BudgetNotifier {
   /** Enqueue current unacknowledged alerts, then try to flush. Never throws. */
   observe(alerts: BudgetAlert[]): void {
     try {
-      const webhook = this.settings.get().notifications.webhook;
-      if (!webhook.enabled || webhook.url === null) return;
-      const hash = destinationHash(webhook);
+      const { webhook, email } = this.settings.get().notifications;
       const now = this.clock();
-      for (const alert of alerts) {
-        if (alert.acknowledgedAt !== null) continue;
-        this.deliveries.enqueue({
-          alertId: alert.id,
+      const channels: Array<{
+        channel: 'webhook' | 'email';
+        format: WebhookFormat | 'email';
+        enabled: boolean;
+        hash: string;
+      }> = [
+        {
+          channel: 'webhook',
           format: webhook.format,
-          destinationHash: hash,
-          now,
-        });
+          enabled: webhook.enabled && webhook.url !== null,
+          hash: destinationHash(webhook),
+        },
+        {
+          channel: 'email',
+          format: 'email',
+          enabled: email.enabled && emailDeliveryConfigured(email),
+          hash: emailDestinationHash(email),
+        },
+      ];
+
+      for (const channel of channels) {
+        if (!channel.enabled) continue;
+        for (const alert of alerts) {
+          if (alert.acknowledgedAt !== null) continue;
+          this.deliveries.enqueue({
+            alertId: alert.id,
+            channel: channel.channel,
+            format: channel.format,
+            destinationHash: channel.hash,
+            now,
+          });
+        }
       }
       this.kick();
     } catch (error) {
@@ -242,42 +297,87 @@ export class BudgetNotifier {
   private async drain(): Promise<void> {
     const generation = this.generation;
     try {
-      const webhook = this.settings.get().notifications.webhook;
+      const { webhook, email } = this.settings.get().notifications;
       const now = this.clock();
-      if (!webhook.enabled || webhook.url === null) {
-        this.deliveries.skipPending(now);
-        return;
-      }
-
-      const hash = destinationHash(webhook);
       const periodStart = budgetPeriod(now).start;
       this.deliveries.skipAcknowledged(now);
-      this.deliveries.skipStaleDestination(hash, now);
       this.deliveries.skipBeforePeriod(periodStart, now);
 
-      const due = this.deliveries.listDue(hash, periodStart, now, this.batchSize);
-      for (const delivery of due) {
-        if (generation !== this.generation) return;
-        await this.deliver(delivery, webhook, periodStart, generation);
+      if (!webhook.enabled || webhook.url === null) {
+        this.deliveries.skipPending('webhook', now);
+      } else {
+        await this.drainWebhook(webhook, periodStart, generation);
+      }
+
+      if (!email.enabled || !emailDeliveryConfigured(email)) {
+        this.deliveries.skipPending('email', now);
+      } else {
+        await this.drainEmail(email, periodStart, generation);
       }
     } catch (error) {
       this.errors?.error('budget.notify', error, { phase: 'flush' });
     }
   }
 
+  private async drainWebhook(
+    webhook: WebhookSettings,
+    periodStart: number,
+    generation: number,
+  ): Promise<void> {
+    const now = this.clock();
+    const hash = destinationHash(webhook);
+    this.deliveries.skipStaleDestination('webhook', hash, now);
+    const due = this.deliveries.listDue(
+      'webhook',
+      hash,
+      periodStart,
+      now,
+      this.batchSize,
+    );
+    for (const delivery of due) {
+      if (generation !== this.generation) return;
+      await this.deliverWebhook(delivery, webhook, periodStart, generation);
+    }
+  }
+
+  private async drainEmail(
+    email: EmailSettings,
+    periodStart: number,
+    generation: number,
+  ): Promise<void> {
+    const now = this.clock();
+    const hash = emailDestinationHash(email);
+    this.deliveries.skipStaleDestination('email', hash, now);
+    const due = this.deliveries.listDue('email', hash, periodStart, now, this.batchSize);
+    for (const delivery of due) {
+      if (generation !== this.generation) return;
+      await this.deliverEmail(delivery, email, periodStart, generation);
+    }
+  }
+
   status(): NotificationStatusResponse {
-    const webhook = this.settings.get().notifications.webhook;
-    const summary = this.deliveries.status();
+    const { webhook, email } = this.settings.get().notifications;
+    const webhookSummary = this.deliveries.status('webhook');
+    const emailSummary = this.deliveries.status('email');
     return {
       webhook: {
         enabled: webhook.enabled,
         configured: webhook.url !== null,
         format: webhook.format,
-        pending: summary.pending,
-        failed: summary.failed,
-        lastDeliveryAt: summary.lastDeliveryAt,
-        lastDeliveryStatus: summary.lastDeliveryStatus,
-        lastError: summary.lastError,
+        pending: webhookSummary.pending,
+        failed: webhookSummary.failed,
+        lastDeliveryAt: webhookSummary.lastDeliveryAt,
+        lastDeliveryStatus: webhookSummary.lastDeliveryStatus,
+        lastError: webhookSummary.lastError,
+      },
+      email: {
+        enabled: email.enabled,
+        configured: emailDeliveryConfigured(email),
+        pending: emailSummary.pending,
+        failed: emailSummary.failed,
+        lastDeliveryAt: emailSummary.lastDeliveryAt,
+        lastDeliveryStatus: emailSummary.lastDeliveryStatus,
+        lastError: emailSummary.lastError,
       },
     };
   }
@@ -290,20 +390,7 @@ export class BudgetNotifier {
       return { ok: false, durationMs: 0, error: 'no webhook URL configured' };
     }
     const now = this.clock();
-    const alert: BudgetAlert = {
-      id: `test-${randomUUID()}`,
-      scope: 'overall',
-      cellId: null,
-      cellName: null,
-      threshold: 'warning',
-      alertAtPercent: 80,
-      budgetUsd: 100,
-      spendUsd: 80,
-      unknownCostTurns: 0,
-      periodStart: budgetPeriod(now).start,
-      createdAt: now,
-      acknowledgedAt: null,
-    };
+    const alert = this.testAlert(now);
     const body = formatBody(webhook, budgetAlertEvent(alert, 'budget.test'));
     try {
       const response = await this.sendOnce(webhook, body, alert.id, now);
@@ -324,18 +411,63 @@ export class BudgetNotifier {
     }
   }
 
+  /** Send a synthetic email without touching durable alert/delivery state. */
+  async testEmail(): Promise<EmailTestResult> {
+    const email = this.settings.get().notifications.email;
+    const started = this.clock();
+    if (!emailDeliveryConfigured(email)) {
+      return { ok: false, durationMs: 0, error: 'email delivery is not configured' };
+    }
+    const now = this.clock();
+    const alert = this.testAlert(now);
+    const message: EmailMessage = {
+      from: email.from ?? '',
+      to: email.to,
+      subject: budgetAlertSubject(alert, 'budget.test'),
+      text: budgetEmailText(alert, 'budget.test'),
+      messageId: `<budget-test-${alert.id}@aps.local>`,
+      alertId: alert.id,
+      deliveryId: alert.id,
+    };
+    try {
+      await this.sendEmailOnce(email, message);
+      return { ok: true, durationMs: Math.max(0, this.clock() - started) };
+    } catch (error) {
+      return {
+        ok: false,
+        durationMs: Math.max(0, this.clock() - started),
+        error: emailErrorReason(error).reason,
+      };
+    }
+  }
+
+  private testAlert(now: number): BudgetAlert {
+    return {
+      id: `test-${randomUUID()}`,
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      threshold: 'warning',
+      alertAtPercent: 80,
+      budgetUsd: 100,
+      spendUsd: 80,
+      unknownCostTurns: 0,
+      periodStart: budgetPeriod(now).start,
+      createdAt: now,
+      acknowledgedAt: null,
+    };
+  }
+
   private kick(): void {
     void this.flush();
   }
 
-  private async deliver(
+  private startDelivery(
     delivery: DeliveryRecord,
-    webhook: WebhookSettings,
     periodStart: number,
-    generation: number,
-  ): Promise<void> {
+  ): { delivery: DeliveryRecord; alert: BudgetAlert } | null {
     const marked = this.deliveries.markDelivering(delivery.id, this.clock());
-    if (!marked) return;
+    if (!marked) return null;
 
     const record = this.alerts.get(marked.alertId);
     if (
@@ -344,58 +476,107 @@ export class BudgetNotifier {
       record.periodStart !== periodStart
     ) {
       this.deliveries.markSkipped(marked.id, this.clock());
-      return;
+      return null;
     }
+    return { delivery: marked, alert: this.toAlert(record) };
+  }
 
-    const alert = this.toAlert(record);
-    const body = formatBody(webhook, budgetAlertEvent(alert));
+  private async deliverWebhook(
+    delivery: DeliveryRecord,
+    webhook: WebhookSettings,
+    periodStart: number,
+    generation: number,
+  ): Promise<void> {
+    const started = this.startDelivery(delivery, periodStart);
+    if (!started) return;
+
+    const body = formatBody(webhook, budgetAlertEvent(started.alert));
     let response: Response;
     try {
-      response = await this.sendOnce(webhook, body, alert.id, this.clock());
+      response = await this.sendOnce(webhook, body, started.alert.id, this.clock());
     } catch (error) {
       if (generation !== this.generation) return;
-      this.handleFailure(marked, deliveryErrorReason(error), null);
+      this.handleFailure(started.delivery, deliveryErrorReason(error), {
+        retryable: true,
+        retryAfterMs: null,
+      });
       return;
     }
     if (generation !== this.generation) return;
 
     if (isSuccess(response.status)) {
-      this.deliveries.markDelivered(marked.id, this.clock());
+      this.deliveries.markDelivered(started.delivery.id, this.clock());
       return;
     }
-    this.handleFailure(marked, `HTTP ${response.status}`, response);
+    this.handleFailure(started.delivery, `HTTP ${response.status}`, {
+      retryable: isRetryable(response.status),
+      retryAfterMs: retryAfterMs(response, this.clock()),
+    });
+  }
+
+  private async deliverEmail(
+    delivery: DeliveryRecord,
+    email: EmailSettings,
+    periodStart: number,
+    generation: number,
+  ): Promise<void> {
+    const started = this.startDelivery(delivery, periodStart);
+    if (!started) return;
+
+    const message: EmailMessage = {
+      from: email.from ?? '',
+      to: email.to,
+      subject: budgetAlertSubject(started.alert),
+      text: budgetEmailText(started.alert),
+      messageId: messageIdFor(started.alert.id),
+      alertId: started.alert.id,
+      deliveryId: started.delivery.id,
+    };
+    try {
+      await this.sendEmailOnce(email, message);
+    } catch (error) {
+      if (generation !== this.generation) return;
+      const classified = emailErrorReason(error);
+      this.handleFailure(started.delivery, classified.reason, {
+        retryable: !classified.permanent,
+        retryAfterMs: null,
+      });
+      return;
+    }
+    if (generation !== this.generation) return;
+    this.deliveries.markDelivered(started.delivery.id, this.clock());
   }
 
   private handleFailure(
     delivery: DeliveryRecord,
     reason: string,
-    response: Response | null,
+    options: { retryable: boolean; retryAfterMs: number | null },
   ): void {
     const now = this.clock();
     const attempt = delivery.attempts;
-    if (response !== null && !isRetryable(response.status)) {
-      this.deliveries.markFailed(delivery.id, now, reason);
-      this.report(delivery, attempt, reason);
-      return;
-    }
-    if (attempt >= this.maxAttempts) {
+    if (!options.retryable || attempt >= this.maxAttempts) {
       this.deliveries.markFailed(delivery.id, now, reason);
       this.report(delivery, attempt, reason);
       return;
     }
 
     const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ?? 0;
-    const retryAfter = response !== null ? retryAfterMs(response, now) : null;
-    this.deliveries.markRetry(delivery.id, now, now + (retryAfter ?? delay), reason);
+    this.deliveries.markRetry(
+      delivery.id,
+      now,
+      now + (options.retryAfterMs ?? delay),
+      reason,
+    );
     this.report(delivery, attempt, reason);
   }
 
   private report(delivery: DeliveryRecord, attempt: number, reason: string): void {
     // Log a synthesized error: sender errors and HTTP messages can carry the
-    // URL or response body, which must never reach the error log.
+    // URL, recipients, or response body, which must never reach the error log.
     this.errors?.error('budget.notify', new Error(reason), {
       alertId: delivery.alertId,
       deliveryId: delivery.id,
+      channel: delivery.channel,
       attempt,
       ...(delivery.format !== 'json' ? { format: delivery.format } : {}),
       reason,
@@ -433,6 +614,34 @@ export class BudgetNotifier {
           redirect: 'manual',
           signal: controller.signal,
         }),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      this.controllers.delete(controller);
+    }
+  }
+
+  private async sendEmailOnce(
+    email: EmailSettings,
+    message: EmailMessage,
+  ): Promise<void> {
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        const error = new Error('email delivery timed out');
+        error.name = 'TimeoutError';
+        reject(error);
+      }, this.timeoutMs);
+      timer.unref?.();
+    });
+
+    try {
+      await Promise.race([
+        this.sendEmail(email, message, controller.signal),
         timeout,
       ]);
     } finally {

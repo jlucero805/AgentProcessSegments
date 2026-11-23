@@ -5,10 +5,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb } from '../src/db.js';
 import {
+  budgetAlertSubject,
   budgetAlertText,
+  budgetEmailText,
   budgetPeriod,
+  emailAddressError,
+  emailDeliveryConfigured,
+  emailRecipientsError,
+  isLoopbackSmtpHost,
+  smtpHostError,
   type BudgetAlert,
   type BudgetUsageTotals,
+  type EmailSettings,
 } from '../src/domain/budget.js';
 import type { ErrorSink } from '../src/logging/errors.js';
 import { SettingsStore } from '../src/settings.js';
@@ -539,5 +547,105 @@ describe('budget totals from the usage repository', () => {
       costUsd: 5,
     });
     db.close();
+  });
+});
+
+describe('budget email helpers', () => {
+  function alert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
+    return {
+      id: 'alert-1',
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      threshold: 'warning',
+      alertAtPercent: 80,
+      budgetUsd: 100,
+      spendUsd: 85,
+      unknownCostTurns: 0,
+      periodStart: PERIOD.start,
+      createdAt: NOW,
+      acknowledgedAt: null,
+      ...overrides,
+    };
+  }
+
+  it('builds a subject for overall, cell, exceeded, and test alerts', () => {
+    expect(budgetAlertSubject(alert())).toBe('[APS] Overall budget warning (80%)');
+    expect(
+      budgetAlertSubject(alert({ scope: 'cell', cellId: 'c1', cellName: 'Research' })),
+    ).toBe('[APS] Research budget warning (80%)');
+    expect(
+      budgetAlertSubject(alert({ threshold: 'exceeded', spendUsd: 120 })),
+    ).toBe('[APS] Overall over budget ($100.00)');
+    expect(budgetAlertSubject(alert(), 'budget.test')).toBe('[APS] Test budget alert');
+  });
+
+  it('writes the alert sentence, UTC period, and id into the body', () => {
+    const body = budgetEmailText(alert());
+    expect(body).toContain(budgetAlertText(alert()));
+    expect(body).toContain('2026-11-01T00:00:00.000Z to 2026-12-01T00:00:00.000Z (UTC)');
+    expect(body).toContain('Alert: alert-1');
+    expect(budgetEmailText(alert(), 'budget.test')).toMatch(/^This is a test budget alert/);
+  });
+
+  it('keeps lower-bound copy in the email body', () => {
+    const lower = alert({ unknownCostTurns: 2 });
+    expect(budgetEmailText(lower)).toContain(budgetAlertText(lower));
+    expect(budgetEmailText(lower)).toContain('at least $85.00');
+  });
+
+  it('validates from addresses with and without a display name', () => {
+    expect(emailAddressError('ops@example.com')).toBeNull();
+    expect(emailAddressError('APS Alerts <alerts@example.com>')).toBeNull();
+    expect(emailAddressError('user@localhost')).toBeNull();
+    expect(emailAddressError('')).toBe('is required');
+    expect(emailAddressError('not-an-address')).toBe('must be a valid email address');
+    expect(emailAddressError('<alerts@example.com>')).toBe(
+      'must include a display name before the address',
+    );
+    expect(emailAddressError(`name <${'a'.repeat(400)}@example.com>`)).toBe(
+      'must be at most 320 characters',
+    );
+  });
+
+  it('validates unique plain recipients capped at ten', () => {
+    expect(emailRecipientsError(['ops@example.com'])).toBeNull();
+    expect(emailRecipientsError([])).toBe('at least one recipient is required');
+    expect(emailRecipientsError(['Ops@example.com', 'ops@example.com'])).toBe(
+      'recipients must be unique',
+    );
+    expect(emailRecipientsError(['APS <ops@example.com>'])).toBe(
+      'recipients must be plain email addresses',
+    );
+    const many = Array.from({ length: 11 }, (_value, index) => `u${index}@example.com`);
+    expect(emailRecipientsError(many)).toBe('must have at most 10 recipients');
+  });
+
+  it('validates SMTP hosts and recognizes loopback relays', () => {
+    expect(smtpHostError('smtp.example.com')).toBeNull();
+    expect(smtpHostError('127.0.0.1')).toBeNull();
+    expect(smtpHostError('')).toBe('is required');
+    expect(smtpHostError('smtp example.com')).toBe('must be a hostname or IP address');
+    expect(smtpHostError('user@example.com')).toBe('must be a hostname or IP address');
+    expect(isLoopbackSmtpHost('localhost')).toBe(true);
+    expect(isLoopbackSmtpHost('[::1]')).toBe(true);
+    expect(isLoopbackSmtpHost('localhost.example.com')).toBe(false);
+  });
+
+  it('treats email as configured only with host, from, and a recipient', () => {
+    const base: EmailSettings = {
+      enabled: true,
+      host: 'smtp.example.com',
+      port: 587,
+      secure: false,
+      username: null,
+      password: null,
+      from: 'alerts@example.com',
+      to: ['ops@example.com'],
+    };
+    expect(emailDeliveryConfigured(base)).toBe(true);
+    expect(emailDeliveryConfigured({ ...base, host: null })).toBe(false);
+    expect(emailDeliveryConfigured({ ...base, from: null })).toBe(false);
+    expect(emailDeliveryConfigured({ ...base, to: [] })).toBe(false);
   });
 });

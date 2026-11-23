@@ -9,6 +9,11 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
     restoreMocks: true,
+    // The brain unit exports NODE_ENV=production and agent shells inherit it. Vitest
+    // only defaults NODE_ENV=test when it is unset, and Vite substitutes the inherited
+    // value into the test graph, so React loads its production build where act() throws.
+    // Pin it here so every invocation runs as a test.
+    env: { NODE_ENV: 'test' },
   },
   server: {
     host: '127.0.0.1',

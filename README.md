@@ -398,6 +398,16 @@ host `APS_*`/`SBOX_*` settings and `ANTHROPIC_*`/`CLAUDE_*`/`OPENAI_*` credentia
 dropped, and `HOME`, `NODE_ENV`, the plugins dir, brain URL, docs dir, and mock binary
 are pinned, so a shell that exports harness overrides still exercises the mock.
 
+CI runs that E2E step with hostile overrides exported (`SBOX_HARNESS_BIN=/bin/false`,
+`APS_HARNESS=opencode`, `APS_TURN_TIMEOUT_MS=1`, and similar), so a regression that lets
+the host env through fails the build. Reproduce it locally after building:
+
+```bash
+npm run build
+env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_TURN_TIMEOUT_MS=1 \
+  node scripts/e2e.mjs
+```
+
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point
 `UI_BASE` at a running brain, then run it. It creates and drops a request, opens the

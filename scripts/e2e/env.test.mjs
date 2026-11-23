@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildE2eEnv, SCRUB_PREFIXES } from './env.mjs';
+import { buildE2eEnv, buildE2ePins, SCRUB_PREFIXES } from './env.mjs';
 
 const pins = {
   HOME: '/tmp/e2e/home',
@@ -117,4 +117,40 @@ test('skips undefined host values instead of writing them out', () => {
   const env = buildE2eEnv({ PATH: undefined, KEEP: 'value' }, {});
   assert.equal(Object.hasOwn(env, 'PATH'), false);
   assert.equal(env.KEEP, 'value');
+});
+
+test('the real E2E pin set beats hostile harness overrides', () => {
+  const e2ePins = buildE2ePins({
+    root: '/repo',
+    mock: '/repo/scripts/e2e/mock-claude.mjs',
+    home: '/tmp/e2e/home',
+    temp: '/tmp/e2e',
+    dbPath: '/tmp/e2e/e2e.sqlite',
+    port: 7391,
+    base: 'http://127.0.0.1:7391',
+    pluginsDir: '/tmp/e2e/plugins',
+  });
+
+  const env = buildE2eEnv(hostile, e2ePins);
+
+  for (const [name, value] of Object.entries(e2ePins)) {
+    assert.equal(env[name], value, `${name} should use the pinned value`);
+  }
+  for (const name of Object.keys(hostile)) {
+    if (Object.hasOwn(e2ePins, name)) continue;
+    if (SCRUB_PREFIXES.some((prefix) => name.startsWith(prefix))) {
+      assert.equal(Object.hasOwn(env, name), false, `${name} should be dropped`);
+    }
+  }
+
+  // The hostile binaries must never survive under either prefix.
+  assert.equal(env.APS_HARNESS_BIN, '/repo/scripts/e2e/mock-claude.mjs');
+  assert.equal(env.APS_CLAUDE_BIN, '/repo/scripts/e2e/mock-claude.mjs');
+  assert.equal(Object.hasOwn(env, 'SBOX_HARNESS_BIN'), false);
+  assert.equal(Object.hasOwn(env, 'APS_OPENCODE_BIN'), false);
+
+  // Ordinary host env still reaches the brain.
+  assert.equal(env.PATH, '/usr/bin:/bin');
+  assert.equal(env.LANG, 'en_US.UTF-8');
+  assert.equal(env.HTTPS_PROXY, 'http://proxy:8080');
 });

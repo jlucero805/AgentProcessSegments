@@ -121,7 +121,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   URL, docs dir, and the mock binary. Without that, a host `APS_TURN_TIMEOUT_MS`,
   `APS_PLUGINS_DIR`, or legacy `SBOX_HARNESS_BIN` silently changes what the suite proves.
   `scripts/e2e/env.test.mjs` guards the builder (`npm run test:e2e-env`); reuse the helper
-  in other proof scripts instead of spreading the host env.
+  in other proof scripts instead of spreading the host env. CI's E2E step exports hostile
+  sentinels (`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`,
+  `APS_TURN_TIMEOUT_MS=1`, ...); reproduce it with `npm run build`, then
+  `env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode node scripts/e2e.mjs`.
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
   Code binary can be supplied with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock

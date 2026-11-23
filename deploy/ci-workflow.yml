@@ -34,13 +34,28 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      # Export hostile overrides so a regression that spreads process.env into
+      # the brain fails here instead of passing silently. None are real config.
+      # These include the values from the original report plus stronger sentinels.
       - name: E2E API workflow
-        # The suite must stay hermetic when the host exports harness overrides;
-        # these are the values from the original report.
         env:
-          SBOX_HARNESS_BIN: opencode
-          APS_HARNESS_BIN: opencode
+          HOME: /nonexistent
+          NODE_ENV: production
+          SBOX_HARNESS: opencode
+          SBOX_HARNESS_BIN: /bin/false
+          SBOX_CLAUDE_BIN: /bin/false
+          SBOX_PLUGINS_DIR: /nonexistent/host-plugins
+          SBOX_BRAIN_URL: http://127.0.0.1:1
+          SBOX_TURN_TIMEOUT_MS: "1"
           APS_HARNESS: opencode
+          APS_HARNESS_BIN: /bin/false
+          APS_CLAUDE_BIN: /bin/false
+          APS_PLUGINS_DIR: /nonexistent/host-plugins
+          APS_BRAIN_URL: http://127.0.0.1:1
+          APS_TURN_TIMEOUT_MS: "1"
+          APS_DEFAULT_MODEL: host/model
+          ANTHROPIC_API_KEY: sk-hostile-not-real
+          ANTHROPIC_BASE_URL: https://example.invalid
         run: node scripts/e2e.mjs
 
       - name: HTTP smoke

@@ -6,6 +6,7 @@ const pins = {
   HOME: '/tmp/e2e/home',
   NODE_ENV: 'production',
   APS_HARNESS: 'claude',
+  APS_HARNESS_BIN: '/repo/scripts/e2e/mock-claude.mjs',
   APS_CLAUDE_BIN: '/repo/scripts/e2e/mock-claude.mjs',
   APS_PLUGINS_DIR: '/tmp/e2e/plugins',
   APS_BRAIN_URL: 'http://127.0.0.1:7391',
@@ -28,7 +29,9 @@ const hostile = {
   APS_TURN_TIMEOUT_MS: '1',
   APS_DEFAULT_MODEL: 'host/model',
   SBOX_HARNESS: 'opencode',
-  SBOX_HARNESS_BIN: '/bin/false',
+  // The exact value from the report: a host exporting the OpenCode binary used
+  // to make the suite launch it with Claude flags.
+  SBOX_HARNESS_BIN: 'opencode',
   SBOX_CLAUDE_BIN: '/bin/false',
   SBOX_PLUGINS_DIR: '/host/plugins',
   SBOX_BRAIN_URL: 'http://example.test',
@@ -81,9 +84,33 @@ test('pins win over colliding host values', () => {
   assert.equal(env.HOME, '/tmp/e2e/home');
   assert.equal(env.NODE_ENV, 'production');
   assert.equal(env.APS_HARNESS, 'claude');
+  assert.equal(env.APS_HARNESS_BIN, '/repo/scripts/e2e/mock-claude.mjs');
   assert.equal(env.APS_CLAUDE_BIN, '/repo/scripts/e2e/mock-claude.mjs');
   assert.equal(env.APS_PLUGINS_DIR, '/tmp/e2e/plugins');
   assert.equal(env.APS_BRAIN_URL, 'http://127.0.0.1:7391');
+  // The reported regression: a host `SBOX_HARNESS_BIN=opencode` must never win.
+  assert.notEqual(env.APS_HARNESS_BIN, 'opencode');
+  assert.notEqual(env.APS_HARNESS_BIN, '/bin/false');
+});
+
+test('every scrub-prefixed name in the result comes from a pin', () => {
+  const env = buildE2eEnv(hostile, pins);
+  for (const name of Object.keys(env)) {
+    if (!SCRUB_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+    assert.ok(Object.hasOwn(pins, name), `${name} must be pinned, not inherited`);
+    assert.equal(env[name], pins[name], `${name} must carry the pinned value`);
+  }
+});
+
+test('drops inherited empty strings too', () => {
+  const env = buildE2eEnv(
+    { PATH: '/usr/bin:/bin', APS_HARNESS: '', SBOX_HARNESS_BIN: '', APS_TURN_TIMEOUT_MS: '' },
+    { APS_HARNESS: 'claude', APS_TURN_TIMEOUT_MS: '600000' },
+  );
+  assert.equal(env.APS_HARNESS, 'claude');
+  assert.equal(env.APS_TURN_TIMEOUT_MS, '600000');
+  assert.equal(Object.hasOwn(env, 'SBOX_HARNESS_BIN'), false);
+  assert.equal(env.PATH, '/usr/bin:/bin');
 });
 
 test('skips undefined host values instead of writing them out', () => {

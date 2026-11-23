@@ -35,6 +35,12 @@ jobs:
       - run: npm run build
 
       - name: E2E API workflow
+        # The suite must stay hermetic when the host exports harness overrides;
+        # these are the values from the original report.
+        env:
+          SBOX_HARNESS_BIN: opencode
+          APS_HARNESS_BIN: opencode
+          APS_HARNESS: opencode
         run: node scripts/e2e.mjs
 
       - name: HTTP smoke

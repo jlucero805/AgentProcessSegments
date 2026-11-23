@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UsagePage } from './UsagePage';
 import { jsonResponse, makeUsageResponse } from './test/fixtures';
-import type { BudgetsResponse } from './types';
+import type { BudgetAlert, BudgetsResponse } from './types';
+import type { BudgetFeed } from './useBudgets';
 
 const CELLS = [
   {
@@ -50,11 +51,42 @@ const BUDGETS: BudgetsResponse = {
   pauses: [],
 };
 
-function installFetch(response = makeUsageResponse(), budgets = BUDGETS) {
+const ALERT: BudgetAlert = {
+  id: 'a1',
+  scope: 'overall',
+  cellId: null,
+  cellName: null,
+  threshold: 'warning',
+  alertAtPercent: 80,
+  budgetUsd: 100,
+  spendUsd: 85,
+  unknownCostTurns: 1,
+  periodStart: Date.UTC(2026, 10, 1),
+  createdAt: 10,
+  acknowledgedAt: null,
+};
+
+function makeFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
+  return {
+    budgets: BUDGETS,
+    error: null,
+    loading: false,
+    refresh: vi.fn(async () => {}),
+    acknowledge: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
+function renderUsage(overrides: Partial<BudgetFeed> = {}, onError = vi.fn()) {
+  const budgetFeed = makeFeed(overrides);
+  const view = render(<UsagePage onError={onError} budgetFeed={budgetFeed} />);
+  return { ...view, budgetFeed, onError };
+}
+
+function installFetch(response = makeUsageResponse()) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === '/api/cells') return jsonResponse(CELLS);
-    if (url === '/api/budgets') return jsonResponse(budgets);
     if (url.startsWith('/api/usage')) return jsonResponse(response);
     return jsonResponse([]);
   });
@@ -69,7 +101,7 @@ afterEach(() => {
 describe('UsagePage', () => {
   it('renders effective totals, the reported/estimated split, and all breakdown tables', async () => {
     installFetch();
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findByText('Effective cost')).toBeInTheDocument();
     expect(screen.getAllByText('≈ $0.0160').length).toBeGreaterThan(0);
@@ -101,7 +133,7 @@ describe('UsagePage', () => {
       },
       byModel: [],
     });
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findAllByText('unknown')).not.toHaveLength(0);
     expect(screen.queryByText('$0')).not.toBeInTheDocument();
@@ -109,7 +141,7 @@ describe('UsagePage', () => {
 
   it('shows current-month budget progress and lower-bound copy', async () => {
     installFetch();
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
     expect(screen.getByText(/warning at 80%/)).toBeInTheDocument();
@@ -117,26 +149,28 @@ describe('UsagePage', () => {
   });
 
   it('marks a paused scope and explains the cap spend', async () => {
-    installFetch(makeUsageResponse(), {
-      ...BUDGETS,
-      statuses: [{ ...BUDGETS.statuses[0]!, paused: true, capSpendUsd: 100 }],
-      pauses: [
-        {
-          scope: 'overall',
-          cellId: null,
-          cellName: null,
-          label: 'Overall',
-          periodStart: Date.UTC(2026, 10, 1),
-          periodEnd: Date.UTC(2026, 11, 1),
-          budgetUsd: 100,
-          spendUsd: 100,
-          spendIsLowerBound: false,
-          unpricedTurns: 0,
-          percentUsed: 100,
-        },
-      ],
+    installFetch();
+    renderUsage({
+      budgets: {
+        ...BUDGETS,
+        statuses: [{ ...BUDGETS.statuses[0]!, paused: true, capSpendUsd: 100 }],
+        pauses: [
+          {
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            label: 'Overall',
+            periodStart: Date.UTC(2026, 10, 1),
+            periodEnd: Date.UTC(2026, 11, 1),
+            budgetUsd: 100,
+            spendUsd: 100,
+            spendIsLowerBound: false,
+            unpricedTurns: 0,
+            percentUsed: 100,
+          },
+        ],
+      },
     });
-    render(<UsagePage onError={vi.fn()} />);
 
     expect(await screen.findByText('paused')).toBeInTheDocument();
     expect(screen.getByText(/Paused at \$100\.00 cap spend/)).toBeInTheDocument();
@@ -144,21 +178,23 @@ describe('UsagePage', () => {
   });
 
   it('does not show an all-unpriced budget as zero', async () => {
-    installFetch(makeUsageResponse(), {
-      ...BUDGETS,
-      statuses: [
-        {
-          ...BUDGETS.statuses[0]!,
-          spendUsd: 0,
-          remainingUsd: 100,
-          percentUsed: 0,
-          pricedTurns: 0,
-          unknownCostTurns: 2,
-          state: 'unknown',
-        },
-      ],
+    installFetch();
+    renderUsage({
+      budgets: {
+        ...BUDGETS,
+        statuses: [
+          {
+            ...BUDGETS.statuses[0]!,
+            spendUsd: 0,
+            remainingUsd: 100,
+            percentUsed: 0,
+            pricedTurns: 0,
+            unknownCostTurns: 2,
+            state: 'unknown',
+          },
+        ],
+      },
     });
-    render(<UsagePage onError={vi.fn()} />);
 
     expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
@@ -180,7 +216,7 @@ describe('UsagePage', () => {
         unknownCostTurns: 1,
       },
     });
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findAllByText('≥ $0.0120 · 1 unpriced')).not.toHaveLength(0);
     expect(screen.getByText('Unpriced turns')).toBeInTheDocument();
@@ -188,7 +224,7 @@ describe('UsagePage', () => {
 
   it('shows the retained raw window from the usage payload', async () => {
     const fetchMock = installFetch();
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(
       await screen.findByText(
@@ -205,7 +241,7 @@ describe('UsagePage', () => {
       ...base,
       coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 90 },
     });
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findByText(/Daily totals preserve history before/)).toBeInTheDocument();
     expect(screen.getByText(/Raw retention is 90 days\./)).toBeInTheDocument();
@@ -217,7 +253,7 @@ describe('UsagePage', () => {
       ...base,
       coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0 },
     });
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findByText(/Daily totals preserve history before/)).toBeInTheDocument();
     expect(screen.getByText(/kept indefinitely/)).toBeInTheDocument();
@@ -229,7 +265,7 @@ describe('UsagePage', () => {
       ...base,
       coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0 },
     });
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findByText('Effective cost')).toBeInTheDocument();
     expect(screen.getByText(/Daily totals preserve history before/)).toBeInTheDocument();
@@ -242,14 +278,14 @@ describe('UsagePage', () => {
       ...makeUsageResponse(),
       coverage: { rolledThrough: null, retentionDays: 0 },
     });
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
 
     expect(await screen.findByText('Usage history is kept indefinitely.')).toBeInTheDocument();
   });
 
   it('refetches with hour buckets when the range changes', async () => {
     const fetchMock = installFetch();
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
     await screen.findByText('Effective cost');
 
     fireEvent.click(screen.getByText('24h'));
@@ -269,7 +305,7 @@ describe('UsagePage', () => {
 
   it('refetches with the selected cell', async () => {
     const fetchMock = installFetch();
-    render(<UsagePage onError={vi.fn()} />);
+    renderUsage();
     await screen.findByText('Effective cost');
 
     fireEvent.change(screen.getByLabelText('Filter usage by cell'), {
@@ -280,5 +316,59 @@ describe('UsagePage', () => {
       const urls = fetchMock.mock.calls.map(([input]) => String(input));
       expect(urls.some((url) => url.includes('cellId=cell-1'))).toBe(true);
     });
+  });
+
+  it('does not fetch budgets itself', async () => {
+    const fetchMock = installFetch();
+    renderUsage();
+    await screen.findByText('Monthly budgets');
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url === '/api/budgets')).toBe(false);
+  });
+
+  it('shows a retryable failure instead of pretending there are no budgets', async () => {
+    installFetch();
+    const { budgetFeed } = renderUsage({
+      budgets: null,
+      error: '503 Service Unavailable',
+    });
+
+    expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load budgets.");
+    expect(screen.getByRole('alert')).toHaveTextContent('503 Service Unavailable');
+    expect(screen.queryByText(/No budgets configured/)).not.toBeInTheDocument();
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+    expect(screen.getByText('Effective cost')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(budgetFeed.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the last good budget status while a refresh is failing', async () => {
+    installFetch();
+    renderUsage({ error: 'offline' });
+
+    expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      "Couldn't refresh budgets; showing the last successful update.",
+    );
+    expect(screen.getByText(/At least \$85\.00 of \$100\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/warning at 80%/)).toBeInTheDocument();
+  });
+
+  it('acknowledges an active alert from the budget card', async () => {
+    installFetch();
+    const { budgetFeed } = renderUsage({
+      budgets: { ...BUDGETS, alerts: [ALERT] },
+    });
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Dismiss budget alert for overall spend',
+      }),
+    );
+
+    expect(budgetFeed.acknowledge).toHaveBeenCalledWith(ALERT);
   });
 });

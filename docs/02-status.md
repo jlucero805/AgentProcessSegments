@@ -222,9 +222,11 @@ built and vended by the brain; real-CLI verification is still pending.
   status, unacknowledged alerts, and active `pauses`; `POST
   /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. The Config
   page edits the overall policy, the cell editor edits a cell policy, the Usage page shows
-  the same monthly progress, and an app-wide banner surfaces alerts and pauses. Unpriced
-  turns are reported as unknown or a lower bound, never guessed. Overall pauses block all
-  new agent turns; cell pauses are cell-scoped; in-flight turns finish.
+  the same monthly progress, and an app-wide banner surfaces alerts and pauses. The Usage
+  card and banner share one poll; the card keeps its last good status when a refresh fails
+  and offers Retry when budget status cannot be loaded. Unpriced turns are reported as
+  unknown or a lower bound, never guessed. Overall pauses block all new agent turns; cell
+  pauses are cell-scoped; in-flight turns finish.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
   Discord text format. `budget_alert_deliveries` is a durable outbox keyed by

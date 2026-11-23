@@ -122,7 +122,9 @@ built and vended by the brain; real-CLI verification is still pending.
   tool output.
 - Worktrees: `aps/<id>` branch per request (legacy `sbox/<id>` reused when it is the
   only ref), reuse of an existing checkout, branch kept on removal, scratch fallback
-  when git is unavailable.
+  when git is unavailable. `npm run migrate:branches` retires finished requests'
+  legacy refs; it renames a lone `sbox/<id>`, deletes one already contained in
+  `aps/<id>`, and never touches live, checked-out, or diverged branches.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the

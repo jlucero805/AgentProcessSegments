@@ -114,11 +114,7 @@ function BudgetSummary({
         <span className="text-xs text-zinc-500">warning at {budgets.alertAtPercent}%</span>
       </div>
 
-      {!budgets.usageAvailable ? (
-        <p className="text-xs text-zinc-500">
-          Usage tracking is not available yet, so budgets cannot be measured.
-        </p>
-      ) : budgets.statuses.length === 0 ? (
+      {budgets.statuses.length === 0 ? (
         <p className="text-xs text-zinc-500">
           No budgets configured. Set an overall budget in Config or edit a cell.
         </p>

@@ -8,7 +8,6 @@ import { openDb, type Db } from '../src/db.js';
 import { PricingRepository } from '../src/pricing/repository.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { SettingsStore } from '../src/settings.js';
-import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
 import { UsageRepository } from '../src/usage/repository.js';
 import { UsageRetention } from '../src/usage/retention.js';
 import type { UsageEventInput } from '../src/usage/types.js';
@@ -498,8 +497,7 @@ describe('usage repository', () => {
     );
 
     // Budgets read the same merged totals, so the month is not understated.
-    const reader = createBudgetUsageReader(h.usage);
-    expect(reader.totals({ from: day0, to: day0 + 2 * DAY })).toMatchObject({
+    expect(h.usage.totals({ from: day0, to: day0 + 2 * DAY })).toMatchObject({
       turns: before.totals.turns,
       costUsd: before.totals.costUsd,
       estimatedCostUsd: before.totals.estimatedCostUsd,

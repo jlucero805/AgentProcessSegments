@@ -756,10 +756,10 @@ turn, but budgets are a separate policy: a budget crossing must not change workf
 
 **Decision.** Add a pure `domain/budget.ts` contract, an overall budget in `config.json`,
 and a nullable `cells.monthly_budget_usd`. Budget periods are UTC calendar months.
-`BudgetService` reads aggregate totals through the narrow `BudgetUsageReader` adapter
-backed by `UsageRepository.totals`. Missing `cost_usd` is unpriced, never zero or
-estimated; an all-unpriced period is `unknown` and does not alert, while mixed data
-alerts against a known lower bound.
+`BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the narrow
+reader adapter added before the ledger existed was removed once the ledger landed. Missing
+`cost_usd` is unpriced, never zero or estimated; an all-unpriced period is `unknown` and
+does not alert, while mixed data alerts against a known lower bound.
 
 Durable alerts live in `budget_alerts`, not `master_events`. Their identity includes the
 budget amount and warning percentage, so changing either starts a new generation without
@@ -886,7 +886,7 @@ deleted only after the chunks through the cutoff commit.
 
 Queries read from a normalized union: raw rows at or after the watermark and daily rows
 before it, so the sources cannot overlap. Totals, day series, model/cell/request
-breakdowns, and the budget `BudgetUsageReader` all use that merged view.
+breakdowns, and the budget totals all use that merged view.
 `GET /api/usage` exposes `coverage.rolledThrough` so the Usage page can say which part of
 history is daily, and `coverage.retentionDays` so it can state the raw retention window
 from the same response instead of a separate settings request. Hourly series stay

@@ -23,7 +23,6 @@ const BUDGETS: BudgetsResponse = {
   periodStart: Date.UTC(2026, 10, 1),
   periodEnd: Date.UTC(2026, 11, 1),
   alertAtPercent: 80,
-  usageAvailable: true,
   statuses: [
     {
       scope: 'overall',

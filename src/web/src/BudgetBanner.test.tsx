@@ -30,7 +30,6 @@ function response(alerts: BudgetAlert[], pauses: SpendPause[] = []): BudgetsResp
     periodStart,
     periodEnd,
     alertAtPercent: 80,
-    usageAvailable: true,
     statuses: [],
     alerts,
     pauses,

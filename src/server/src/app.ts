@@ -28,7 +28,6 @@ import { SummaryService } from './summary/service.js';
 import { BudgetAlertRepository } from './usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from './usage/budget-deliveries.js';
 import { BudgetNotifier } from './usage/budget-notifier.js';
-import { createBudgetUsageReader } from './usage/budget-usage.js';
 import { BudgetService } from './usage/budgets.js';
 import { UsageRepository } from './usage/repository.js';
 import { UsageRetention } from './usage/retention.js';
@@ -66,7 +65,7 @@ export async function main(): Promise<void> {
       errors,
     });
     const budgets = new BudgetService({
-      usage: createBudgetUsageReader(usage),
+      usage,
       cells,
       settings,
       alerts: budgetAlerts,

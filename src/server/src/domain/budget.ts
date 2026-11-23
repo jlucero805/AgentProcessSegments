@@ -2,6 +2,7 @@
  * Spend-budget contract shared by the server and the SPA. Keep this module free
  * of Node-only imports so `src/web/src/types.ts` can re-export it for Vite.
  */
+import type { UsageTotals } from '../usage/types.js';
 
 export const BUDGET_SCOPES = ['overall', 'cell'] as const;
 export type BudgetScope = (typeof BUDGET_SCOPES)[number];
@@ -30,29 +31,10 @@ export const DEFAULT_BUDGET_SETTINGS: BudgetSettings = {
 export const MAX_BUDGET_USD = 1_000_000;
 
 /** Known-cost totals for one budget period. Kept narrow so tests can fake it. */
-export interface BudgetUsageTotals {
-  turns: number;
-  /** Sum of known cost_usd values; null when no turn reported a cost. */
-  costUsd: number | null;
-  /** Sum of estimates for unreported turns; null when none matched a price. */
-  estimatedCostUsd: number | null;
-  /** Turns with neither a reported nor an estimated cost. */
-  unpricedTurns: number;
-  /** Turns with no harness-reported cost (estimated + unpriced). */
-  unknownCostTurns: number;
-}
-
-export interface BudgetUsageFilter {
-  from: number;
-  to: number;
-  cellId?: string;
-}
-
-/** The usage ledger seam. The parent usage dashboard can satisfy this shape. */
-export interface BudgetUsageReader {
-  available(): boolean;
-  totals(filter: BudgetUsageFilter): BudgetUsageTotals;
-}
+export type BudgetUsageTotals = Pick<
+  UsageTotals,
+  'turns' | 'costUsd' | 'estimatedCostUsd' | 'unpricedTurns' | 'unknownCostTurns'
+>;
 
 export interface BudgetStatus {
   scope: BudgetScope;
@@ -117,8 +99,6 @@ export interface BudgetsResponse {
   periodStart: number;
   periodEnd: number;
   alertAtPercent: number;
-  /** False until the usage ledger exists; budgets are configured but unmeasurable. */
-  usageAvailable: boolean;
   /** Overall first, then cells by name. Only configured budgets appear. */
   statuses: BudgetStatus[];
   /** Unacknowledged alerts for the current period only. */
@@ -285,7 +265,6 @@ export interface BudgetStatusInput {
   alertAtPercent: number;
   period: BudgetPeriod;
   totals: BudgetUsageTotals;
-  usageAvailable?: boolean;
   pauseOnExceeded?: boolean;
 }
 
@@ -298,7 +277,6 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
     alertAtPercent,
     period,
     totals,
-    usageAvailable = true,
     pauseOnExceeded = false,
   } = input;
   const pricedTurns = Math.max(0, totals.turns - totals.unknownCostTurns);
@@ -307,13 +285,10 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
   const percentUsed = budgetUsd > 0 ? (spendUsd / budgetUsd) * 100 : 0;
   const capSpendUsd = spendUsd + (totals.estimatedCostUsd ?? 0);
   const capSpendIsLowerBound = totals.unpricedTurns > 0;
-  const paused =
-    pauseOnExceeded && usageAvailable && capSpendUsd >= budgetUsd;
+  const paused = pauseOnExceeded && capSpendUsd >= budgetUsd;
 
   let state: BudgetState;
-  if (!usageAvailable) {
-    state = 'unknown';
-  } else if (totals.turns > 0 && pricedTurns === 0) {
+  if (totals.turns > 0 && pricedTurns === 0) {
     state = 'unknown';
   } else if (spendUsd >= budgetUsd) {
     state = 'exceeded';

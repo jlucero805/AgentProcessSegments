@@ -10,7 +10,9 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
+import { legacyPathWarning, loadConfig } from '../src/config.js';
 
 const script = fileURLToPath(new URL('../../../scripts/migrate-paths.mjs', import.meta.url));
 
@@ -296,5 +298,74 @@ describe('migrate-paths script', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--allow-running');
     expect(result.stdout).toContain('unsafe');
+  });
+
+  it('moves a complete legacy install so the next load uses canonical paths', () => {
+    const paths = workspace();
+    const legacyData = path.join(paths.home, '.sandbox-harness');
+    const legacyConfigDir = path.join(paths.configHome, 'sandbox-harness');
+    const legacyStateDir = path.join(paths.stateHome, 'sandbox-harness');
+    const legacyDb = path.join(paths.cwd, 'sandbox-harness.sqlite');
+
+    write(path.join(legacyData, 'requests', 'req-1', 'session.json'), '{"sessionId":"s1"}');
+    write(path.join(legacyConfigDir, 'config.json'), '{"master":{}}');
+    write(path.join(legacyConfigDir, 'process.json'), '{"version":1}');
+    write(path.join(legacyStateDir, 'errors.log'), '{"source":"old"}\n');
+
+    const db = new Database(legacyDb);
+    db.exec('CREATE TABLE markers (id INTEGER PRIMARY KEY, value TEXT NOT NULL)');
+    db.prepare('INSERT INTO markers (value) VALUES (?)').run('kept');
+    db.close();
+
+    const env = {
+      XDG_CONFIG_HOME: paths.configHome,
+      XDG_STATE_HOME: paths.stateHome,
+    };
+    const before = loadConfig(env, paths.cwd, paths.home);
+    expect(before.dataDir).toBe(legacyData);
+    expect(before.configPath).toBe(path.join(legacyConfigDir, 'config.json'));
+    expect(before.processPath).toBe(path.join(legacyConfigDir, 'process.json'));
+    expect(before.errorLogPath).toBe(path.join(legacyStateDir, 'errors.log'));
+    expect(before.dbPath).toBe(legacyDb);
+    expect(before.legacyPaths).toEqual([
+      legacyData,
+      path.join(legacyConfigDir, 'config.json'),
+      path.join(legacyConfigDir, 'process.json'),
+      path.join(legacyStateDir, 'errors.log'),
+      legacyDb,
+    ]);
+    const warning = legacyPathWarning(before.legacyPaths);
+    expect(warning).not.toBeNull();
+    for (const legacyPath of before.legacyPaths) expect(warning).toContain(legacyPath);
+
+    const result = run(paths);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('migration complete');
+
+    const after = loadConfig(env, paths.cwd, paths.home);
+    expect(after.dataDir).toBe(path.join(paths.home, '.agent-process-segments'));
+    expect(after.configPath).toBe(
+      path.join(paths.configHome, 'agent-process-segments', 'config.json'),
+    );
+    expect(after.processPath).toBe(
+      path.join(paths.configHome, 'agent-process-segments', 'process.json'),
+    );
+    expect(after.errorLogPath).toBe(
+      path.join(paths.stateHome, 'agent-process-segments', 'errors.log'),
+    );
+    expect(after.dbPath).toBe(path.join(paths.cwd, 'agent-process-segments.sqlite'));
+    expect(after.legacyPaths).toEqual([]);
+
+    const migrated = new Database(after.dbPath, { readonly: true });
+    try {
+      expect(migrated.prepare('SELECT value FROM markers').pluck().get()).toBe('kept');
+    } finally {
+      migrated.close();
+    }
+
+    const second = run(paths);
+    expect(second.status).toBe(0);
+    expect(second.stdout).toContain('nothing to migrate');
   });
 });

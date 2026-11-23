@@ -17,6 +17,7 @@ import {
   STATES,
   isTerminal,
   type ClarifyEvent,
+  type IndexAllResult,
   type Request,
 } from '../domain/request.js';
 import type { KbRepository } from '../kb/repository.js';
@@ -97,6 +98,9 @@ const sendSchema = z.object({ text: z.string().min(1) });
 const indexSchema = z.object({
   digest: z.string().nullable().optional(),
   index: z.boolean().optional(),
+});
+const indexAllSchema = z.object({
+  cellId: z.string().min(1).optional(),
 });
 const kbSchema = z.object({
   requestId: z.string().min(1),
@@ -378,6 +382,29 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       process: config.harness,
     });
 
+  async function finishRequest(
+    id: string,
+    digest: string | null | undefined,
+    index: boolean,
+  ): Promise<Request> {
+    if (digest !== undefined) repo.edit(id, { digest });
+    const current = repo.require(id);
+
+    if (index && current.kbDigest && current.digest && current.digest.trim() !== '') {
+      kb.store({ requestId: id, title: current.title, content: current.digest });
+    }
+
+    const done = repo.transition(id, 'done');
+    try {
+      await engine.dispose(id);
+    } catch (error) {
+      // The done transition is committed; a cleanup failure must not report the
+      // request as open again or fail a bulk batch after it was closed.
+      errorLog?.error('requests.index', error, { requestId: id });
+    }
+    return done;
+  }
+
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ error: 'invalid', issues: error.issues });
@@ -595,20 +622,50 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.post('/api/requests/:id/index', async (request) => {
     const { id } = request.params as { id: string };
     const body = indexSchema.parse(request.body ?? {});
+    return finishRequest(id, body.digest, body.index === true);
+  });
 
-    if (body.digest !== undefined) repo.edit(id, { digest: body.digest });
-    const current = repo.require(id);
+  app.post('/api/requests/index-all', async (request) => {
+    const body = indexAllSchema.parse(request.body ?? {});
+    assertCell(cells, body.cellId);
 
-    if (body.index === true && current.kbDigest) {
-      const digest = body.digest ?? current.digest;
-      if (digest && digest.trim() !== '') {
-        kb.store({ requestId: id, title: current.title, content: digest });
+    const candidates = repo.list({ state: 'finalize', cellId: body.cellId });
+    const result: IndexAllResult = { indexed: 0, closed: 0, skipped: [], failed: [] };
+
+    for (const candidate of candidates) {
+      const current = repo.get(candidate.id);
+      if (!current || current.state !== 'finalize') {
+        result.skipped.push({
+          id: candidate.id,
+          title: current?.title ?? candidate.title,
+          reason: 'not_finalize',
+        });
+        continue;
+      }
+      if (current.agentStatus === 'working') {
+        result.skipped.push({ id: current.id, title: current.title, reason: 'working' });
+        continue;
+      }
+      if (current.kbDigest && (!current.digest || current.digest.trim() === '')) {
+        result.skipped.push({ id: current.id, title: current.title, reason: 'no_digest' });
+        continue;
+      }
+
+      try {
+        const indexed = current.kbDigest;
+        await finishRequest(current.id, undefined, true);
+        result.closed += 1;
+        if (indexed) result.indexed += 1;
+      } catch (error) {
+        result.failed.push({
+          id: current.id,
+          title: current.title,
+          message: errorMessage(error),
+        });
       }
     }
 
-    const done = repo.transition(id, 'done');
-    await engine.dispose(id);
-    return done;
+    return result;
   });
 
   app.get('/api/models', async (request, reply) => {

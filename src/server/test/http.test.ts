@@ -779,6 +779,88 @@ describe('http api', () => {
     expect(h.kb.getByRequest(request.id)?.content).toBe('The decision we keep');
   });
 
+  it('indexes and closes the eligible Finalize requests in a cell', async () => {
+    const { h } = await makeApp();
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+
+    const finalize = (
+      title: string,
+      cellId: string,
+      fields: { digest?: string | null; kbDigest?: boolean } = {},
+    ) => {
+      const request = h.repo.create({ title, cellId });
+      h.repo.transition(request.id, 'dispatch');
+      h.repo.transition(request.id, 'review');
+      h.repo.transition(request.id, 'finalize');
+      h.repo.edit(request.id, fields);
+      return request;
+    };
+
+    const ready = finalize('Ready', alpha.id, { digest: 'Keep this' });
+    const optedOut = finalize('Opted out', alpha.id, { digest: 'Do not store', kbDigest: false });
+    const missing = finalize('Missing digest', alpha.id);
+    const working = finalize('Still working', alpha.id, { digest: 'In flight' });
+    h.repo.setAgentStatus(working.id, 'working');
+    const otherCell = finalize('Other cell', beta.id, { digest: 'Other digest' });
+
+    const review = h.repo.create({ title: 'Still in review', cellId: alpha.id });
+    h.repo.transition(review.id, 'dispatch');
+    h.repo.transition(review.id, 'review');
+
+    const response = await call('POST', '/api/requests/index-all', { cellId: alpha.id });
+
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({ indexed: 1, closed: 2, failed: [] });
+    expect(response.json().skipped).toEqual(
+      expect.arrayContaining([
+        { id: missing.id, title: 'Missing digest', reason: 'no_digest' },
+        { id: working.id, title: 'Still working', reason: 'working' },
+      ]),
+    );
+    expect(h.repo.require(ready.id).state).toBe('done');
+    expect(h.repo.require(optedOut.id).state).toBe('done');
+    expect(h.repo.require(missing.id).state).toBe('finalize');
+    expect(h.repo.require(working.id).state).toBe('finalize');
+    expect(h.repo.require(review.id).state).toBe('review');
+    expect(h.repo.require(otherCell.id).state).toBe('finalize');
+    expect(h.kb.getByRequest(ready.id)?.content).toBe('Keep this');
+    expect(h.kb.getByRequest(optedOut.id)).toBeNull();
+    expect(h.kb.getByRequest(missing.id)).toBeNull();
+    expect(h.kb.getByRequest(working.id)).toBeNull();
+    expect(h.kb.getByRequest(otherCell.id)).toBeNull();
+  });
+
+  it('index-all scopes to all cells when cellId is omitted and rejects unknown cells', async () => {
+    const { h } = await makeApp();
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+
+    const finalize = (title: string, cellId: string) => {
+      const request = h.repo.create({ title, cellId });
+      h.repo.transition(request.id, 'dispatch');
+      h.repo.transition(request.id, 'review');
+      h.repo.transition(request.id, 'finalize');
+      h.repo.edit(request.id, { digest: `${title} digest` });
+      return request;
+    };
+
+    const first = finalize('Alpha request', alpha.id);
+    const second = finalize('Beta request', beta.id);
+
+    const all = await call('POST', '/api/requests/index-all');
+    expect(all.status).toBe(200);
+    expect(all.json()).toMatchObject({ indexed: 2, closed: 2, skipped: [], failed: [] });
+    expect(h.repo.require(first.id).state).toBe('done');
+    expect(h.repo.require(second.id).state).toBe('done');
+
+    const again = await call('POST', '/api/requests/index-all');
+    expect(again.json()).toMatchObject({ indexed: 0, closed: 0, skipped: [], failed: [] });
+
+    const unknown = await call('POST', '/api/requests/index-all', { cellId: 'not-a-cell' });
+    expect(unknown.status).toBe(404);
+  });
+
   it('drops a request and disposes its session', async () => {
     const { h } = await makeApp();
     const request = h.repo.create({ title: 'Abandon' });

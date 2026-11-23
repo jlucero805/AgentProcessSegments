@@ -11,6 +11,7 @@ import type {
   DocContent,
   DocPage,
   HarnessId,
+  IndexAllResult,
   KbEntry,
   MasterConfig,
   MasterEvent,
@@ -208,6 +209,12 @@ export const api = {
     return request(`/api/requests/${encodeURIComponent(id)}/index`, {
       method: 'POST',
       body: JSON.stringify({ digest, index }),
+    });
+  },
+  indexAll(cellId?: string): Promise<IndexAllResult> {
+    return request('/api/requests/index-all', {
+      method: 'POST',
+      body: JSON.stringify(cellId ? { cellId } : {}),
     });
   },
   getModels(

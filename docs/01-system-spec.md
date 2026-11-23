@@ -252,6 +252,12 @@ object per line.
 - `GET /api/requests/:id/clarify` returns `{started, transcript[]}`
 - `POST /api/requests/:id/index {digest?, index?}` stores the digest to the KB when
   `index && kbDigest`, then transitions `finalize → done`
+- `POST /api/requests/index-all {cellId?}` is the Finalize column's bulk close. It
+  considers only `finalize` requests in the optional cell (omitted means all cells),
+  skips requests that are still working or expect a KB digest but have none, closes
+  `kbDigest = false` requests without a KB entry, and returns
+  `{indexed, closed, skipped[], failed[]}`. Per-request failures do not abort the batch.
+  The action remains human-triggered.
 - **KB chat** is a reserved session on these same routes under id `__kb__`. It has no
   database row.
 
@@ -468,10 +474,14 @@ carried in the `done` event:
   a right-side request detail drawer that can maximize, and a create modal.
 - **Board:** columns labelled Requests (intake), Plan (clarify), Implement (dispatch),
   Review, and Finalize. `done` leaves the board. `columnOf` and `STATE_LABELS` map state
-  to label; `types.ts` mirrors the server state machine.
+  to label; `types.ts` mirrors the server state machine. The Finalize header has a small
+  white **Index all** button. It is scoped to the current cell filter, requires a second
+  click within four seconds, and shows a status line with indexed/closed/skipped counts
+  after the batch.
 - **RequestDetail:** editable fields, model and effort pickers, transition buttons with
   a two-step drop confirm, the dispatch and finalize kickoff streams, and the finalize
-  digest box with "Index and finalize".
+  digest box with "Index and finalize". The board's bulk action uses the saved digest;
+  use the drawer when a digest needs review or editing.
 - **Chat:** `ClarifyChat` plus `runtime.ts` using `useExternalStoreRuntime`; React owns
   messages and running state and probes `/clarify/stream` to reattach on mount.
   `Thread.tsx` holds assistant-ui primitives, markdown, tool cards, and code diffs.

@@ -794,3 +794,22 @@ the same helper, so the SPA cannot drift.
 fails visibly rather than falling back. A harness change discards the provider session
 id. Direct API callers that set `harness` and a model in one patch remain responsible for
 choosing a compatible model.
+
+## D49. Index all is a scoped, human-triggered bulk close
+
+**Context.** Operators can accumulate several finalized requests with proposed digests.
+Closing them one drawer at a time is slow, but a background auto-finalizer would remove
+the human approval gate.
+
+**Decision.** Add `POST /api/requests/index-all {cellId?}` and a small **Index all**
+control in the Finalize column header. The scope is the current cell filter (omitted
+means all cells) and only `state = finalize`. A request is skipped and left in Finalize
+when it is still working or when it expects a KB digest but has none; `kbDigest = false`
+requests close without a KB entry. The SPA requires a second click within four seconds.
+The endpoint returns `{indexed, closed, skipped[], failed[]}`, and a per-request failure
+does not abort the batch.
+
+**Cost.** Bulk close is intentionally coarser than the drawer: it uses the saved digest
+and does not wait for review of every card. A working request or one with a missing
+digest needs the drawer. The action stays human-triggered; do not wire it into the master,
+scheduler, or a background job.

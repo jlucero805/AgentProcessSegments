@@ -1,11 +1,17 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Board } from './Board';
 import { fakeDataTransfer, jsonResponse, makeRequest } from './test/fixtures';
-import type { Request } from './types';
+import type { IndexAllResult, Request } from './types';
 
-function installFetch(store: Request[]) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+type IndexAllHandler = (body: Record<string, unknown>) => Response | Promise<Response>;
+
+function parseBody(init?: RequestInit): Record<string, unknown> {
+  return init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+}
+
+function installFetch(store: Request[], indexAllHandler?: IndexAllHandler) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/requests?view=intake') {
       return jsonResponse(store.filter((r) => r.state === 'clarify' && !r.clarifyStarted));
@@ -21,6 +27,22 @@ function installFetch(store: Request[]) {
     }
     if (url === '/api/requests?state=finalize') {
       return jsonResponse(store.filter((r) => r.state === 'finalize'));
+    }
+    if (url === '/api/requests/index-all') {
+      const body = parseBody(init);
+      if (indexAllHandler) return indexAllHandler(body);
+      const affected = store.filter(
+        (request) =>
+          request.state === 'finalize' && (!body['cellId'] || request.cellId === body['cellId']),
+      );
+      for (const request of affected) request.state = 'done';
+      const result: IndexAllResult = {
+        indexed: affected.length,
+        closed: affected.length,
+        skipped: [],
+        failed: [],
+      };
+      return jsonResponse(result);
     }
     if (url.endsWith('/transition')) return jsonResponse(store[0]);
     if (url.endsWith('/dispatch?detach=1')) return jsonResponse({ started: true });
@@ -131,5 +153,184 @@ describe('Board', () => {
 
     expect(onError).toHaveBeenCalled();
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/finalize'))).toBe(false);
+  });
+
+  it('shows Index all only in Finalize and requires a second click', async () => {
+    const fetchMock = installFetch([
+      makeRequest({ id: 'f', title: 'Final card', state: 'finalize', digest: 'Keep this' }),
+    ]);
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Final card');
+    const finalize = screen.getByTestId('column-finalize');
+    const button = within(finalize).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    expect(button).toHaveTextContent('Index all');
+    expect(
+      within(screen.getByTestId('column-review')).queryByRole('button', { name: /index all/i }),
+    ).toBeNull();
+
+    fireEvent.click(button);
+    expect(button).toHaveTextContent('Confirm index all?');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/index-all'))).toBe(false);
+
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/index-all'))).toBe(true);
+    });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Indexed 1');
+    expect(screen.getByRole('status')).toHaveTextContent('closed 1');
+    await waitFor(() => expect(screen.queryByText('Final card')).not.toBeInTheDocument());
+  });
+
+  it('sends the selected cell with Index all', async () => {
+    const fetchMock = installFetch([
+      makeRequest({ id: 'f', title: 'Cell final', state: 'finalize', cellId: 'c1', digest: 'Keep' }),
+    ]);
+
+    render(<Board cellId="c1" onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Cell final');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/index-all'));
+      expect(call).toBeTruthy();
+      expect(parseBody(call?.[1])).toEqual({ cellId: 'c1' });
+    });
+  });
+
+  it('sends an empty body with Index all for all cells', async () => {
+    const fetchMock = installFetch([
+      makeRequest({ id: 'f', title: 'Cell final', state: 'finalize', cellId: 'c1', digest: 'Keep' }),
+    ]);
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Cell final');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/index-all'));
+      expect(call).toBeTruthy();
+      expect(parseBody(call?.[1])).toEqual({});
+    });
+  });
+
+  it('resets the Index all confirmation after four seconds', async () => {
+    installFetch([
+      makeRequest({ id: 'f', title: 'Final card', state: 'finalize', digest: 'Keep' }),
+    ]);
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Final card');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(button);
+      expect(button).toHaveTextContent('Confirm index all?');
+      act(() => vi.advanceTimersByTime(4000));
+      expect(button).toHaveTextContent('Index all');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('disables Index all when Finalize is empty', async () => {
+    installFetch([makeRequest({ id: 'a', title: 'Groom this' })]);
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Groom this');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    expect(button).toBeDisabled();
+  });
+
+  it('shows skipped requests in the Index all notice', async () => {
+    installFetch(
+      [makeRequest({ id: 'f', title: 'Final card', state: 'finalize', digest: 'Keep' })],
+      () =>
+        jsonResponse({
+          indexed: 1,
+          closed: 1,
+          skipped: [{ id: 'other', title: 'Needs digest', reason: 'no_digest' }],
+          failed: [],
+        }),
+    );
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Final card');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent('1 skipped (no digest)');
+    expect(notice).toHaveAttribute('title', expect.stringContaining('Needs digest: no digest'));
+  });
+
+  it('shows a busy label while Index all runs', async () => {
+    let resolveRequest!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    installFetch(
+      [makeRequest({ id: 'f', title: 'Final card', state: 'finalize', digest: 'Keep' })],
+      () => pending,
+    );
+
+    render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
+    await screen.findByText('Final card');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(await screen.findByText('Indexing…')).toBeInTheDocument();
+    expect(button).toBeDisabled();
+
+    act(() =>
+      resolveRequest(
+        jsonResponse({ indexed: 0, closed: 0, skipped: [], failed: [] }),
+      ),
+    );
+    await waitFor(() => expect(button).toHaveTextContent('Index all'));
+  });
+
+  it('surfaces an Index all failure and clears busy', async () => {
+    const onError = vi.fn();
+    installFetch(
+      [makeRequest({ id: 'f', title: 'Final card', state: 'finalize', digest: 'Keep' })],
+      () => {
+        throw new Error('bulk failed');
+      },
+    );
+
+    render(<Board cellId={null} onOpen={() => {}} onError={onError} />);
+    await screen.findByText('Final card');
+    const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
+      name: 'Index all finalize requests',
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('bulk failed'));
+    expect(button).toHaveTextContent('Index all');
+    expect(button).toBeEnabled();
   });
 });

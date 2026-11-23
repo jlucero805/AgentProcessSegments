@@ -7,6 +7,7 @@ import {
   DEFAULT_NOTIFICATIONS,
   MAX_BUDGET_USD,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
+  MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
   WEBHOOK_FORMATS,
   emailAddressError,
@@ -151,6 +152,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [usageSaved, setUsageSaved] = useState(false);
   const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionSaved, setRetentionSaved] = useState(false);
+  const [requestArtifactsSaving, setRequestArtifactsSaving] = useState(false);
+  const [requestArtifactsSaved, setRequestArtifactsSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
   const [processSaved, setProcessSaved] = useState(false);
   const [budget, setBudget] = useState<BudgetSettings | null>(null);
@@ -300,6 +303,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     setRetentionSaved(false);
   };
 
+  const setRequestArtifactsDays = (days: number) => {
+    setRetentionSettings((current) =>
+      current ? { ...current, requestArtifactsDays: days } : current,
+    );
+    setRequestArtifactsSaved(false);
+  };
+
   const setSegment = <K extends keyof SegmentConfig>(
     id: SegmentConfig['id'],
     key: K,
@@ -373,7 +383,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     if (!retention) return;
     setRetentionSaving(true);
     try {
-      const config = await api.patchConfig({ retention });
+      const config = await api.patchConfig({
+        retention: { masterEventsDays: retention.masterEventsDays },
+      });
       setRetentionSettings(config.retention);
       setPath(config.path);
       setRetentionSaved(true);
@@ -381,6 +393,23 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setRetentionSaving(false);
+    }
+  }
+
+  async function saveRequestArtifacts() {
+    if (!retention) return;
+    setRequestArtifactsSaving(true);
+    try {
+      const config = await api.patchConfig({
+        retention: { requestArtifactsDays: retention.requestArtifactsDays },
+      });
+      setRetentionSettings(config.retention);
+      setPath(config.path);
+      setRequestArtifactsSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setRequestArtifactsSaving(false);
     }
   }
 
@@ -871,6 +900,47 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onClick={() => void saveRetention()}
             >
               {retentionSaving ? <Spinner /> : 'Save activity retention'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Request artifacts retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Finished requests keep their transcript, session id, scratch workdir, and any
+          leftover checkout only until this window expires. Only done or dropped requests
+          are affected; live and in-flight work is never touched.
+        </p>
+        <Field
+          label="Artifacts retention (days)"
+          hint="0 keeps request folders and worktrees forever"
+        >
+          <Input
+            type="number"
+            aria-label="Request artifacts retention (days)"
+            min={0}
+            max={MAX_REQUEST_ARTIFACTS_RETENTION_DAYS}
+            step={1}
+            value={retention.requestArtifactsDays}
+            onChange={(event) => setRequestArtifactsDays(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. Git branches are kept, and master,
+            summary, setup, and KB chats are not pruned here.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {requestArtifactsSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={requestArtifactsSaving}
+              onClick={() => void saveRequestArtifacts()}
+            >
+              {requestArtifactsSaving ? <Spinner /> : 'Save artifact retention'}
             </Button>
           </div>
         </div>

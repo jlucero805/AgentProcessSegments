@@ -23,7 +23,9 @@ import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 import {
   DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+  DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
+  MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
   type RetentionSettings,
 } from './retention/settings.js';
 import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
@@ -82,6 +84,7 @@ const budgetSchema = z.object({
 
 const retentionSchema = z.object({
   masterEventsDays: z.number().int().min(0).max(MAX_MASTER_EVENTS_RETENTION_DAYS),
+  requestArtifactsDays: z.number().int().min(0).max(MAX_REQUEST_ARTIFACTS_RETENTION_DAYS),
 }) satisfies z.ZodType<RetentionSettings>;
 
 const webhookSchema: z.ZodType<WebhookSettings, z.ZodTypeDef, unknown> = z
@@ -196,6 +199,7 @@ const settingsSchema = z.object({
   usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
   retention: retentionSchema.default({
     masterEventsDays: DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+    requestArtifactsDays: DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
   }),
   // A legacy config with only `master`/`summary` loads with the default budget.
   budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
@@ -227,6 +231,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   retention: {
     masterEventsDays: DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+    requestArtifactsDays: DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
   },
   budget: { ...DEFAULT_BUDGET_SETTINGS },
   notifications: {

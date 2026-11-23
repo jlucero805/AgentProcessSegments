@@ -19,6 +19,7 @@ import { PricingRepository } from './pricing/repository.js';
 import { defaultProcess } from './process/defaults.js';
 import { ProcessStore } from './process/store.js';
 import { RequestRepository } from './requests/repository.js';
+import { ArtifactRetention } from './retention/artifacts.js';
 import { DataRetention } from './retention/service.js';
 import { SettingsStore } from './settings.js';
 import { SkillCatalog } from './skills/catalog.js';
@@ -131,6 +132,13 @@ export async function main(): Promise<void> {
     });
     const usageRetention = new UsageRetention({ db, settings, errors });
     const dataRetention = new DataRetention({ db, settings, errors });
+    const artifactRetention = new ArtifactRetention({
+      dataDir: config.dataDir,
+      repo,
+      settings,
+      errors,
+      isBusy: (id) => engine.hasLive(id),
+    });
 
     const app = await buildServer({
       repo,
@@ -163,10 +171,12 @@ export async function main(): Promise<void> {
     // Fire-and-forget: a first-time prune must not delay readiness.
     usageRetention.start();
     dataRetention.start();
+    artifactRetention.start();
     budgets.start();
     notifications.start();
 
     const shutdown = async () => {
+      artifactRetention.stop();
       dataRetention.stop();
       usageRetention.stop();
       master.stop();

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 644 vitest cases: 468 server across 36 files and 176 web across 24 files, all green.
+- 673 vitest cases: 496 server across 37 files and 177 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -68,6 +68,7 @@ digests.
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, configurable master-activity retention for `master_events`,
+  configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
   accounting, and a GitHub Actions CI workflow template in
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
@@ -87,7 +88,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 468 server + 176 web, plus the e2e env guard
+npm test                       # 496 server + 177 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -376,6 +377,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it
     from `runTurn` or retry inside the turn. `error` results include `is_error: true` and
     `error*` subtypes. The warning text is the capped provider result, never a transcript.
+38. **Terminal request artifacts expire; live work never does.**
+    `retention.requestArtifactsDays` (default 30, `0` = forever) deletes
+    `requests/<id>/` only for `done`/`dropped` requests older than the window, never for
+    a non-terminal request, a live turn, or a reserved session id
+    (`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`). Leftover
+    `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
+    a failed sweep is one `retention.artifacts` record, not a crash.
 
 ## Extension recipes
 

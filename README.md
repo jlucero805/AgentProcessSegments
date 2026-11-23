@@ -188,6 +188,16 @@ up: the UI reads only the latest events, and scorecard history stays in `cell_su
 Rows that record a created follow-up (`action = 'followup'`) are never pruned, because
 they are the deduplication key for repeated `FOLLOW-UP:` titles.
 
+Request artifact retention lives in `config.json` as `retention.requestArtifactsDays`,
+also editable from the Config page. The default is 30 days; `0` keeps request folders and
+worktrees forever. A startup/hourly job deletes the whole
+`$APS_DATA_DIR/requests/<id>/` workdir (transcripts, session id, generated config, and
+scratch `cwd`) and removes leftover `$APS_DATA_DIR/worktrees/<id>` checkouts, but only for
+`done` or `dropped` requests older than the window. Non-terminal requests, live turns,
+reserved master/summary/setup/KB chats, and non-request folders are never touched. Git
+branches are kept; uncommitted work in an expired checkout is discarded, as it already is
+on a normal terminal dispose.
+
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
 
@@ -398,11 +408,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 644 vitest cases: 468 server cases (state machine, migrations including
+`npm test` runs 673 vitest cases: 496 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
-activity retention, cutover run retention, engine turns over a fake harness, worktree
-isolation against a real
+activity retention, request-artifact and worktree retention, cutover run retention, engine
+turns over a fake harness, worktree isolation against a real
 git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
@@ -410,7 +420,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 176 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 177 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

@@ -67,6 +67,7 @@ export type {
 } from '../../server/src/pricing/types';
 export type {
   UsageBucket,
+  UsageCoverage,
   UsageFilter,
   UsageGroup,
   UsageResponse,

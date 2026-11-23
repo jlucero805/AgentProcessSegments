@@ -172,10 +172,12 @@ fallback model. OpenCode also has an implicit `opencode-go/deepseek-v4.1-flash` 
 Claude has none unless configured.
 
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
-Config page. The default is 90 days; `0` keeps usage history forever. Raw
-`usage_events` rows older than the window are deleted shortly after startup and then
-hourly in small batches, so all-time usage totals cover the retained window. Cost is
-reported by the harness, never estimated.
+Config page. The default is 90 days; `0` keeps raw usage history forever. Before raw
+`usage_events` rows are deleted, a startup/hourly job summarizes them into `usage_daily`
+UTC-day rollups, then prunes the raw rows in batches. "All time" therefore includes both
+the retained raw window and older daily totals. Once a day is rolled up its estimated
+cost is frozen, and raising the window later cannot restore already-pruned raw detail.
+Cost reported by the harness always wins; only unreported turns are estimated.
 
 `./scripts/smoke.sh` boots the built server on a throwaway database and exercises the
 main routes over a real socket.
@@ -221,8 +223,8 @@ a durable alert shown in a dismissible banner; acknowledging it silences that al
 month. Budgets never pause or block work.
 
 The budget layer reads totals from the usage repository and is shown on both the Config
-page and the Usage page. Hard spend caps, long-range rollups, and external notification
-delivery are separate backlog items.
+page and the Usage page. Hard spend caps and external notification delivery are separate
+backlog items.
 
 ## Docs
 
@@ -234,8 +236,7 @@ delivery are separate backlog items.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (long-range rollups, hard budget caps, usage
-  retention, pricing maintenance)
+- `docs/09-backlog.md` scoped follow-ups (hard budget caps, pricing maintenance)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -282,7 +283,10 @@ src/server/src
   mcp/identity.ts     shared MCP server key, tool prefix, and allow-list helper
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo
   usage/types.ts      pure usage contract shared with the SPA
-  usage/repository.ts usage_events writes plus totals/series/group queries
+  usage/repository.ts usage_events writes plus merged raw/daily queries
+  usage/sql.ts        shared price/estimate SQL and raw+daily query source
+  usage/rollups.ts    UTC-day rollup writer and watermark
+  usage/retention.ts  chunked rollup-then-prune job
   pricing/types.ts    pure effective-dated price contract and estimate helper
   pricing/repository.ts model_pricing list/create/remove plus effective lookup
   logging/errors.ts   structured error-only NDJSON log with size rotation

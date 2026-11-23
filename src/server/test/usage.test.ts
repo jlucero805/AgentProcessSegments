@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
 import { PricingRepository } from '../src/pricing/repository.js';
 import { RequestRepository } from '../src/requests/repository.js';
+import { SettingsStore } from '../src/settings.js';
+import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
 import { UsageRepository } from '../src/usage/repository.js';
+import { UsageRetention } from '../src/usage/retention.js';
 import type { UsageEventInput } from '../src/usage/types.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -420,6 +426,97 @@ describe('usage repository', () => {
       unpricedTurns: 0,
     });
     expect(result.byRequest[0]?.totalCostUsd).toBeCloseTo(2);
+  });
+
+  it('preserves day buckets and groups after rollup and pruning', async () => {
+    const h = setup();
+    const cell = h.cells.create('Alpha');
+    const request = h.requests.create({ title: 'Rolled ticket', cellId: cell.id });
+    const day0 = Math.floor(BASE / DAY) * DAY;
+    h.pricing.create(price('model-a', day0));
+
+    h.usage.record(
+      event({
+        requestId: request.id,
+        sessionId: request.id,
+        cellId: cell.id,
+        createdAt: BASE,
+      }),
+    );
+    h.usage.record(
+      event({
+        turnId: randomUUID(),
+        requestId: request.id,
+        sessionId: request.id,
+        cellId: cell.id,
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: null,
+        createdAt: BASE + HOUR,
+      }),
+    );
+    h.usage.record(
+      event({
+        turnId: randomUUID(),
+        requestId: null,
+        cellId: null,
+        scope: 'kb',
+        sessionId: '__kb__',
+        model: 'model-b',
+        createdAt: BASE + DAY,
+      }),
+    );
+
+    const before = h.usage.query({ bucket: 'day' });
+    const beforeRequest = h.usage.query({ requestId: request.id });
+    expect(before.coverage.rolledThrough).toBeNull();
+
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-usage-rollup-'));
+    const store = new SettingsStore(path.join(dir, 'config.json'));
+    store.patch({ usage: { retentionDays: 1 } });
+    const retention = new UsageRetention({
+      db: h.db,
+      settings: store,
+      now: () => day0 + 2 * DAY,
+    });
+
+    const pruned = await retention.runOnce();
+    expect(pruned.deleted).toBe(2);
+
+    const after = h.usage.query({ bucket: 'day' });
+    expect(after.totals).toEqual(before.totals);
+    expect(after.series).toEqual(before.series);
+    expect(after.byModel).toEqual(before.byModel);
+    expect(after.byCell).toEqual(before.byCell);
+    expect(after.byRequest).toEqual(before.byRequest);
+    expect(after.coverage.rolledThrough).toBe(day0 + DAY);
+    expect(h.usage.query({ requestId: request.id }).totals).toEqual(
+      beforeRequest.totals,
+    );
+
+    // Budgets read the same merged totals, so the month is not understated.
+    const reader = createBudgetUsageReader(h.usage);
+    expect(reader.totals({ from: day0, to: day0 + 2 * DAY })).toEqual(before.totals);
+
+    // Hourly series are raw-only; totals still include the rolled-up day.
+    const hourly = h.usage.query({
+      from: day0,
+      to: day0 + 2 * DAY,
+      bucket: 'hour',
+    });
+    expect(hourly.totals.turns).toBe(before.totals.turns);
+    expect(hourly.series.reduce((sum, row) => sum + row.turns, 0)).toBe(1);
+
+    // A range starting inside a rolled day includes that day whole.
+    const partial = h.usage.query({
+      from: day0 + 12 * HOUR,
+      to: day0 + 2 * DAY,
+      bucket: 'day',
+    });
+    expect(partial.totals).toEqual(before.totals);
   });
 
   it('rejects a duplicate turn id', () => {

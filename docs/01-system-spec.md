@@ -181,12 +181,44 @@ and usage-less turns write nothing. Unknown cost stays null, never zero. Indexes
 `idx_usage_events_request_created`, and unique `idx_usage_events_turn`.
 
 `usage.retentionDays` in the app settings file (`config.json`, editable from the Config
-page) bounds the ledger: default 90 days, `0` keeps history forever. A job runs once
-shortly after startup, then hourly, and immediately when the setting changes. It deletes
-rows whose `created_at` is strictly before `now - retentionDays`, in batches of 1000 with
-an event-loop yield between batches, and relies on `idx_usage_events_created`. It never
-runs `VACUUM`; SQLite reuses freed pages. "All time" usage queries therefore cover the
-retained window.
+page) bounds raw history: default 90 days, `0` keeps raw rows forever. A job runs once
+shortly after startup, then hourly, and immediately when the setting changes. The
+effective cutoff is the UTC start of `now - retentionDays`; rows strictly before it are
+eligible. The job never runs `VACUUM`; SQLite reuses freed pages.
+
+Before deleting anything, the job rolls eligible raw days into UTC-day aggregates in
+`usage_daily`, in chunks of at most 31 days per transaction with an event-loop yield
+between chunks. Each chunk replaces `usage_daily` rows in its range, aggregates
+`usage_events` in that range with the same effective-dated price rules as live queries,
+then advances the exclusive `usage_rollup_state.rolled_through` watermark in the same
+transaction. Only after the chunks through the cutoff commit does it delete raw rows
+strictly before the watermark, in batches of 1000. The first chunk starts at the earliest
+raw day, never epoch 0. A failed chunk leaves earlier chunks committed and deletes
+nothing; a failed delete leaves the watermark and daily rows committed, so the next run
+retries. Lowering the window prunes more; raising it cannot restore raw detail that was
+already rolled up and deleted.
+
+### `usage_daily`
+
+`day_start` (UTC midnight epoch ms), `scope`, `cell_id`, `request_id`, `model` (empty
+strings stand in for null ids/models), `turns`, the five token sums, and separate
+`reported_cost_usd`/`reported_cost_turns` plus `estimated_cost_usd`/
+`estimated_cost_turns`. Primary key `(day_start, scope, cell_id, request_id, model)`;
+the table is `WITHOUT ROWID`. One row covers a whole UTC day and grouping dimension, not
+a turn. Estimated cost is computed at rollup time and frozen once the raw rows are
+deleted, so later `model_pricing` corrections apply only to days still in the raw window.
+
+### `usage_rollup_state`
+
+Singleton row `id = 1`, `rolled_through` (epoch ms, exclusive). Raw rows at or after this
+boundary are authoritative; `usage_daily` rows before it are authoritative. Queries are a
+union of the two sources, so retention cannot double count or lose history. The state row
+starts at `0` and only moves forward.
+
+`GET /api/usage` reports `coverage.rolledThrough` (null before the first rollup) so the
+SPA can say which part of history is daily. A rolled-up day that overlaps a requested
+`from`/`to` is included in full; day-aligned ranges such as all-time and UTC budget months
+are exact. Hourly buckets read raw rows only; totals still include daily rows.
 
 ### `model_pricing`
 
@@ -200,9 +232,11 @@ created by mistake.
 
 A turn keeps its harness-reported cost. When that cost is null and the exact model has a
 row with `effective_from <= usage_events.created_at`, usage aggregation adds an estimate
-computed from all five token categories. The estimate is computed at query time, so it
-is never written into `usage_events` and a historical correction applies immediately.
-An unmatched or future-only price stays unknown, never zero.
+computed from all five token categories. For raw rows the estimate is computed at query
+time, so it is never written into `usage_events` and a historical correction applies
+immediately. When a day is rolled into `usage_daily`, that day's estimate is frozen in the
+aggregate, and later price corrections do not revalue it. An unmatched or future-only
+price stays unknown, never zero.
 
 ### Domain (`src/server/domain/request.ts`)
 
@@ -303,11 +337,14 @@ object per line.
 ### Usage
 
 - `GET /api/usage?cellId=…&requestId=…&from=…&to=…&bucket=hour|day&limit=…`
-  returns `{range, totals, series[], byModel[], byCell[], byRequest[]}`. Bounds are
-  epoch milliseconds (`from` inclusive, `to` exclusive). Series buckets are UTC-aligned
-  and zero-filled when both bounds are supplied; a bounded request over 10,000 buckets
-  is rejected with 400. Totals separate reported `costUsd`, `estimatedCostUsd`, and
-  `totalCostUsd`, with `reportedCostTurns`, `estimatedCostTurns`, `unpricedTurns`, and
+  returns `{range, totals, series[], byModel[], byCell[], byRequest[], coverage}`.
+  `coverage.rolledThrough` is the exclusive raw/daily boundary, or null before the first
+  rollup. Bounds are epoch milliseconds (`from` inclusive, `to` exclusive); raw rows are
+  one millisecond wide and daily rows one UTC day, so a range overlapping a rolled day
+  includes that day in full. Series buckets are UTC-aligned and zero-filled when both
+  bounds are supplied; hourly series read raw rows only. A bounded request over 10,000
+  buckets is rejected with 400. Totals separate reported `costUsd`, `estimatedCostUsd`,
+  and `totalCostUsd`, with `reportedCostTurns`, `estimatedCostTurns`, `unpricedTurns`, and
   the legacy `unknownCostTurns` counts. An unreported turn with no effective model price
   is unpriced, not zero. Request groups include the request's current cell as
   `cellId`/`cellLabel`.

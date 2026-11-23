@@ -43,11 +43,23 @@ const BUDGETS = {
   alerts: [],
 };
 
-function installFetch(response = makeUsageResponse(), budgets = BUDGETS) {
+function installFetch(
+  response = makeUsageResponse(),
+  budgets = BUDGETS,
+  config: unknown | null = { usage: { retentionDays: 90 } },
+) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === '/api/cells') return jsonResponse(CELLS);
     if (url === '/api/budgets') return jsonResponse(budgets);
+    if (url === '/api/config') {
+      return config === null
+        ? new Response(JSON.stringify({ error: 'unavailable' }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          })
+        : jsonResponse(config);
+    }
     if (url.startsWith('/api/usage')) return jsonResponse(response);
     return jsonResponse([]);
   });
@@ -150,6 +162,50 @@ describe('UsagePage', () => {
 
     expect(await screen.findAllByText('≥ $0.0120 · 1 unpriced')).not.toHaveLength(0);
     expect(screen.getByText('Unpriced turns')).toBeInTheDocument();
+  });
+
+  it('shows the retained raw window from config', async () => {
+    installFetch();
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        'Raw usage is kept for 90 days; older turns are pruned. All-time totals cover the retained window.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('shows daily rollup coverage and indefinite retention', async () => {
+    const base = makeUsageResponse();
+    installFetch(
+      { ...base, coverage: { rolledThrough: Date.UTC(2026, 0, 1) } },
+      BUDGETS,
+      { usage: { retentionDays: 0 } },
+    );
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText(/Daily totals preserve history before/)).toBeInTheDocument();
+    expect(screen.getByText(/kept indefinitely/)).toBeInTheDocument();
+  });
+
+  it('still renders usage when the config request fails', async () => {
+    const base = makeUsageResponse();
+    installFetch(
+      { ...base, coverage: { rolledThrough: Date.UTC(2026, 0, 1) } },
+      BUDGETS,
+      null,
+    );
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText('Effective cost')).toBeInTheDocument();
+    expect(screen.getByText(/Daily totals preserve history before/)).toBeInTheDocument();
+  });
+
+  it('says history is kept indefinitely when retention is disabled', async () => {
+    installFetch(makeUsageResponse(), BUDGETS, { usage: { retentionDays: 0 } });
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText('Usage history is kept indefinitely.')).toBeInTheDocument();
   });
 
   it('refetches with hour buckets when the range changes', async () => {

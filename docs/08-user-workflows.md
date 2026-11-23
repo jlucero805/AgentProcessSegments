@@ -162,8 +162,12 @@ last five.
   tokens for input, output, cache read, cache write, and reasoning, with a source and a
   UTC effective date. A price change is a new row with a later effective date; delete
   only an entry created by mistake.
-- Entering a backdated row recalculates historical estimates immediately because
-  estimates are query-time. It never changes the reported cost stored on a turn.
+- The page states the raw retention window and, once retention has run, which date is
+  covered by daily totals versus raw turns. Older history is aggregate-only, so very old
+  breakdowns have UTC-day resolution.
+- Entering a backdated row recalculates estimates for raw turns immediately because
+  estimates are query-time. It never changes the reported cost stored on a turn or
+  revalues a day that has already been rolled up and pruned.
 
 ## 5. Review, finalize, and follow-ups
 

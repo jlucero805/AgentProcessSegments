@@ -99,10 +99,12 @@ built and vended by the brain; real-CLI verification is still pending.
 - Usage tracking: both parsers normalize token counts and harness-reported cost into a
   `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
   master, KB, and setup sessions. `GET /api/usage` returns reported, estimated, and total
-  cost plus UTC bucket series and model/cell/request groups. The **Usage** page shows the
-  overall and per-cell timeline with reported-versus-estimated chart segments; the request
-  drawer shows a compact per-request card. Unknown cost stays null and renders as
-  unknown, never zero.
+  cost plus UTC bucket series and model/cell/request groups. Older history is preserved
+  as daily rollups before raw pruning, so all-time totals survive pruning. The
+  **Usage** page shows the overall and per-cell timeline with reported-versus-estimated
+  chart segments, the raw/rollup boundary, and the retention window; the request drawer
+  shows a compact per-request card. Unknown cost stays null and renders as unknown, never
+  zero.
 - Model pricing: an operator-maintained `model_pricing` table stores effective-dated USD
   rates for input, output, cache read, cache write, and reasoning tokens. The Config page
   lists, adds, and removes rows with a source citation; `GET/POST /api/pricing` and
@@ -225,11 +227,13 @@ built and vended by the brain; real-CLI verification is still pending.
   `docs/07-process-segments.md`. The files on this host are still at
   `/root/.config/sandbox-harness/config.json` and `process.json` until the VPS cutover
   runs `npm run migrate:paths`; the brain keeps using that legacy location automatically.
-- Usage retention: `usage.retentionDays` (default 90, `0` keeps history forever) is
-  edited on the Config page and stored in `config.json`. A startup + hourly job deletes
-  `usage_events` older than the window in 1000-row batches, yields between batches,
-  joins overlapping runs, and records only `usage.prune` failures. It stops during
-  shutdown.
+- Usage retention and rollups: `usage.retentionDays` (default 90, `0` keeps raw history
+  forever) is edited on the Config page and stored in `config.json`. A startup + hourly
+  job rolls raw days into `usage_daily` in 31-day chunks, advances the
+  `usage_rollup_state` watermark, then deletes raw rows before the UTC-day-aligned cutoff
+  in 1000-row batches. Queries merge daily and raw rows around the watermark, so all-time
+  totals and monthly budgets survive pruning. It records `usage.rollup`/`usage.prune`
+  failures, joins overlapping runs, and stops during shutdown.
 - Error log: explicit failure paths append NDJSON to
   `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
   `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
@@ -310,9 +314,9 @@ built and vended by the brain; real-CLI verification is still pending.
   prompts can create draft CRs, but there is no hardcoded forger integration.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
-- Long-range usage rollups and pricing maintenance at scale (bulk import, context tiers,
-  non-USD currencies, per-turn applied-price audit). Advisory budget alerts and
-  effective-dated estimates are built.
+- Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
+  per-turn applied-price audit). Advisory budget alerts, effective-dated estimates, and
+  daily usage rollups are built.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list

@@ -29,8 +29,8 @@ digests.
 7. `docs/07-process-segments.md` is the process.json contract and automation semantics.
 8. `docs/08-user-workflows.md` is the operator workflow: cells, process choices, master
    observation, requests, review, and finalize.
-9. `docs/09-backlog.md` holds scoped but unbuilt work (usage retention and pricing
-   maintenance at scale). Budget alerts and estimated pricing are built.
+9. `docs/09-backlog.md` holds scoped but unbuilt work (hard budget caps and pricing
+   maintenance at scale). Usage rollups, budget alerts, and estimated pricing are built.
 10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
 11. `docs/11-skills.md` is slash-command/skill discovery and invocation in chats.
 12. `docs/12-terminals.md` is the server-owned PTY lifecycle, session list, and API.
@@ -68,8 +68,9 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, usage retention, and pricing maintenance at scale such as
+- Not built: KB embeddings, hard budget caps, and pricing maintenance at scale such as
   bulk import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`).
+  Usage retention with daily rollups is built.
   Review/finalize automation is configurable per cell but finalize remains human-gated;
   the CI workflow is not published yet and needs the
   `workflow` token scope.
@@ -229,12 +230,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `effective_from <= created_at`; prices are explicit USD-per-million rows with a
     source, and an unmatched model stays unpriced, never zero. Claude reports cumulative
     usage on resumed sessions, so persist the last cumulative totals in `session.json`
-    and record per-turn deltas. `usage.retentionDays` (default 90, `0` = keep forever)
-    drives the startup/hourly prune job; delete usage rows only through that job. Budget
-    status reads `UsageRepository.totals`, compares reported cost only, never estimates
-    missing cost, and never pauses or blocks work. Do not add guessed prices or partial
-    usage writes. Hard caps, external delivery, long-range rollups, and pricing
-    maintenance at scale follow `docs/09-backlog.md`.
+    and record per-turn deltas. `usage.retentionDays` (default 90, `0` = keep raw forever)
+    drives the startup/hourly retention job. That job first rolls raw days into
+    `usage_daily` in bounded UTC-day chunks, advances the `usage_rollup_state` watermark
+    atomically with each chunk, and only then deletes raw rows strictly before the
+    day-aligned cutoff; delete usage rows only through that job. Queries read raw rows at
+    or after the watermark and daily rows before it, so all-time totals never double count
+    or lose history. Daily estimates are
+    frozen at rollup time; raw days keep query-time estimates. Budget status reads
+    `UsageRepository.totals` (the same merged view), compares reported cost only, never
+    estimates missing cost, and never pauses or blocks work. Do not add guessed prices or
+    partial usage writes. Hard caps, external delivery, and pricing maintenance at scale
+    follow `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.

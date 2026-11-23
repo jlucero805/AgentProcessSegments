@@ -15,6 +15,7 @@ import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { UsageRepository } from '../src/usage/repository.js';
+import { UsageRollups } from '../src/usage/rollups.js';
 
 const NOW = Date.UTC(2026, 10, 15, 12, 0, 0);
 const PERIOD = budgetPeriod(NOW);
@@ -335,6 +336,54 @@ describe('budget usage reader', () => {
       turns: 2,
       costUsd: 1.5,
       unknownCostTurns: 1,
+    });
+    db.close();
+  });
+
+  it('keeps monthly reported cost after old days are rolled up and pruned', () => {
+    const db = openDb(':memory:');
+    const usage = new UsageRepository(db);
+    const day = Date.UTC(2026, 10, 1);
+    const base = {
+      sessionId: 'session',
+      scope: 'request' as const,
+      model: null,
+      effort: null,
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+    };
+    usage.record({
+      ...base,
+      turnId: 'old',
+      cellId: 'c1',
+      requestId: null,
+      costUsd: 2,
+      createdAt: day + 60_000,
+    });
+    usage.record({
+      ...base,
+      turnId: 'new',
+      cellId: 'c1',
+      requestId: null,
+      costUsd: 3,
+      createdAt: day + 86_400_000 + 60_000,
+    });
+
+    new UsageRollups(db).rollupThrough(day + 86_400_000);
+    db.prepare('DELETE FROM usage_events WHERE created_at < ?').run(day + 86_400_000);
+
+    const reader = createBudgetUsageReader(usage);
+    expect(reader.totals({ from: day, to: day + 2 * 86_400_000 })).toMatchObject({
+      turns: 2,
+      costUsd: 5,
+      unknownCostTurns: 0,
+    });
+    expect(reader.totals({ from: day, to: day + 2 * 86_400_000, cellId: 'c1' })).toMatchObject({
+      turns: 2,
+      costUsd: 5,
     });
     db.close();
   });

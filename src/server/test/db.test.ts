@@ -31,8 +31,18 @@ describe('db migrations', () => {
     expect(tables).toContain('master_events');
     expect(tables).toContain('cell_summaries');
     expect(tables).toContain('usage_events');
+    expect(tables).toContain('usage_daily');
+    expect(tables).toContain('usage_rollup_state');
     expect(tables).toContain('budget_alerts');
     expect(tables).toContain('model_pricing');
+    expect(
+      db.prepare('SELECT rolled_through FROM usage_rollup_state WHERE id = 1').get(),
+    ).toEqual({ rolled_through: 0 });
+    db.prepare('UPDATE usage_rollup_state SET rolled_through = 123 WHERE id = 1').run();
+    migrate(db);
+    expect(
+      db.prepare('SELECT rolled_through FROM usage_rollup_state WHERE id = 1').get(),
+    ).toEqual({ rolled_through: 123 });
     const indexes = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
         name: string;
@@ -99,11 +109,14 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_usage_events_turn');
     expect(indexes).toContain('idx_budget_alerts_identity');
     expect(indexes).toContain('idx_model_pricing_model_effective');
-    expect(
-      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+    const legacyTables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
-      }>).map((row) => row.name),
-    ).toContain('model_pricing');
+      }>
+    ).map((row) => row.name);
+    expect(legacyTables).toContain('model_pricing');
+    expect(legacyTables).toContain('usage_daily');
+    expect(legacyTables).toContain('usage_rollup_state');
     db.close();
   });
 

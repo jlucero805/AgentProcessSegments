@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../src/db.js';
 import { SettingsStore } from '../src/settings.js';
 import { UsageRetention } from '../src/usage/retention.js';
+import { UsageRollups } from '../src/usage/rollups.js';
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 0, 31, 12);
+const CUTOFF = Date.UTC(2025, 10, 2);
 
 function makeStore(days = 90): SettingsStore {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-usage-retention-'));
@@ -33,6 +35,22 @@ function ids(db: Db): string[] {
     .map((row) => row.id);
 }
 
+function daily(db: Db): Array<{ day_start: number; turns: number }> {
+  return db
+    .prepare('SELECT day_start, turns FROM usage_daily ORDER BY day_start')
+    .all() as Array<{ day_start: number; turns: number }>;
+}
+
+function watermark(db: Db): number {
+  return Number(
+    (
+      db.prepare('SELECT rolled_through AS value FROM usage_rollup_state WHERE id = 1').get() as {
+        value: number;
+      }
+    ).value,
+  );
+}
+
 function seedOld(db: Db, count: number): void {
   const rows = Array.from({ length: count }, (_, index) => ({
     id: `u${String(index).padStart(5, '0')}`,
@@ -42,20 +60,24 @@ function seedOld(db: Db, count: number): void {
 }
 
 describe('UsageRetention', () => {
-  it('deletes rows before the cutoff and keeps the boundary row', async () => {
+  it('rolls back and deletes rows before the UTC-day cutoff', async () => {
     const db = makeUsageDb();
-    const boundary = NOW - 90 * DAY;
     seed(db, [
-      { id: 'older', createdAt: boundary - 1 },
-      { id: 'boundary', createdAt: boundary },
+      { id: 'older', createdAt: CUTOFF - 1 },
+      { id: 'boundary', createdAt: CUTOFF },
       { id: 'recent', createdAt: NOW - DAY },
     ]);
     const retention = new UsageRetention({ db, settings: makeStore(90), now: () => NOW });
 
     const result = await retention.runOnce();
 
-    expect(result).toEqual({ deleted: 1, cutoff: boundary });
+    expect(result).toEqual({
+      deleted: 1,
+      cutoff: CUTOFF,
+      rolledThrough: CUTOFF,
+    });
     expect(ids(db)).toEqual(['boundary', 'recent']);
+    expect(daily(db)).toEqual([{ day_start: CUTOFF - DAY, turns: 1 }]);
   });
 
   it('keeps every row when retention is disabled', async () => {
@@ -65,11 +87,13 @@ describe('UsageRetention', () => {
 
     const result = await retention.runOnce();
 
-    expect(result).toEqual({ deleted: 0, cutoff: null });
+    expect(result).toEqual({ deleted: 0, cutoff: null, rolledThrough: null });
     expect(ids(db)).toEqual(['old']);
+    expect(daily(db)).toEqual([]);
+    expect(watermark(db)).toBe(0);
   });
 
-  it('drains a backlog larger than one batch in a single run', async () => {
+  it('drains a backlog larger than one batch after one rollup chunk', async () => {
     const db = makeUsageDb();
     seedOld(db, 2500);
     const retention = new UsageRetention({
@@ -83,6 +107,7 @@ describe('UsageRetention', () => {
 
     expect(result.deleted).toBe(2500);
     expect(ids(db)).toEqual([]);
+    expect(daily(db).reduce((sum, row) => sum + row.turns, 0)).toBe(2500);
     await expect(retention.runOnce()).resolves.toMatchObject({ deleted: 0 });
   });
 
@@ -117,8 +142,44 @@ describe('UsageRetention', () => {
 
     const result = await retention.runOnce();
 
-    expect(result).toEqual({ deleted: 0, cutoff: NOW - 90 * DAY });
+    expect(result).toEqual({ deleted: 0, cutoff: CUTOFF, rolledThrough: null });
     expect(errors.error).not.toHaveBeenCalled();
+  });
+
+  it('deletes nothing when rollup fails and resumes on the next run', async () => {
+    const db = makeUsageDb();
+    seed(db, [{ id: 'old', createdAt: NOW - 100 * DAY }]);
+    const errors = { error: vi.fn() };
+    let fail = true;
+    const rollups: Pick<UsageRollups, 'watermark' | 'rollupThrough'> = {
+      watermark: () => 0,
+      rollupThrough: () => {
+        if (fail) throw new Error('rollup failed');
+        return { from: CUTOFF, to: CUTOFF, rows: 0, done: true };
+      },
+    };
+    const retention = new UsageRetention({
+      db,
+      settings: makeStore(90),
+      errors,
+      now: () => NOW,
+      rollups,
+    });
+
+    await expect(retention.runOnce()).resolves.toMatchObject({ deleted: 0 });
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith(
+      'usage.rollup',
+      expect.any(Error),
+      expect.objectContaining({ cutoff: CUTOFF, rolledThrough: null }),
+    );
+    expect(ids(db)).toEqual(['old']);
+    expect(daily(db)).toEqual([]);
+
+    fail = false;
+    const real = new UsageRetention({ db, settings: makeStore(90), now: () => NOW });
+    await expect(real.runOnce()).resolves.toMatchObject({ deleted: 1 });
+    expect(ids(db)).toEqual([]);
   });
 
   it('reports a failed delete and recovers on the next run', async () => {
@@ -139,6 +200,7 @@ describe('UsageRetention', () => {
       settings: makeStore(90),
       errors,
       now: () => NOW,
+      rollups: new UsageRollups(db),
     });
 
     await expect(retention.runOnce()).resolves.toMatchObject({ deleted: 0 });
@@ -146,12 +208,105 @@ describe('UsageRetention', () => {
     expect(errors.error).toHaveBeenCalledWith(
       'usage.prune',
       expect.any(Error),
-      expect.objectContaining({ deleted: 0, cutoff: NOW - 90 * DAY }),
+      expect.objectContaining({ deleted: 0, cutoff: CUTOFF }),
     );
+    expect(ids(db)).toEqual(['old']);
+    expect(daily(db)).toEqual([
+      { day_start: Math.floor((NOW - 100 * DAY) / DAY) * DAY, turns: 1 },
+    ]);
+    expect(watermark(db)).toBe(CUTOFF);
 
     fail = false;
     await expect(retention.runOnce()).resolves.toMatchObject({ deleted: 1 });
     expect(ids(db)).toEqual([]);
+  });
+
+  it('resumes from a committed watermark after a later rollup chunk fails', async () => {
+    const db = makeUsageDb();
+    seed(db, [
+      { id: 'day0', createdAt: CUTOFF - 5 * DAY },
+      { id: 'day2', createdAt: CUTOFF - 3 * DAY },
+    ]);
+    const real = new UsageRollups(db);
+    let calls = 0;
+    const errors = { error: vi.fn() };
+    const retention = new UsageRetention({
+      db,
+      settings: makeStore(90),
+      errors,
+      now: () => NOW,
+      rollupChunkDays: 1,
+      rollups: {
+        watermark: () => real.watermark(),
+        rollupThrough: (through, options) => {
+          calls += 1;
+          if (calls === 2) throw new Error('rollup failed mid-way');
+          return real.rollupThrough(through, options);
+        },
+      },
+    });
+
+    const failed = await retention.runOnce();
+
+    expect(failed).toMatchObject({ deleted: 0, rolledThrough: CUTOFF - 4 * DAY });
+    expect(errors.error).toHaveBeenCalledWith(
+      'usage.rollup',
+      expect.any(Error),
+      expect.objectContaining({ cutoff: CUTOFF, rolledThrough: CUTOFF - 4 * DAY }),
+    );
+    expect(ids(db)).toEqual(['day0', 'day2']);
+    expect(watermark(db)).toBe(CUTOFF - 4 * DAY);
+
+    const resumed = await new UsageRetention({
+      db,
+      settings: makeStore(90),
+      now: () => NOW,
+    }).runOnce();
+
+    expect(resumed.deleted).toBe(2);
+    expect(ids(db)).toEqual([]);
+    expect(watermark(db)).toBe(CUTOFF);
+  });
+
+  it('does not delete raw rows newer than the watermark after raising retention', async () => {
+    const db = makeUsageDb();
+    seed(db, [
+      { id: 'old', createdAt: NOW - 40 * DAY },
+      { id: 'newer', createdAt: NOW - 20 * DAY },
+    ]);
+    const lower = new UsageRetention({ db, settings: makeStore(30), now: () => NOW });
+    await lower.runOnce();
+    expect(ids(db)).toEqual(['newer']);
+    const raisedAt = watermark(db);
+
+    const raised = new UsageRetention({ db, settings: makeStore(90), now: () => NOW });
+    const result = await raised.runOnce();
+
+    expect(result.deleted).toBe(0);
+    expect(result.rolledThrough).toBe(raisedAt);
+    expect(ids(db)).toEqual(['newer']);
+  });
+
+  it('stops between rollup chunks without pruning', async () => {
+    const db = makeUsageDb();
+    seed(db, [
+      { id: 'day0', createdAt: CUTOFF - 5 * DAY },
+      { id: 'day2', createdAt: CUTOFF - 3 * DAY },
+    ]);
+    const retention = new UsageRetention({
+      db,
+      settings: makeStore(90),
+      now: () => NOW,
+      rollupChunkDays: 1,
+    });
+
+    const run = retention.runOnce();
+    retention.stop();
+    const result = await run;
+
+    expect(result.deleted).toBe(0);
+    expect(result.rolledThrough).toBe(CUTOFF - 4 * DAY);
+    expect(ids(db)).toEqual(['day0', 'day2']);
   });
 
   it('prunes on start, hourly, and settings changes, then stops', async () => {

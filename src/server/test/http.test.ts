@@ -544,6 +544,7 @@ describe('http api', () => {
       byModel: [],
       byCell: [],
       byRequest: [],
+      coverage: { rolledThrough: null },
     });
 
     const base = Date.UTC(2026, 0, 1, 10);

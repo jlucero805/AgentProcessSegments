@@ -720,7 +720,8 @@ and reports one `usage.prune` error through the error sink on failure. It never 
 **Cost.** "All time" totals cover the retained window; the UI and docs say so. Preserving
 long-range totals requires daily rollups, which are deferred. A very large first prune
 takes several short statements rather than one long transaction, but still completes in
-one run. `VACUUM` is left to an operator who can stop the brain first.
+one run. `VACUUM` is left to an operator who can stop the brain first. D52 later adds
+daily rollups and a UTC-day-aligned cutoff; the rest of this decision still applies.
 
 ## D46. APS names are canonical, SBOX names stay as aliases
 
@@ -766,8 +767,8 @@ Budgets never pause or block work.
 **Cost.** Budget status is shown on Config, the Usage page, and the app banner. The unique
 alert identity includes REAL budget amounts, which is acceptable for operator-entered
 dollar values. Hard caps and external delivery remain separate work; usage retention uses
-D45, and long-range rollups remain deferred. A retention window shorter than the month
-makes spend a lower bound, which the docs and UI say explicitly.
+D45, daily rollups are added by D52. A retention window shorter than the month makes spend
+a lower bound, which the docs and UI say explicitly.
 
 ## D48. A request can override its cell's harness
 
@@ -858,3 +859,37 @@ clearer warning is separate work. Old and new tool labels appear as one canonica
 the UI, while the raw stored transcripts still contain the old prefix for audit purposes.
 No database or session migration is needed because the generated config is recreated
 every turn.
+
+## D52. Daily rollups preserve usage history before raw pruning
+
+**Context.** D45 bounded `usage_events` by deleting raw rows after the retention window,
+so "all time" totals silently meant "the retained window". Operators need long-range
+spend and token history without keeping every per-turn row forever. The ledger is written
+only after a turn completes, so a background rollup cannot race an in-flight turn.
+
+**Decision.** Before pruning, `UsageRetention` rolls eligible raw days into `usage_daily`,
+one row per UTC day × scope × cell × request × model, then deletes the raw rows. Retention
+uses the UTC-day-aligned cutoff `startOfUtcDay(now - retentionDays)` rather than D45's
+exact millisecond, keeping at most one extra partial day and making rolled days complete
+and non-overlapping. Rollups are written in chunks of at most 31 days per transaction,
+starting at the earliest raw day rather than epoch 0, with an event-loop yield between
+chunks. Each chunk replaces its `usage_daily` range, aggregates with the same
+effective-dated price lookup as live queries, and advances the exclusive
+`usage_rollup_state.rolled_through` watermark in the same transaction. Raw rows are
+deleted only after the chunks through the cutoff commit.
+
+Queries read from a normalized union: raw rows at or after the watermark and daily rows
+before it, so the sources cannot overlap. Totals, day series, model/cell/request
+breakdowns, and the budget `BudgetUsageReader` all use that merged view.
+`GET /api/usage` exposes `coverage.rolledThrough` so the Usage page can say which part of
+history is daily. Hourly series stay raw-only; day-aligned ranges (all-time, UTC budget
+months) are exact, while a rolled day overlapping a custom range is included whole.
+`retentionDays = 0` deletes nothing and builds no rollups.
+
+**Cost.** Rolled-day estimates are frozen at rollup time, so later `model_pricing`
+corrections apply only to raw days; retroactive repricing would be separate work. Raising
+the retention window cannot restore raw detail already pruned, though daily totals remain.
+A custom range that starts or ends inside a rolled day has day resolution at that edge.
+The `usage_daily` table grows with distinct requests/models per day, not with turns, and
+rollups add bounded synchronous transactions to the retention job. There is no `VACUUM`,
+new dependency, or per-cell retention policy.

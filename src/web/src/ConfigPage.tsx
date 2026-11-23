@@ -513,10 +513,10 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       <Card className="space-y-3 p-4">
         <SectionTitle>Usage retention</SectionTitle>
         <p className="text-sm text-zinc-400">
-          Raw usage rows older than this window are pruned in the background. Cost is
-          reported by the harness, never estimated here.
+          Raw turns older than this window are summarized into daily totals, then pruned in
+          the background. Cost is reported by the harness, never estimated here.
         </p>
-        <Field label="Retention (days)" hint="0 keeps history forever">
+        <Field label="Retention (days)" hint="0 keeps raw turns forever">
           <Input
             type="number"
             min={0}
@@ -528,8 +528,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         </Field>
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[11px] text-zinc-600">
-            Runs shortly after startup, then hourly. All-time totals cover the retained
-            window.
+            Runs shortly after startup, then hourly. Older history is preserved as daily
+            totals. Raising the window cannot restore already-pruned raw turns.
           </p>
           <div className="flex items-center justify-end gap-2">
             {usageSaved ? (

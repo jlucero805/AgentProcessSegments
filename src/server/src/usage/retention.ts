@@ -1,10 +1,13 @@
 import type { Db } from '../db.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
+import { UsageRollups } from './rollups.js';
+import { USAGE_BUCKET_MS, usageBucketStart } from './types.js';
 
 const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 86_400_000;
+const DAY_MS = USAGE_BUCKET_MS.day;
 const DEFAULT_BATCH_SIZE = 1000;
+const DEFAULT_ROLLUP_CHUNK_DAYS = 31;
 
 const DELETE_SQL = `
   DELETE FROM usage_events
@@ -20,6 +23,8 @@ export interface UsagePruneResult {
   deleted: number;
   /** Null when retention is disabled, so there is no cutoff to report. */
   cutoff: number | null;
+  /** Exclusive boundary between daily rollups and raw rows; null when none. */
+  rolledThrough: number | null;
 }
 
 export interface UsageRetentionOptions {
@@ -30,10 +35,14 @@ export interface UsageRetentionOptions {
   now?: () => number;
   intervalMs?: number;
   batchSize?: number;
+  /** Injectable rollup store for tests; defaults to one backed by `db`. */
+  rollups?: Pick<UsageRollups, 'watermark' | 'rollupThrough'>;
+  /** Days covered by one rollup transaction; defaults to 31. */
+  rollupChunkDays?: number;
 }
 
 /**
- * Deletes raw `usage_events` rows older than the configured retention window.
+ * Rolls old raw `usage_events` rows into daily aggregates, then deletes them.
  * Runs once at startup, hourly after that, and again whenever settings change.
  *
  * The usage ledger is owned by the usage-tracking change. Until that table
@@ -47,6 +56,8 @@ export class UsageRetention {
   private readonly clock: () => number;
   private readonly intervalMs: number;
   private readonly batchSize: number;
+  private readonly rollups: Pick<UsageRollups, 'watermark' | 'rollupThrough'>;
+  private readonly rollupChunkDays: number;
 
   private timer: NodeJS.Timeout | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -62,6 +73,11 @@ export class UsageRetention {
       options.intervalMs && options.intervalMs > 0 ? options.intervalMs : HOUR_MS;
     this.batchSize =
       options.batchSize && options.batchSize > 0 ? options.batchSize : DEFAULT_BATCH_SIZE;
+    this.rollups = options.rollups ?? new UsageRollups(options.db);
+    this.rollupChunkDays =
+      options.rollupChunkDays && options.rollupChunkDays > 0
+        ? Math.max(1, Math.floor(options.rollupChunkDays))
+        : DEFAULT_ROLLUP_CHUNK_DAYS;
   }
 
   start(): void {
@@ -88,7 +104,7 @@ export class UsageRetention {
   }
 
   /**
-   * One prune pass. A concurrent call joins the in-flight pass rather than
+   * One retention pass. A concurrent call joins the in-flight pass rather than
    * starting a second one. Never rejects: failures are reported and retried on
    * the next tick.
    */
@@ -103,32 +119,71 @@ export class UsageRetention {
 
   private async prune(now: number): Promise<UsagePruneResult> {
     const days = this.settings.get().usage.retentionDays;
-    if (days <= 0) return { deleted: 0, cutoff: null };
+    if (days <= 0) return { deleted: 0, cutoff: null, rolledThrough: null };
 
-    const cutoff = now - days * DAY_MS;
+    // Day alignment keeps every rolled-up day complete and non-overlapping.
+    const cutoff = usageBucketStart(now - days * DAY_MS, 'day');
+    let watermark = 0;
+
+    try {
+      if (!this.hasUsageEvents()) {
+        return { deleted: 0, cutoff, rolledThrough: null };
+      }
+
+      watermark = this.rollups.watermark();
+      while (watermark < cutoff) {
+        const chunk = this.rollups.rollupThrough(cutoff, {
+          maxDays: this.rollupChunkDays,
+        });
+        if (chunk.done) {
+          watermark = Math.max(watermark, chunk.to);
+          break;
+        }
+        if (chunk.to <= watermark) {
+          throw new Error('usage rollup made no progress');
+        }
+        watermark = chunk.to;
+        // Let requests and timers run between bounded rollup transactions.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        if (this.stopping) {
+          return { deleted: 0, cutoff, rolledThrough: watermark || null };
+        }
+      }
+    } catch (error) {
+      this.errors?.error('usage.rollup', error, {
+        cutoff,
+        rolledThrough: watermark || null,
+      });
+      return { deleted: 0, cutoff, rolledThrough: watermark || null };
+    }
+
     let deleted = 0;
     try {
-      const table = this.db
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_events'",
-        )
-        .get();
-      if (!table) return { deleted: 0, cutoff };
-
       const statement = this.db.prepare(DELETE_SQL);
       for (;;) {
-        const changes = Number(statement.run(cutoff, this.batchSize).changes);
+        const changes = Number(statement.run(watermark, this.batchSize).changes);
         deleted += changes;
         if (changes < this.batchSize) break;
-        // Let other requests and timers run between batches: better-sqlite3 is
-        // synchronous and one unbounded delete would block the brain.
+        // better-sqlite3 is synchronous; yield so a large drain cannot block
+        // other requests and timers.
         await new Promise<void>((resolve) => setImmediate(resolve));
         if (this.stopping) break;
       }
-      return { deleted, cutoff };
+      return { deleted, cutoff, rolledThrough: watermark || null };
     } catch (error) {
-      this.errors?.error('usage.prune', error, { cutoff, deleted });
-      return { deleted, cutoff };
+      this.errors?.error('usage.prune', error, {
+        cutoff,
+        deleted,
+        rolledThrough: watermark || null,
+      });
+      return { deleted, cutoff, rolledThrough: watermark || null };
     }
+  }
+
+  private hasUsageEvents(): boolean {
+    const table = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_events'")
+      .get();
+    return Boolean(table);
   }
 }

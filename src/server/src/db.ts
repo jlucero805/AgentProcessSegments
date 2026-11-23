@@ -92,6 +92,30 @@ CREATE TABLE IF NOT EXISTS usage_events (
   created_at         INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usage_daily (
+  day_start            INTEGER NOT NULL,
+  scope                TEXT NOT NULL,
+  cell_id              TEXT NOT NULL DEFAULT '',
+  request_id           TEXT NOT NULL DEFAULT '',
+  model                TEXT NOT NULL DEFAULT '',
+  turns                INTEGER NOT NULL,
+  input_tokens         INTEGER NOT NULL,
+  output_tokens        INTEGER NOT NULL,
+  cache_read_tokens    INTEGER NOT NULL,
+  cache_write_tokens   INTEGER NOT NULL,
+  reasoning_tokens     INTEGER NOT NULL,
+  reported_cost_usd    REAL,
+  reported_cost_turns  INTEGER NOT NULL,
+  estimated_cost_usd   REAL,
+  estimated_cost_turns INTEGER NOT NULL,
+  PRIMARY KEY (day_start, scope, cell_id, request_id, model)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS usage_rollup_state (
+  id             INTEGER PRIMARY KEY CHECK (id = 1),
+  rolled_through INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS budget_alerts (
   id                 TEXT PRIMARY KEY,
   scope              TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
@@ -165,6 +189,9 @@ function addColumn(db: Db, table: string, column: string, ddl: string): void {
 export function migrate(db: Db): void {
   db.exec(BASE_SCHEMA);
   for (const [table, column, ddl] of COLUMNS) addColumn(db, table, column, ddl);
+  db.prepare(
+    'INSERT OR IGNORE INTO usage_rollup_state (id, rolled_through) VALUES (1, 0)',
+  ).run();
 
   // Indexes come after the cell_id migration: an index on a column that does
   // not exist yet fails on databases written by an older build.

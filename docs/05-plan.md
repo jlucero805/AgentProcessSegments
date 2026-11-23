@@ -219,3 +219,7 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **43. MCP identity rename** — key and register the bundled stdio server as `aps`,
   generate `mcpServers.aps` / `mcp.aps`, allow-list `mcp__aps__*`, normalize legacy
   transcript labels in the web client, update proof scripts, tests, and docs.
+- [x] **44. Long-range usage rollups** — UTC-day `usage_daily` aggregates and
+  `usage_rollup_state` watermark written in bounded chunks before pruning, merged
+  raw/daily queries for totals/series/groups/budgets, additive
+  `GET /api/usage` coverage, Usage/Config copy, tests, and docs.

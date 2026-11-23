@@ -77,6 +77,15 @@ export interface UsageBucketRow extends UsageTotals {
   bucketStart: number;
 }
 
+export interface UsageCoverage {
+  /**
+   * Exclusive boundary between daily rollups and raw rows. Raw rows exist at
+   * or after this timestamp; daily rollups cover everything before it. Null
+   * when no rollup has run.
+   */
+  rolledThrough: number | null;
+}
+
 export interface UsageResponse {
   range: { from: number | null; to: number | null };
   totals: UsageTotals;
@@ -84,6 +93,7 @@ export interface UsageResponse {
   byModel: UsageGroup[];
   byCell: UsageGroup[];
   byRequest: UsageGroup[];
+  coverage: UsageCoverage;
 }
 
 export function totalTokens(tokens: {

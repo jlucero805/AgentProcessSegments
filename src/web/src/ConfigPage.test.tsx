@@ -185,7 +185,8 @@ describe('ConfigPage', () => {
 
     const retention = await screen.findByRole('spinbutton', { name: /retention/i });
     expect(retention).toHaveValue(90);
-    expect(screen.getByText('0 keeps history forever')).toBeInTheDocument();
+    expect(screen.getByText('0 keeps raw turns forever')).toBeInTheDocument();
+    expect(screen.getByText(/summarized into daily totals/)).toBeInTheDocument();
 
     fireEvent.change(retention, { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save usage retention' }));

@@ -175,7 +175,8 @@ last five.
 3. When satisfied, press **Send to merge** if the cell has a Merge segment. The master
    allows only one merge worker at a time (`maxConcurrent: 1`), draining the bucket one
    rebase/test/push at a time. Each success advances to Finalize.
-4. Press **Finalize** (or let the Merge marker advance it). The finalize turn proposes a digest.
+4. Press **Finalize** in the Finalize column. The Merge marker only moves the request
+   there; the master never prods Finalize. The human-triggered turn proposes a digest.
 5. Review the digest and press **Index and finalize**. This is the only step that writes
    the KB entry and closes the request; the master cannot auto-advance Finalize.
 5. Out-of-scope findings can become intake requests automatically (follow-up markers) or

@@ -588,6 +588,53 @@ describe('MasterService', () => {
     expect(fixture.turns).toHaveLength(1);
   });
 
+  it('never prods finalize requests even when the finalize segment is enabled', async () => {
+    const process = processFor((config) => {
+      segment(config, 'implement').enabled = false;
+      const finalize = segment(config, 'finalize');
+      finalize.enabled = true;
+      finalize.idleMinutes = 1;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Finalize cell');
+    const request = requestInState(fixture, 'Ready to index', 'finalize', cell.id);
+    const list = vi.spyOn(fixture.repo, 'list');
+
+    const result = await runEnabledCells(fixture);
+
+    expect(result).toMatchObject({
+      dispatch: 0,
+      started: 0,
+      prodded: 0,
+      advanced: 0,
+    });
+    expect(fixture.turns).toHaveLength(0);
+    expect(fixture.repo.require(request.id).state).toBe('finalize');
+    expect(fixture.events.list().some((event) => event.action === 'prod')).toBe(false);
+    expect(list.mock.calls.some(([filter]) => filter?.state === 'finalize')).toBe(false);
+  });
+
+  it('keeps a cell-policy finalize queue separate from automated segments', async () => {
+    const process = processFor((config) => {
+      const finalize = segment(config, 'finalize');
+      finalize.enabled = true;
+      finalize.idleMinutes = 1;
+      const implement = segment(config, 'implement');
+      implement.enabled = true;
+      implement.idleMinutes = 1;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Mixed policy', process);
+    const finalizeRequest = requestInState(fixture, 'Only index me', 'finalize', cell.id);
+    const implementRequest = dispatchRequest(fixture, 'Still build me', cell.id);
+
+    const result = await runEnabledCells(fixture);
+
+    expect(result).toMatchObject({ dispatch: 1, prodded: 1 });
+    expect(fixture.turns).toEqual([{ action: 'send', id: implementRequest.id }]);
+    expect(fixture.repo.require(finalizeRequest.id).state).toBe('finalize');
+  });
+
   it('creates follow-up requests once per unique callout', async () => {
     const process = processFor((config) => {
       const implement = segment(config, 'implement');

@@ -241,7 +241,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 414 vitest cases, all passing: 285 server across 28 files and 129 web across 21 files,
+- 421 vitest cases, all passing: 290 server across 28 files and 131 web across 21 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -305,8 +305,9 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Not built yet
 
-- Automatic finalize/index: the human still approves KB indexing. Per-cell review
-  prompts can create draft CRs, but there is no hardcoded forger integration.
+- Automatic finalize/index: the master never prods Finalize; the human triggers the
+  digest and approves KB indexing. Per-cell review prompts can create draft CRs, but
+  there is no hardcoded forger integration.
 - No embeddings over the KB: search is literal terms ranked locally, with no semantic
   recall.
 - Long-range usage rollups and pricing maintenance at scale (bulk import, context tiers,

@@ -6,6 +6,7 @@ import type { MasterEventRepository, MasterEventInput } from '../master/events.j
 import type { MasterResult } from '../master/types.js';
 import type { ErrorSink } from '../logging/errors.js';
 import {
+  AUTOMATED_SEGMENT_IDS,
   SEGMENT_IDS,
   SEGMENT_STATES,
   type ProcessConfig,
@@ -50,15 +51,18 @@ const SEGMENT_RANK = new Map<SegmentId, number>(
   SEGMENT_IDS.map((id, index) => [id, index] as const),
 );
 
+const AUTOMATED_SEGMENTS = new Set<SegmentId>(AUTOMATED_SEGMENT_IDS);
+
 /**
  * Later stages run first so a steady supply of planning work cannot starve
- * implementation, review, merge, or finalize. When the right side has nothing
- * due, the cycle falls through to the earlier segments.
+ * implementation, review, or merge. Finalize is excluded entirely: it is a
+ * human-triggered step that cannot advance on its own. When the right side has
+ * nothing due, the cycle falls through to the earlier segments.
  */
 function evaluationOrder(process: ProcessConfig): SegmentConfig[] {
-  return [...process.segments].sort(
-    (a, b) => (SEGMENT_RANK.get(b.id) ?? 0) - (SEGMENT_RANK.get(a.id) ?? 0),
-  );
+  return process.segments
+    .filter((segment) => AUTOMATED_SEGMENTS.has(segment.id))
+    .sort((a, b) => (SEGMENT_RANK.get(b.id) ?? 0) - (SEGMENT_RANK.get(a.id) ?? 0));
 }
 
 function emptyResult(now: number): MasterResult {
@@ -76,7 +80,7 @@ function emptyResult(now: number): MasterResult {
 }
 
 /**
- * Deterministic process automation: walks the configured segments right-to-left,
+ * Deterministic process automation: walks the automatable segments right-to-left,
  * selects at most the cell's spare concurrency for the cycle, starts or prods
  * the selected batch concurrently, and returns without waiting for the turns.
  * Completion handlers create follow-ups and advance on exact markers later.

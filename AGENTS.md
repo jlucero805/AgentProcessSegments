@@ -39,7 +39,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 414 vitest cases: 285 server across 28 files and 129 web across 21 files, all green.
+- 421 vitest cases: 290 server across 28 files and 131 web across 21 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -70,16 +70,16 @@ digests.
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: KB embeddings, usage retention, and pricing maintenance at scale such as
   bulk import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`).
-  Review/finalize automation is configurable per cell but finalize remains human-gated;
-  the CI workflow is not published yet and needs the
-  `workflow` token scope.
+  Review automation is configurable per cell; Finalize is never prodded and remains
+  human-gated. The CI workflow is not published yet and needs the `workflow` token
+  scope.
 
 ## Commands
 
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 285 server + 129 web
+npm test                       # 290 server + 131 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -186,10 +186,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 11. **Process segments are data.** `process.json` is the global template. A cell can
     store its own snapshot in `cells.process_json` and an optional
     `master_interval_minutes`; its master uses that policy and ticker, or the global
-    template and interval when absent. The master evaluates enabled segments from the
-    right of the pipeline to the left (`finalize` first, `intake` last), uses the segment
-    prompt, and advances only on the exact marker through `canTransition`. Do
-    not hardcode a prod/review rule in a route or UI.
+    template and interval when absent. The master evaluates enabled automatable segments
+    from the right of the pipeline to the left (`merge` first, `intake` last); `finalize`
+    is never fetched or prodded. It uses the segment prompt and advances only on the
+    exact marker through `canTransition`. Do not hardcode a prod/review rule in a route
+    or UI.
 12. **Master chats and notes are per cell.** `masterSessionId(cellId)` returns
     `__master__:<cellId>`. Unassigned requests have no master and no chat; notes from a
     cell cycle go only to that cell’s session.
@@ -199,9 +200,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
     delete a live turn's maps without resolving its promise.
-15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
-    into the KB is a human action. Do not add an automatic finalize transition without an
-    explicit indexing path.
+15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; the
+    master never fetches or prods `finalize`, and indexing into the KB is a human action.
+    Do not add an automatic finalize transition without an explicit indexing path.
 16. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
     request/title; the `followup` event is the dedupe key.
 17. **Terminal sessions are server-owned and visible.** A WebSocket attaches/detaches; it
@@ -326,9 +327,9 @@ session.
 
 **Add or change a process segment.** Update `process/definition.ts`, `process/defaults.ts`
 (defaults plus prompt), the UI labels, and `test/process.test.ts`. Advancement must be a
-legal `canTransition` from the segment’s state; `intake` and `finalize` stay manual. A
-cell policy is a snapshot: edit `cells.process_json` through `PATCH /api/cells/:id`, not
-by mutating the global file.
+legal `canTransition` from the segment’s state; `intake` and `finalize` stay manual, and
+`finalize` is excluded from master automation. A cell policy is a snapshot: edit
+`cells.process_json` through `PATCH /api/cells/:id`, not by mutating the global file.
 
 ## Next units, in order
 

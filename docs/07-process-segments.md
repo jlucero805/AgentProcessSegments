@@ -130,10 +130,12 @@ Each cell also has its own **ticker** and **master chat**:
 ```
 
 Every segment id must appear exactly once. The array order is the display and storage
-order; inside a cycle the master evaluates enabled segments by pipeline position from
-right to left: `finalize`, `merge`, `review`, `implement`, `plan`, then `intake`.
-Finishing work gets the first turns, and the earlier segments run when no later work is
-due, so a steady backlog of planning cannot starve the right side of the pipeline.
+order; inside a cycle the master evaluates enabled automatable segments by pipeline
+position from right to left: `merge`, `review`, `implement`, `plan`, then `intake`.
+`finalize` is deliberately excluded: it is human-gated and cannot advance on its own, so
+prodding it would only repeat work. Finishing work gets the first turns, and the earlier
+segments run when no later work is due, so a steady backlog of planning cannot starve the
+right side of the pipeline.
 
 A cycle is bounded by the cell. It selects at most `maxConcurrent` minus the requests
 already working in that cell; the budget is filled from the latest segment first and,
@@ -150,11 +152,16 @@ master chat’s cycle notes small instead of enumerating every queue on every ti
 | `implement` | `dispatch` | prompt via `engine.send` | legal target, e.g. `review` |
 | `review` | `review` | prompt via `engine.send` | legal target, e.g. `merge`, `finalize`, or `dispatch` |
 | `merge` | `merge` | prompt via `engine.send` | legal target, e.g. `finalize` |
-| `finalize` | `finalize` | prompt via `engine.send` | none; the human still approves indexing |
+| `finalize` | `finalize` | none; the master never selects it | the human triggers the digest and approves indexing |
+
+`finalize` stays in the document for pipeline continuity, but the master never fetches or
+prods it. Its `enabled` flag is normalized to `false`, and its stored prompt, idle
+threshold, and ready marker are not used by the scheduler. The board’s **Finalize**
+action uses the built-in digest prompt.
 
 A segment turn is eligible when:
 
-- the segment is `enabled`;
+- the segment is automatable (`finalize` is not) and `enabled`;
 - the request is in the segment’s view/state;
 - no turn is live and the request is not `working`;
 - `now - updated_at >= idleMinutes`;
@@ -176,7 +183,7 @@ the master carry work from an unplanned request through implementation:
 1. Enable `intake` with a short idle threshold.
 2. Enable `plan` and keep its `advanceTo` at `dispatch`.
 3. Keep `implement` enabled; review its prompt and marker.
-4. Optionally enable `review` and `finalize`.
+4. Optionally enable `review` and `merge`. Finalize stays manual and is never prodded.
 
 Each cell’s ticker drives its own cycle; a cell interval overrides the global cadence.
 A cell has at most one dispatch cycle in flight: if a tick lands while that cell is
@@ -274,7 +281,9 @@ Recommended policy for a strict repo:
 2. Give it a prompt that rebases onto the target branch, resolves conflicts, runs tests,
    and pushes to origin.
 3. Set `readyMarker: READY TO FINALIZE` and `advanceTo: finalize`.
-4. Enable `finalize` only for digest generation; the human still indexes into the KB.
+4. Leave Finalize manual. The merge marker only moves the request into the Finalize
+   column; the human presses **Finalize** to generate the digest and still indexes into
+   the KB.
 
 The merge prompt default already describes the single-worker rule. The cell-level
 concurrency cap still applies; the segment cap is an additional limit.

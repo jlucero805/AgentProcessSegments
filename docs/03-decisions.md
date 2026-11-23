@@ -371,13 +371,14 @@ master uses that policy, while cells without one inherit the global default. Eac
 also has `master_interval_minutes` (null inherits the global cadence), its own timer, and
 its own reserved chat session (`__master__:<cellId>`). Each segment has a label, purpose,
 enabled flag, idle threshold, per-cycle cap, prompt, exact ready marker, legal target
-state, and follow-up marker. The master evaluates enabled segments by pipeline position
-from right to left (`finalize` first, `intake` last), not in stored array order, so
-finishing work is not starved by a backlog of planning. `intake` uses `engine.start`;
-other segments use `engine.send` with the configured prompt. A marker
-advances only through a legal transition. `intake` and `finalize` cannot auto-advance.
-Follow-up lines create requests in the same cell and are deduplicated per source request
-in `master_events`.
+state, and follow-up marker. The master evaluates enabled automatable segments by
+pipeline position from right to left (`merge` first, `intake` last), not in stored array
+order, so finishing work is not starved by a backlog of planning. Finalize is excluded
+from that walk because it is human-gated and cannot advance on its own. `intake` uses
+`engine.start`; other automated segments use `engine.send` with the configured prompt. A
+marker advances only through a legal transition. `intake` and `finalize` cannot
+auto-advance, and the master never fetches or prods `finalize`. Follow-up lines create
+requests in the same cell and are deduplicated per source request in `master_events`.
 
 **Cost.** A missing global file falls back to a policy derived from the legacy master
 fields. Cell policies are snapshots, so changing the global template does not rewrite
@@ -475,7 +476,10 @@ cell creation wizard also needs a way to build that policy conversationally.
 **Decision.** Add a built-in `merge` state and optional segment between Review and
 Finalize, plus `maxConcurrent` on every segment. The master enforces the cell cap first,
 then a segment cap for working requests in that state. Merge defaults to
-`maxConcurrent: 1`, `maxPerCycle: 10`, `READY TO FINALIZE`, and advances to Finalize. The wizard keeps a server-side draft per modal. Its `__setup__:<draftId>` chat gets
+`maxConcurrent: 1`, `maxPerCycle: 10`, `READY TO FINALIZE`, and advances to Finalize.
+The marker only moves the request into the Finalize column; the master never prods
+Finalize, and the human triggers the digest. The wizard keeps a server-side draft per
+modal. Its `__setup__:<draftId>` chat gets
 draft read/update plus `Read`, so the agent can edit segments, prompts, markers, and
 limits without touring the board/KB; the form refreshes on turn completion and the draft
 is discarded on close.

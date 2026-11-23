@@ -81,58 +81,73 @@ const processShape = z.object({
 });
 
 /**
+ * Finalize is never prodded by the master, so its automation flag is always
+ * normalized off instead of rejecting older files that still enabled it.
+ */
+function normalizeFinalize(config: ProcessConfig): ProcessConfig {
+  return {
+    ...config,
+    segments: config.segments.map((segment) =>
+      segment.id === 'finalize' ? { ...segment, enabled: false } : segment,
+    ),
+  };
+}
+
+/**
  * Validate the full document: every segment appears once, and an advancement is a
  * legal state transition with a marker that triggers it.
  */
-export const processSchema: z.ZodType<ProcessConfig> = processShape.superRefine((value, ctx) => {
-  const seen = new Set<SegmentId>();
-  for (const [index, segment] of value.segments.entries()) {
-    if (seen.has(segment.id)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['segments', index, 'id'],
-        message: `duplicate segment ${segment.id}`,
-      });
-    }
-    seen.add(segment.id);
+export const processSchema: z.ZodType<ProcessConfig> = processShape
+  .superRefine((value, ctx) => {
+    const seen = new Set<SegmentId>();
+    for (const [index, segment] of value.segments.entries()) {
+      if (seen.has(segment.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['segments', index, 'id'],
+          message: `duplicate segment ${segment.id}`,
+        });
+      }
+      seen.add(segment.id);
 
-    const from = SEGMENT_STATES[segment.id];
-    if (segment.advanceTo !== null && !canTransition(from, segment.advanceTo)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['segments', index, 'advanceTo'],
-        message: `cannot advance from ${from} to ${segment.advanceTo}`,
-      });
+      const from = SEGMENT_STATES[segment.id];
+      if (segment.advanceTo !== null && !canTransition(from, segment.advanceTo)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['segments', index, 'advanceTo'],
+          message: `cannot advance from ${from} to ${segment.advanceTo}`,
+        });
+      }
+      if (segment.advanceTo !== null && segment.readyMarker === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['segments', index, 'readyMarker'],
+          message: 'an advancement requires a ready marker',
+        });
+      }
+      if ((segment.id === 'intake' || segment.id === 'finalize') && segment.advanceTo !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['segments', index, 'advanceTo'],
+          message:
+            segment.id === 'finalize'
+              ? 'finalize is closed by the human index action'
+              : 'intake moves to plan by starting clarification',
+        });
+      }
     }
-    if (segment.advanceTo !== null && segment.readyMarker === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['segments', index, 'readyMarker'],
-        message: 'an advancement requires a ready marker',
-      });
-    }
-    if ((segment.id === 'intake' || segment.id === 'finalize') && segment.advanceTo !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['segments', index, 'advanceTo'],
-        message:
-          segment.id === 'finalize'
-            ? 'finalize is closed by the human index action'
-            : 'intake moves to plan by starting clarification',
-      });
-    }
-  }
 
-  for (const id of SEGMENT_IDS) {
-    if (!seen.has(id)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['segments'],
-        message: `missing segment ${id}`,
-      });
+    for (const id of SEGMENT_IDS) {
+      if (!seen.has(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['segments'],
+          message: `missing segment ${id}`,
+        });
+      }
     }
-  }
-});
+  })
+  .transform((value) => normalizeFinalize(value));
 
 export const processPatchSchema = z.object({ segments: z.array(segmentSchema) });
 

@@ -38,8 +38,9 @@ advance targets, and set cell/segment limits before the cell exists.
   inspect the board/KB, mutate tickets, spawn requests, or write the KB.
 - The prompt and tool description include the safe flow contract: intake and Finalize
   keep `advanceTo` null, Plan→Dispatch, Implement→Review, Review→Merge/Finalize/Dispatch,
-  Merge→Finalize, and every advancement needs an exact ready marker. A rejected update
-  returns the same contract so the model does not guess.
+  Merge→Finalize, and every advancement needs an exact ready marker. Finalize is never
+  prodded by the master and cannot be enabled for automation. A rejected update returns
+  the same contract so the model does not guess.
 - Closing or saving stops any live setup turn, unmounts the chat, and deletes the draft.
 - A new wizard gets a new draft id; conversations do not leak between cells.
 
@@ -92,6 +93,7 @@ The wizard never leaves the chat spinner running forever.
 - `advanceTo` must be a legal transition from the segment’s state;
 - an advancement requires a ready marker;
 - intake and finalize cannot auto-advance;
+- finalize is normalized to `enabled: false` because the master never prods it;
 - prompt/marker/limit types and ranges must be valid.
 
 If the agent sends invalid JSON or an illegal transition, the tool returns the validation
@@ -100,6 +102,7 @@ error and the draft stays unchanged.
 ## What to ask it to reason about
 
 The default six segments are Requests, Plan, Implement, Review, Merge, and Finalize.
+Finalize remains a manual board step and is never automated by the master.
 Useful prompts ask for:
 
 - which segments to enable and where each advances;

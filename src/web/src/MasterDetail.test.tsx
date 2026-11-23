@@ -121,6 +121,66 @@ describe('MasterDetail', () => {
     expect(await screen.findByText(/Last cycle: 0 started/)).toBeInTheDocument();
   });
 
+  it('omits finalize from the cron loop even when the segment is enabled', async () => {
+    const process = makeProcessResponse();
+    const finalize = process.segments.find((segment) => segment.id === 'finalize');
+    if (!finalize) throw new Error('default process is missing finalize');
+    finalize.enabled = true;
+    const cell = makeCell();
+    cell.process = { version: process.version, segments: process.segments };
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/process') return jsonResponse(process);
+        if (url === '/api/master/status?cellId=c1') {
+          return jsonResponse({
+            enabled: true,
+            intervalMinutes: 3,
+            running: false,
+            nextRunAt: null,
+            lastRunAt: null,
+            lastResult: null,
+          });
+        }
+        if (url === '/api/cells') return jsonResponse([cell]);
+        if (url.startsWith('/api/master/events')) return jsonResponse([]);
+        if (url === '/api/summaries/latest?cellId=c1') return jsonResponse(null);
+        if (url === '/api/summaries?cellId=c1&limit=5') return jsonResponse([]);
+        if (url === '/api/summaries/status?cellId=c1') {
+          return jsonResponse({
+            enabled: false,
+            intervalMinutes: 360,
+            windowMinutes: 360,
+            running: false,
+            nextRunAt: null,
+            lastRunAt: null,
+            lastError: null,
+          });
+        }
+        if (url === '/api/requests/__master__%3Ac1/clarify') {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('Cron loop')).toBeInTheDocument();
+    expect(screen.getByText('1 of 5 enabled')).toBeInTheDocument();
+    expect(screen.queryByText('Finalize')).not.toBeInTheDocument();
+  });
+
   it('caps recent activity and keeps every event scrollable', async () => {
     const events: MasterEvent[] = Array.from({ length: 30 }, (_, index) => ({
       id: `e${index}`,

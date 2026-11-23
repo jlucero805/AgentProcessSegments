@@ -313,7 +313,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 414 vitest cases: 285 server cases (state machine, migrations including
+`npm test` runs 421 vitest cases: 290 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, engine turns over a
 fake harness, worktree isolation against a real git repo, the MCP tool surface, harness
@@ -322,7 +322,7 @@ process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-comp
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
 stats/generation/scheduling, budget status/alerts, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 129 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 131 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget banner, master detail and scorecard, the usage page and formatters, and
@@ -338,9 +338,9 @@ probed model catalog. It skips when no `claude` binary is available.
 
 `npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →
-follow-up creation → per-cell master chat → concurrency cap → finalize. It never indexes
-into the KB; the suite asserts the KB stays empty. It uses no live data and cleans up the
-temp directory.
+follow-up creation → per-cell master chat → concurrency cap → manual finalize. It never
+indexes into the KB; the suite asserts the KB stays empty. It uses no live data and
+cleans up the temp directory.
 
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point

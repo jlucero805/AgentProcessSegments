@@ -8,7 +8,12 @@ import {
   processSchema,
   READY_FOR_IMPLEMENTATION,
 } from '../src/process/defaults.js';
-import { SEGMENT_IDS, SEGMENT_STATES, type ProcessConfig } from '../src/process/definition.js';
+import {
+  AUTOMATED_SEGMENT_IDS,
+  SEGMENT_IDS,
+  SEGMENT_STATES,
+  type ProcessConfig,
+} from '../src/process/definition.js';
 import { parseFollowUps } from '../src/process/follow-ups.js';
 import { ProcessStore } from '../src/process/store.js';
 
@@ -65,7 +70,18 @@ describe('process definition', () => {
       merge: 'merge',
       finalize: 'finalize',
     });
+    expect(AUTOMATED_SEGMENT_IDS).toEqual(['intake', 'plan', 'implement', 'review', 'merge']);
     expect(READY_FOR_IMPLEMENTATION).toBe('READY FOR IMPLEMENTATION');
+  });
+
+  it('normalizes finalize automation off without dropping the segment', () => {
+    const config = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(config, 'finalize').enabled = true;
+
+    const parsed = processSchema.parse(config);
+
+    expect(parsed.segments.map((segment) => segment.id)).toEqual([...SEGMENT_IDS]);
+    expect(segmentBy(parsed, 'finalize').enabled).toBe(false);
   });
 });
 
@@ -91,6 +107,33 @@ describe('ProcessStore', () => {
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).segments).toHaveLength(6);
     expect(segmentBy(new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).get(), 'intake').enabled).toBe(true);
+  });
+
+  it('forces finalize off when saving and reloading a process', () => {
+    const file = tempFile();
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    const next = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(next, 'finalize').enabled = true;
+
+    const saved = store.patch({ segments: next.segments });
+    expect(segmentBy(saved, 'finalize').enabled).toBe(false);
+
+    const onDisk = JSON.parse(readFileSync(file, 'utf8')) as ProcessConfig;
+    expect(segmentBy(onDisk, 'finalize').enabled).toBe(false);
+
+    const reloaded = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(segmentBy(reloaded.get(), 'finalize').enabled).toBe(false);
+  });
+
+  it('loads a legacy file with finalize enabled and normalizes it off', () => {
+    const file = tempFile();
+    const legacy = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(legacy, 'finalize').enabled = true;
+    writeFileSync(file, JSON.stringify(legacy));
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+
+    expect(segmentBy(store.get(), 'finalize').enabled).toBe(false);
   });
 
   it('upgrades an old five-segment process by adding Merge and concurrency', () => {

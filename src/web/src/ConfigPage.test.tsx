@@ -290,6 +290,14 @@ describe('ConfigPage', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(30);
   });
 
+  it('presents finalize as manual and not automatable', async () => {
+    installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText(/Finalize is human-gated/)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Automate Finalize' })).not.toBeInTheDocument();
+  });
+
   it('saves a per-segment process change', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);

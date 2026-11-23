@@ -5,6 +5,7 @@ import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
 import { markdownComponents } from './Thread';
 import {
+  AUTOMATED_SEGMENT_IDS,
   masterSessionId,
   timeAgo,
   type Cell,
@@ -138,7 +139,9 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
     }
   }
 
-  const enabled = process?.segments.filter((segment) => segment.enabled) ?? [];
+  const segments =
+    process?.segments.filter((segment) => AUTOMATED_SEGMENT_IDS.includes(segment.id)) ?? [];
+  const enabled = segments.filter((segment) => segment.enabled);
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl">
@@ -195,7 +198,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
               <div className="flex items-center justify-between gap-2">
                 <SectionTitle>Cron loop</SectionTitle>
                 <span className="text-[11px] text-zinc-600">
-                  {enabled.length} of {process.segments.length} enabled
+                  {enabled.length} of {segments.length} enabled
                 </span>
               </div>
               <p className="text-[11px] text-zinc-600">
@@ -208,7 +211,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                   : 'This cell no longer exists.'}
               </p>
               <ul className="space-y-2">
-                {process.segments.map((segment) => (
+                {segments.map((segment) => (
                   <li
                     key={segment.id}
                     className="rounded-lg border border-zinc-800 px-3 py-2 text-xs"

@@ -11,6 +11,15 @@ export const SEGMENT_IDS = [
 ] as const;
 export type SegmentId = (typeof SEGMENT_IDS)[number];
 
+/**
+ * Segments the cell master may automate. Finalize is deliberately excluded: it
+ * is a human-triggered step, so prodding it only repeats work that cannot
+ * advance on its own.
+ */
+export const AUTOMATED_SEGMENT_IDS: readonly SegmentId[] = SEGMENT_IDS.filter(
+  (id) => id !== 'finalize',
+);
+
 /** The request state each segment operates on. Intake and Plan share clarify. */
 export const SEGMENT_STATES: Record<SegmentId, State> = {
   intake: 'clarify',
@@ -65,8 +74,8 @@ export const SEGMENT_FLOW_GUIDE = [
   'implement: advanceTo "review".',
   'review: advanceTo "merge", "finalize", or "dispatch".',
   'merge: advanceTo "finalize".',
-  'finalize: leave advanceTo null; a human indexes the result.',
-  'Enabling a segment is separate from setting advanceTo: enable every step the master should run.',
+  'finalize: never runs on the master; leave enabled false and advanceTo null; a human triggers the digest from the board.',
+  'Enabling a segment is separate from setting advanceTo: enable every non-finalize step the master should run.',
   'Any non-null advanceTo requires a non-empty readyMarker. Keep every segment exactly once and preserve fields you are not changing.',
 ].join('\n');
 

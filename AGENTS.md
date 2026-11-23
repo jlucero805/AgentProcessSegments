@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 476 vitest cases: 327 server across 30 files and 149 web across 22 files, all green.
+- 477 vitest cases: 327 server across 30 files and 150 web across 23 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -83,7 +83,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 327 server + 149 web
+npm test                       # 327 server + 150 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -102,6 +102,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 
 ## Environment facts that will bite
 
+- **The web Vitest config pins `NODE_ENV=test`.** The brain unit exports
+  `NODE_ENV=production` and agent shells inherit it, so a bare `vitest` run would load
+  React's production build and fail every render with `act(...) is not supported in
+  production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
+  `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
+  `NODE_ENV=production npm test --workspace src/web`.
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
   Code binary can be supplied with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock

@@ -88,7 +88,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm test                       # 387 server + 159 web, plus the e2e env guard
-npm run test:e2e-env           # node:test guard for the scripts/e2e spawn env
+npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -115,18 +115,23 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
   `NODE_ENV=production npm test --workspace src/web`.
-- **The e2e brain env is hermetic.** `scripts/e2e.mjs` does not spread `process.env`;
-  `scripts/e2e/env.mjs` drops every inherited `APS_*`, `SBOX_*`, `ANTHROPIC_*`, `CLAUDE_*`,
-  and `OPENAI_*` variable, then pins `HOME`, `NODE_ENV=production`, the plugins dir, brain
-  URL, docs dir, and the mock binary. Without that, a host `APS_TURN_TIMEOUT_MS`,
-  `APS_PLUGINS_DIR`, or legacy `SBOX_HARNESS_BIN` silently changes what the suite proves.
-  `scripts/e2e/env.test.mjs` guards the builder and the entrypoint's call site
-  (`npm run test:e2e-env`); `buildE2ePins` rejects missing or relative pins so a dropped
-  mock or port cannot fall back to a real CLI on `PATH`. Reuse the helper in other proof
-  scripts instead of spreading the host env. CI's E2E step exports hostile
-  sentinels (`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`,
-  `APS_TURN_TIMEOUT_MS=1`, ...); reproduce it with `npm run build`, then
-  `env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode node scripts/e2e.mjs`.
+- **Every JavaScript proof script's child env is hermetic.** `scripts/e2e/env.mjs` is the shared
+  builder: `scrubEnv` drops every inherited `APS_*`, `SBOX_*`, `ANTHROPIC_*`, `CLAUDE_*`,
+  and `OPENAI_*` variable, then `buildPinnedEnv` applies validated pins so a pin always
+  wins. `scripts/e2e.mjs`, `scripts/claude-mock-smoke.mjs`, `scripts/mcp-smoke.mjs`, and
+  `scripts/screenshots.mjs` all spawn through it; none spreads `process.env`. Without
+  that, a host `APS_TURN_TIMEOUT_MS`, `APS_PLUGINS_DIR`, or legacy `SBOX_HARNESS_BIN`
+  silently changes what a proof proves. The Claude and MCP smokes keep deliberate
+  `SBOX_*` pins to prove the legacy aliases: scrubbing inherited `APS_*` first is what
+  makes those pins authoritative. They also pin `SBOX_CONFIG`/`SBOX_PROCESS`/
+  `SBOX_ERROR_LOG` and `XDG_CONFIG_HOME`/`XDG_STATE_HOME` because `loadConfig()` reads
+  XDG_* directly, outside `readEnv`. `scripts/e2e/env.test.mjs` guards the builders and
+  each script's call site (`npm run test:e2e-env`); the pin builders reject missing or
+  relative paths so a dropped mock or port cannot fall back to a real CLI on `PATH`.
+  CI's E2E step exports hostile sentinels (`SBOX_HARNESS_BIN=/bin/false`,
+  `APS_HARNESS=opencode`, `APS_TURN_TIMEOUT_MS=1`, ...); reproduce it with
+  `npm run build`, then `env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode node
+  scripts/e2e.mjs`.
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
   Code binary can be supplied with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock

@@ -378,25 +378,28 @@ link, board, create modal, composer, cell bar, cell creation, config/process and
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the
 usage page and formatters, and the app shell with the drawer and chat mounted under jsdom).
 
-`npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environment the
-E2E suite hands to the brain; it is not counted in the vitest totals.
+`npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
+proof scripts hand to their children; it is not counted in the vitest totals.
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
-the built MCP server over stdio, and proves a tool call persists through the API into
-SQLite.
+the built MCP server over stdio, proves a tool call persists through the API into
+SQLite, and fails if any round trip or persisted value does not match.
 
 `node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
-probed model catalog. It skips when no `claude` binary is available.
+probed model catalog. It runs with a hermetic child env and pins the legacy `SBOX_*`
+aliases on purpose. It skips when no `claude` binary is available.
 
 `npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →
 follow-up creation → per-cell master chat → concurrency cap → finalize. It never indexes
 into the KB; the suite asserts the KB stays empty. It uses no live data and cleans up the
-temp directory. The spawned brain gets a hermetic env built by `scripts/e2e/env.mjs`:
-host `APS_*`/`SBOX_*` settings and `ANTHROPIC_*`/`CLAUDE_*`/`OPENAI_*` credentials are
-dropped, and `HOME`, `NODE_ENV`, the plugins dir, brain URL, docs dir, and mock binary
-are pinned, so a shell that exports harness overrides still exercises the mock.
+temp directory. The JavaScript proof scripts build their child env with
+`scripts/e2e/env.mjs` (`scrubEnv` + `buildPinnedEnv`): host `APS_*`/`SBOX_*` settings and
+`ANTHROPIC_*`/`CLAUDE_*`/`OPENAI_*` credentials are dropped, then each script's paths,
+port, harness, and mock binary are pinned. The Claude and MCP smokes keep deliberate
+`SBOX_*` pins so the legacy aliases stay under test. A shell that exports harness
+overrides therefore still exercises the mock.
 
 CI runs that E2E step with hostile overrides exported (`SBOX_HARNESS_BIN=/bin/false`,
 `APS_HARNESS=opencode`, `APS_TURN_TIMEOUT_MS=1`, and similar), so a regression that lets

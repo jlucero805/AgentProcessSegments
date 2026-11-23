@@ -19,6 +19,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildPinnedEnv, buildScreenshotPins } from './e2e/env.mjs';
 
 let puppeteer;
 try {
@@ -340,24 +341,21 @@ function writeConfig() {
 function startServer(port) {
   return spawn(process.execPath, [appPath], {
     cwd: root,
-    env: {
-      ...process.env,
-      APS_HOST: '127.0.0.1',
-      APS_PORT: String(port),
-      APS_DB: dbPath,
-      APS_DATA_DIR: dataDir,
-      APS_CONFIG: configPath,
-      APS_PROCESS: processPath,
-      APS_ERROR_LOG: errorLog,
-      APS_WEB_DIR: path.join(root, 'src', 'web', 'dist'),
-      APS_DOCS_DIR: path.join(root, 'docs'),
-      APS_HARNESS: 'claude',
-      APS_CLAUDE_BIN: '/bin/false',
-      APS_OPENCODE_BIN: '/bin/false',
-      APS_TERMINAL_CWD: root,
-      XDG_CONFIG_HOME: xdgConfig,
-      XDG_STATE_HOME: xdgState,
-    },
+    env: buildPinnedEnv(
+      process.env,
+      buildScreenshotPins({
+        root,
+        temp,
+        dbPath,
+        dataDir,
+        configPath,
+        processPath,
+        errorLogPath: errorLog,
+        xdgConfig,
+        xdgState,
+        port,
+      }),
+    ),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }

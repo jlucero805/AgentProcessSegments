@@ -17,6 +17,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { buildClaudeSmokePins, buildPinnedEnv } from './e2e/env.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 
@@ -57,6 +58,9 @@ const home = path.join(tmp, 'home');
 const dataDir = path.join(tmp, 'data');
 const dbPath = path.join(tmp, 'brain.sqlite');
 mkdirSync(home, { recursive: true });
+// The brain pins explicit config paths, but the CLI itself may look at XDG.
+mkdirSync(path.join(tmp, 'xdg-config'), { recursive: true });
+mkdirSync(path.join(tmp, 'xdg-state'), { recursive: true });
 
 const mockPort = await freePort();
 const brainPort = await freePort();
@@ -235,24 +239,19 @@ let brainLog = '';
 
 function startBrain() {
   const child = spawn(process.execPath, [path.join(root, 'src/server/dist/app.js')], {
-    env: {
-      ...process.env,
-      // Deliberately legacy: proves the brain still honors the SBOX_* aliases.
-      SBOX_HARNESS: 'claude',
-      SBOX_HARNESS_BIN: claude,
-      SBOX_CLAUDE_BIN: claude,
-      SBOX_PORT: String(brainPort),
-      SBOX_DB: dbPath,
-      SBOX_DATA_DIR: dataDir,
-      SBOX_WEB_DIR: path.join(root, 'src/web/dist'),
-      HOME: home,
-      ANTHROPIC_BASE_URL: mockUrl,
-      ANTHROPIC_API_KEY: 'test-key',
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-      DISABLE_TELEMETRY: '1',
-      DISABLE_ERROR_REPORTING: '1',
-      CLAUDE_CODE_DISABLE_AUTOUPDATE: '1',
-    },
+    env: buildPinnedEnv(
+      process.env,
+      buildClaudeSmokePins({
+        root,
+        claude,
+        home,
+        temp: tmp,
+        dbPath,
+        dataDir,
+        port: brainPort,
+        mockUrl,
+      }),
+    ),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout.on('data', (chunk) => (brainLog += chunk.toString()));

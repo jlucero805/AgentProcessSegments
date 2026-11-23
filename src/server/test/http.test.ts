@@ -41,11 +41,13 @@ async function makeApp(
   sendEmail?: EmailSendLike,
 ): Promise<Open> {
   let admission: ((cellId: string | null) => SpendPause | null) | null = null;
-  const h = createHarness(script, undefined, (cellId) => admission?.(cellId) ?? null);
-  const merged = { ...h.config, ...config };
-  if (config.defaultModel !== undefined) {
-    merged.defaultModels = { ...merged.defaultModels, [merged.harness]: config.defaultModel };
-  }
+  const h = createHarness(
+    script,
+    undefined,
+    (cellId) => admission?.(cellId) ?? null,
+    undefined,
+    config,
+  );
   const settings = new SettingsStore(h.config.configPath);
   const process = new ProcessStore(h.config.processPath, () => defaultProcess(settings.get().master));
   const skills = new SkillCatalog({ home: h.config.dataDir, cwd: h.config.dataDir, env: {} });
@@ -116,7 +118,7 @@ async function makeApp(
     summaries,
     process,
     skills,
-    config: { ...h.config, ...config },
+    config: h.config,
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
@@ -1410,6 +1412,56 @@ describe('http api', () => {
     expect(body.harness).toBe('opencode');
     expect(body.supportsEffort).toBe(false);
     expect(body.defaultModel).toBe('opencode-go/deepseek-v4.1-flash');
+  });
+
+  it('applies a makeApp defaultModel override to the reported models', async () => {
+    await makeApp({
+      harness: 'opencode',
+      harnessBin: 'opencode',
+      defaultModel: 'test/opencode-override',
+    });
+
+    const active = await call('GET', '/api/models');
+    expect(active.json()).toMatchObject({
+      harness: 'opencode',
+      defaultModel: 'test/opencode-override',
+    });
+
+    const claude = await call('GET', '/api/models?harness=claude');
+    expect(claude.json()).toMatchObject({ harness: 'claude', defaultModel: null });
+  });
+
+  it('uses a makeApp defaultModel override for real turns', async () => {
+    const { h } = await makeApp({
+      harness: 'opencode',
+      harnessBin: 'opencode',
+      defaultModel: 'test/opencode-override',
+    });
+    const request = h.repo.create({ title: 'Overridden default model' });
+
+    await (await h.engine.start(request.id)).promise;
+    await settle();
+
+    expect(h.opencode.sessions[0]).toMatchObject({ model: 'test/opencode-override' });
+    expect(h.harness.sessions).toHaveLength(0);
+  });
+
+  it('honors explicit per-harness defaultModels overrides from makeApp', async () => {
+    await makeApp({
+      defaultModels: { claude: 'test/claude-model', opencode: 'test/opencode-model' },
+    });
+
+    const claude = await call('GET', '/api/models?harness=claude');
+    expect(claude.json()).toMatchObject({
+      harness: 'claude',
+      defaultModel: 'test/claude-model',
+    });
+
+    const opencode = await call('GET', '/api/models?harness=opencode');
+    expect(opencode.json()).toMatchObject({
+      harness: 'opencode',
+      defaultModel: 'test/opencode-model',
+    });
   });
 
   it('reports models for an explicit harness or a cell', async () => {

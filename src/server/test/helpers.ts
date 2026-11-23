@@ -40,6 +40,19 @@ export function testConfig(): Config {
   };
 }
 
+/**
+ * Apply a test's config overrides on top of a fresh config. `defaultModel` is a
+ * convenience for the effective harness only, matching `APS_DEFAULT_MODEL`.
+ */
+function withConfigOverrides(base: Config, overrides: Partial<Config>): Config {
+  const merged: Config = { ...base, ...overrides };
+  if (overrides.defaultModel !== undefined) {
+    merged.defaultModels = { ...merged.defaultModels, [merged.harness]: overrides.defaultModel };
+  }
+  // Keep the scalar alias in step with the per-harness map.
+  return { ...merged, defaultModel: merged.defaultModels[merged.harness] };
+}
+
 export function line(value: unknown): string {
   return JSON.stringify(value);
 }
@@ -211,8 +224,9 @@ export function createHarness(
     | null,
   spendCap?: (cellId: string | null) => SpendPause | null,
   errors?: ErrorSink,
+  configOverrides: Partial<Config> = {},
 ): Harness {
-  const config = testConfig();
+  const config = withConfigOverrides(testConfig(), configOverrides);
   const db = openDb(config.dbPath);
   const repo = new RequestRepository(db);
   const cells = new CellRepository(db);
@@ -225,7 +239,7 @@ export function createHarness(
   const engine = new Engine({
     repo,
     harnesses: {
-      defaultId: 'claude',
+      defaultId: config.harness,
       get: (id) => (id === 'opencode' ? opencodeHarness : agentHarness),
     },
     config,

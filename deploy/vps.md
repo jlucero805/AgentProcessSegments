@@ -266,6 +266,11 @@ A brain that still sees any `SBOX_*` variable logs one startup warning naming th
 variables (names only, never values); rename them to `APS_*` to clear it.
 `npm run migrate:paths` moves only the filesystem defaults, not the variable names.
 
+The migration refuses to run while `agent-process-segments.service` or the legacy
+`sandbox-harness.service` is active in either user or system scope. Stop the unit first;
+`--allow-running` bypasses the guard and can corrupt an open SQLite database. The guard
+does not detect a foreground/dev brain or a custom unit name, so stop those manually.
+
 To move the data and the service to the new names:
 
 ```bash
@@ -361,6 +366,9 @@ Notes for similar installs:
 - The cutover drains **all** active turns, not only `--request-id`, because the service
   stop kills every child. `--allow-busy` skips the drain and accepts that loss; use it
   only for an emergency.
+- The cutover stops the old unit before calling `migrate-paths`, so the migration
+  guard passes without a flag. Do not add `--allow-running` to the cutover: moving
+  while a brain unit is active can corrupt the database.
 - Moving the clone and `~/.sandbox-harness` breaks absolute gitdir links. The script
   runs `git worktree repair` and `git worktree prune`; verify the worktree used by the
   request that launched the cutover before resuming it.

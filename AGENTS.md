@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 546 vitest cases: 387 server across 33 files and 159 web across 23 files, all green.
+- 568 vitest cases: 396 server across 33 files and 172 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -88,7 +88,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 387 server + 159 web, plus the e2e env guard
+npm test                       # 396 server + 172 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -101,7 +101,7 @@ node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
                                # and optional Puppeteer
-npm run migrate:paths           # move legacy Sandbox Harness paths to APS names
+npm run migrate:paths           # move legacy paths; refuses while a brain unit is active
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart agent-process-segments

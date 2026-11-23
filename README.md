@@ -204,6 +204,11 @@ A brain started with any `SBOX_*` variable still set logs one warning naming tho
 variables (names only, never values). Rename them to `APS_*` to clear it;
 `npm run migrate:paths` moves only the filesystem defaults, not the variable names.
 
+The migration refuses to run while `agent-process-segments.service` or the legacy
+`sandbox-harness.service` is active (user or system scope). Stop the unit first;
+`--allow-running` bypasses the guard and can corrupt an open SQLite database. A
+foreground/dev brain or a custom unit name is not detected.
+
 To move an existing install to the new names:
 
 1. Stop the old unit: `systemctl --user stop sandbox-harness`.
@@ -363,7 +368,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 546 vitest cases: 387 server cases (state machine, migrations including
+`npm test` runs 568 vitest cases: 396 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, engine turns over a fake harness, worktree isolation against a real
@@ -374,7 +379,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 159 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 172 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

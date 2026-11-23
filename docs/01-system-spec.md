@@ -491,7 +491,9 @@ defaults.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
   (`mcp-config.json` or `opencode/opencode.json`). An existing legacy
-  `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it.
+  `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That
+  script refuses to run while `agent-process-segments.service` or
+  `sandbox-harness.service` is active; `--allow-running` is the unsafe override.
 
 ### Models
 

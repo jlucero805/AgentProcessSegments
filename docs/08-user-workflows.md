@@ -236,8 +236,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |
 | Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and channel |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
-| Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` |
-| Worktrees | `$APS_DATA_DIR/worktrees/<id>` |
+| Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
+| Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |
 | Master chat | reserved `__master__` transcript |
 
 All of this is single-operator: there is no auth, and the brain binds loopback. Put a

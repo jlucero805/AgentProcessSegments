@@ -31,7 +31,7 @@ const scorecard: SummaryConfig = {
 };
 
 const usage: UsageSettings = { retentionDays: 90 };
-const retention: RetentionSettings = { masterEventsDays: 90 };
+const retention: RetentionSettings = { masterEventsDays: 90, requestArtifactsDays: 30 };
 
 const cell: Cell = {
   id: 'c1',
@@ -351,6 +351,31 @@ describe('ConfigPage', () => {
     expect(captured.config?.usage).toBeUndefined();
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(activity).toHaveValue(30);
+  });
+
+  it('loads and saves request artifact retention independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const artifacts = await screen.findByRole('spinbutton', {
+      name: 'Request artifacts retention (days)',
+    });
+    expect(artifacts).toHaveValue(30);
+    expect(
+      screen.getByText('0 keeps request folders and worktrees forever'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Only done or dropped requests/)).toBeInTheDocument();
+    expect(screen.getByText(/Git branches are kept/)).toBeInTheDocument();
+
+    fireEvent.change(artifacts, { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save artifact retention' }));
+
+    await waitFor(() =>
+      expect(captured.config?.retention).toEqual({ requestArtifactsDays: 7 }),
+    );
+    expect(captured.config?.usage).toBeUndefined();
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(artifacts).toHaveValue(7);
   });
 
   it('toggles the master switch', async () => {

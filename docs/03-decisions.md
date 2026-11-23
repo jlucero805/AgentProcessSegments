@@ -1106,3 +1106,31 @@ persisted `⚠` text.
 failure text is provider-facing and capped at the existing 8,000-char tool limit; it is
 the only new error-log content and never includes a prompt or transcript. Classifying
 provider errors and retrying them remain separate work.
+
+
+## D60. Terminal request artifacts and worktrees expire on one window
+
+**Context.** Every request gets `$APS_DATA_DIR/requests/<id>/` for `transcript.json`,
+`session.json`, generated harness config, and a scratch `cwd`. Terminal transitions call
+`engine.dispose`, which removes the linked checkout but never the request directory, and
+the checkout removal swallows git failures. Finished requests therefore keep their
+transcripts and any leftover checkouts forever.
+
+**Decision.** Add `retention.requestArtifactsDays` to `config.json` and the Config page
+(default 30, `0` keeps artifacts forever, max 3650). One startup/hourly job deletes the
+whole request directory for `done`/`dropped` requests whose newest activity (row
+`updated_at`, directory mtime, or `transcript.json`/`session.json` mtime) is strictly
+before the cutoff, and removes `worktrees/<id>` for terminal, row-less, or
+target-repo-less requests. It never touches a non-terminal request, a live turn, a
+reserved session directory (`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`),
+or a non-UUID folder. Worktree removal uses `git worktree remove --force` from the
+repository's common worktree and keeps the branch; a failed git removal falls back to
+deleting the directory, and repo-level `git worktree prune` clears stale registrations.
+Sweeps yield between batches, join overlapping runs, and report one `retention.artifacts`
+record with counts and the cutoff only. There is no DB rollup, `VACUUM`, new route, env
+var, or dependency.
+
+**Cost.** Deleting the directory drops the terminal chat history and adapter session id;
+a later chat starts fresh. Uncommitted work in an expired terminal checkout is
+discarded, matching a normal terminal dispose. Reserved-session cleanup is separate, as
+is visibility into the last sweep and worktrees orphaned by a `targetRepo` change.

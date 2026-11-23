@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { branchName, ensureWorktree, removeWorktree } from '../src/clarify/worktree.js';
+import {
+  branchName,
+  ensureWorktree,
+  removeWorktree,
+  removeWorktreeAt,
+} from '../src/clarify/worktree.js';
 
 function tempDir(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'sbox-wt-'));
@@ -144,5 +149,51 @@ describe('per-request git worktrees', () => {
     });
     expect(notGit.isolated).toBe(false);
     expect(notGit.cwd).toBe(scratchDir);
+  });
+});
+
+describe('worktree removal helper', () => {
+  it('removes a linked checkout through its common repository and keeps the branch', async () => {
+    const repo = makeRepo();
+    const base = tempDir();
+    const input = { dataDir: path.join(base, 'data'), scratchDir: path.join(base, 'scratch') };
+    const worktree = await ensureWorktree({ ...input, targetRepo: repo, requestId: 'req-rm' });
+
+    await removeWorktreeAt(worktree.cwd, repo);
+
+    expect(existsSync(worktree.cwd)).toBe(false);
+    expect(branches(repo)).toContain('aps/req-rm');
+  });
+
+  it('resolves the common repository from the checkout when no hint is given', async () => {
+    const repo = makeRepo();
+    const base = tempDir();
+    const input = { dataDir: path.join(base, 'data'), scratchDir: path.join(base, 'scratch') };
+    const worktree = await ensureWorktree({ ...input, targetRepo: repo, requestId: 'req-orphan' });
+
+    await removeWorktreeAt(worktree.cwd, null);
+
+    expect(existsSync(worktree.cwd)).toBe(false);
+    expect(branches(repo)).toContain('aps/req-orphan');
+  });
+
+  it('throws for a plain directory and removeWorktree still swallows its failure', async () => {
+    const plain = tempDir();
+    await expect(removeWorktreeAt(plain, null)).rejects.toThrow();
+
+    const dataDir = path.join(tempDir(), 'data');
+    const scratchDir = path.join(tempDir(), 'scratch');
+    const dir = path.join(dataDir, 'worktrees', 'req-plain');
+    mkdirSync(dir, { recursive: true });
+
+    await expect(
+      removeWorktree({
+        targetRepo: tempDir(),
+        requestId: 'req-plain',
+        dataDir,
+        scratchDir,
+      }),
+    ).resolves.toBeUndefined();
+    expect(existsSync(dir)).toBe(true);
   });
 });

@@ -218,6 +218,22 @@ between batches, relying on `idx_master_events_created`. Rows with
 deduplication key for `FOLLOW-UP:` titles. Activity is not rolled up; scorecard history
 lives in `cell_summaries`. The job never runs `VACUUM`; SQLite reuses freed pages.
 
+### Request artifact retention
+
+`retention.requestArtifactsDays` in `config.json` (editable from the Config page) bounds
+the filesystem footprint of finished work: default 30 days, `0` keeps artifacts forever.
+A job runs shortly after startup, then hourly, and immediately when the setting changes.
+It deletes `dataDir/requests/<id>/` for `done`/`dropped` requests whose last activity
+(the request row's `updated_at`, the directory mtime, or the mtime of `transcript.json`
+or `session.json`) is strictly before `now - requestArtifactsDays`. It also removes
+`dataDir/worktrees/<id>` when the request is terminal, the row is gone, or the request
+has no target repo, using `git worktree remove --force` and `git worktree prune`; the
+branch is kept. Non-terminal requests, live turns, and reserved session ids
+(`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`) are never touched. Sweeps
+yield between batches, join overlapping runs, and report one `retention.artifacts` error
+record with counts and the cutoff only. There is no rollup and no `VACUUM`; deleting a
+terminal workdir also drops its chat history and adapter session id.
+
 `BudgetService` hands each evaluation's unacknowledged alerts to `BudgetNotifier`.
 `BudgetNotifier` owns a 60-second `unref()`'d timer and enqueues one delivery row per
 enabled alert/channel, deduped by `(alert_id, channel)`. Webhook attempts post JSON as the
@@ -506,14 +522,18 @@ defaults.
   `removeWorktree`, and `branchName`. It falls back to the scratch workdir when there is
   no target repo or git fails. Transcript, session, and MCP config stay in the scratch
   workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
-  terminal transitions. Once a request is terminal, `npm run migrate:branches` retires
-  its legacy `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`).
+  terminal transitions. `retention.requestArtifactsDays` later sweeps leftover checkouts
+  for terminal or row-less requests; it never touches a non-terminal request and keeps
+  the branch. Once a request is terminal, `npm run migrate:branches` retires its legacy
+  `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`).
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
   (`mcp-config.json` or `opencode/opencode.json`). The `requests/` parent and each
   `<id>` workdir are created `0700`; `transcript.json` and `session.json` are written
   atomically with mode `0600`. A loose workdir or file left by an older version is
-  repaired on the next write. An existing legacy
+  repaired on the next write. Terminal workdirs older than
+  `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
+  below. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That
   script refuses to run while `agent-process-segments.service` or
   `sandbox-harness.service` is active; `--allow-running` is the unsafe override.

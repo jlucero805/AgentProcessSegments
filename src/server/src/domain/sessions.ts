@@ -52,3 +52,8 @@ export function summaryCellId(id: string): string | null {
 export function isVirtualSessionId(id: string): boolean {
   return id === KB_SESSION_ID || isMasterSession(id) || isSetupSession(id);
 }
+
+/** Session ids whose request directories are never pruned by artifact retention. */
+export function isReservedSessionId(id: string): boolean {
+  return isVirtualSessionId(id) || isSummarySession(id);
+}

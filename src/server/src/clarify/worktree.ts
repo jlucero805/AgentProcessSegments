@@ -103,6 +103,54 @@ export async function ensureWorktree(input: WorktreeInput): Promise<WorktreeResu
   }
 }
 
+/**
+ * The repository that owns a worktree's metadata. In a linked checkout,
+ * `--show-toplevel` names the checkout itself, so resolve the common git dir
+ * and use its parent when it is a `.git` directory. A bare repo is its own
+ * common dir.
+ */
+async function commonRoot(cwd: string): Promise<string | null> {
+  try {
+    const common = await git(cwd, ['rev-parse', '--git-common-dir']);
+    const resolved = path.isAbsolute(common) ? common : path.resolve(cwd, common);
+    return path.basename(resolved) === '.git' ? path.dirname(resolved) : resolved;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove one linked checkout and keep its branch. Throws when no repository
+ * can be resolved or git refuses, so a caller that wants to retry or report
+ * the failure can do so.
+ */
+export async function removeWorktreeAt(
+  dir: string,
+  repoHint?: string | null,
+): Promise<void> {
+  if (!existsSync(dir)) return;
+
+  const root = (await commonRoot(dir)) ?? (repoHint ? await commonRoot(repoHint) : null);
+  if (!root) throw new Error(`cannot resolve a git repository for ${dir}`);
+
+  await git(root, ['worktree', 'remove', '--force', dir]);
+  try {
+    await git(root, ['worktree', 'prune']);
+  } catch {
+    // The checkout is gone; stale metadata is harmless and pruned next time.
+  }
+}
+
+/** Drop stale worktree registrations for a repository. */
+export async function pruneWorktreeRepo(repo: string): Promise<void> {
+  try {
+    const root = await commonRoot(repo);
+    if (root) await git(root, ['worktree', 'prune']);
+  } catch {
+    // Repository maintenance must never fail a retention pass.
+  }
+}
+
 /** Remove the checkout but keep the branch, since the work itself is the record. */
 export async function removeWorktree(input: WorktreeInput): Promise<void> {
   const { targetRepo, requestId } = input;
@@ -112,9 +160,7 @@ export async function removeWorktree(input: WorktreeInput): Promise<void> {
   if (!existsSync(dir)) return;
 
   try {
-    const repoRoot = await git(targetRepo, ['rev-parse', '--show-toplevel']);
-    await git(repoRoot, ['worktree', 'remove', '--force', dir]);
-    await git(repoRoot, ['worktree', 'prune']);
+    await removeWorktreeAt(dir, targetRepo);
   } catch {
     // A stale worktree is bookkeeping, never a reason to fail the transition.
   }

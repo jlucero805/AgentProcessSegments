@@ -55,6 +55,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `usage.rollup` | A rollup chunk fails before pruning; includes the day-aligned cutoff and committed watermark only |
 | `usage.prune` | Raw usage deletion fails after the rollup watermark commits; includes the cutoff and deleted count only |
 | `retention.prune` | Master activity pruning fails; includes the table name, cutoff, and deleted count only |
+| `retention.artifacts` | A request-directory or worktree sweep fails; includes the request-dir count, worktree count, failure count, and cutoff only |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |
 
 Expected client errors (400 validation, 404, 409 transitions) are **not** written to this

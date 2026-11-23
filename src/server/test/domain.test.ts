@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { resolveHarness } from '../src/domain/harness.js';
 import {
+  isReservedSessionId,
+  KB_SESSION_ID,
+  masterSessionId,
+  setupSessionId,
+  summarySessionId,
+} from '../src/domain/sessions.js';
+import {
   canTransition,
   isIntake,
   STATES,
@@ -53,5 +60,15 @@ describe('request state machine', () => {
     expect(isIntake({ state: 'clarify', clarifyStarted: false })).toBe(true);
     expect(isIntake({ state: 'clarify', clarifyStarted: true })).toBe(false);
     expect(isIntake({ state: 'review', clarifyStarted: false })).toBe(false);
+  });
+});
+
+describe('reserved session ids', () => {
+  it('marks every virtual chat and summary generator as unprunable', () => {
+    expect(isReservedSessionId(KB_SESSION_ID)).toBe(true);
+    expect(isReservedSessionId(masterSessionId('cell-a'))).toBe(true);
+    expect(isReservedSessionId(summarySessionId('cell-a'))).toBe(true);
+    expect(isReservedSessionId(setupSessionId('draft-a'))).toBe(true);
+    expect(isReservedSessionId('f1c2e3d4-0000-4000-8000-000000000000')).toBe(false);
   });
 });

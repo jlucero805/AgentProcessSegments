@@ -85,7 +85,9 @@ export {
 export type { RetentionSettings } from '../../server/src/retention/settings';
 export {
   DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
+  DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
+  MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
 } from '../../server/src/retention/settings';
 export type {
   ModelPrice,

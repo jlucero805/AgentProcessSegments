@@ -274,6 +274,14 @@ built and vended by the brain; real-CLI verification is still pending.
   `action = 'followup'` are never pruned, because they are the deduplication key for
   `FOLLOW-UP:` titles. It records only `retention.prune` failures and joins overlapping
   runs. Usage and activity retention are independent settings and save actions.
+- Request artifact retention: `retention.requestArtifactsDays` (default 30, `0` keeps
+  request artifacts forever) is edited on its own Config card. A startup + hourly job
+  deletes the whole `requests/<id>/` workdir (transcripts, session id, generated config,
+  scratch cwd) and leftover `worktrees/<id>` checkouts for terminal requests older than
+  the window, plus checkouts with no request row. Non-terminal requests, live turns,
+  reserved `__kb__`/`__master__`/`__summary__`/`__setup__` sessions, and unknown folders
+  are never touched. Git branches are kept. It records `retention.artifacts` failures
+  with counts and the cutoff only and joins overlapping runs.
 - Error log: explicit failure paths append NDJSON to
   `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
   `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
@@ -286,7 +294,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 652 vitest cases, all passing: 476 server across 36 files and 176 web across 24 files,
+- 676 vitest cases, all passing: 499 server across 37 files and 177 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

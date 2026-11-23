@@ -197,6 +197,10 @@ export function legacyPathWarning(paths: string[]): string | null {
   );
 }
 
+export function requestsDir(dataDir: string): string {
+  return path.join(dataDir, 'requests');
+}
+
 export function requestDir(config: Config, id: string): string {
-  return path.join(config.dataDir, 'requests', id);
+  return path.join(requestsDir(config.dataDir), id);
 }

@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { buildE2eEnv } from './e2e/env.mjs';
+import { buildE2eEnv, buildE2ePins } from './e2e/env.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temp = mkdtempSync(path.join(os.tmpdir(), 'sbox-e2e-'));
@@ -107,25 +107,10 @@ async function main() {
   mkdirSync(home, { recursive: true });
   server = spawn(process.execPath, ['src/server/dist/app.js'], {
     cwd: root,
-    env: buildE2eEnv(process.env, {
-      HOME: home,
-      NODE_ENV: 'production',
-      APS_HOST: '127.0.0.1',
-      APS_PORT: String(port),
-      APS_DB: dbPath,
-      APS_DATA_DIR: path.join(temp, 'data'),
-      APS_CONFIG: path.join(temp, 'config.json'),
-      APS_PROCESS: path.join(temp, 'process.json'),
-      APS_ERROR_LOG: path.join(temp, 'errors.log'),
-      APS_WEB_DIR: path.join(temp, 'no-web-build'),
-      APS_DOCS_DIR: path.join(root, 'docs'),
-      APS_PLUGINS_DIR: pluginsDir,
-      APS_BRAIN_URL: base,
-      APS_HARNESS: 'claude',
-      APS_HARNESS_BIN: mock,
-      APS_CLAUDE_BIN: mock,
-      APS_TERMINAL: '0',
-    }),
+    env: buildE2eEnv(
+      process.env,
+      buildE2ePins({ root, mock, home, temp, dbPath, port, base, pluginsDir }),
+    ),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout.on('data', (chunk) => logs.push(chunk.toString()));

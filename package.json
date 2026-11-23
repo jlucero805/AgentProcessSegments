@@ -9,6 +9,7 @@
   "scripts": {
     "build": "npm run build --workspace src/web && npm run build --workspace src/server",
     "typecheck": "npm run typecheck --workspace src/server && npm run typecheck --workspace src/web",
+    "lint": "eslint src --max-warnings=0",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",
     "test:e2e-env": "node --test scripts/e2e/env.test.mjs",
     "e2e": "npm run build && node scripts/e2e.mjs",
@@ -19,6 +20,9 @@
     "smoke:claude": "node scripts/claude-mock-smoke.mjs"
   },
   "devDependencies": {
-    "concurrently": "^10.0.7"
+    "concurrently": "^10.0.7",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "typescript-eslint": "^8.73.0"
   }
 }

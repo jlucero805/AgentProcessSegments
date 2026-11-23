@@ -47,12 +47,6 @@ const gettingStarted: DocContent = {
   ].join('\n'),
 };
 
-const processSegments: DocContent = {
-  ...PAGES[1]!,
-  updatedAt: 2,
-  markdown: '# Process segments\n\nSegment text.\n\n## Merge bucket',
-};
-
 const MERMAID_SOURCE = 'flowchart LR\n  A-->B';
 
 function docWithMermaid(...sources: string[]): DocContent {

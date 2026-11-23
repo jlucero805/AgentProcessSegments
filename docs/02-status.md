@@ -305,8 +305,8 @@ built and vended by the brain; real-CLI verification is still pending.
   fails when a tool round trip does not persist. `npm run test:e2e-env` guards the
   builders and call sites. CI runs the E2E step with hostile `SBOX_*`/`APS_*` overrides
   exported, so a regression that leaks the host env fails the build.
-- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, typecheck, the full
-  test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
+- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
+  full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
   `scripts/mcp-smoke.mjs` on pushes and pull requests. It is not active on the remote:
   publishing a workflow needs a credential with the `workflow` scope. Copy it to
   `.github/workflows/ci.yml` once that is available.

@@ -60,8 +60,15 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const draftReady = draftStatus === 'ready';
   const draftReadyRef = useRef(false);
   const loadingProcessRef = useRef(true);
+  const onErrorRef = useRef(onError);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // The draft sync below must not depend on the parent's callback identity: an
+  // inline onError would re-run the debounced PUT on every render.
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   const key = cell?.id ?? 'new';
 
@@ -231,7 +238,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
           if (draftReadyRef.current) {
             // The chat is already usable; keep it mounted and surface the sync
             // problem without replacing the conversation with an error state.
-            onError(message);
+            onErrorRef.current(message);
           } else {
             setDraftStatus('error');
           }
@@ -259,7 +266,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     effort,
     autocompactPercent,
     syncAttempt,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  ]);
 
   const refreshDraft = useCallback(async () => {
     if (!draftId) return;

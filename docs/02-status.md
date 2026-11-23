@@ -318,7 +318,8 @@ built and vended by the brain; real-CLI verification is still pending.
   rules).
 - `APS_HARNESS` selects the process-default substrate; `APS_CLAUDE_BIN` and
   `APS_OPENCODE_BIN` point at each adapter. `APS_HARNESS_BIN` is the legacy fallback for
-  the default adapter only.
+  the default adapter only. Startup logs one warning naming any `SBOX_*` variables still
+  set (names only, never values); `APS_*` wins when both are present.
 - `GET /api/models` adds `harness`, `supportsEffort`, and `defaultModel` alongside the
   spec's `models`/`source`/`effortLevels`, and accepts `harness`, `cellId`, or
   `requestId`, so the SPA can resolve the right catalog and tell when effort is inert.

@@ -738,12 +738,16 @@ then the new location; explicit env paths always win. Startup never moves data. 
 operator-invoked `npm run migrate:paths` moves the default data, config, and state
 directories and the SQLite file (with WAL/SHM), never overwrites an existing destination,
 and is idempotent. The unit template moves to `deploy/agent-process-segments.service`.
+Startup logs one warning naming every `SBOX_*` variable that is still set, with names
+only and never values; renaming them to `APS_*` clears it.
 
 **Cost.** Two names exist for one release, and a partial upgrade can keep using legacy
 paths until the operator migrates. Moving a data directory also moves git worktrees,
 whose metadata may need `git worktree repair`; the script warns instead of guessing. A
 rollback to an older binary needs a unit or drop-in that passes the migrated paths under
-the `SBOX_*` names.
+the `SBOX_*` names. The startup warning stays for at least the next release after it
+ships; removing `SBOX_*` support requires that warning plus updated upgrade and rollback
+notes in this file, `README.md`, and `deploy/vps.md`.
 ## D47. Budgets are advisory, monthly, and read the usage ledger
 
 **Context.** Operators need to see whether a cell or the whole brain is approaching its

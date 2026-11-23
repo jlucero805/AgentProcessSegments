@@ -262,6 +262,9 @@ state; the engine resumes the agent session from `session.json` on the next turn
 An existing install keeps working after a binary upgrade: the brain still reads the
 legacy `SBOX_*` variable names and uses an existing `sandbox-harness` data, config, state,
 or SQLite location automatically. `APS_*` is canonical and wins when both names are set.
+A brain that still sees any `SBOX_*` variable logs one startup warning naming those
+variables (names only, never values); rename them to `APS_*` to clear it.
+`npm run migrate:paths` moves only the filesystem defaults, not the variable names.
 
 To move the data and the service to the new names:
 

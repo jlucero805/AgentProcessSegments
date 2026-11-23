@@ -200,6 +200,10 @@ harnesses. Filesystem defaults are also backward-compatible: if only `~/.sandbox
 `<cwd>/sandbox-harness.sqlite` exists, the brain keeps using it. New installs get the
 `agent-process-segments` names.
 
+A brain started with any `SBOX_*` variable still set logs one warning naming those
+variables (names only, never values). Rename them to `APS_*` to clear it;
+`npm run migrate:paths` moves only the filesystem defaults, not the variable names.
+
 To move an existing install to the new names:
 
 1. Stop the old unit: `systemctl --user stop sandbox-harness`.

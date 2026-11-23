@@ -11,3 +11,27 @@ export function readEnv(env: NodeJS.ProcessEnv, name: string): string | undefine
   if (current !== undefined) return current;
   return env[`SBOX_${name}`];
 }
+
+const LEGACY_ENV_PREFIX = 'SBOX_';
+
+/**
+ * Names of the legacy variables still present in `env`, sorted for a stable
+ * startup message. Values are never read, so a path or token cannot leak into
+ * the warning; an empty-string value still counts as present because `readEnv`
+ * honors it the same way as a non-empty one.
+ */
+export function legacyEnvNames(env: NodeJS.ProcessEnv): string[] {
+  return Object.keys(env)
+    .filter((key) => key.startsWith(LEGACY_ENV_PREFIX) && env[key] !== undefined)
+    .sort();
+}
+
+/** One startup warning for legacy names, or `null` when there is nothing to report. */
+export function legacyEnvWarning(names: string[]): string | null {
+  if (names.length === 0) return null;
+  return (
+    `legacy SBOX_* environment names are set: ${names.join(', ')}. ` +
+    'Rename them to APS_*; APS_* wins when both are set. ' +
+    '`npm run migrate:paths` moves only the legacy default paths.'
+  );
+}

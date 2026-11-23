@@ -7,6 +7,7 @@ import { HarnessModelCatalog } from './clarify/models.js';
 import { legacyPathWarning, loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { DocsService } from './docs/service.js';
+import { legacyEnvNames, legacyEnvWarning } from './env.js';
 import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
 import { ErrorLogger } from './logging/errors.js';
@@ -36,6 +37,8 @@ export async function main(): Promise<void> {
   const config = loadConfig();
   const warning = legacyPathWarning(config.legacyPaths);
   if (warning) console.warn(warning);
+  const legacyEnv = legacyEnvWarning(legacyEnvNames(process.env));
+  if (legacyEnv) console.warn(legacyEnv);
   const errors = new ErrorLogger(config.errorLogPath, { maxBytes: config.errorLogMaxBytes });
 
   try {

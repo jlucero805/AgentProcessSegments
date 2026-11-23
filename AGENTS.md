@@ -144,7 +144,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it
   prefers an existing `agent-process-segments` location and falls back to an existing
   `sandbox-harness` one. Do not add a fresh `process.env.SBOX_*` read or a new hardcoded
-  default outside `config.ts`. Operators move data with `npm run migrate:paths`.
+  default outside `config.ts`. Startup warns once, with names only and never values, when
+  any `SBOX_*` name is still set; `legacyEnvNames` and `legacyEnvWarning` in `env.ts` build
+  that line. Operators move data with `npm run migrate:paths` and rename variables to
+  `APS_*` to clear the warning.
 - **Errors are the only persisted logs.** `$XDG_STATE_HOME/agent-process-segments/errors.log`
   (`APS_ERROR_LOG`, `APS_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.

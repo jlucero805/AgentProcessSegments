@@ -487,7 +487,8 @@ defaults.
   `removeWorktree`, and `branchName`. It falls back to the scratch workdir when there is
   no target repo or git fails. Transcript, session, and MCP config stay in the scratch
   workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
-  terminal transitions.
+  terminal transitions. Once a request is terminal, `npm run migrate:branches` retires
+  its legacy `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`).
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
   (`mcp-config.json` or `opencode/opencode.json`). An existing legacy
@@ -687,7 +688,7 @@ interface Request {
   agentStatus: AgentStatus;
   unchecked: boolean;            // agent finished, human has not opened it since
   hcRunIds: string[];            // provenance (dormant)
-  branch: string | null;         // aps/<id>, or legacy sbox/<id>
+  branch: string | null;         // aps/<id>; legacy sbox/<id> until migrate:branches
   crUrl: string | null;
   cellId: string | null;         // at most one cell; null means the unfiltered floor
   harness: HarnessId | null;     // explicit override; null inherits cell then brain

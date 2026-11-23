@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 576 vitest cases: 404 server across 34 files and 172 web across 24 files, all green.
+- 594 vitest cases: 422 server across 35 files and 172 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -88,7 +88,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 404 server + 172 web, plus the e2e env guard
+npm test                       # 422 server + 172 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -102,6 +102,7 @@ UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
                                # and optional Puppeteer
 npm run migrate:paths           # move legacy paths; refuses while a brain unit is active
+npm run migrate:branches        # migrate finished sbox/* worktree branches (dry run first)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart agent-process-segments
@@ -219,7 +220,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 6. **Agent status is independent of state.** `working` on turn start, `idle` plus
    `unchecked` on finish, cleared by `/seen`.
 7. **Terminal transitions dispose.** `done` and `dropped` must call `engine.dispose(id)`,
-   which kills the child and removes the worktree but keeps the branch.
+   which kills the child and removes the worktree but keeps the branch. Legacy
+   `sbox/<id>` branches are retired only by `npm run migrate:branches`, never by the
+   engine.
 8. **Plugins contribute skills and commands only.** `install` strips `hooks`,
    `mcpServers`, `hooks/`, and `.mcp.json`. Never re-add them.
 9. **Guards at the boundary.** zod validates HTTP and MCP input. Repositories trust

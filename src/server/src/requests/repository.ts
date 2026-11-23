@@ -3,6 +3,7 @@ import type { Db } from '../db.js';
 import { isHarnessId, type HarnessId } from '../domain/harness.js';
 import {
   canTransition,
+  TERMINAL_STATES,
   type AgentStatus,
   type Effort,
   type Request,
@@ -286,5 +287,22 @@ export class RequestRepository {
 
   setBranch(id: string, branch: string | null): void {
     this.write(id, [['branch', branch]]);
+  }
+
+  /**
+   * Rewrite one terminal request's stored legacy branch.
+   *
+   * Bypasses `write` so `updated_at` does not move: a maintenance backfill must
+   * not reorder request history or reset the master's idle clock. The state and
+   * old-value guards make the update a no-op if the row moved underneath us.
+   */
+  migrateLegacyBranch(id: string, from: string, to: string): boolean {
+    const terminals = TERMINAL_STATES.map(() => '?').join(', ');
+    const result = this.db
+      .prepare(
+        `UPDATE requests SET branch = ? WHERE id = ? AND branch = ? AND state IN (${terminals})`,
+      )
+      .run(to, id, from, ...TERMINAL_STATES);
+    return result.changes === 1;
   }
 }

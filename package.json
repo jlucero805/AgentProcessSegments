@@ -16,6 +16,7 @@
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm run dev --workspace src/server\" \"npm run dev --workspace src/web\"",
     "start": "node src/server/dist/app.js",
     "migrate:paths": "node scripts/migrate-paths.mjs",
+    "migrate:branches": "node src/server/dist/maintenance/legacy-branches-cli.js",
     "cutover:vps": "bash deploy/cutover-vps.sh",
     "prune:cutover": "node scripts/prune-cutover-runs.mjs",
     "smoke:claude": "node scripts/claude-mock-smoke.mjs"

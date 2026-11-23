@@ -220,6 +220,22 @@ To move an existing install to the new names:
    `~/.config/systemd/user/`, then `systemctl --user daemon-reload` and
    `systemctl --user enable --now agent-process-segments`.
 
+Worktree branches created before the rebrand are named `sbox/<id>`. They stay valid
+until the request finishes; once nothing is in flight, retire them with:
+
+```
+npm run build                       # the command runs from dist
+npm run migrate:branches -- --dry-run
+npm run migrate:branches -- --apply
+```
+
+The command renames a lone `sbox/<id>` to `aps/<id>`, deletes the legacy ref when it is
+already contained in `aps/<id>`, and repairs a stored branch whose legacy ref is gone.
+It never touches a branch for a request that is not `done`/`dropped`, a branch checked
+out in any worktree, or a diverged `sbox`/`aps` pair (those are reported for manual
+review). Orphan `sbox/*` refs with no request row are report-only. Pass `--repo DIR` to
+limit the run and `--db FILE` to point at a non-default database.
+
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
 git reports them at the old path, run `git worktree repair` in the target repo or remove
@@ -372,7 +388,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 576 vitest cases: 404 server cases (state machine, migrations including
+`npm test` runs 594 vitest cases: 422 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, cutover run retention, engine turns over a fake harness, worktree

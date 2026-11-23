@@ -10,7 +10,7 @@ export function branchName(requestId: string): string {
 }
 
 /** Branches created before the rebrand; reused so in-flight requests keep their checkout. */
-function legacyBranchName(requestId: string): string {
+export function legacyBranchName(requestId: string): string {
   return `sbox/${requestId}`;
 }
 

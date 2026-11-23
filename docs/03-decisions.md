@@ -85,9 +85,15 @@ and the scratch workdir when there is no repo or git fails. When only a legacy
 prefix, and an existing checkout reports the branch it is actually on. `removeWorktree`
 removes the checkout and keeps the branch.
 
-**Cost.** The branch and its commits outlive the request by design. Cleanup is manual.
-Legacy `sbox/<id>` branches may coexist with new `aps/<id>` branches until they are
-cleaned up by hand.
+**Cost.** The branch and its commits outlive the request by design. Legacy
+`sbox/<id>` branches may coexist with new `aps/<id>` branches until an operator retires
+them. `npm run migrate:branches` does that: dry run by default, `--apply` renames a lone
+legacy ref, deletes it only when it is already contained in `aps/<id>`, and rewrites the
+terminal request's stored branch without touching `updated_at` (which would reorder
+history and reset the master's idle clock). Non-terminal requests, checked-out branches,
+and diverged pairs are always skipped; orphan `sbox/*` refs are reported but never
+deleted. A human resolves a diverged pair because committing to either disposition could
+lose work.
 
 ## D8. The user turn is pushed into the parser's transcript
 

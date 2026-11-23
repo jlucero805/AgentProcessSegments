@@ -102,9 +102,55 @@ describe('claude stream-json parser', () => {
     expect(events[0]).toMatchObject({ t: 'tool_result', isError: true });
     expect(parser.finalize().find((msg) => msg.toolId === 't1')?.toolError).toBe(true);
 
-    parser.push(line({ type: 'result', subtype: 'error', is_error: true, result: 'failed' }));
+    const turnEvents = parser.push(
+      line({ type: 'result', subtype: 'error', is_error: true, result: 'failed' }),
+    );
+    expect(turnEvents).toEqual([{ t: 'error', message: 'failed' }]);
     expect(parser.isError).toBe(true);
     expect(parser.resultText).toBe('failed');
+  });
+
+  it('emits one error event for an error result and none for success', () => {
+    const errored = new TurnParser();
+    expect(
+      errored.push(resultLine('done', { input_tokens: 3, output_tokens: 2 }, 0.001)),
+    ).toEqual([]);
+    expect(errored.isError).toBe(false);
+    expect(errored.finished).toBe(true);
+
+    const failed = new TurnParser();
+    expect(failed.push(line({ type: 'result', is_error: true, result: 'rate limited' }))).toEqual([
+      { t: 'error', message: 'rate limited' },
+    ]);
+    expect(failed.finished).toBe(true);
+  });
+
+  it('uses a fallback message when an error result has no text', () => {
+    const parser = new TurnParser();
+    expect(parser.push(line({ type: 'result', is_error: true, result: '   ' }))).toEqual([
+      { t: 'error', message: 'agent reported an error' },
+    ]);
+  });
+
+  it('detects error result subtypes even without the is_error flag', () => {
+    const parser = new TurnParser();
+    expect(
+      parser.push(
+        line({ type: 'result', subtype: 'error_during_execution', result: 'tool crashed' }),
+      ),
+    ).toEqual([{ t: 'error', message: 'tool crashed' }]);
+    expect(parser.isError).toBe(true);
+  });
+
+  it('caps a very long error result message', () => {
+    const parser = new TurnParser();
+    const events = parser.push(line({ type: 'result', is_error: true, result: 'x'.repeat(9_000) }));
+    const event = events[0];
+    expect(event?.t).toBe('error');
+    if (event?.t === 'error') {
+      expect(event.message.length).toBeLessThan(9_000);
+      expect(event.message).toContain('truncated');
+    }
   });
 
   it('ignores noise without throwing', () => {

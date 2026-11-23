@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 632 vitest cases: 456 server across 36 files and 176 web across 24 files, all green.
+- 664 vitest cases: 466 server across 36 files and 176 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -87,7 +87,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 456 server + 176 web, plus the e2e env guard
+npm test                       # 466 server + 176 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -365,6 +365,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     new credentials. Delivery retries are bounded, failures go to `budget.notify` with
     ids only, and a notifier failure must never throw into budget evaluation, an HTTP
     handler, or a turn. Tests inject the sender; no external network traffic.
+36. **A harness-reported error result fails the turn once, visibly.** A parser `error`
+    event sets `turn.failure` (first one wins), broadcasts one `error`, persists one
+    `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it
+    from `runTurn` or retry inside the turn. `error` results include `is_error: true` and
+    `error*` subtypes. The warning text is the capped provider result, never a transcript.
 
 ## Extension recipes
 

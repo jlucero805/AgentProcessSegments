@@ -1060,3 +1060,28 @@ handling, provider APIs, or OAuth2; those are separate work. The password lives 
 ten, and per-cell routing, native bot delivery, delivery history/resend, and non-budget
 events remain separate requests. The dependency is one runtime package with its own types
 and no transitive dependencies.
+
+## D58. Harness-reported error results fail the turn visibly
+
+**Context.** Claude can finish a turn with `{"type":"result","is_error":true,...}` for
+expired authentication, a rate limit, an invalid model, or a tool crash. The parser
+recorded `isError`/`resultText` but emitted no event, and the engine only persisted a
+failure when `turn.failure` was set. The turn therefore ended empty and silent. OpenCode
+already emitted an `error` event, but the engine did not map it to `turn.failure`, so the
+live error disappeared from the persisted `done` transcript and the error log.
+
+**Decision.** A parser error event is a turn failure. The Claude parser detects
+`is_error` and `error*` result subtypes, and returns one `{t:'error'}` whose message is
+the trimmed, capped result text (fallback: `agent reported an error`). `Engine.consume`
+maps the first error event to `turn.failure`, broadcasts it once, marks it reported, and
+logs `engine.result` with session, harness, and request ids. `runTurn` does not
+re-broadcast a reported failure, and `finishTurn` persists exactly one `⚠` line, deduped
+by the exact labelled line. A later exit, duplicate error line, or OpenCode event cannot
+duplicate the warning. There is no in-turn retry, no kill for a reported result, no
+session write, and no usage change; the SPA already renders both the live error and the
+persisted `⚠` text.
+
+**Cost.** One new error-log source and a `failureReported` flag on `LiveTurn`. The
+failure text is provider-facing and capped at the existing 8,000-char tool limit; it is
+the only new error-log content and never includes a prompt or transcript. Classifying
+provider errors and retrying them remain separate work.

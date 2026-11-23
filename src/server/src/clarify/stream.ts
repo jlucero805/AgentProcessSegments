@@ -111,11 +111,16 @@ export class TurnParser {
 
     if (type === 'result') {
       this.finished = true;
-      this.isError = event['is_error'] === true || event['subtype'] === 'error';
+      const subtype = event['subtype'];
+      this.isError =
+        event['is_error'] === true ||
+        (typeof subtype === 'string' && subtype.startsWith('error'));
       this.resultText = typeof event['result'] === 'string' ? event['result'] : '';
       this.usage = readUsage(event);
       this.flushText();
-      return [];
+      if (!this.isError) return [];
+      const result = this.resultText.trim();
+      return [{ t: 'error', message: result === '' ? 'agent reported an error' : truncate(result) }];
     }
 
     return [];

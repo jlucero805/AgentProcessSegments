@@ -59,6 +59,10 @@ export interface LiveTurn {
   cancelled: boolean;
   resolve: () => void;
   failure: string | null;
+  /** True once the failure has been broadcast to this turn's subscribers. */
+  failureReported: boolean;
+  /** Index in the seeded transcript where this turn's messages start. */
+  readonly transcriptStart: number;
   /** Identity and resolved settings captured once for usage recording. */
   readonly turnId: string;
   readonly scope: UsageScope;
@@ -331,6 +335,7 @@ export class Engine {
     });
 
     const meta = this.turnMeta(id, request);
+    const parser = this.harnessFor(meta.harnessId).createParser(this.loadTranscript(id));
     const turn: LiveTurn = {
       events: [],
       subscribers: new Set(),
@@ -339,12 +344,14 @@ export class Engine {
       cancelled: false,
       resolve,
       failure: null,
+      failureReported: false,
+      transcriptStart: parser.transcript.length,
       turnId: randomUUID(),
       ...meta,
     };
 
     this.turns.set(id, turn);
-    this.parsers.set(id, this.harnessFor(meta.harnessId).createParser(this.loadTranscript(id)));
+    this.parsers.set(id, parser);
     if (request) this.repo.setAgentStatus(id, 'working');
     this.armWatchdog(id, turn, request);
 
@@ -423,13 +430,17 @@ export class Engine {
       parser.transcript.push({ role: 'you', kind: 'text', text: message, ts: Date.now() });
       proc.writeUserMessage(message);
       await turn.promise;
-      if (turn.failure && !turn.cancelled) this.broadcast(turn, { t: 'error', message: turn.failure });
+      if (turn.failure && !turn.cancelled && !turn.failureReported) {
+        this.broadcast(turn, { t: 'error', message: turn.failure });
+        turn.failureReported = true;
+      }
     } catch (error) {
       if (!turn.done && !turn.cancelled) {
         this.deps.errors?.error('engine.turn', error, { session: id });
         const message = errorMessage(error);
         turn.failure = message;
         this.broadcast(turn, { t: 'error', message });
+        turn.failureReported = true;
       }
     } finally {
       this.finishTurn(id, turn, request);
@@ -442,16 +453,19 @@ export class Engine {
     const parser = this.parsers.get(id);
     const transcript = parser ? parser.finalize() : this.loadTranscript(id);
     const failure = turn.failure;
-    if (
-      failure &&
-      !transcript.some((message) => message.kind === 'text' && message.text.includes(failure))
-    ) {
-      transcript.push({
-        role: 'agent',
-        kind: 'text',
-        text: `⚠ ${failure}`,
-        ts: Date.now(),
-      });
+    if (failure) {
+      const warning = `⚠ ${failure}`;
+      const alreadySaved = transcript
+        .slice(turn.transcriptStart)
+        .some((message) => message.kind === 'text' && message.text === warning);
+      if (!alreadySaved) {
+        transcript.push({
+          role: 'agent',
+          kind: 'text',
+          text: warning,
+          ts: Date.now(),
+        });
+      }
     }
     this.saveTranscript(id, transcript);
 
@@ -573,7 +587,22 @@ export class Engine {
     const parser = this.parsers.get(id);
     if (!turn || !parser) return;
 
-    for (const event of parser.push(line)) this.broadcast(turn, event);
+    for (const event of parser.push(line)) {
+      if (event.t !== 'error') {
+        this.broadcast(turn, event);
+        continue;
+      }
+      if (turn.failureReported) continue;
+      if (!turn.failure) turn.failure = event.message;
+      turn.failureReported = true;
+      const message = turn.failure;
+      this.deps.errors?.error('engine.result', new Error(message), {
+        session: id,
+        harness: turn.harnessId,
+        ...(turn.requestId ? { request: turn.requestId } : {}),
+      });
+      this.broadcast(turn, { t: 'error', message });
+    }
 
     if (parser.sessionId && parser.sessionId !== this.readSession(id, turn.harnessId)) {
       this.writeSession(id, turn.harnessId, parser.sessionId);

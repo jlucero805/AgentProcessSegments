@@ -2,17 +2,24 @@
 // End-to-end API workflow against a real built brain and a deterministic mock
 // Claude CLI. Everything lives in a temp DB/data dir and one dedicated E2E cell;
 // nothing is written to the live database or the knowledge base.
+//
+// The brain's env is built from scratch by `buildE2eEnv` (scripts/e2e/env.mjs):
+// host APS_*/SBOX_* settings and API credentials are ignored so the mock always
+// runs, and HOME/NODE_ENV/plugins/brain URL are pinned to the temp run.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { buildE2eEnv } from './e2e/env.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temp = mkdtempSync(path.join(os.tmpdir(), 'sbox-e2e-'));
+const home = path.join(temp, 'home');
+const pluginsDir = path.join(temp, 'plugins');
 const mock = path.join(root, 'scripts', 'e2e', 'mock-claude.mjs');
 const dbPath = path.join(temp, 'e2e.sqlite');
 const logs = [];
@@ -97,10 +104,12 @@ async function main() {
   const call = makeClient(base);
 
   chmodSync(mock, 0o755);
+  mkdirSync(home, { recursive: true });
   server = spawn(process.execPath, ['src/server/dist/app.js'], {
     cwd: root,
-    env: {
-      ...process.env,
+    env: buildE2eEnv(process.env, {
+      HOME: home,
+      NODE_ENV: 'production',
       APS_HOST: '127.0.0.1',
       APS_PORT: String(port),
       APS_DB: dbPath,
@@ -109,11 +118,14 @@ async function main() {
       APS_PROCESS: path.join(temp, 'process.json'),
       APS_ERROR_LOG: path.join(temp, 'errors.log'),
       APS_WEB_DIR: path.join(temp, 'no-web-build'),
+      APS_DOCS_DIR: path.join(root, 'docs'),
+      APS_PLUGINS_DIR: pluginsDir,
+      APS_BRAIN_URL: base,
       APS_HARNESS: 'claude',
       APS_HARNESS_BIN: mock,
       APS_CLAUDE_BIN: mock,
       APS_TERMINAL: '0',
-    },
+    }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stdout.on('data', (chunk) => logs.push(chunk.toString()));

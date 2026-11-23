@@ -287,7 +287,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - E2E API workflow: `npm run e2e` boots the built brain with a temp DB and deterministic
   mock Claude CLI, creates a dedicated `E2E` cell, and covers clarify, dispatch,
   master prod/review, follow-up creation, per-cell master chat, finalize, and the
-  concurrency cap. It never indexes into the KB and asserts the KB stays empty.
+  concurrency cap. It never indexes into the KB and asserts the KB stays empty. The
+  spawned brain gets a hermetic env (`scripts/e2e/env.mjs`): host `APS_*`/`SBOX_*`
+  settings and API credentials are dropped, while `HOME`, `NODE_ENV`, plugins, brain URL,
+  docs, and the mock binary are pinned; `npm run test:e2e-env` guards it.
 - CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, typecheck, the full
   test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
   `scripts/mcp-smoke.mjs` on pushes and pull requests. It is not active on the remote:

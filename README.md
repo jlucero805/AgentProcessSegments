@@ -368,6 +368,9 @@ link, board, create modal, composer, cell bar, cell creation, config/process and
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the
 usage page and formatters, and the app shell with the drawer and chat mounted under jsdom).
 
+`npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environment the
+E2E suite hands to the brain; it is not counted in the vitest totals.
+
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, and proves a tool call persists through the API into
 SQLite.
@@ -380,7 +383,10 @@ probed model catalog. It skips when no `claude` binary is available.
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →
 follow-up creation → per-cell master chat → concurrency cap → finalize. It never indexes
 into the KB; the suite asserts the KB stays empty. It uses no live data and cleans up the
-temp directory.
+temp directory. The spawned brain gets a hermetic env built by `scripts/e2e/env.mjs`:
+host `APS_*`/`SBOX_*` settings and `ANTHROPIC_*`/`CLAUDE_*`/`OPENAI_*` credentials are
+dropped, and `HOME`, `NODE_ENV`, the plugins dir, brain URL, docs dir, and mock binary
+are pinned, so a shell that exports harness overrides still exercises the mock.
 
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point

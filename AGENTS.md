@@ -89,6 +89,8 @@ node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 node scripts/claude-mock-smoke.mjs  # real claude binary + mock Anthropic API
 node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
+node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
+                               # and optional Puppeteer
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart agent-process-segments
 journalctl --user -u agent-process-segments -n 50 --no-pager

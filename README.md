@@ -106,12 +106,20 @@ in [`docs/08-user-workflows.md`](docs/08-user-workflows.md).
 ## Screens
 
 The board is the main loop: five process segments, cell filters, agent status, and
-unchecked-work markers. The drawer is the selected cell’s master: ticker, cron loop,
-prompts, activity, and chat.
+unchecked-work markers. The drawer is the selected cell’s master: status, cron loop,
+prompts, scorecard, activity, and chat.
 
 These screenshots use a staged demo board in an isolated temp database, not live data.
+Regenerate them against the built SPA with the optional Puppeteer tool:
 
-![Agent Process Segments board with staged tasks across Requests, Plan, Implement, Review, and Finalize](docs/screenshots/board.png)
+```bash
+npm run build
+npm install --no-save puppeteer
+npx puppeteer browsers install chrome
+node scripts/screenshots.mjs
+```
+
+![Agent Process Segments board with staged tasks across Requests, Plan, Implement, Review, Merge, and Finalize](docs/screenshots/board.png)
 
 ![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
 
@@ -348,6 +356,10 @@ temp directory.
 drawer/chat, visits the KB and Config pages, and fails on page errors. `UI_MOBILE=1`
 runs the same flow at 390×844 with the off-canvas menu checks. It skips when Puppeteer
 is absent.
+
+`node scripts/screenshots.mjs` uses the same optional Puppeteer install to rebuild
+`docs/screenshots/board.png` and `docs/screenshots/master.png` from a staged temp board.
+It needs `npm run build` first and skips when Puppeteer is absent.
 
 CI (`deploy/ci-workflow.yml`) runs typecheck, the full test suite, the build, the E2E
 API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. Copy it to

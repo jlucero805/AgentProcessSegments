@@ -117,12 +117,12 @@ built and vended by the brain; real-CLI verification is still pending.
 - Worktrees: `aps/<id>` branch per request (legacy `sbox/<id>` reused when it is the
   only ref), reuse of an existing checkout, branch kept on removal, scratch fallback
   when git is unavailable.
-- MCP server (`src/server/src/mcp/server.ts`): stdio server scoped by `APS_REQUEST_ID`, proxying
-  to the loopback API. Request sessions get `update_request`, `get_request`,
-  `list_requests`, `spawn_request`, `index_to_kb`; the KB session gets `search_kb` and
-  `list_kb`. `GET /api/kb?q=…&limit=…` backs the search tool. Brain calls have a
-  `APS_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP `isError` result, so a
-  stalled loopback call cannot hold the agent forever.
+- MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
+  `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
+  `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
+  KB session gets `search_kb` and `list_kb`. `GET /api/kb?q=…&limit=…` backs the search
+  tool. Brain calls have an `APS_MCP_TIMEOUT_MS` ceiling (default 15 s) and return an MCP
+  `isError` result, so a stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
   probe behind one interface, with a cached registry of `claude` and `opencode` adapters.
   `APS_HARNESS` (legacy `SBOX_HARNESS`) sets the process default; each cell can store
@@ -241,13 +241,13 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 414 vitest cases, all passing: 285 server across 28 files and 129 web across 21 files,
+- 422 vitest cases, all passing: 288 server across 28 files and 134 web across 22 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
-  streamed turn with an `mcp__harness__*` tool call, merged harness plus user MCP config,
+  streamed turn with an `mcp__aps__*` tool call, merged `aps` plus user MCP config,
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
   Anthropic account was needed; the mock API answered the Messages stream and the
   `StructuredOutput` probe tool.
@@ -295,7 +295,7 @@ built and vended by the brain; real-CLI verification is still pending.
   knows whether a live turn can be reattached.
 - `POST /clarify/send` marks the request started when it is the first message, even if
   `/clarify/start` was skipped.
-- Sessions carry a scope (`request`, `kb`, or `master`) to the harness MCP server via
+- Sessions carry a scope (`request`, `kb`, or `master`) to the bundled `aps` MCP server via
   `APS_SESSION_SCOPE`. `__kb__` and `__master__` are reserved sessions with no request
   row; both are read-only, and the master gets board read tools. The internal
   `__summary__:<cellId>` generator also uses the read-only master scope but is not

@@ -216,3 +216,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   per-million rates and a source, `/api/pricing` list/create/delete, Config page editor,
   query-time estimates for harness-unreported turns, reported/estimated/unpriced totals,
   tests and docs.
+- [x] **43. MCP identity rename** — key and register the bundled stdio server as `aps`,
+  generate `mcpServers.aps` / `mcp.aps`, allow-list `mcp__aps__*`, normalize legacy
+  transcript labels in the web client, update proof scripts, tests, and docs.

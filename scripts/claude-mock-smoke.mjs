@@ -2,10 +2,10 @@
 // Real-Claude verification without an Anthropic account.
 //
 // Starts a mock Anthropic Messages API that streams a tool_use for
-// `mcp__harness__get_request`, then a text result. The built brain runs with
+// `mcp__aps__get_request`, then a text result. The built brain runs with
 // APS_HARNESS=claude (and the legacy SBOX_HARNESS alias) and the real `claude`
 // binary, so this exercises the CLI's stream-json contract, merged MCP
-// config/allow rules, tool execution through the harness MCP server, and
+// config/allow rules, tool execution through the bundled `aps` MCP server, and
 // `--resume` across a brain restart.
 //
 // Skips (exit 0) when no `claude` binary is available. Set APS_CLAUDE_BIN (or the
@@ -139,7 +139,7 @@ function toolReply(res) {
       {
         type: 'content_block_start',
         index: 0,
-        content_block: { type: 'tool_use', id: 'toolu_mock_1', name: 'mcp__harness__get_request', input: {} },
+        content_block: { type: 'tool_use', id: 'toolu_mock_1', name: 'mcp__aps__get_request', input: {} },
       },
     ],
     ['content_block_stop', { type: 'content_block_stop', index: 0 }],
@@ -342,15 +342,15 @@ try {
 
   assert(firstText.includes('TOOL DONE'), `expected the tool-round-trip text, got: ${firstText.slice(0, 300)}`);
   assert(
-    tools.some((event) => event.name === 'mcp__harness__get_request'),
-    `expected an mcp__harness__get_request tool card, got: ${JSON.stringify(tools).slice(0, 400)}`,
+    tools.some((event) => event.name === 'mcp__aps__get_request'),
+    `expected an mcp__aps__get_request tool card, got: ${JSON.stringify(tools).slice(0, 400)}`,
   );
   assert(results.some((event) => event.id === 'toolu_mock_1'), 'expected the tool result for toolu_mock_1');
   assert(first.some((event) => event.t === 'done'), 'expected the first turn to finish');
 
   const configPath = path.join(dataDir, 'requests', requestId, 'mcp-config.json');
   const mcpConfig = JSON.parse(readFileSync(configPath, 'utf8'));
-  assert(mcpConfig.mcpServers?.harness, 'generated config must include the harness server');
+  assert(mcpConfig.mcpServers?.aps, 'generated config must include the aps server');
   assert(mcpConfig.mcpServers?.userserver, 'generated config must merge the user MCP server');
 
   const sessionPath = path.join(dataDir, 'requests', requestId, 'session.json');

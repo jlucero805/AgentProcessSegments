@@ -58,20 +58,20 @@ describe('ClaudeHarness', () => {
 
     const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
     expect(Object.keys(config.mcpServers)).toEqual(
-      expect.arrayContaining(['harness', 'user', 'local', 'project']),
+      expect.arrayContaining(['aps', 'user', 'local', 'project']),
     );
-    expect(config.mcpServers.harness.env).toEqual({
+    expect(config.mcpServers.aps.env).toEqual({
       APS_BRAIN_URL: 'http://brain:7391',
       APS_REQUEST_ID: 'req-1',
       APS_SESSION_SCOPE: 'request',
     });
-    expect(Object.keys(config.mcpServers.harness.env).some((key) => key.startsWith('SBOX_'))).toBe(
+    expect(Object.keys(config.mcpServers.aps.env).some((key) => key.startsWith('SBOX_'))).toBe(
       false,
     );
 
     const allowed = command.args[command.args.indexOf('--allowedTools') + 1];
     expect(allowed).toContain('Bash');
-    expect(allowed).toContain('mcp__harness__update_request');
+    expect(allowed).toContain('mcp__aps__update_request');
     expect(allowed).toContain('mcp__user__*');
     expect(allowed).toContain('mcp__local__*');
     expect(allowed).toContain('mcp__project__*');
@@ -92,6 +92,36 @@ describe('ClaudeHarness', () => {
     );
     expect(command.cwd).toBe(cwd);
     expect(command.env).toMatchObject({ CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' });
+  });
+
+  it('keeps the bundled aps server when the user also defines one', async () => {
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(home, '.claude.json'),
+      JSON.stringify({
+        mcpServers: {
+          aps: { command: 'user-aps', args: ['user.js'] },
+          user: { command: 'node', args: ['user.js'] },
+        },
+      }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-1',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    expect(config.mcpServers.aps.command).toBe(process.execPath);
+    expect(config.mcpServers.aps.args[0]).toContain('mcp/server.js');
+    expect(config.mcpServers.user.command).toBe('node');
   });
 
   it('sets the request auto-compaction threshold and leaves other scopes alone', async () => {
@@ -152,13 +182,13 @@ describe('ClaudeHarness', () => {
     });
 
     const allowed = command.args[command.args.indexOf('--allowedTools') + 1];
-    expect(allowed).toContain('mcp__harness__list_requests');
-    expect(allowed).toContain('mcp__harness__get_request');
+    expect(allowed).toContain('mcp__aps__list_requests');
+    expect(allowed).toContain('mcp__aps__get_request');
     expect(allowed).not.toContain('Bash');
     expect(allowed).not.toContain('mcp__user__*');
 
     const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
-    expect(config.mcpServers.harness.env.APS_SESSION_SCOPE).toBe('master');
+    expect(config.mcpServers.aps.env.APS_SESSION_SCOPE).toBe('master');
     expect(config.mcpServers.user).toBeUndefined();
   });
 
@@ -182,14 +212,14 @@ describe('ClaudeHarness', () => {
     });
 
     const allowed = command.args[command.args.indexOf('--allowedTools') + 1];
-    expect(allowed).toContain('mcp__harness__search_kb');
+    expect(allowed).toContain('mcp__aps__search_kb');
     expect(allowed).not.toContain('Bash');
     expect(allowed).not.toContain('Write');
     expect(allowed).not.toContain('mcp__user__*');
     expect(command.args).not.toContain('--plugin-dir');
 
     const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
-    expect(config.mcpServers.harness.env.APS_REQUEST_ID).toBe('');
+    expect(config.mcpServers.aps.env.APS_REQUEST_ID).toBe('');
     expect(config.mcpServers.user).toBeUndefined();
   });
 });
@@ -235,13 +265,44 @@ describe('OpencodeHarness', () => {
     expect(command.sessionId).toBe('ses_1');
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
-    expect(config.mcp.harness.type).toBe('local');
-    expect(config.mcp.harness.codemode).toBe(false);
-    expect(config.mcp.harness.environment.APS_REQUEST_ID).toBe('req-2');
+    expect(config.mcp.aps.type).toBe('local');
+    expect(config.mcp.aps.codemode).toBe(false);
+    expect(config.mcp.aps.environment.APS_REQUEST_ID).toBe('req-2');
     expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
     expect(config.mcp.disabled.enabled).toBe(false);
     // Request sessions keep the user's permission posture, minus interactive questions.
     expect(config.permission).toEqual({ bash: 'ask', question: 'deny' });
+  });
+
+  it('keeps the bundled aps server when the user also defines one', async () => {
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
+    writeFileSync(
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({
+        mcp: {
+          aps: { type: 'remote', url: 'https://user.example.test/sse' },
+          user: { type: 'remote', url: 'https://mcp.example.test/sse' },
+        },
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare({
+      scope: 'request',
+      requestId: 'req-2',
+      dir,
+      cwd,
+      sessionId: null,
+      model: null,
+      effort: null,
+      pluginDirs: [],
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.aps.type).toBe('local');
+    expect(config.mcp.aps.command[0]).toBe(process.execPath);
+    expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
   });
 
   it('writes request compaction from the cell percentage', async () => {
@@ -364,7 +425,7 @@ describe('OpencodeHarness', () => {
       webfetch: 'deny',
       external_directory: 'deny',
     });
-    expect(config.mcp.harness.environment.APS_REQUEST_ID).toBe('');
+    expect(config.mcp.aps.environment.APS_REQUEST_ID).toBe('');
     expect(config.mcp.user).toBeUndefined();
   });
 
@@ -495,7 +556,7 @@ describe('OpencodeHarness', () => {
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
     expect(config.permission).toMatchObject({ edit: 'deny', bash: 'deny' });
-    expect(config.mcp.harness.environment.APS_SESSION_SCOPE).toBe('master');
+    expect(config.mcp.aps.environment.APS_SESSION_SCOPE).toBe('master');
     expect(config.mcp.user).toBeUndefined();
     expect(config.plugin).toBeUndefined();
     expect(config.agent).toBeUndefined();

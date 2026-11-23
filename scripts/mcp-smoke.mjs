@@ -91,6 +91,12 @@ try {
   const client = new Client({ name: 'mcp-smoke', version: '1.0.0' });
   await client.connect(transport);
 
+  const serverVersion = client.getServerVersion();
+  console.log('server:', serverVersion?.name, serverVersion?.version);
+  if (serverVersion?.name !== 'aps') {
+    throw new Error(`expected the aps server identity, got ${serverVersion?.name}`);
+  }
+
   const { tools } = await client.listTools();
   console.log('tools:', tools.map((tool) => tool.name).sort().join(', '));
 

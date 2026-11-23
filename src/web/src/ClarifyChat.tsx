@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError, streamNdjson } from './api';
-import { appendUser, applyEvent, fromTranscript, type ChatMessage } from './chat';
+import {
+  appendUser,
+  applyEvent,
+  fromTranscript,
+  normalizeToolName,
+  type ChatMessage,
+} from './chat';
 import { useChatRuntime } from './runtime';
 import { Thread } from './Thread';
 import type { ClarifyEvent, CommandInfo, Request } from './types';
@@ -23,9 +29,9 @@ interface ClarifyChatProps {
 type FailedAttempt = { kind: 'hydrate' } | { kind: 'send'; text: string };
 
 function toolLabel(name: string): string {
-  return name
-    .replace(/^mcp__harness__/, '')
-    .replace(/^harness_/, '')
+  return normalizeToolName(name)
+    .replace(/^mcp__aps__/, '')
+    .replace(/^aps_/, '')
     .replace(/_/g, ' ');
 }
 

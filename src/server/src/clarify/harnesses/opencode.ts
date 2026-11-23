@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
+import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
 import {
   HARNESS_MCP_SERVER,
@@ -21,7 +22,7 @@ import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
 
 const exec = promisify(execFile);
 
-/** The harness MCP server in OpenCode's config shape. */
+/** The bundled `aps` MCP server in OpenCode's config shape. */
 export function opencodeHarnessServer(
   requestId: string,
   brainUrl: string,
@@ -113,7 +114,7 @@ export class OpencodeHarness implements AgentHarness {
       ...user,
       mcp: {
         ...userServers,
-        harness: opencodeHarnessServer(
+        [MCP_SERVER_KEY]: opencodeHarnessServer(
           session.requestId,
           this.brainUrl,
           session.scope,

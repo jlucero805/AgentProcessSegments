@@ -25,6 +25,22 @@ export interface ChatMessage {
 
 let counter = 0;
 
+const LEGACY_MCP_PREFIX = 'mcp__harness__';
+const MCP_PREFIX = 'mcp__aps__';
+const LEGACY_OPENCODE_PREFIX = 'harness_';
+const OPENCODE_PREFIX = 'aps_';
+
+/** Rewrites a tool name captured before the MCP identity rename to its canonical `aps` form. */
+export function normalizeToolName(name: string): string {
+  if (name.startsWith(LEGACY_MCP_PREFIX)) {
+    return `${MCP_PREFIX}${name.slice(LEGACY_MCP_PREFIX.length)}`;
+  }
+  if (name.startsWith(LEGACY_OPENCODE_PREFIX)) {
+    return `${OPENCODE_PREFIX}${name.slice(LEGACY_OPENCODE_PREFIX.length)}`;
+  }
+  return name;
+}
+
 function nextId(prefix: string): string {
   counter += 1;
   return `${prefix}-${Date.now()}-${counter}`;
@@ -50,7 +66,7 @@ export function fromTranscript(transcript: TranscriptMsg[]): ChatMessage[] {
         ? {
             type: 'tool',
             id: entry.toolId ?? nextId('tool'),
-            name: entry.toolName ?? 'tool',
+            name: normalizeToolName(entry.toolName ?? 'tool'),
             input: entry.toolInput ?? '',
             result: entry.toolResult,
             error: entry.toolError,
@@ -113,7 +129,7 @@ export function applyEvent(messages: ChatMessage[], event: ClarifyEvent): ChatMe
       return appendAgentPart(messages, {
         type: 'tool',
         id: event.id,
-        name: event.name,
+        name: normalizeToolName(event.name),
         input: event.input,
       });
     case 'tool_result':

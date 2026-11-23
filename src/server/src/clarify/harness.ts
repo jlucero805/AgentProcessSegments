@@ -1,35 +1,36 @@
 import { fileURLToPath } from 'node:url';
 import type { HarnessId } from '../domain/harness.js';
 import type { ClarifyEvent, TranscriptMsg } from '../domain/request.js';
+import { mcpTool } from '../mcp/identity.js';
 import type { ModelOption } from './models.js';
 import type { AgentProcess } from './transport.js';
 
 export type SessionScope = 'request' | 'kb' | 'master' | 'setup';
 
-/** Tools the harness MCP server exposes. Keep in sync with `mcp/server.ts`. */
+/** Tools the bundled `aps` MCP server exposes. Keep in sync with `mcp/server.ts`. */
 export const HARNESS_TOOLS = [
-  'mcp__harness__update_request',
-  'mcp__harness__get_request',
-  'mcp__harness__spawn_request',
-  'mcp__harness__list_requests',
-  'mcp__harness__index_to_kb',
+  mcpTool('update_request'),
+  mcpTool('get_request'),
+  mcpTool('spawn_request'),
+  mcpTool('list_requests'),
+  mcpTool('index_to_kb'),
 ];
 
 export const REQUEST_TOOLS = ['Write', 'Read', 'Edit', 'Bash', 'Skill', 'Glob', 'Grep', ...HARNESS_TOOLS];
-export const KB_TOOLS = ['Read', 'mcp__harness__search_kb', 'mcp__harness__list_kb'];
+export const KB_TOOLS = ['Read', mcpTool('search_kb'), mcpTool('list_kb')];
 /** The master chat is advisory: read the board and the KB, change nothing. */
 export const MASTER_TOOLS = [
   'Read',
-  'mcp__harness__list_requests',
-  'mcp__harness__get_request',
-  'mcp__harness__list_kb',
-  'mcp__harness__search_kb',
+  mcpTool('list_requests'),
+  mcpTool('get_request'),
+  mcpTool('list_kb'),
+  mcpTool('search_kb'),
 ];
 /** Setup chat can read and edit only its transient cell draft. */
 export const SETUP_TOOLS = [
   'Read',
-  'mcp__harness__get_cell_draft',
-  'mcp__harness__update_cell_draft',
+  mcpTool('get_cell_draft'),
+  mcpTool('update_cell_draft'),
 ];
 
 /** The built stdio MCP server the engine hands to every harness session. */

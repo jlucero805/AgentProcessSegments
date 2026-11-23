@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendUser, applyEvent, fromTranscript, textOfParts } from './chat';
+import { appendUser, applyEvent, fromTranscript, normalizeToolName, textOfParts } from './chat';
 import type { TranscriptMsg } from './types';
 
 const ts = 1_700_000_000_000;
@@ -36,6 +36,37 @@ describe('chat transcript helpers', () => {
         error: undefined,
       },
     ]);
+  });
+
+  it('normalizes legacy MCP tool names to the aps identity', () => {
+    expect(normalizeToolName('mcp__harness__get_request')).toBe('mcp__aps__get_request');
+    expect(normalizeToolName('harness_update_cell_draft')).toBe('aps_update_cell_draft');
+    expect(normalizeToolName('mcp__aps__get_request')).toBe('mcp__aps__get_request');
+    expect(normalizeToolName('Read')).toBe('Read');
+  });
+
+  it('normalizes legacy tool names from a persisted transcript', () => {
+    const messages = fromTranscript([
+      {
+        role: 'agent',
+        kind: 'tool',
+        text: 'mcp__harness__get_request',
+        toolId: 't1',
+        toolName: 'mcp__harness__get_request',
+        ts,
+      },
+    ]);
+    expect(messages[0].parts[0]).toMatchObject({ type: 'tool', name: 'mcp__aps__get_request' });
+  });
+
+  it('normalizes legacy tool names from a live event', () => {
+    const messages = applyEvent([], {
+      t: 'tool',
+      id: 't1',
+      name: 'harness_update_cell_draft',
+      input: '{}',
+    });
+    expect(messages[0].parts[0]).toMatchObject({ type: 'tool', name: 'aps_update_cell_draft' });
   });
 
   it('falls back to a generic tool name for result-only entries', () => {

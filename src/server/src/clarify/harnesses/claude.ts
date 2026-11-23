@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { TranscriptMsg } from '../../domain/request.js';
+import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
 import {
   HARNESS_MCP_SERVER,
@@ -157,7 +158,7 @@ export class ClaudeHarness implements AgentHarness {
 
     const servers: McpServerMap = {
       ...userServers,
-      harness: {
+      [MCP_SERVER_KEY]: {
         command: process.execPath,
         args: [HARNESS_MCP_SERVER],
         env: {

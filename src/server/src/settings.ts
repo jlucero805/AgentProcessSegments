@@ -6,6 +6,7 @@ import {
   MAX_BUDGET_USD,
   type BudgetSettings,
 } from './domain/budget.js';
+import { HARNESS_IDS } from './domain/harness.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
@@ -61,7 +62,12 @@ const budgetSchema = z.object({
   alertAtPercent: z.number().int().min(1).max(100),
 }) satisfies z.ZodType<BudgetSettings>;
 
+const harnessSchema = z.enum(HARNESS_IDS).nullable();
+
 const settingsSchema = z.object({
+  // Null follows the environment default (`APS_HARNESS`), so a fresh or legacy
+  // file does not pin whatever the process happened to start with.
+  harness: harnessSchema.default(null),
   master: masterSchema,
   summary: summarySchema,
   usage: usageSchema.default({ retentionDays: DEFAULT_USAGE_RETENTION_DAYS }),
@@ -74,6 +80,7 @@ export type SummarySettings = SummaryConfig;
 export type AppSettings = z.infer<typeof settingsSchema>;
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  harness: null,
   master: {
     enabled: true,
     intervalMinutes: 5,
@@ -95,6 +102,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const settingsPatchSchema = z
   .object({
+    harness: harnessSchema.optional(),
     master: masterSchema.partial().optional(),
     summary: summarySchema.partial().optional(),
     usage: usageSchema.partial().optional(),
@@ -102,12 +110,13 @@ export const settingsPatchSchema = z
   })
   .refine(
     (value) =>
+      value.harness !== undefined ||
       value.master !== undefined ||
       value.summary !== undefined ||
       value.usage !== undefined ||
       value.budget !== undefined,
     {
-      message: 'at least one settings block is required',
+      message: 'at least one setting is required',
     },
   );
 
@@ -135,6 +144,7 @@ export class SettingsStore {
     const current = this.get();
     const next = settingsSchema.parse({
       ...current,
+      harness: parsed.harness !== undefined ? parsed.harness : current.harness,
       master: { ...current.master, ...(parsed.master ?? {}) },
       summary: { ...current.summary, ...(parsed.summary ?? {}) },
       usage: { ...current.usage, ...(parsed.usage ?? {}) },
@@ -167,6 +177,7 @@ export class SettingsStore {
       // `master`. Merge each present block over the defaults so an upgrade
       // does not silently reset operator customizations.
       const candidate = {
+        harness: source?.['harness'] ?? DEFAULT_SETTINGS.harness,
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
         usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,

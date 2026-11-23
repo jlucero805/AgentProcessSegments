@@ -33,3 +33,15 @@ export function resolveHarness(input: {
   if (input.cell) return { harness: input.cell, source: 'cell' };
   return { harness: input.process, source: 'process' };
 }
+
+/**
+ * The brain default is a saved app setting when the operator chose one, and
+ * otherwise the environment's initial value. Keep this module pure so the SPA
+ * can share the labels and order.
+ */
+export function resolveDefaultHarness(
+  stored: HarnessId | null | undefined,
+  env: HarnessId,
+): HarnessId {
+  return stored ?? env;
+}

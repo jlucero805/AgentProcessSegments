@@ -6,6 +6,7 @@ import { createHarnessRegistry } from './clarify/harnesses/index.js';
 import { HarnessModelCatalog } from './clarify/models.js';
 import { legacyPathWarning, loadConfig } from './config.js';
 import { openDb } from './db.js';
+import { resolveDefaultHarness } from './domain/harness.js';
 import { DocsService } from './docs/service.js';
 import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
@@ -51,7 +52,10 @@ export async function main(): Promise<void> {
       () => defaultProcess(settings.get().master),
       errors,
     );
-    const harnesses = createHarnessRegistry(config);
+    // The saved setting wins; the environment value is the initial default.
+    const defaultHarness = () =>
+      resolveDefaultHarness(settings.get().harness, config.harness);
+    const harnesses = createHarnessRegistry(config, defaultHarness);
     const engine = new Engine({
       repo,
       harnesses,

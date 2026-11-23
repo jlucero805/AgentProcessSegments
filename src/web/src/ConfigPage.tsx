@@ -4,6 +4,8 @@ import { ACTION_TONES, eventDetail } from './masterView';
 import { ProcessEditor } from './ProcessEditor';
 import {
   DEFAULT_BUDGET_SETTINGS,
+  HARNESS_IDS,
+  HARNESS_LABELS,
   MAX_BUDGET_USD,
   MAX_USAGE_RETENTION_DAYS,
   timeAgo,
@@ -11,6 +13,7 @@ import {
   type BudgetStatus,
   type BudgetsResponse,
   type CellDetail,
+  type HarnessId,
   type MasterConfig,
   type MasterEvent,
   type ModelPrice,
@@ -28,6 +31,7 @@ import {
   Field,
   Input,
   SectionTitle,
+  Select,
   Spinner,
   Textarea,
 } from './ui';
@@ -127,6 +131,12 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaved, setBudgetSaved] = useState(false);
+  const [harness, setHarness] = useState<HarnessId | null>(null);
+  const [envHarness, setEnvHarness] = useState<HarnessId>('claude');
+  // The select draft is separate so the cells list keeps showing the saved default.
+  const [harnessDraft, setHarnessDraft] = useState<HarnessId | ''>('');
+  const [harnessSaving, setHarnessSaving] = useState(false);
+  const [harnessSaved, setHarnessSaved] = useState(false);
   const [prices, setPrices] = useState<ModelPrice[]>([]);
   const [priceForm, setPriceForm] = useState<PriceFormState>(emptyPriceForm);
   const [priceSaving, setPriceSaving] = useState(false);
@@ -144,6 +154,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           api.getBudgets().catch(() => null),
         ]);
       const loadedBudget = config.budget ?? { ...DEFAULT_BUDGET_SETTINGS };
+      setHarness(config.harness ?? null);
+      setEnvHarness(config.envHarness ?? 'claude');
+      setHarnessDraft(config.harness ?? '');
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
@@ -314,6 +327,21 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     }
   }
 
+  async function saveHarness() {
+    setHarnessSaving(true);
+    try {
+      const config = await api.patchConfig({ harness: harnessDraft || null });
+      setHarness(config.harness ?? null);
+      setEnvHarness(config.envHarness ?? 'claude');
+      setHarnessDraft(config.harness ?? '');
+      setHarnessSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setHarnessSaving(false);
+    }
+  }
+
   async function saveProcess() {
     if (!process) return;
     setProcessSaving(true);
@@ -415,6 +443,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     );
   }
 
+  const effectiveHarness = harness ?? envHarness;
+
   return (
     <div className="mx-auto h-full w-full max-w-3xl space-y-4 overflow-y-auto p-4 md:p-6">
       <div>
@@ -425,6 +455,54 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           manual until you assign one.
         </p>
       </div>
+
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Agent harness</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            The brain default for setup, knowledge-base, and unassigned sessions. A cell or
+            request can still choose its own adapter. Saving here takes effect on the next
+            turn without a restart.
+          </p>
+        </div>
+
+        <Field label="Default harness" hint="the environment value seeds this choice">
+          <Select
+            aria-label="Default harness"
+            value={harnessDraft}
+            onChange={(event) => {
+              setHarnessDraft(event.target.value as HarnessId | '');
+              setHarnessSaved(false);
+            }}
+          >
+            <option value="">Environment default ({HARNESS_LABELS[envHarness]})</option>
+            {HARNESS_IDS.map((id) => (
+              <option key={id} value={id}>
+                {HARNESS_LABELS[id]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <p className="text-[11px] text-zinc-600">
+          Effective now: {HARNESS_LABELS[effectiveHarness]}. A saved value overrides
+          APS_HARNESS; choose the environment option to follow it again.
+        </p>
+
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="break-all font-mono text-[11px] text-zinc-600">{path}</p>
+          <div className="flex items-center justify-end gap-2">
+            {harnessSaved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
+            <Button
+              variant="primary"
+              disabled={harnessSaving}
+              onClick={() => void saveHarness()}
+            >
+              {harnessSaving ? <Spinner /> : 'Save harness'}
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       <Card className="space-y-5 p-4">
         <SectionTitle>Schedule</SectionTitle>
@@ -872,7 +950,11 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-zinc-600">
                     {cell.masterIntervalMinutes ? `${cell.masterIntervalMinutes}m` : 'global'} ·{' '}
-                    {cell.maxConcurrent}× · {cell.harness ?? 'brain default'} ·{' '}
+                    {cell.maxConcurrent}× ·{' '}
+                    {cell.harness
+                      ? HARNESS_LABELS[cell.harness]
+                      : `brain default (${HARNESS_LABELS[effectiveHarness]})`}{' '}
+                    ·{' '}
                     {cell.monthlyBudgetUsd === null
                       ? 'no budget'
                       : `${moneyLabel(cell.monthlyBudgetUsd)}/mo`}{' '}

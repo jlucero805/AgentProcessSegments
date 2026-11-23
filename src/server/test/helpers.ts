@@ -172,6 +172,8 @@ export interface Harness {
   harness: FakeHarness;
   opencode: FakeHarness;
   engine: Engine;
+  /** Change the live brain default between turns. */
+  setDefaultHarness(id: HarnessId): void;
 }
 
 export function createHarness(
@@ -197,10 +199,13 @@ export function createHarness(
   const opencodeHarness = new FakeHarness(script, 'opencode');
   const usage = new UsageRepository(db);
   const pricing = new PricingRepository(db);
+  let defaultHarness: HarnessId = 'claude';
   const engine = new Engine({
     repo,
     harnesses: {
-      defaultId: 'claude',
+      get defaultId() {
+        return defaultHarness;
+      },
       get: (id) => (id === 'opencode' ? opencodeHarness : agentHarness),
     },
     config,
@@ -232,6 +237,9 @@ export function createHarness(
     harness: agentHarness,
     opencode: opencodeHarness,
     engine,
+    setDefaultHarness(id) {
+      defaultHarness = id;
+    },
   };
 }
 

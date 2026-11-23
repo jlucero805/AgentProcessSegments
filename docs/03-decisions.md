@@ -814,3 +814,32 @@ there is no scraper, currency conversion, context-length tier, or effort multipl
 wrong effective date or model id leaves turns unpriced, which is visible as a lower bound
 rather than silently understating spend. Historical estimates change when an operator adds
 a backdated row, which is intentional because the row records the source and date.
+
+## D50. The brain default harness is a runtime app setting
+
+**Context.** D44 made the adapter a per-cell setting and D48 added a per-request override,
+but the fallback stayed process-wide: `APS_HARNESS` at startup. Operators who wanted the
+other default had to edit the environment and restart, even though every other policy knob
+lives in the app settings file and the Config page.
+
+**Decision.** Add a nullable top-level `harness` to `config.json` (`AppSettings`), edited
+by the Config page's **Agent harness** card. The effective brain default is
+`settings.harness ?? config.harness`, read lazily on every turn and request; no settings
+listener or restart is needed, and a live turn keeps the adapter it started with. The
+registry exposes `defaultId` as a getter over the same provider, and `/api/models`,
+`/api/requests/:id/clarify` (`process`), setup, KB, and unassigned sessions all use it.
+A null setting follows `APS_HARNESS`, so an existing deployment is unchanged and the
+operator can return to the environment value.
+
+`APS_DEFAULT_MODEL` stays bound to the boot default (`config.harness`), because moving an
+operator's env model override onto a runtime-selected adapter could send a Claude model id
+to OpenCode. A harness-less legacy `session.json` is attributed to the boot default rather
+than the live one, so a runtime switch cannot resume the old adapter's session id; the next
+turn starts a fresh provider session with the seed prompt and keeps the transcript.
+
+**Cost.** There are two sources of truth for the default: the environment value seeds it
+and a saved value overrides it. The Config card shows both, and choosing the environment
+option clears the override. A runtime switch discards the provider session id (not the
+transcript or usage baseline), and legacy session files cannot follow the switch. The
+legacy `APS_HARNESS_BIN` fallback stays with the boot default, so mixed deployments should
+set `APS_CLAUDE_BIN` / `APS_OPENCODE_BIN` explicitly.

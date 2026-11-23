@@ -8,9 +8,10 @@ contract; these are additions or deviations, and the D references point at
 ## 1. Harness seam with `claude` as the default
 
 **Chosen.** The engine depends on `AgentHarness` through a cached registry.
-`APS_HARNESS=claude|opencode` sets the process default (legacy `SBOX_HARNESS` still
-works), and each cell may override it. `APS_CLAUDE_BIN` and `APS_OPENCODE_BIN` point at
-each binary; the legacy `APS_HARNESS_BIN` is the default adapter's fallback and loses to
+`APS_HARNESS=claude|opencode` seeds the brain default (legacy `SBOX_HARNESS` still
+works); the Config page can save an explicit default that overrides it at runtime, and
+each cell may override it too. `APS_CLAUDE_BIN` and `APS_OPENCODE_BIN` point at each
+binary; the legacy `APS_HARNESS_BIN` is the boot-default adapter's fallback and loses to
 the specific value.
 
 **Alternative.** Hardwire OpenCode because it is what this host has authenticated.

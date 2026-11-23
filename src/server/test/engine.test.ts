@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
@@ -372,6 +372,74 @@ describe('turn engine', () => {
     await master.promise;
     await settle();
     expect(h.harness.sessions).toHaveLength(3);
+  });
+
+  it('moves setup sessions to a new brain default on the next turn', async () => {
+    const h = fresh((text) => [initLine('sess-default-switch'), textLine(`heard: ${text}`), resultLine()]);
+    const session = '__setup__:draft-1';
+
+    const first = await h.engine.startSetup('defaults', session);
+    await first.promise;
+    await settle();
+    expect(h.harness.sessions).toHaveLength(1);
+    const sessionFile = path.join(requestDir(h.config, session), 'session.json');
+    expect(JSON.parse(readFileSync(sessionFile, 'utf8'))).toMatchObject({ harness: 'claude' });
+
+    h.setDefaultHarness('opencode');
+    const second = await h.engine.startSetup('continue', session);
+    await second.promise;
+    await settle();
+
+    expect(h.harness.process?.killed).toBe(true);
+    expect(h.opencode.sessions).toHaveLength(1);
+    expect(h.opencode.sessions[0]).toMatchObject({
+      scope: 'setup',
+      sessionId: null,
+      model: 'opencode-go/deepseek-v4.1-flash',
+    });
+    expect(
+      h.engine.transcript(session).some((message) =>
+        message.text.includes('setup assistant for one Agent Process Segments cell'),
+      ),
+    ).toBe(true);
+    expect(JSON.parse(readFileSync(sessionFile, 'utf8'))).toMatchObject({
+      harness: 'opencode',
+      sessionId: 'sess-default-switch',
+    });
+  });
+
+  it('keeps a running turn on the adapter it started with', async () => {
+    const h = fresh(() => defaultScript());
+    const session = '__setup__:draft-1';
+
+    const live = await h.engine.startSetup('defaults', session);
+    expect(live.harnessId).toBe('claude');
+    h.setDefaultHarness('opencode');
+    expect(live.harnessId).toBe('claude');
+
+    await live.promise;
+    await settle();
+    expect(h.opencode.sessions).toHaveLength(0);
+  });
+
+  it('does not resume a legacy session file after the default changes', async () => {
+    const h = fresh(() => defaultScript());
+    const session = '__setup__:draft-1';
+    const dir = requestDir(h.config, session);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ sessionId: 'sess-legacy' }));
+
+    h.setDefaultHarness('opencode');
+    const turn = await h.engine.startSetup('defaults', session);
+    await turn.promise;
+    await settle();
+
+    expect(h.opencode.sessions[0]).toMatchObject({ scope: 'setup', sessionId: null });
+    expect(
+      h.engine.transcript(session).some((message) =>
+        message.text.includes('setup assistant for one Agent Process Segments cell'),
+      ),
+    ).toBe(true);
   });
 
   it('routes a summary session through its cell harness', async () => {

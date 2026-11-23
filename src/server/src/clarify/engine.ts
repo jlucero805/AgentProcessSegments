@@ -655,9 +655,10 @@ export class Engine {
 
   private readSession(id: string, expectedHarness: HarnessId): string | null {
     const parsed = this.readStoredSession(id);
-    const stored = isHarnessId(parsed?.harness)
-      ? parsed.harness
-      : this.deps.harnesses.defaultId;
+    // A legacy file has no harness. Attribute it to the boot default, not the
+    // live default, so switching the brain default cannot resume it on the
+    // other adapter.
+    const stored = isHarnessId(parsed?.harness) ? parsed.harness : this.config.harness;
     if (stored !== expectedHarness) return null;
     return typeof parsed?.sessionId === 'string' ? parsed.sessionId : null;
   }

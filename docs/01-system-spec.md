@@ -85,13 +85,14 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   - `dataDir` = `APS_DATA_DIR` ?? `~/.agent-process-segments` (per-request workdirs)
   - `pluginsDir` = `APS_PLUGINS_DIR` ?? `~/.agent-process-segments/plugins`
   - `brainUrl` = `APS_BRAIN_URL` ?? `http://127.0.0.1:<port>`, used by the MCP proxy
-  - `harness` = `APS_HARNESS` ?? `claude`; must be `claude` or `opencode`
+  - `harness` = `APS_HARNESS` ?? `claude`; must be `claude` or `opencode`. This is the
+    boot default; the app settings file may save a different default at runtime.
   - `harnessBins.claude` = `APS_CLAUDE_BIN` ?? `claude`;
     `harnessBins.opencode` = `APS_OPENCODE_BIN` ?? `opencode`.
     `APS_HARNESS_BIN` is the legacy fallback for the adapter selected by `APS_HARNESS`
     only; the adapter-specific value wins when both are set.
   - `defaultModels` = one fallback per adapter. `APS_DEFAULT_MODEL` overrides the
-    process-default harness; OpenCode otherwise gets
+    boot-default harness; OpenCode otherwise gets
     `opencode-go/deepseek-v4.1-flash`, Claude gets null.
   - `configPath` / `processPath` = `APS_CONFIG` / `APS_PROCESS` ??
     `$XDG_CONFIG_HOME/agent-process-segments/{config,process}.json`
@@ -101,6 +102,13 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
     are set. Path defaults prefer an existing `agent-process-segments` location, then
     an existing `sandbox-harness` one, then the new location. `app.ts` warns when a
     legacy default is still in use and points at `npm run migrate:paths`.
+- **App settings (`config.json`, `APS_CONFIG`):** zod-validated
+  `{ harness, master, summary, usage, budget }`, written atomically. `harness` is
+  `claude | opencode | null`; null follows the boot default. The effective brain default
+  is therefore `settings.harness ?? config.harness`, resolved on every turn and request
+  so a save applies without a restart. `APS_DEFAULT_MODEL` stays bound to the boot
+  default. A harness-less legacy `session.json` is attributed to the boot default, so a
+  runtime switch starts a fresh session instead of resuming the other adapter's id.
 - **Run:** `node src/server/dist/app.js` with `APS_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
 
@@ -120,7 +128,7 @@ restart.
 array), `kb_digest` (0/1, default 1), `digest`, `agent_status`
 (`none|idle|working|blocked|error`, default `none`), `unchecked` (0/1), `hc_run_ids`
 (JSON array), `branch`, `cr_url`, `cell_id`, `harness` (null inherits the cell, then
-the process default), `created_at`, `updated_at`.
+the brain default), `created_at`, `updated_at`.
 
 Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after** the
 `cell_id` addColumn, because an index on a missing column fails on an older database.
@@ -128,7 +136,7 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 ### `cells`
 
 `id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`
-(default 3), `harness` (null inherits the process default), `model`, `effort`, nullable
+(default 3), `harness` (null inherits the brain default), `model`, `effort`, nullable
 `monthly_budget_usd`, `autocompact_percent` (default 80, range 1–99), `process_json`,
 `created_at`. A request inherits its cell's harness unless it sets its own
 `requests.harness`; a cell master and summary use its cell's harness.
@@ -269,7 +277,8 @@ object per line.
 - `POST /api/requests/:id/finalize` (`review → finalize` plus a "propose KB digest" turn)
 - `GET /api/requests/:id/clarify/stream` reattaches to an in-flight turn: it replays the
   event buffer, then streams live events, or returns `{active:false}` when idle
-- `GET /api/requests/:id/clarify` returns `{started, transcript[]}`
+- `GET /api/requests/:id/clarify` returns `{started, transcript[], active, process}`;
+  `process` is the live brain default for a session with no cell or request override
 - `POST /api/requests/:id/index {digest?, index?}` stores the digest to the KB when
   `index && kbDigest`, then transitions `finalize → done`
 - **KB chat** is a reserved session on these same routes under id `__kb__`. It has no
@@ -280,7 +289,8 @@ object per line.
 - `GET /api/models[?refresh=1][&harness=<id>|&cellId=<id>|&requestId=<id>]` returns
   `{models[], source:'probe'|'fallback', effortLevels, harness, supportsEffort,
   defaultModel}`. `harness`, `cellId`, and `requestId` are mutually exclusive; a request
-  resolves its override, then its cell, then the process default.
+  resolves its override, then its cell, then the live brain default (the saved app
+  setting, else `APS_HARNESS`).
 - `GET /api/kb`, `GET /api/kb?q=…&limit=…`, `POST /api/kb {requestId,title,content}`
 - `GET /api/plugins`, `POST /api/plugins {url, subdir?, name?}`,
   `DELETE /api/plugins/:name`
@@ -328,11 +338,11 @@ object per line.
 
 One persistent child per request, carried across all workflow steps and resumed across
 restarts. The adapter is chosen per session: a request resolves its own
-`requests.harness`, then its cell (`cells.harness`, then `APS_HARNESS`; legacy
-`SBOX_HARNESS` still works), while a cell master or summary uses its cell and setup, KB,
-and unassigned sessions use the process default. The same resolved adapter creates the
-parser and spawns the child. A cross-harness request skips the cell's model and effort
-defaults.
+`requests.harness`, then its cell (`cells.harness`), then the brain default — the saved
+app setting, else `APS_HARNESS` (legacy `SBOX_HARNESS` still works). A cell master or
+summary uses its cell; setup, KB, and unassigned sessions use the brain default. The same
+resolved adapter creates the parser and spawns the child. A cross-harness request skips
+the cell's model and effort defaults.
 
 - **Spawn:** Claude runs `claude -p --input-format stream-json --output-format
   stream-json --include-partial-messages --verbose --mcp-config <generated>
@@ -389,8 +399,8 @@ defaults.
 ten-minute cache: Claude probes the CLI (there is no `claude models` command) and falls
 back to `HARDCODED_MODELS`; OpenCode probes `opencode models` and has no offline fallback.
 `GET /api/models?harness=<id>` or `?cellId=<id>` returns that adapter's list,
-`supportsEffort` (Claude only), and its default model. No query uses the process default;
-passing both parameters or an unknown harness is a 400.
+`supportsEffort` (Claude only), and its default model. No query uses the live brain
+default; passing both parameters or an unknown harness is a 400.
 
 ### Model and effort guidance
 
@@ -398,7 +408,7 @@ passing both parameters or an unknown harness is a 400.
 The snapshot below is a default to override, and should be re-verified as models ship.
 Model and effort are per-request (`--model`, `--effort`; null means the brain default,
 then the CLI default) and apply to that request's one persistent session across every
-step. `APS_DEFAULT_MODEL` sets the process-default harness's fallback; per-cell model
+step. `APS_DEFAULT_MODEL` sets the boot-default harness's fallback; per-cell model
 overrides win. OpenCode otherwise defaults to `opencode-go/deepseek-v4.1-flash`; Claude
 otherwise has no model default.
 
@@ -511,8 +521,9 @@ carried in the `done` event:
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.
 - **SkillsPage** installs, lists, and removes plugins. **CellBar** creates, switches,
   renames, and deletes cells, filtering the board by `cellId`.
-- **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
-  monthly budget/warning percentage; it also shows the current UTC-month status for the
+- **Config and budgets:** `ConfigPage` edits the brain default harness, the scheduler,
+  process template, and overall monthly budget/warning percentage; it also shows the
+  current UTC-month status for the
   overall and per-cell budgets. `CellModal` carries the optional per-cell budget.
   `BudgetBanner` polls `GET /api/budgets` every 60 seconds and shows dismissible warning/
   exceeded alerts above the page, with lower-bound copy for unpriced turns.

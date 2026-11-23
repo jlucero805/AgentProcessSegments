@@ -317,6 +317,7 @@ export const api = {
     return request('/api/config');
   },
   patchConfig(patch: {
+    harness?: HarnessId | null;
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;

@@ -10,6 +10,7 @@ import {
   probeOpencodeModels,
 } from '../src/clarify/harnesses/opencode.js';
 import { createHarnessRegistry } from '../src/clarify/harnesses/index.js';
+import { resolveDefaultHarness } from '../src/domain/harness.js';
 import {
   HARDCODED_MODELS,
   HarnessModelCatalog,
@@ -517,6 +518,15 @@ describe('OpencodeHarness', () => {
   });
 });
 
+describe('resolveDefaultHarness', () => {
+  it('prefers a saved value and falls back to the environment default', () => {
+    expect(resolveDefaultHarness('opencode', 'claude')).toBe('opencode');
+    expect(resolveDefaultHarness('claude', 'opencode')).toBe('claude');
+    expect(resolveDefaultHarness(null, 'opencode')).toBe('opencode');
+    expect(resolveDefaultHarness(undefined, 'claude')).toBe('claude');
+  });
+});
+
 describe('HarnessRegistry', () => {
   it('caches one adapter per harness and keeps the configured default', () => {
     const { base } = workspace();
@@ -531,6 +541,21 @@ describe('HarnessRegistry', () => {
     expect(registry.get('claude')).not.toBe(registry.get('opencode'));
     expect(registry.get('claude').id).toBe('claude');
     expect(registry.get('opencode').id).toBe('opencode');
+  });
+
+  it('reads the default lazily without rebuilding the adapters', () => {
+    const { base } = workspace();
+    const config = loadConfig({}, base);
+    let live: 'claude' | 'opencode' = 'claude';
+    const registry = createHarnessRegistry(config, () => live);
+    const claude = registry.get('claude');
+    const opencode = registry.get('opencode');
+
+    expect(registry.defaultId).toBe('claude');
+    live = 'opencode';
+    expect(registry.defaultId).toBe('opencode');
+    expect(registry.get('claude')).toBe(claude);
+    expect(registry.get('opencode')).toBe(opencode);
   });
 });
 

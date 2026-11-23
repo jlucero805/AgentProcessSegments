@@ -5,6 +5,7 @@ import { jsonResponse, makePrice, makeProcessResponse } from './test/fixtures';
 import type {
   BudgetsResponse,
   Cell,
+  HarnessId,
   MasterConfig,
   MasterEvent,
   ModelPrice,
@@ -84,6 +85,7 @@ const event: MasterEvent = {
 
 interface Captured {
   config?: {
+    harness?: HarnessId | null;
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;
@@ -100,8 +102,15 @@ function installFetch(
   events: MasterEvent[] = [event],
   prices: ModelPrice[] = [],
   postError?: { status: number; message: string },
+  options: {
+    harness?: HarnessId | null;
+    envHarness?: HarnessId;
+    cells?: Cell[];
+  } = {},
 ): Captured {
   const captured: Captured = {};
+  const envHarness = options.envHarness ?? 'claude';
+  const savedHarness = options.harness ?? null;
   const processResponse = makeProcessResponse();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -118,6 +127,9 @@ function installFetch(
     if (url === '/api/config' && init?.method === 'PATCH') {
       captured.config = JSON.parse(String(init.body)) as Captured['config'];
       return jsonResponse({
+        harness:
+          captured.config?.harness !== undefined ? captured.config.harness : savedHarness,
+        envHarness,
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
         usage: { ...usage, ...captured.config?.usage },
@@ -127,6 +139,8 @@ function installFetch(
     }
     if (url === '/api/config') {
       return jsonResponse({
+        harness: savedHarness,
+        envHarness,
         master,
         summary: scorecard,
         usage,
@@ -145,7 +159,7 @@ function installFetch(
       captured.cell = JSON.parse(String(init.body)) as Captured['cell'];
       return jsonResponse({ ...cell, ...captured.cell });
     }
-    if (url === '/api/cells') return jsonResponse([cell]);
+    if (url === '/api/cells') return jsonResponse(options.cells ?? [cell]);
     return jsonResponse([]);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -161,7 +175,9 @@ describe('ConfigPage', () => {
     const interval = await screen.findByRole('spinbutton', { name: /interval/i });
     expect(interval).toHaveValue(5);
     expect(screen.getByRole('spinbutton', { name: /every/i })).toHaveValue(360);
-    expect(screen.getByText('/tmp/agent-process-segments/config.json')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('/tmp/agent-process-segments/config.json').length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByRole('checkbox', { name: /without a cell/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Global master chat')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Run master now/i })).not.toBeInTheDocument();
@@ -177,6 +193,48 @@ describe('ConfigPage', () => {
     expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
     expect(captured.config?.summary).toMatchObject({ intervalMinutes: 360, windowMinutes: 180 });
     expect(captured.config?.master).not.toHaveProperty('includeUnassigned');
+  });
+
+  it('saves the brain default harness independently', async () => {
+    const captured = installFetch(budgetView, [event], [], undefined, {
+      harness: null,
+      envHarness: 'claude',
+    });
+    render(<ConfigPage onError={() => {}} />);
+
+    const select = await screen.findByLabelText('Default harness');
+    expect(select).toHaveValue('');
+    expect(
+      screen.getByRole('option', { name: 'Environment default (Claude Code)' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Effective now: Claude Code/)).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: 'opencode' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save harness' }));
+
+    await waitFor(() => expect(captured.config).toEqual({ harness: 'opencode' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(select).toHaveValue('opencode');
+    expect(screen.getByText(/Effective now: OpenCode/)).toBeInTheDocument();
+  });
+
+  it('labels an unset cell harness with the persisted brain default', async () => {
+    const inherited: Cell = { ...cell, harness: null };
+    installFetch(budgetView, [event], [], undefined, {
+      harness: null,
+      envHarness: 'claude',
+      cells: [inherited],
+    });
+    render(<ConfigPage onError={() => {}} />);
+
+    const select = await screen.findByLabelText('Default harness');
+    expect(await screen.findByText(/brain default \(Claude Code\)/)).toBeInTheDocument();
+
+    fireEvent.change(select, { target: { value: 'opencode' } });
+    expect(screen.getByText(/brain default \(Claude Code\)/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save harness' }));
+    expect(await screen.findByText(/brain default \(OpenCode\)/)).toBeInTheDocument();
   });
 
   it('loads and saves usage retention', async () => {

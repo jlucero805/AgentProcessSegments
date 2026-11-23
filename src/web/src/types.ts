@@ -105,6 +105,8 @@ export interface ModelsResult {
 }
 
 export interface AppConfig {
+  /** Saved brain default; null follows the environment value. */
+  harness: HarnessId | null;
   master: MasterConfig;
   summary: SummaryConfig;
   usage: UsageSettings;
@@ -113,6 +115,8 @@ export interface AppConfig {
 
 export interface ConfigResponse extends AppConfig {
   path: string;
+  /** The environment default (`APS_HARNESS`) behind a null setting. */
+  envHarness: HarnessId;
 }
 
 export interface ProcessResponse extends ProcessConfig {
@@ -155,6 +159,8 @@ export interface ClarifyState {
   transcript: TranscriptMsg[];
   /** True when a turn is live and can be reattached. */
   active?: boolean;
+  /** The live brain default a session with no cell/request override resolves to. */
+  process?: HarnessId;
 }
 
 export type Column = 'intake' | 'clarify' | 'dispatch' | 'review' | 'merge' | 'finalize';

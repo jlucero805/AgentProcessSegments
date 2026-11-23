@@ -11,7 +11,13 @@ import type { HarnessModelCatalog } from '../clarify/models.js';
 import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
-import { HARNESS_IDS, isHarnessId, resolveHarness, type HarnessId } from '../domain/harness.js';
+import {
+  HARNESS_IDS,
+  isHarnessId,
+  resolveDefaultHarness,
+  resolveHarness,
+  type HarnessId,
+} from '../domain/harness.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -385,12 +391,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const app = Fastify({ logger: deps.logger ?? false });
   const terminal = new TerminalService(config.terminalEnabled, config.terminalCwd);
   const docs = deps.docs ?? new DocsService(config.docsDir);
+  const defaultHarness = () => resolveDefaultHarness(settings.get().harness, config.harness);
 
   const harnessForRequest = (request: Request) =>
     resolveHarness({
       request: request.harness,
       cell: request.cellId ? (cells.get(request.cellId)?.harness ?? null) : null,
-      process: config.harness,
+      process: defaultHarness(),
     });
 
   app.setErrorHandler((error, request, reply) => {
@@ -571,11 +578,15 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/requests/:id/clarify', async (request) => {
     const { id } = request.params as { id: string };
+    // Additive observability: the brain default a session with no request or
+    // cell override resolves to right now.
+    const process = defaultHarness();
     if (isVirtualSession(id)) {
       return {
         started: true,
         transcript: engine.transcript(id),
         active: engine.hasLive(id),
+        process,
       };
     }
     const found = repo.require(id);
@@ -583,6 +594,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       started: found.clarifyStarted,
       transcript: engine.transcript(id),
       active: engine.hasLive(id),
+      process,
     };
   });
 
@@ -649,7 +661,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       });
     }
 
-    let harness: HarnessId = config.harness;
+    let harness: HarnessId = defaultHarness();
     if (query.harness !== undefined) {
       if (!isHarnessId(query.harness)) {
         return reply.code(400).send({
@@ -660,7 +672,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       harness = query.harness;
     } else if (query.cellId !== undefined) {
       const cell = cells.require(query.cellId);
-      harness = cell.harness ?? config.harness;
+      harness = cell.harness ?? defaultHarness();
     } else if (query.requestId !== undefined) {
       harness = harnessForRequest(repo.require(query.requestId)).harness;
     }
@@ -846,11 +858,16 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return skills?.list() ?? [];
   });
 
-  app.get('/api/config', async () => ({ ...settings.get(), path: settings.path }));
+  app.get('/api/config', async () => ({
+    ...settings.get(),
+    path: settings.path,
+    // The environment value is the initial default; the saved setting wins.
+    envHarness: config.harness,
+  }));
   app.patch('/api/config', async (request) => {
     const next = settings.patch(request.body);
     budgets.evaluate();
-    return { ...next, path: settings.path };
+    return { ...next, path: settings.path, envHarness: config.harness };
   });
 
   app.get('/api/budgets', async () => budgets.statuses());

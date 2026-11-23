@@ -346,6 +346,71 @@ describe('http api', () => {
     expect(badUsage.status).toBe(400);
   });
 
+  it('persists the brain default harness and applies it to later requests', async () => {
+    const { h } = await makeApp();
+    const before = await call('GET', '/api/config');
+    expect(before.json()).toMatchObject({ harness: null, envHarness: 'claude' });
+
+    const patched = await call('PATCH', '/api/config', { harness: 'opencode' });
+    expect(patched.status).toBe(200);
+    expect(patched.json()).toMatchObject({ harness: 'opencode', envHarness: 'claude' });
+    expect(new SettingsStore(h.config.configPath).get().harness).toBe('opencode');
+
+    const models = await call('GET', '/api/models');
+    expect(models.json()).toMatchObject({
+      harness: 'opencode',
+      supportsEffort: false,
+      defaultModel: 'opencode-go/deepseek-v4.1-flash',
+    });
+
+    const cell = await call('POST', '/api/cells', { name: 'Default follower' });
+    expect(cell.status).toBe(201);
+    const byCell = await call('GET', `/api/models?cellId=${cell.json().id}`);
+    expect(byCell.json().harness).toBe('opencode');
+
+    const request = await call('POST', '/api/requests', {
+      title: 'Inherits the live default',
+      cellId: cell.json().id,
+    });
+    const clarify = await call('GET', `/api/requests/${request.json().id}/clarify`);
+    expect(clarify.json().process).toBe('opencode');
+
+    const bad = await call('PATCH', '/api/config', { harness: 'gemini' });
+    expect(bad.status).toBe(400);
+    const after = await call('GET', '/api/config');
+    expect(after.json().harness).toBe('opencode');
+
+    const cleared = await call('PATCH', '/api/config', { harness: null });
+    expect(cleared.json()).toMatchObject({ harness: null, envHarness: 'claude' });
+    const back = await call('GET', '/api/models');
+    expect(back.json().harness).toBe('claude');
+  });
+
+  it('keeps the environment default model bound to the boot default', async () => {
+    await makeApp({
+      harness: 'claude',
+      defaultModels: {
+        claude: 'claude-special',
+        opencode: 'opencode-go/deepseek-v4.1-flash',
+      },
+    });
+
+    const before = await call('GET', '/api/models?harness=opencode');
+    expect(before.json().defaultModel).toBe('opencode-go/deepseek-v4.1-flash');
+
+    const patched = await call('PATCH', '/api/config', { harness: 'opencode' });
+    expect(patched.json().harness).toBe('opencode');
+
+    const live = await call('GET', '/api/models');
+    expect(live.json()).toMatchObject({
+      harness: 'opencode',
+      defaultModel: 'opencode-go/deepseek-v4.1-flash',
+    });
+
+    const claude = await call('GET', '/api/models?harness=claude');
+    expect(claude.json().defaultModel).toBe('claude-special');
+  });
+
   it('reads and patches budget settings and exposes budget status', async () => {
     await makeApp();
     const before = await call('GET', '/api/config');
@@ -801,7 +866,12 @@ describe('http api', () => {
 
     const snapshot = await call('GET', `/api/requests/${request.id}/clarify`);
     expect(snapshot.status).toBe(200);
-    expect(snapshot.json()).toEqual({ started: false, transcript: [], active: false });
+    expect(snapshot.json()).toEqual({
+      started: false,
+      transcript: [],
+      active: false,
+      process: 'claude',
+    });
 
     const idle = await call('GET', `/api/requests/${request.id}/clarify/stream`);
     expect(idle.json()).toEqual({ active: false });

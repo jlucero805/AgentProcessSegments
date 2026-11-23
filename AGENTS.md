@@ -117,8 +117,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **App settings are not env config.** Scheduler policy lives in
   `$XDG_CONFIG_HOME/agent-process-segments/config.json` (`APS_CONFIG`), and process segments
   live in `process.json` (`APS_PROCESS`). Both are zod-validated and written atomically.
-  Invalid files fall back to defaults until saved; env still owns paths, ports, and the
-  harness.
+  Invalid files fall back to defaults until saved; env owns paths and ports.
+  `APS_HARNESS` seeds the brain default, and the Config page's saved `harness` (null
+  follows the environment) overrides it at runtime.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it
@@ -264,9 +265,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `content-type: application/json` whenever it sends a body. A browser string body
     otherwise becomes `text/plain` and Fastify rejects the chat action validation.
 29. **Model defaults are brain-level.** `APS_DEFAULT_MODEL` applies when neither the
-    request nor its cell names a model. OpenCode defaults to
-    `opencode-go/deepseek-v4.1-flash`; do not silently fall back to its slower free tier.
-    Expose the default through `GET /api/models` so the wizard can show it.
+    request nor its cell names a model. It stays bound to the boot default
+    (`config.harness`); switching the saved brain default does not move it to the other
+    adapter. OpenCode defaults to `opencode-go/deepseek-v4.1-flash`; do not silently fall
+    back to its slower free tier. Expose the default through `GET /api/models` so the
+    wizard can show it.
 30. **The master starts a batch and returns.** `runBucket` selects up to the cell’s spare
     concurrency, counts already-selected candidates against segment caps, starts the batch
     with `Promise.all`, records the prods, and returns. Completion handling (transcript,
@@ -280,12 +283,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
 32. **Harness choice is per cell or request and pinned per session.** A request session
-    uses `requests.harness`, then its cell's `cells.harness`, then `config.harness`.
-    Cell masters and summary sessions use their cell; setup, KB, and unassigned
-    sessions use the process default. `session.json` stores the harness with the session
-    id and usage, and an id from another adapter is never resumed. A cross-harness
-    request skips the cell's model and effort defaults, and a patch that changes the
-    effective harness clears a stale request model unless a replacement is supplied.
+    uses `requests.harness`, then its cell's `cells.harness`, then the live brain default
+    (`settings.harness`, falling back to `config.harness`). Cell masters and summary
+    sessions use their cell; setup, KB, and unassigned sessions use the brain default.
+    Read the default lazily so a Config-page save applies next turn without a restart;
+    a live turn keeps its adapter. `session.json` stores the harness with the session id
+    and usage, and an id from another adapter is never resumed. A harness-less legacy
+    session file belongs to the boot default, not the live one. A cross-harness request
+    skips the cell's model and effort defaults, and a patch that changes the effective
+    harness clears a stale request model unless a replacement is supplied.
 33. **Auto-compaction is harness-native and per cell.** A request session compacts at
     its cell’s `autocompactPercent` (default 80, range 1–99); unassigned requests use 80.
     Pass it into OpenCode as `compaction.buffer: "<100 - percent>%"` with `auto: true`,
@@ -321,8 +327,9 @@ or disk.
 **Add a harness.** Implement `AgentHarness` in `clarify/harnesses/<id>.ts` (`prepare`,
 `spawn`, `createParser`, `probeModels`, `fallbackModels`), add it to `HARNESS_IDS` in
 `domain/harness.ts`, register it in the cached registry in `clarify/harnesses/index.ts`
-behind `APS_HARNESS` (legacy `SBOX_HARNESS` alias), and add prepare plus parser tests in
-`test/harness.test.ts` and a stream test. Keep per-session files inside `session.dir`,
+(the default comes from the app setting, seeded by `APS_HARNESS` / legacy
+`SBOX_HARNESS`), and add prepare plus parser tests in `test/harness.test.ts` and a stream
+test. Keep per-session files inside `session.dir`,
 and pin `session.json` to the adapter id so a harness switch cannot resume the wrong
 session.
 

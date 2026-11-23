@@ -76,6 +76,8 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
     }
     if (url === '/api/config') {
       return jsonResponse({
+        harness: null,
+        envHarness: 'claude',
         master: {
           enabled: true,
           intervalMinutes: 5,

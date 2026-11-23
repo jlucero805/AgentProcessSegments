@@ -29,8 +29,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `start`/`prod`/`advance`/`review`/`followup`/`cycle`/`skip` events and advancing on
   exact markers through legal transitions. A segment can also create follow-up requests
   from `FOLLOW-UP:` callouts. Each cell has its own master chat; manual run, status, and
-  event history are cell-scoped. The Config page edits the global schedule/template, and
-  the Cell master drawer shows the selected cell’s status, prompts, activity, and chat.
+  event history are cell-scoped. The Config page edits the global schedule/template and
+  the brain default harness, and the Cell master drawer shows the selected cell’s status,
+  prompts, activity, and chat.
   Both Activity lists cap at 20rem and scroll internally; the drawer's master chat stays
   in reach even when activity is busy.
 - Process configuration lives in `$XDG_CONFIG_HOME/agent-process-segments/process.json`
@@ -125,10 +126,12 @@ built and vended by the brain; real-CLI verification is still pending.
   stalled loopback call cannot hold the agent forever.
 - Harness seam (`clarify/harness.ts`): per-session config prep, spawn, parser, and model
   probe behind one interface, with a cached registry of `claude` and `opencode` adapters.
-  `APS_HARNESS` (legacy `SBOX_HARNESS`) sets the process default; each cell can store
-  its own `harness`, and a request can override its cell. Resolution is request, then
-  cell, then the process default. Cell masters and summary sessions use their cell;
-  setup, KB, and unassigned sessions use the default. Claude runs one
+  `APS_HARNESS` (legacy `SBOX_HARNESS`) seeds the brain default; the Config page saves
+  an explicit default in `config.json`, and the effective value is read lazily so a save
+  applies on the next turn without a restart. Each cell can store its own `harness`, and
+  a request can override its cell. Resolution is request, then cell, then the brain
+  default. Cell masters and summary sessions use their cell; setup, KB, and unassigned
+  sessions use the brain default. Claude runs one
   long-lived `claude -p` stream-json child; OpenCode runs
   `opencode run --format json --auto --standalone` per turn, injects config through
   `OPENCODE_CONFIG_DIR`, resumes with `--session`, and probes `opencode models`. Session
@@ -213,11 +216,12 @@ built and vended by the brain; real-CLI verification is still pending.
   unknown or a lower bound, never guessed. The layer reads `UsageRepository.totals` and
   never stops work.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
-  the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
-  `windowMinutes`, `prompt`), usage retention (`retentionDays`), and spend budget
-  (`monthlyUsd`, `alertAtPercent`), validated with zod and written atomically. Older files
-  with only `master` keep their values and gain the default summary, usage, and budget
-  blocks. `GET/PATCH /api/config` expose all blocks. `process.json` is the global process
+  the brain default harness (`harness`, null follows `APS_HARNESS`), the master switch,
+  interval, the scorecard policy (`enabled`, `intervalMinutes`, `windowMinutes`,
+  `prompt`), usage retention (`retentionDays`), and spend budget (`monthlyUsd`,
+  `alertAtPercent`), validated with zod and written atomically. Older files with only
+  `master` keep their values and gain the default harness, summary, usage, and budget
+  blocks. `GET/PATCH /api/config` expose all fields. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
@@ -285,14 +289,16 @@ built and vended by the brain; real-CLI verification is still pending.
   each turn's config, `--archived` keeps brain sessions out of the user's list, and
   `--auto` is the request-session permission posture (the KB session gets explicit deny
   rules).
-- `APS_HARNESS` selects the process-default substrate; `APS_CLAUDE_BIN` and
+- `APS_HARNESS` seeds the brain-default substrate; the Config page saves an explicit
+  `harness` in `config.json` (null follows the environment). `APS_CLAUDE_BIN` and
   `APS_OPENCODE_BIN` point at each adapter. `APS_HARNESS_BIN` is the legacy fallback for
-  the default adapter only.
+  the boot-default adapter only.
 - `GET /api/models` adds `harness`, `supportsEffort`, and `defaultModel` alongside the
   spec's `models`/`source`/`effortLevels`, and accepts `harness`, `cellId`, or
   `requestId`, so the SPA can resolve the right catalog and tell when effort is inert.
 - `GET /clarify` adds `active` alongside `started`/`transcript` so a reconnecting client
-  knows whether a live turn can be reattached.
+  knows whether a live turn can be reattached, and `process` so a client can see the live
+  brain default.
 - `POST /clarify/send` marks the request started when it is the first message, even if
   `/clarify/start` was skipped.
 - Sessions carry a scope (`request`, `kb`, or `master`) to the harness MCP server via

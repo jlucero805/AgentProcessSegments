@@ -176,4 +176,41 @@ describe('SettingsStore', () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).summary.windowMinutes).toBe(180);
     expect(new SettingsStore(file).get().summary.windowMinutes).toBe(180);
   });
+
+  it('defaults the harness to null and loads a legacy file without one', () => {
+    const file = tempFile();
+    expect(new SettingsStore(file).get().harness).toBeNull();
+
+    writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
+    expect(new SettingsStore(file).get().harness).toBeNull();
+  });
+
+  it('patches the harness independently and persists it', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const seen: unknown[] = [];
+    store.onChange((settings) => seen.push(settings));
+
+    const saved = store.patch({ harness: 'opencode' });
+    expect(saved.harness).toBe('opencode');
+    expect(seen).toHaveLength(1);
+    expect(JSON.parse(readFileSync(file, 'utf8')).harness).toBe('opencode');
+    expect(new SettingsStore(file).get().harness).toBe('opencode');
+
+    const cleared = store.patch({ harness: null });
+    expect(cleared.harness).toBeNull();
+    expect(new SettingsStore(file).get().harness).toBeNull();
+
+    store.patch({ harness: 'claude' });
+    store.patch({ master: { intervalMinutes: 2 } });
+    expect(store.get().harness).toBe('claude');
+  });
+
+  it('rejects an unknown harness without writing', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    expect(() => store.patch({ harness: 'gemini' as never })).toThrow();
+    expect(store.get().harness).toBeNull();
+    expect(() => readFileSync(file)).toThrow();
+  });
 });

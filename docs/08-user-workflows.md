@@ -11,8 +11,9 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
 1. Open the sidebar and press **New cell** (or the pencil on an existing cell).
 2. Name the cell.
 3. Optionally set **Agent harness** to Claude Code or OpenCode. **Brain default** inherits
-   `APS_HARNESS` (legacy `SBOX_HARNESS` still works). Requests and this cell’s master use
-   the chosen adapter; changing it later starts that cell’s next turn on a fresh session.
+   the value from the Config page, which falls back to `APS_HARNESS` (legacy
+   `SBOX_HARNESS` still works). Requests and this cell’s master use the chosen adapter;
+   changing it later starts that cell’s next turn on a fresh session.
 4. Optionally set **Master interval (minutes)**. Empty inherits the global cadence; a
    value gives this cell its own ticker.
 5. Set **Max concurrent requests** (default 3), **default model**, **default
@@ -37,7 +38,7 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
 
 Existing cells with no policy inherit the global default. New cells snapshot it so later
 global edits do not silently rewrite every cell. Existing cells with no harness inherit
-the process default.
+the brain default.
 
 ## 2. Choose how far the cron should push
 
@@ -165,6 +166,20 @@ last five.
 - Entering a backdated row recalculates historical estimates immediately because
   estimates are query-time. It never changes the reported cost stored on a turn.
 
+## 4e. Choose the brain default harness
+
+The **Agent harness** card on the Config page sets the adapter for setup, KB, and
+unassigned sessions, and for any cell or request without its own choice.
+
+- **Environment default (Claude Code / OpenCode)** follows `APS_HARNESS` (legacy
+  `SBOX_HARNESS` still works).
+- Choosing Claude Code or OpenCode saves an explicit `harness` in `config.json`. It wins
+  over the environment and takes effect on the next turn, with no restart. Pick the
+  environment option again to follow the environment value.
+- A cell or request can still override it; the order is request, cell, brain default.
+- `APS_DEFAULT_MODEL` stays with the boot default from `APS_HARNESS`, so switching the
+  saved default never hands a Claude model id to OpenCode.
+
 ## 5. Review, finalize, and follow-ups
 
 1. Implementation ends with `READY FOR REVIEW` and the request moves to Review when the
@@ -196,7 +211,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Scheduler switch and interval | `$XDG_CONFIG_HOME/agent-process-segments/config.json` (`APS_CONFIG`) |
 | Global process template | `$XDG_CONFIG_HOME/agent-process-segments/process.json` (`APS_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
-| Per-cell harness | `cells.harness` in SQLite (NULL = `APS_HARNESS`) |
+| Per-cell harness | `cells.harness` in SQLite (NULL = brain default) |
+| Brain default harness | `harness` in `config.json` (NULL = `APS_HARNESS`) |
 | Overall spend budget | `budget` in `config.json` |
 | Cell spend budget | `cells.monthly_budget_usd` in SQLite |
 | Budget alert history | `budget_alerts` in SQLite |

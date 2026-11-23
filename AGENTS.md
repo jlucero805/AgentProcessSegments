@@ -231,6 +231,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 13. **Stop keeps the session.** `Engine.cancel` kills the child, resolves the turn, and
     finishes with the partial transcript; it does not clear `session.json`, so the next
     message resumes. Stop clears the client queue; normal completion drains it in order.
+    Queues live per request under `aps-queue:<id>`; a queue written by the old
+    `sbox-queue:<id>` key is adopted once on load, copied to the new key, and removed.
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
     delete a live turn's maps without resolving its promise.

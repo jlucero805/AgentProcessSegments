@@ -35,13 +35,49 @@ function toolLabel(name: string): string {
     .replace(/_/g, ' ');
 }
 
-function readQueue(key: string): string[] {
+function parseQueue(raw: string | null): string[] {
+  if (raw === null) return [];
   try {
-    const raw = window.localStorage.getItem(key);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed)
       ? parsed.filter((item): item is string => typeof item === 'string')
       : [];
+  } catch {
+    return [];
+  }
+}
+
+function discardQueue(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Private mode: nothing to clean up.
+  }
+}
+
+/**
+ * The `aps-queue` key is authoritative; the legacy `sbox-queue` key is read once
+ * so a queue composed before the rename is not dropped. Adoption copies the raw
+ * value into the new key before deleting the legacy one, keeping a re-run of the
+ * state initializer (StrictMode, tests) correct.
+ */
+function readQueue(key: string, legacyKey: string): string[] {
+  try {
+    const current = window.localStorage.getItem(key);
+    if (current !== null) {
+      discardQueue(legacyKey);
+      return parseQueue(current);
+    }
+    const legacy = window.localStorage.getItem(legacyKey);
+    if (legacy === null) return [];
+    try {
+      window.localStorage.setItem(key, legacy);
+    } catch {
+      // Keep the legacy key for the next load and still use the queue in memory.
+      return parseQueue(legacy);
+    }
+    discardQueue(legacyKey);
+    return parseQueue(legacy);
   } catch {
     return [];
   }
@@ -74,10 +110,11 @@ export function ClarifyChat({
   placeholder,
   inlineErrors,
 }: ClarifyChatProps) {
-  const queueKey = `sbox-queue:${requestId}`;
+  const queueKey = `aps-queue:${requestId}`;
+  const legacyQueueKey = `sbox-queue:${requestId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [running, setRunning] = useState(false);
-  const [queue, setQueue] = useState<string[]>(() => readQueue(queueKey));
+  const [queue, setQueue] = useState<string[]>(() => readQueue(queueKey, legacyQueueKey));
   const [stopping, setStopping] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);

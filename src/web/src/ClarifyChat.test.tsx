@@ -329,3 +329,123 @@ describe('ClarifyChat live turns', () => {
     expect(urls.some((url) => url.endsWith('/clarify/stream'))).toBe(false);
   });
 });
+
+describe('ClarifyChat queue persistence', () => {
+  function stubIdleClarify(sendBodies: unknown[] = []) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse(['{"t":"text","text":"sent"}\n', doneEvent('sent')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+  }
+
+  it('hydrates and persists the queue under the aps key', async () => {
+    stubIdleClarify();
+    window.localStorage.setItem('aps-queue:req-store', JSON.stringify(['first', 'second']));
+
+    render(
+      <ClarifyChat requestId="req-store" started={false} commands={[]} onError={() => {}} />,
+    );
+
+    expect(await screen.findByText('2 queued')).toBeInTheDocument();
+    expect(screen.getByText('first')).toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-store')).toBe(
+      JSON.stringify(['first', 'second']),
+    );
+    expect(window.localStorage.getItem('sbox-queue:req-store')).toBeNull();
+  });
+
+  it('migrates a queue from the legacy sbox key and removes it', async () => {
+    stubIdleClarify();
+    window.localStorage.setItem('sbox-queue:req-legacy', JSON.stringify(['carry me']));
+
+    render(
+      <ClarifyChat requestId="req-legacy" started={false} commands={[]} onError={() => {}} />,
+    );
+
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(screen.getByText('carry me')).toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-legacy')).toBe(
+      JSON.stringify(['carry me']),
+    );
+    expect(window.localStorage.getItem('sbox-queue:req-legacy')).toBeNull();
+  });
+
+  it('prefers the aps key and discards a stale legacy queue', async () => {
+    stubIdleClarify();
+    window.localStorage.setItem('aps-queue:req-both', JSON.stringify(['new message']));
+    window.localStorage.setItem('sbox-queue:req-both', JSON.stringify(['old message']));
+
+    render(
+      <ClarifyChat requestId="req-both" started={false} commands={[]} onError={() => {}} />,
+    );
+
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(screen.getByText('new message')).toBeInTheDocument();
+    expect(screen.queryByText('old message')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('sbox-queue:req-both')).toBeNull();
+    expect(window.localStorage.getItem('aps-queue:req-both')).toBe(
+      JSON.stringify(['new message']),
+    );
+  });
+
+  it('does not fall back when the aps key is malformed', async () => {
+    stubIdleClarify();
+    window.localStorage.setItem('aps-queue:req-bad', 'not-json');
+    window.localStorage.setItem('sbox-queue:req-bad', JSON.stringify(['legacy message']));
+
+    render(
+      <ClarifyChat requestId="req-bad" started={false} commands={[]} onError={() => {}} />,
+    );
+
+    expect(await screen.findByPlaceholderText('Start clarify to chat.')).toBeInTheDocument();
+    expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+    expect(screen.queryByText('legacy message')).not.toBeInTheDocument();
+    await waitFor(() => expect(window.localStorage.getItem('aps-queue:req-bad')).toBeNull());
+    expect(window.localStorage.getItem('sbox-queue:req-bad')).toBeNull();
+  });
+
+  it('drains a migrated queue once and does not resurrect it', async () => {
+    const sendBodies: unknown[] = [];
+    stubIdleClarify(sendBodies);
+    window.localStorage.setItem('sbox-queue:req-drain', JSON.stringify(['adopted']));
+
+    const view = render(
+      <ClarifyChat requestId="req-drain" started={false} commands={[]} onError={() => {}} />,
+    );
+
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-drain')).toBe(
+      JSON.stringify(['adopted']),
+    );
+
+    view.rerender(
+      <ClarifyChat requestId="req-drain" started commands={[]} onError={() => {}} />,
+    );
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(sendBodies[0]).toMatchObject({ text: 'adopted' });
+    expect(await screen.findByText('sent')).toBeInTheDocument();
+    view.unmount();
+
+    stubIdleClarify();
+    render(
+      <ClarifyChat requestId="req-drain" started={false} commands={[]} onError={() => {}} />,
+    );
+
+    expect(await screen.findByPlaceholderText('Start clarify to chat.')).toBeInTheDocument();
+    expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-drain')).toBeNull();
+    expect(window.localStorage.getItem('sbox-queue:req-drain')).toBeNull();
+    expect(sendBodies).toHaveLength(1);
+  });
+});

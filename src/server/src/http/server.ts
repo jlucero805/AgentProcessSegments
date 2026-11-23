@@ -1010,7 +1010,14 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   app.get('/api/usage', async (request) => {
     const query = usageQuerySchema.parse(request.query);
-    return usage.query(query);
+    const result = usage.query(query);
+    return {
+      ...result,
+      coverage: {
+        ...result.coverage,
+        retentionDays: settings.get().usage.retentionDays,
+      },
+    };
   });
 
   app.get('/api/pricing', async () => ({ prices: pricing.list() }));

@@ -51,23 +51,11 @@ const BUDGETS: BudgetsResponse = {
   pauses: [],
 };
 
-function installFetch(
-  response = makeUsageResponse(),
-  budgets = BUDGETS,
-  config: unknown | null = { usage: { retentionDays: 90 } },
-) {
+function installFetch(response = makeUsageResponse(), budgets = BUDGETS) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === '/api/cells') return jsonResponse(CELLS);
     if (url === '/api/budgets') return jsonResponse(budgets);
-    if (url === '/api/config') {
-      return config === null
-        ? new Response(JSON.stringify({ error: 'unavailable' }), {
-            status: 500,
-            headers: { 'content-type': 'application/json' },
-          })
-        : jsonResponse(config);
-    }
     if (url.startsWith('/api/usage')) return jsonResponse(response);
     return jsonResponse([]);
   });
@@ -199,8 +187,8 @@ describe('UsagePage', () => {
     expect(screen.getByText('Unpriced turns')).toBeInTheDocument();
   });
 
-  it('shows the retained raw window from config', async () => {
-    installFetch();
+  it('shows the retained raw window from the usage payload', async () => {
+    const fetchMock = installFetch();
     render(<UsagePage onError={vi.fn()} />);
 
     expect(
@@ -208,36 +196,53 @@ describe('UsagePage', () => {
         'Raw usage is kept for 90 days; older turns are pruned. All-time totals cover the retained window.',
       ),
     ).toBeInTheDocument();
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url === '/api/config')).toBe(false);
+  });
+
+  it('shows daily rollup coverage and finite retention', async () => {
+    const base = makeUsageResponse();
+    installFetch({
+      ...base,
+      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 90 },
+    });
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText(/Daily totals preserve history before/)).toBeInTheDocument();
+    expect(screen.getByText(/Raw retention is 90 days\./)).toBeInTheDocument();
   });
 
   it('shows daily rollup coverage and indefinite retention', async () => {
     const base = makeUsageResponse();
-    installFetch(
-      { ...base, coverage: { rolledThrough: Date.UTC(2026, 0, 1) } },
-      BUDGETS,
-      { usage: { retentionDays: 0 } },
-    );
+    installFetch({
+      ...base,
+      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0 },
+    });
     render(<UsagePage onError={vi.fn()} />);
 
     expect(await screen.findByText(/Daily totals preserve history before/)).toBeInTheDocument();
     expect(screen.getByText(/kept indefinitely/)).toBeInTheDocument();
   });
 
-  it('still renders usage when the config request fails', async () => {
+  it('keeps usage and coverage readable without any config request', async () => {
     const base = makeUsageResponse();
-    installFetch(
-      { ...base, coverage: { rolledThrough: Date.UTC(2026, 0, 1) } },
-      BUDGETS,
-      null,
-    );
+    const fetchMock = installFetch({
+      ...base,
+      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0 },
+    });
     render(<UsagePage onError={vi.fn()} />);
 
     expect(await screen.findByText('Effective cost')).toBeInTheDocument();
     expect(screen.getByText(/Daily totals preserve history before/)).toBeInTheDocument();
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url === '/api/config')).toBe(false);
   });
 
   it('says history is kept indefinitely when retention is disabled', async () => {
-    installFetch(makeUsageResponse(), BUDGETS, { usage: { retentionDays: 0 } });
+    installFetch({
+      ...makeUsageResponse(),
+      coverage: { rolledThrough: null, retentionDays: 0 },
+    });
     render(<UsagePage onError={vi.fn()} />);
 
     expect(await screen.findByText('Usage history is kept indefinitely.')).toBeInTheDocument();

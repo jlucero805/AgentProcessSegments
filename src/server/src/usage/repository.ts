@@ -10,6 +10,7 @@ import {
   totalTokens,
   usageBucketStart,
   type UsageBucketRow,
+  type UsageCoverage,
   type UsageEventInput,
   type UsageFilter,
   type UsageGroup,
@@ -90,6 +91,15 @@ function bucket(row: BucketRow): UsageBucketRow {
 }
 
 /**
+ * Query output before the HTTP boundary attaches settings-derived coverage.
+ * Lets the repository stay free of the settings store while `UsageResponse`
+ * exposes the full contract to the SPA.
+ */
+export type UsageQueryResult = Omit<UsageResponse, 'coverage'> & {
+  coverage: Pick<UsageCoverage, 'rolledThrough'>;
+};
+
+/**
  * Owns every usage query. The filters arrive already validated from the HTTP
  * boundary; this class trusts its arguments and never writes outside a record.
  *
@@ -144,7 +154,7 @@ export class UsageRepository {
     return totals(row);
   }
 
-  query(filter: UsageFilter): UsageResponse {
+  query(filter: UsageFilter): UsageQueryResult {
     const bucketKey = filter.bucket ?? 'day';
     const limit = filter.limit ?? 20;
     const rawSince = this.rawSince();

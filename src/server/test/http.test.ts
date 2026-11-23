@@ -810,7 +810,7 @@ describe('http api', () => {
       byModel: [],
       byCell: [],
       byRequest: [],
-      coverage: { rolledThrough: null },
+      coverage: { rolledThrough: null, retentionDays: 90 },
     });
 
     const base = Date.UTC(2026, 0, 1, 10);
@@ -876,6 +876,15 @@ describe('http api', () => {
     expect(
       (await call('GET', `/api/usage?from=0&to=${10_001 * 60 * 60 * 1000}&bucket=hour`)).status,
     ).toBe(400);
+
+    // The retention window rides on the usage payload, read per request.
+    await call('PATCH', '/api/config', { usage: { retentionDays: 30 } });
+    expect((await call('GET', '/api/usage')).json().coverage).toEqual({
+      rolledThrough: null,
+      retentionDays: 30,
+    });
+    await call('PATCH', '/api/config', { usage: { retentionDays: 0 } });
+    expect((await call('GET', '/api/usage')).json().coverage.retentionDays).toBe(0);
   });
 
   it('manages effective-dated model pricing and estimates unreported usage', async () => {

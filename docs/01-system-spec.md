@@ -277,8 +277,10 @@ boundary are authoritative; `usage_daily` rows before it are authoritative. Quer
 union of the two sources, so retention cannot double count or lose history. The state row
 starts at `0` and only moves forward.
 
-`GET /api/usage` reports `coverage.rolledThrough` (null before the first rollup) so the
-SPA can say which part of history is daily. A rolled-up day that overlaps a requested
+`GET /api/usage` reports `coverage.rolledThrough` (null before the first rollup) and
+`coverage.retentionDays` (the current `usage.retentionDays`, read per request) so the SPA
+can say which part of history is daily and how far back raw turns are kept without a
+second settings request. A rolled-up day that overlaps a requested
 `from`/`to` is included in full; day-aligned ranges such as all-time and UTC budget months
 are exact. Hourly buckets read raw rows only; totals still include daily rows.
 
@@ -401,11 +403,13 @@ object per line.
 - `GET /api/usage?cellId=…&requestId=…&from=…&to=…&bucket=hour|day&limit=…`
   returns `{range, totals, series[], byModel[], byCell[], byRequest[], coverage}`.
   `coverage.rolledThrough` is the exclusive raw/daily boundary, or null before the first
-  rollup. Bounds are epoch milliseconds (`from` inclusive, `to` exclusive); raw rows are
-  one millisecond wide and daily rows one UTC day, so a range overlapping a rolled day
-  includes that day in full. Series buckets are UTC-aligned and zero-filled when both
-  bounds are supplied; hourly series read raw rows only. A bounded request over 10,000
-  buckets is rejected with 400. Totals separate reported `costUsd`, `estimatedCostUsd`,
+  rollup. `coverage.retentionDays` is the current raw retention window (`0` keeps raw
+  turns forever) and is read per request, so the dashboard's coverage note never depends
+  on a config fetch. Bounds are epoch milliseconds (`from` inclusive, `to` exclusive);
+  raw rows are one millisecond wide and daily rows one UTC day, so a range overlapping a
+  rolled day includes that day in full. Series buckets are UTC-aligned and zero-filled
+  when both bounds are supplied; hourly series read raw rows only. A bounded request over
+  10,000 buckets is rejected with 400. Totals separate reported `costUsd`, `estimatedCostUsd`,
   and `totalCostUsd`, with `reportedCostTurns`, `estimatedCostTurns`, `unpricedTurns`, and
   the legacy `unknownCostTurns` counts. An unreported turn with no effective model price
   is unpriced, not zero. Request groups include the request's current cell as

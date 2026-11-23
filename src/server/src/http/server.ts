@@ -36,6 +36,7 @@ import { SkillCatalog } from '../skills/catalog.js';
 import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
 import type { BudgetService } from '../usage/budgets.js';
+import { SpendCapError } from '../usage/spend-cap.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
 import type { UsageRepository } from '../usage/repository.js';
 import { USAGE_BUCKETS, USAGE_BUCKET_MS } from '../usage/types.js';
@@ -127,6 +128,7 @@ const cellSchema = z.object({
   model: z.string().nullable().optional(),
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
   monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
+  pauseOnExceeded: z.boolean().optional(),
   autocompactPercent: z.number().int().min(1).max(99).optional(),
 });
 const cellDraftSchema = z.object({
@@ -178,6 +180,7 @@ const cellPatchSchema = z
     model: z.string().nullable().optional(),
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
     monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
+    pauseOnExceeded: z.boolean().optional(),
     autocompactPercent: z.number().int().min(1).max(99).optional(),
     process: processSchema.nullable().optional(),
   })
@@ -191,11 +194,12 @@ const cellPatchSchema = z
       value.model !== undefined ||
       value.effort !== undefined ||
       value.monthlyBudgetUsd !== undefined ||
+      value.pauseOnExceeded !== undefined ||
       value.autocompactPercent !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, autocompactPercent, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, pauseOnExceeded, autocompactPercent, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -440,6 +444,21 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (error instanceof TerminalError) {
       return reply.code(400).send({ error: 'terminal', message: error.message });
+    }
+    if (error instanceof SpendCapError) {
+      return reply.code(409).send({
+        error: 'spend_cap',
+        message: error.message,
+        scope: error.pause.scope,
+        cellId: error.pause.cellId,
+        cellName: error.pause.cellName,
+        budgetUsd: error.pause.budgetUsd,
+        spendUsd: error.pause.spendUsd,
+        spendIsLowerBound: error.pause.spendIsLowerBound,
+        unpricedTurns: error.pause.unpricedTurns,
+        periodStart: error.pause.periodStart,
+        periodEnd: error.pause.periodEnd,
+      });
     }
     app.log.error(error);
     errorLog?.error('http.request', error, {
@@ -821,6 +840,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         model: input.model,
         effort: input.effort,
         monthlyBudgetUsd: input.monthlyBudgetUsd,
+        pauseOnExceeded: input.pauseOnExceeded,
         autocompactPercent: input.autocompactPercent,
       },
     );
@@ -848,6 +868,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (body.monthlyBudgetUsd !== undefined) {
       cells.setMonthlyBudget(id, body.monthlyBudgetUsd);
+    }
+    if (body.pauseOnExceeded !== undefined) {
+      cells.setPauseOnExceeded(id, body.pauseOnExceeded);
     }
     if (body.model !== undefined || body.effort !== undefined) {
       const current = cells.require(id);

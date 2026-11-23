@@ -52,6 +52,13 @@ export async function main(): Promise<void> {
       () => defaultProcess(settings.get().master),
       errors,
     );
+    const budgets = new BudgetService({
+      usage: createBudgetUsageReader(usage),
+      cells,
+      settings,
+      alerts: new BudgetAlertRepository(db),
+      errors,
+    });
     const harnesses = createHarnessRegistry(config);
     const engine = new Engine({
       repo,
@@ -60,6 +67,7 @@ export async function main(): Promise<void> {
       usage,
       pluginDirs: () => plugins.installedPluginDirs(),
       errors,
+      spendCap: (cellId) => budgets.admission(cellId),
       cellConfig: (cellId) => {
         const cell = cells.get(cellId);
         return cell
@@ -78,13 +86,6 @@ export async function main(): Promise<void> {
     });
     const skills = new SkillCatalog();
     const docs = new DocsService(config.docsDir);
-    const budgets = new BudgetService({
-      usage: createBudgetUsageReader(usage),
-      cells,
-      settings,
-      alerts: new BudgetAlertRepository(db),
-      errors,
-    });
     const masterEvents = new MasterEventRepository(db);
     const masterService = new MasterService({
       repo,
@@ -94,6 +95,7 @@ export async function main(): Promise<void> {
       events: masterEvents,
       process: processStore,
       errors,
+      spendCap: (cellId) => budgets.admission(cellId),
     });
     const master = new MasterScheduler(masterService, settings, cells, errors);
     const summaries = new SummaryRepository(db);
@@ -112,6 +114,7 @@ export async function main(): Promise<void> {
       cells,
       summaries,
       errors,
+      spendCap: (cellId) => budgets.admission(cellId),
     });
     const usageRetention = new UsageRetention({ db, settings, errors });
     const dataRetention = new DataRetention({ db, settings, errors });

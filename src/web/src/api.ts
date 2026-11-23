@@ -257,6 +257,7 @@ export const api = {
     model?: string | null;
     effort?: string | null;
     monthlyBudgetUsd?: number | null;
+    pauseOnExceeded?: boolean;
   }): Promise<CellDetail> {
     return request('/api/cells', {
       method: 'POST',
@@ -274,6 +275,7 @@ export const api = {
       model?: string | null;
       effort?: string | null;
       monthlyBudgetUsd?: number | null;
+      pauseOnExceeded?: boolean;
       process?: ProcessConfig | null;
     },
   ): Promise<CellDetail> {

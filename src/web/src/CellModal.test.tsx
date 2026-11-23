@@ -21,6 +21,7 @@ describe('CellModal', () => {
           model?: string | null;
           effort?: string | null;
           monthlyBudgetUsd?: number | null;
+          pauseOnExceeded?: boolean;
           autocompactPercent?: number;
         }
       | undefined;
@@ -61,6 +62,7 @@ describe('CellModal', () => {
             model: null,
             effort: null,
             monthlyBudgetUsd: null,
+            pauseOnExceeded: false,
             autocompactPercent: 80,
             process: baseProcess(),
             createdAt: 2,
@@ -99,6 +101,11 @@ describe('CellModal', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: /monthly spend budget/i }), {
       target: { value: '42.5' },
     });
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: /pause this cell's new work when its budget is exceeded/i,
+      }),
+    );
     fireEvent.change(screen.getByRole('spinbutton', { name: /auto-compact/i }), {
       target: { value: '70' },
     });
@@ -112,6 +119,7 @@ describe('CellModal', () => {
     expect(created?.effort).toBe('high');
     expect(created?.harness).toBeNull();
     expect(created?.monthlyBudgetUsd).toBe(42.5);
+    expect(created?.pauseOnExceeded).toBe(true);
     expect(created?.autocompactPercent).toBe(70);
     expect(created?.process?.segments).toHaveLength(6);
     if (draft) expect(draft).not.toHaveProperty('monthlyBudgetUsd');
@@ -308,6 +316,7 @@ describe('CellModal', () => {
       model: null,
       effort: null,
       monthlyBudgetUsd: null,
+    pauseOnExceeded: false,
       autocompactPercent: 80,
       process: stale,
       createdAt: 1,

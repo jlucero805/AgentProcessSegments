@@ -8,6 +8,7 @@ import { openDb, type Db } from '../src/db.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
 import { MasterService } from '../src/master/service.js';
+import type { SpendPause } from '../src/domain/budget.js';
 import type { MasterResult } from '../src/master/types.js';
 import { defaultProcess, READY_FOR_IMPLEMENTATION } from '../src/process/defaults.js';
 import type { ProcessConfig } from '../src/process/definition.js';
@@ -29,7 +30,11 @@ interface Fixture {
   service: MasterService;
 }
 
-function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessConfig): Fixture {
+function setup(
+  overrides: Record<string, unknown> = {},
+  processConfig?: ProcessConfig,
+  spendCap?: (cellId: string) => SpendPause | null,
+): Fixture {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-master-'));
   const db = openDb(path.join(base, 'db.sqlite'));
   const repo = new RequestRepository(db);
@@ -73,7 +78,15 @@ function setup(overrides: Record<string, unknown> = {}, processConfig?: ProcessC
   const process = processConfig
     ? ({ get: () => processConfig } as unknown as ProcessStore)
     : undefined;
-  const service = new MasterService({ repo, cells, engine, settings, events, process });
+  const service = new MasterService({
+    repo,
+    cells,
+    engine,
+    settings,
+    events,
+    process,
+    ...(spendCap ? { spendCap } : {}),
+  });
   return { db, repo, cells, events, settings, engine, sent, started, startTexts, turns, service };
 }
 
@@ -656,6 +669,7 @@ describe('MasterScheduler', () => {
         lastRunAt: null,
         lastResult: null,
         lastFor: vi.fn(() => null),
+      pauseFor: vi.fn(() => null),
       } as unknown as MasterService;
       const scheduler = new MasterScheduler(service, settings, cells);
       scheduler.start();
@@ -706,6 +720,7 @@ describe('MasterScheduler', () => {
           lastRunAt: null,
           lastResult: null,
           lastFor: vi.fn(() => null),
+      pauseFor: vi.fn(() => null),
         } as unknown as MasterService,
         settings,
         cells,
@@ -748,6 +763,7 @@ describe('MasterScheduler', () => {
           lastRunAt: null,
           lastResult: null,
           lastFor: vi.fn(() => null),
+      pauseFor: vi.fn(() => null),
         } as unknown as MasterService,
         settings,
         new CellRepository(openDb(':memory:')),
@@ -762,6 +778,44 @@ describe('MasterScheduler', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('skips a paused cell once, then resumes without per-tick spam', async () => {
+    let pause: SpendPause | null = {
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 100,
+      spendUsd: 100,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    const fixture = setup({}, undefined, () => pause);
+    const cell = fixture.cells.create('Alpha');
+    dispatchRequest(fixture, 'Blocked work', cell.id);
+
+    const first = await fixture.service.runCell(cell.id);
+    expect(first.skipped).toBe(1);
+    expect(fixture.turns).toHaveLength(0);
+    expect(fixture.events.list({ cellId: cell.id })).toHaveLength(1);
+
+    const second = await fixture.service.runCell(cell.id);
+    expect(second.skipped).toBe(1);
+    expect(fixture.events.list({ cellId: cell.id })).toHaveLength(1);
+    expect(fixture.engine.note).toHaveBeenCalledTimes(1);
+
+    pause = null;
+    await fixture.service.runCell(cell.id);
+    await settleMaster();
+    expect(fixture.turns).toHaveLength(1);
+    expect(fixture.engine.note).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('Resumed new work'),
+    );
   });
 
   it('coalesces concurrent run-now calls for one cell', async () => {
@@ -782,6 +836,7 @@ describe('MasterScheduler', () => {
         lastRunAt: null,
         lastResult: null,
         lastFor: vi.fn(() => null),
+      pauseFor: vi.fn(() => null),
       } as unknown as MasterService,
       settings,
       cells,

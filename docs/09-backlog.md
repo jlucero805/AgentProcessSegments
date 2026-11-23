@@ -7,14 +7,16 @@ can be picked up without re-deciding the shape.
 
 Token/cost tracking is built: `usage_events`, parser normalization, engine capture,
 `GET /api/usage`, the **Usage** page, the request Usage card, daily rollups that survive
-raw pruning, and advisory monthly overall/per-cell budgets with durable alerts. Estimated
+raw pruning, advisory monthly overall/per-cell budgets with durable alerts, and opt-in hard
+caps that pause new work at turn boundaries. Estimated
 pricing is built too: `model_pricing`, `/api/pricing`, the Config page editor, and
 estimates that never overwrite a harness-reported cost. Deferred work:
 
-- **Hard budget caps and external delivery.** Advisory budget alerts are built and
-  compare reported cost only. Add optional enforcement that pauses new work and optional
-  webhook/email delivery; keep both opt-in and conservative when turns are unpriced or
-  only estimated. Decide whether caps should include estimates.
+- **External budget delivery.** Advisory alerts and opt-in hard caps are built. Add
+  optional webhook/email/chat delivery for warnings, exceeded alerts, and pause transitions.
+- **Hard-cap refinements.** Cancelling in-flight work on a crossing, an operator one-turn
+  override/snooze, and a strict unknown-cost policy are deferred; current caps are
+  admission-only and fail open when spend is unknowable.
 - **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
   context-length tiers, currencies other than USD, and a per-turn applied-price audit
   view. The current table is exact-model, flat, USD-only, and operator-maintained.

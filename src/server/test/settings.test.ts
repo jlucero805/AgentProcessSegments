@@ -13,14 +13,14 @@ describe('SettingsStore', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
-    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false });
   });
 
   it('loads a legacy file with only master and defaults the budget', () => {
     const file = tempFile();
     writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
     const store = new SettingsStore(file);
-    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false });
   });
 
   it('falls back to defaults for invalid or unreadable files', () => {
@@ -113,17 +113,52 @@ describe('SettingsStore', () => {
   it('merges budget patches without disturbing master', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
-    const saved = store.patch({ budget: { monthlyUsd: 125.5, alertAtPercent: 90 } });
+    const saved = store.patch({ budget: { monthlyUsd: 125.5, alertAtPercent: 90, pauseOnExceeded: false } });
     expect(saved.master.enabled).toBe(true);
-    expect(saved.budget).toEqual({ monthlyUsd: 125.5, alertAtPercent: 90 });
+    expect(saved.budget).toEqual({ monthlyUsd: 125.5, alertAtPercent: 90, pauseOnExceeded: false });
     expect(JSON.parse(readFileSync(file, 'utf8')).budget).toEqual({
       monthlyUsd: 125.5,
       alertAtPercent: 90,
+      pauseOnExceeded: false,
     });
 
     const cleared = store.patch({ budget: { monthlyUsd: null } });
-    expect(cleared.budget).toEqual({ monthlyUsd: null, alertAtPercent: 90 });
+    expect(cleared.budget).toEqual({ monthlyUsd: null, alertAtPercent: 90, pauseOnExceeded: false });
     expect(cleared.master.intervalMinutes).toBe(DEFAULT_SETTINGS.master.intervalMinutes);
+  });
+
+  it('persists the overall budget and pause flag across a reload', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({
+      budget: { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true },
+    });
+
+    const reloaded = new SettingsStore(file).get();
+    expect(reloaded.budget).toEqual({
+      monthlyUsd: 250,
+      alertAtPercent: 75,
+      pauseOnExceeded: true,
+    });
+
+    // A partial patch that omits the flag must not silently turn the cap off.
+    store.patch({ budget: { monthlyUsd: 300 } });
+    expect(new SettingsStore(file).get().budget).toEqual({
+      monthlyUsd: 300,
+      alertAtPercent: 75,
+      pauseOnExceeded: true,
+    });
+  });
+
+  it('loads a legacy budget block without the pause flag', () => {
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify({ budget: { monthlyUsd: 100, alertAtPercent: 80 } }));
+    const budget = new SettingsStore(file).get().budget;
+    expect(budget).toEqual({
+      monthlyUsd: 100,
+      alertAtPercent: 80,
+      pauseOnExceeded: false,
+    });
   });
 
   it('rejects invalid budget patches without writing', () => {
@@ -135,7 +170,7 @@ describe('SettingsStore', () => {
     expect(() => store.patch({ budget: { alertAtPercent: 0 } })).toThrow();
     expect(() => store.patch({ budget: { alertAtPercent: 101 } })).toThrow();
     expect(() => store.patch({ budget: { alertAtPercent: 80.5 } })).toThrow();
-    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false });
     expect(() => readFileSync(file)).toThrow();
   });
 

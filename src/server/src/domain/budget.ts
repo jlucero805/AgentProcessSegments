@@ -17,11 +17,14 @@ export interface BudgetSettings {
   monthlyUsd: number | null;
   /** Warning percentage for every budget; 100 means only the exceeded alert. */
   alertAtPercent: number;
+  /** When true, new work is paused once cap spend reaches the overall budget. */
+  pauseOnExceeded: boolean;
 }
 
 export const DEFAULT_BUDGET_SETTINGS: BudgetSettings = {
   monthlyUsd: null,
   alertAtPercent: 80,
+  pauseOnExceeded: false,
 };
 
 export const MAX_BUDGET_USD = 1_000_000;
@@ -31,6 +34,11 @@ export interface BudgetUsageTotals {
   turns: number;
   /** Sum of known cost_usd values; null when no turn reported a cost. */
   costUsd: number | null;
+  /** Sum of estimates for unreported turns; null when none matched a price. */
+  estimatedCostUsd: number | null;
+  /** Turns with neither a reported nor an estimated cost. */
+  unpricedTurns: number;
+  /** Turns with no harness-reported cost (estimated + unpriced). */
   unknownCostTurns: number;
 }
 
@@ -63,6 +71,31 @@ export interface BudgetStatus {
   unknownCostTurns: number;
   spendIsLowerBound: boolean;
   state: BudgetState;
+  /** True when this scope pauses new work at the budget. */
+  pauseOnExceeded: boolean;
+  /** Reported plus estimated cost; used by hard caps only. */
+  capSpendUsd: number;
+  /** True when an unpriced turn makes cap spend a lower bound. */
+  capSpendIsLowerBound: boolean;
+  /** Turns with neither a reported nor an estimated cost. */
+  unpricedTurns: number;
+  /** True when this scope is currently refusing new work. */
+  paused: boolean;
+}
+
+/** A scope that is currently refusing new work because of a hard cap. */
+export interface SpendPause {
+  scope: BudgetScope;
+  cellId: string | null;
+  cellName: string | null;
+  label: string;
+  periodStart: number;
+  periodEnd: number;
+  budgetUsd: number;
+  spendUsd: number;
+  spendIsLowerBound: boolean;
+  unpricedTurns: number;
+  percentUsed: number;
 }
 
 export interface BudgetAlert {
@@ -90,6 +123,8 @@ export interface BudgetsResponse {
   statuses: BudgetStatus[];
   /** Unacknowledged alerts for the current period only. */
   alerts: BudgetAlert[];
+  /** Overall first, then cells by name. Only paused scopes appear. */
+  pauses: SpendPause[];
 }
 
 export interface BudgetPeriod {
@@ -114,6 +149,7 @@ export interface BudgetStatusInput {
   period: BudgetPeriod;
   totals: BudgetUsageTotals;
   usageAvailable?: boolean;
+  pauseOnExceeded?: boolean;
 }
 
 export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
@@ -126,11 +162,16 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
     period,
     totals,
     usageAvailable = true,
+    pauseOnExceeded = false,
   } = input;
   const pricedTurns = Math.max(0, totals.turns - totals.unknownCostTurns);
   const spendUsd = totals.costUsd ?? 0;
   const spendIsLowerBound = totals.unknownCostTurns > 0;
   const percentUsed = budgetUsd > 0 ? (spendUsd / budgetUsd) * 100 : 0;
+  const capSpendUsd = spendUsd + (totals.estimatedCostUsd ?? 0);
+  const capSpendIsLowerBound = totals.unpricedTurns > 0;
+  const paused =
+    pauseOnExceeded && usageAvailable && capSpendUsd >= budgetUsd;
 
   let state: BudgetState;
   if (!usageAvailable) {
@@ -163,6 +204,28 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
     unknownCostTurns: totals.unknownCostTurns,
     spendIsLowerBound,
     state,
+    pauseOnExceeded,
+    capSpendUsd,
+    capSpendIsLowerBound,
+    unpricedTurns: totals.unpricedTurns,
+    paused,
+  };
+}
+
+/** Convert a paused status into the admission payload. */
+export function spendPause(status: BudgetStatus): SpendPause {
+  return {
+    scope: status.scope,
+    cellId: status.cellId,
+    cellName: status.cellName,
+    label: status.label,
+    periodStart: status.periodStart,
+    periodEnd: status.periodEnd,
+    budgetUsd: status.budgetUsd,
+    spendUsd: status.capSpendUsd,
+    spendIsLowerBound: status.capSpendIsLowerBound,
+    unpricedTurns: status.unpricedTurns,
+    percentUsed: status.capSpendUsd > 0 ? (status.capSpendUsd / status.budgetUsd) * 100 : 0,
   };
 }
 

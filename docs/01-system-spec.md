@@ -129,11 +129,12 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 
 `id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`
 (default 3), `harness` (null inherits the process default), `model`, `effort`, nullable
-`monthly_budget_usd`, `autocompact_percent` (default 80, range 1–99), `process_json`,
-`created_at`. A request inherits its cell's harness unless it sets its own
-`requests.harness`; a cell master and summary use its cell's harness.
-`monthly_budget_usd` is the advisory monthly spend budget in USD; NULL means no cell
-budget. See the budget contract below.
+`monthly_budget_usd`, `pause_on_exceeded` (default 0), `autocompact_percent` (default 80,
+range 1–99), `process_json`, `created_at`. A request inherits its cell's harness unless it
+sets its own `requests.harness`; a cell master and summary use its cell's harness.
+`monthly_budget_usd` is the monthly spend budget in USD; NULL means no cell budget.
+`pause_on_exceeded` makes that budget a hard cap for the cell. See the budget contract
+below.
 
 ### `budget_alerts`
 
@@ -147,22 +148,36 @@ history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
 ### Spend budgets
 
 `src/server/src/domain/budget.ts` is pure and re-exported by the SPA. `config.json` carries
-`budget: { monthlyUsd: number|null, alertAtPercent: 1..100 }`; the default is no overall
-budget and an 80% warning. Budget periods are UTC calendar months `[start, end)`.
+`budget: { monthlyUsd: number|null, alertAtPercent: 1..100, pauseOnExceeded: boolean }`;
+the default is no overall budget, an 80% warning, and enforcement off. Budget periods are
+UTC calendar months `[start, end)`.
 
 `BudgetService` reads totals through a narrow `BudgetUsageReader` backed by
-`UsageRepository.totals`. Spend is the sum of known `cost_usd`; a NULL cost is unpriced,
-never zero or estimated. If every turn in the period is unpriced the status is `unknown`
-and no alert fires. Mixed data alerts against a known lower bound and the UI labels it
-"at least". The service evaluates on start, every 60 seconds, and when settings or cells
-change; a failed evaluation goes to the error sink as `usage.budgets` and never affects a
-turn. Alerts are advisory only: nothing pauses, blocks, or rejects work.
+`UsageRepository.totals`. Advisory alert spend is the sum of known `cost_usd`; a NULL cost
+is unpriced, never zero or estimated. If every turn in the period is unpriced the status is
+`unknown` and no alert fires. Mixed data alerts against a known lower bound and the UI
+labels it "at least". The service evaluates on start, every 60 seconds, and when settings
+or cells change; a failed evaluation goes to the error sink as `usage.budgets` and never
+affects a turn.
 
-`GET /api/budgets` returns the current period, statuses for configured budgets, and
-unacknowledged current-month alerts. `POST /api/budgets/alerts/:id/ack` is idempotent.
-Global budget writes use `PATCH /api/config`; cell budget writes use
-`PATCH /api/cells/:id`. `BudgetService` reads `UsageRepository.totals`; the Config page,
-Usage page, and app banner show the same current-month status.
+A scope with `pauseOnExceeded`/`pause_on_exceeded` is a **hard cap**. Its cap spend is
+reported plus estimated cost; `capSpendIsLowerBound` is true when any turn has neither.
+The cap pauses when cap spend is greater than or equal to the budget. Warning thresholds
+never pause, and a scope whose spend is unknowable fails open rather than blocking work.
+An overall pause refuses every new agent turn (request, master, summary, KB, setup); a
+cell pause refuses only that cell's request, master, and summary turns. Acknowledgement
+does not clear a pause. Raising or clearing the budget, disabling the option, or the next
+UTC month resumes. Admission is checked before any turn side effect; in-flight turns
+finish and there are no spend reservations.
+
+`GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
+`capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, and `paused`), unacknowledged
+current-month alerts, and a `pauses` array for active hard caps. A manual turn start or
+`POST /api/master/run` / `POST /api/summaries/run` while paused returns `409` with
+`error: "spend_cap"` and the scope, spend, budget, and period. `POST
+/api/budgets/alerts/:id/ack` is idempotent. Global budget writes use `PATCH /api/config`;
+cell budget and pause writes use `PATCH /api/cells/:id`. The Config page, Usage page, and
+app banner show the same current-month status.
 
 ### `master_events`
 
@@ -576,10 +591,11 @@ carried in the `done` event:
 - **SkillsPage** installs, lists, and removes plugins. **CellBar** creates, switches,
   renames, and deletes cells, filtering the board by `cellId`.
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
-  monthly budget/warning percentage; it also shows the current UTC-month status for the
-  overall and per-cell budgets. `CellModal` carries the optional per-cell budget.
-  `BudgetBanner` polls `GET /api/budgets` every 60 seconds and shows dismissible warning/
-  exceeded alerts above the page, with lower-bound copy for unpriced turns.
+  monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
+  shows the current UTC-month status for the overall and per-cell budgets. `CellModal`
+  carries the optional per-cell budget and pause option. `BudgetBanner` polls
+  `GET /api/budgets` every 60 seconds, shows dismissible warning/exceeded alerts, and
+  shows non-dismissible hard-cap pause notices, with lower-bound copy for unpriced turns.
 - `api.ts` is the typed client (fetch plus NDJSON readers). `ui.tsx` is the component
   kit. The bundle is vended by the brain at `/`.
 
@@ -639,6 +655,7 @@ interface Cell {
   masterIntervalMinutes: number | null; maxConcurrent: number;
   harness: HarnessId | null; model: string | null; effort: string | null;
   monthlyBudgetUsd: number | null;
+  pauseOnExceeded: boolean; // hard cap; default false
   autocompactPercent: number; // 1–99, default 80
   createdAt: number;
 }

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UsagePage } from './UsagePage';
 import { jsonResponse, makeUsageResponse } from './test/fixtures';
+import type { BudgetsResponse } from './types';
 
 const CELLS = [
   {
@@ -13,11 +14,12 @@ const CELLS = [
     model: null,
     effort: null,
     monthlyBudgetUsd: null,
+    pauseOnExceeded: false,
     createdAt: 1,
   },
 ];
 
-const BUDGETS = {
+const BUDGETS: BudgetsResponse = {
   periodStart: Date.UTC(2026, 10, 1),
   periodEnd: Date.UTC(2026, 11, 1),
   alertAtPercent: 80,
@@ -38,9 +40,15 @@ const BUDGETS = {
       unknownCostTurns: 1,
       spendIsLowerBound: true,
       state: 'warning',
+      pauseOnExceeded: true,
+      capSpendUsd: 85,
+      capSpendIsLowerBound: true,
+      unpricedTurns: 0,
+      paused: false,
     },
   ],
   alerts: [],
+  pauses: [],
 };
 
 function installFetch(
@@ -119,6 +127,33 @@ describe('UsagePage', () => {
     expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
     expect(screen.getByText(/warning at 80%/)).toBeInTheDocument();
     expect(screen.getByText(/At least \$85\.00 of \$100\.00/)).toBeInTheDocument();
+  });
+
+  it('marks a paused scope and explains the cap spend', async () => {
+    installFetch(makeUsageResponse(), {
+      ...BUDGETS,
+      statuses: [{ ...BUDGETS.statuses[0]!, paused: true, capSpendUsd: 100 }],
+      pauses: [
+        {
+          scope: 'overall',
+          cellId: null,
+          cellName: null,
+          label: 'Overall',
+          periodStart: Date.UTC(2026, 10, 1),
+          periodEnd: Date.UTC(2026, 11, 1),
+          budgetUsd: 100,
+          spendUsd: 100,
+          spendIsLowerBound: false,
+          unpricedTurns: 0,
+          percentUsed: 100,
+        },
+      ],
+    });
+    render(<UsagePage onError={vi.fn()} />);
+
+    expect(await screen.findByText('paused')).toBeInTheDocument();
+    expect(screen.getByText(/Paused at \$100\.00 cap spend/)).toBeInTheDocument();
+    expect(screen.queryByText(/budgets never stop work/i)).not.toBeInTheDocument();
   });
 
   it('does not show an all-unpriced budget as zero', async () => {

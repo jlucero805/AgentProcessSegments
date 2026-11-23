@@ -22,6 +22,7 @@ import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { createBudgetUsageReader } from '../src/usage/budget-usage.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
+import type { SpendPause } from '../src/domain/budget.js';
 
 interface Open {
   h: Harness;
@@ -35,7 +36,8 @@ async function makeApp(
   config: Partial<Harness['config']> = {},
   script?: (text: string) => string[],
 ): Promise<Open> {
-  const h = createHarness(script);
+  let admission: ((cellId: string | null) => SpendPause | null) | null = null;
+  const h = createHarness(script, undefined, (cellId) => admission?.(cellId) ?? null);
   const merged = { ...h.config, ...config };
   if (config.defaultModel !== undefined) {
     merged.defaultModels = { ...merged.defaultModels, [merged.harness]: config.defaultModel };
@@ -45,7 +47,15 @@ async function makeApp(
   const skills = new SkillCatalog({ home: h.config.dataDir, cwd: h.config.dataDir, env: {} });
   const masterEvents = new MasterEventRepository(h.db);
   const master = new MasterScheduler(
-    new MasterService({ repo: h.repo, cells: h.cells, engine: h.engine, settings, events: masterEvents, process }),
+    new MasterService({
+      repo: h.repo,
+      cells: h.cells,
+      engine: h.engine,
+      settings,
+      events: masterEvents,
+      process,
+      spendCap: (cellId) => admission?.(cellId) ?? null,
+    }),
     settings,
     h.cells,
   );
@@ -62,6 +72,7 @@ async function makeApp(
     settings,
     cells: h.cells,
     summaries,
+    spendCap: (cellId) => admission?.(cellId) ?? null,
   });
   const budgets = new BudgetService({
     usage: createBudgetUsageReader(h.usage),
@@ -69,6 +80,7 @@ async function makeApp(
     settings,
     alerts: new BudgetAlertRepository(h.db),
   });
+  admission = (cellId) => budgets.admission(cellId);
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
@@ -368,13 +380,21 @@ describe('http api', () => {
   it('reads and patches budget settings and exposes budget status', async () => {
     await makeApp();
     const before = await call('GET', '/api/config');
-    expect(before.json().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80 });
+    expect(before.json().budget).toEqual({
+      monthlyUsd: null,
+      alertAtPercent: 80,
+      pauseOnExceeded: false,
+    });
 
     const patched = await call('PATCH', '/api/config', {
       budget: { monthlyUsd: 250.5, alertAtPercent: 90 },
     });
     expect(patched.status).toBe(200);
-    expect(patched.json().budget).toEqual({ monthlyUsd: 250.5, alertAtPercent: 90 });
+    expect(patched.json().budget).toEqual({
+      monthlyUsd: 250.5,
+      alertAtPercent: 90,
+      pauseOnExceeded: false,
+    });
 
     const budgets = await call('GET', '/api/budgets');
     expect(budgets.status).toBe(200);
@@ -405,6 +425,107 @@ describe('http api', () => {
 
     const missing = await call('POST', '/api/budgets/alerts/ghost/ack');
     expect(missing.status).toBe(404);
+  });
+
+  it('returns 409 before a turn when a cell hard cap is exceeded', async () => {
+    await makeApp();
+    const cell = await call('POST', '/api/cells', {
+      name: 'Capped',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    expect(cell.status).toBe(201);
+    const cellId = (cell.json() as { id: string }).id;
+    const request = await call('POST', '/api/requests', { title: 'Blocked', cellId });
+    const requestId = (request.json() as { id: string }).id;
+    open?.h.usage.record({
+      turnId: 'cap-turn',
+      sessionId: 'cap-session',
+      scope: 'request',
+      cellId,
+      requestId,
+      model: null,
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 2,
+      createdAt: Date.now(),
+    });
+
+    const budgets = await call('GET', '/api/budgets');
+    expect((budgets.json() as { pauses: unknown[] }).pauses).toHaveLength(1);
+
+    const refused = await call('POST', `/api/requests/${requestId}/clarify/start`);
+    expect(refused.status).toBe(409);
+    expect(refused.json()).toMatchObject({
+      error: 'spend_cap',
+      scope: 'cell',
+      cellId,
+      budgetUsd: 1,
+      spendUsd: 2,
+    });
+    const after = open!.h.repo.require(requestId);
+    expect(after.clarifyStarted).toBe(false);
+    expect(after.agentStatus).toBe('none');
+    expect(after.state).toBe('clarify');
+  });
+
+  it('refuses manual master and summary runs when the overall cap is exceeded', async () => {
+    await makeApp();
+    const cell = await call('POST', '/api/cells', { name: 'Capped' });
+    const cellId = (cell.json() as { id: string }).id;
+    const patched = await call('PATCH', '/api/config', {
+      budget: { monthlyUsd: 1, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    expect(patched.json()).toMatchObject({
+      budget: { monthlyUsd: 1, pauseOnExceeded: true },
+    });
+    open?.h.usage.record({
+      turnId: 'cap-overall',
+      sessionId: 'cap-session',
+      scope: 'master',
+      cellId,
+      requestId: null,
+      model: null,
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 2,
+      createdAt: Date.now(),
+    });
+
+    const master = await call('POST', `/api/master/run?cellId=${cellId}`);
+    expect(master.status).toBe(409);
+    expect(master.json()).toMatchObject({ error: 'spend_cap', scope: 'overall' });
+
+    const summary = await call('POST', `/api/summaries/run?cellId=${cellId}`);
+    expect(summary.status).toBe(409);
+    expect(summary.json()).toMatchObject({ error: 'spend_cap', scope: 'overall' });
+  });
+
+  it('persists the cell pause flag through create and patch', async () => {
+    await makeApp();
+    const created = await call('POST', '/api/cells', {
+      name: 'Capped',
+      monthlyBudgetUsd: 10,
+      pauseOnExceeded: true,
+    });
+    expect(created.json()).toMatchObject({
+      monthlyBudgetUsd: 10,
+      pauseOnExceeded: true,
+    });
+    const id = (created.json() as { id: string }).id;
+
+    const off = await call('PATCH', `/api/cells/${id}`, { pauseOnExceeded: false });
+    expect(off.json()).toMatchObject({ pauseOnExceeded: false });
+    const on = await call('PATCH', `/api/cells/${id}`, { pauseOnExceeded: true });
+    expect(on.json()).toMatchObject({ pauseOnExceeded: true });
   });
 
   it('acknowledges a budget alert over HTTP', async () => {

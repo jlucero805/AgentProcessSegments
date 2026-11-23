@@ -1,7 +1,9 @@
 import type { CellRepository } from '../cells/repository.js';
+import type { SpendPause } from '../domain/budget.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import { errorMessage } from '../util/errors.js';
+import { SpendCapError } from '../usage/spend-cap.js';
 import type { SummaryRepository } from './repository.js';
 import type { Summary, SummaryStatus } from './types.js';
 
@@ -18,6 +20,8 @@ export interface SummarySchedulerDeps {
   cells: CellRepository;
   summaries: SummaryRepository;
   errors?: ErrorSink;
+  /** Optional hard-cap admission check for a cell. */
+  spendCap?: (cellId: string) => SpendPause | null;
 }
 
 interface QueuedSummary {
@@ -74,6 +78,8 @@ export class SummaryScheduler {
   /** Generate now. Manual runs ignore the auto-enabled switch and failure backoff. */
   runNow(cellId: string): Promise<Summary> {
     this.deps.cells.require(cellId);
+    const pause = this.deps.spendCap?.(cellId) ?? null;
+    if (pause) throw new SpendCapError(pause);
     return this.enqueue(cellId);
   }
 
@@ -138,6 +144,7 @@ export class SummaryScheduler {
 
       for (const cell of cells) {
         if (this.jobs.has(cell.id)) continue;
+        if (this.deps.spendCap?.(cell.id)) continue;
         const latest = this.deps.summaries.latest(cell.id);
         const failure = this.failures.get(cell.id);
         const dueAt = latest ? latest.createdAt + intervalMs : 0;

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BudgetBanner } from './BudgetBanner';
 import { jsonResponse } from './test/fixtures';
-import type { BudgetAlert, BudgetsResponse } from './types';
+import type { BudgetAlert, BudgetsResponse, SpendPause } from './types';
 
 const periodStart = Date.UTC(2026, 10, 1);
 const periodEnd = Date.UTC(2026, 11, 1);
@@ -25,7 +25,7 @@ function alert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
   };
 }
 
-function response(alerts: BudgetAlert[]): BudgetsResponse {
+function response(alerts: BudgetAlert[], pauses: SpendPause[] = []): BudgetsResponse {
   return {
     periodStart,
     periodEnd,
@@ -33,16 +33,17 @@ function response(alerts: BudgetAlert[]): BudgetsResponse {
     usageAvailable: true,
     statuses: [],
     alerts,
+    pauses,
   };
 }
 
-function installFetch(alerts: BudgetAlert[]): { acked: string[] } {
+function installFetch(alerts: BudgetAlert[], pauses: SpendPause[] = []): { acked: string[] } {
   const acked: string[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === '/api/budgets') return jsonResponse(response(alerts));
+      if (url === '/api/budgets') return jsonResponse(response(alerts, pauses));
       if (url.endsWith('/ack') && init?.method === 'POST') {
         const id = decodeURIComponent(url.split('/')[4] ?? '');
         acked.push(id);
@@ -88,6 +89,30 @@ describe('BudgetBanner', () => {
     expect(warning).toHaveTextContent('at least $85.00');
     expect(warning).toHaveTextContent('1 unpriced turn');
     expect(exceeded.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows a non-dismissible pause even when no alert is unacknowledged', async () => {
+    installFetch([], [
+      {
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        label: 'Overall',
+        periodStart,
+        periodEnd,
+        budgetUsd: 100,
+        spendUsd: 100,
+        spendIsLowerBound: false,
+        unpricedTurns: 0,
+        percentUsed: 100,
+      },
+    ]);
+    render(<BudgetBanner />);
+
+    const pause = await screen.findByRole('alert');
+    expect(pause).toHaveTextContent('hard cap reached');
+    expect(pause).toHaveTextContent('New work is paused');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('acknowledges and removes an alert', async () => {

@@ -499,7 +499,13 @@ describe('usage repository', () => {
 
     // Budgets read the same merged totals, so the month is not understated.
     const reader = createBudgetUsageReader(h.usage);
-    expect(reader.totals({ from: day0, to: day0 + 2 * DAY })).toEqual(before.totals);
+    expect(reader.totals({ from: day0, to: day0 + 2 * DAY })).toMatchObject({
+      turns: before.totals.turns,
+      costUsd: before.totals.costUsd,
+      estimatedCostUsd: before.totals.estimatedCostUsd,
+      unpricedTurns: before.totals.unpricedTurns,
+      unknownCostTurns: before.totals.unknownCostTurns,
+    });
 
     // Hourly series are raw-only; totals still include the rolled-up day.
     const hourly = h.usage.query({

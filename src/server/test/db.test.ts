@@ -22,6 +22,7 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('master_enabled');
     expect(columns(db, 'cells')).toContain('harness');
     expect(columns(db, 'cells')).toContain('monthly_budget_usd');
+    expect(columns(db, 'cells')).toContain('pause_on_exceeded');
     expect(columns(db, 'cells')).toContain('autocompact_percent');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
@@ -87,6 +88,7 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('max_concurrent');
     expect(columns(db, 'cells')).toContain('harness');
     expect(columns(db, 'cells')).toContain('monthly_budget_usd');
+    expect(columns(db, 'cells')).toContain('pause_on_exceeded');
     expect(columns(db, 'cells')).toContain('autocompact_percent');
     const migrated = db
       .prepare('SELECT autocompact_percent FROM cells WHERE id = ?')

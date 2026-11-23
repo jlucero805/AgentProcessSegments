@@ -4,7 +4,9 @@ import path from 'node:path';
 import { createHarness, defaultScript, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { KB_SESSION_ID, MASTER_SESSION_ID } from '../src/clarify/engine.js';
 import { requestDir } from '../src/config.js';
-import { summarySessionId } from '../src/domain/sessions.js';
+import { masterSessionId, setupSessionId, summarySessionId } from '../src/domain/sessions.js';
+import type { SpendPause } from '../src/domain/budget.js';
+import { SpendCapError } from '../src/usage/spend-cap.js';
 
 let harness: Harness | null = null;
 
@@ -494,6 +496,95 @@ describe('turn engine', () => {
         message.text.includes('never use an interactive question tool'),
       ),
     ).toBe(true);
+  });
+
+  it('refuses every new turn before mutating state when a spend cap is active', async () => {
+    let active: SpendPause | null = {
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 100,
+      spendUsd: 100,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    harness = createHarness(undefined, undefined, () => active);
+    const h = harness;
+    const cell = h.cells.create('Alpha');
+    const request = h.repo.create({ title: 'Capped', cellId: cell.id });
+    const draft = setupSessionId('draft-1');
+
+    const attempts = [
+      () => h.engine.start(request.id),
+      () => h.engine.send(request.id, 'hello'),
+      () => h.engine.kickoffDispatch(request.id),
+      () => h.engine.kickoffFinalize(request.id),
+      () => h.engine.startKb('kb'),
+      () => h.engine.startMaster('hello', masterSessionId(cell.id)),
+      () => h.engine.startSummary('facts', summarySessionId(cell.id)),
+      () => h.engine.startSetup('setup', draft),
+    ];
+    for (const attempt of attempts) {
+      await expect(attempt()).rejects.toBeInstanceOf(SpendCapError);
+    }
+
+    const after = h.repo.require(request.id);
+    expect(after.clarifyStarted).toBe(false);
+    expect(after.state).toBe('clarify');
+    expect(after.agentStatus).toBe('none');
+    expect(h.engine.hasLive(request.id)).toBe(false);
+    expect(h.harness.sessions).toHaveLength(0);
+
+    active = null;
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+    expect(h.repo.require(request.id).clarifyStarted).toBe(true);
+    expect(h.harness.sessions).toHaveLength(1);
+  });
+
+  it('pauses one cell without blocking another and resumes when the cap clears', async () => {
+    const paused: SpendPause = {
+      scope: 'cell',
+      cellId: 'cell-a',
+      cellName: 'Alpha',
+      label: 'Alpha',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 50,
+      spendUsd: 50,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    let pausedCell: string | null = null;
+    harness = createHarness(defaultScript, undefined, (cellId) =>
+      cellId === pausedCell ? paused : null,
+    );
+    const h = harness;
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+    pausedCell = alpha.id;
+    paused.cellId = alpha.id;
+    const alphaRequest = h.repo.create({ title: 'Alpha work', cellId: alpha.id });
+    const betaRequest = h.repo.create({ title: 'Beta work', cellId: beta.id });
+
+    await expect(h.engine.start(alphaRequest.id)).rejects.toBeInstanceOf(SpendCapError);
+
+    const betaTurn = await h.engine.start(betaRequest.id);
+    await betaTurn.promise;
+    await settle();
+    expect(h.repo.require(betaRequest.id).clarifyStarted).toBe(true);
+
+    pausedCell = null;
+    const alphaTurn = await h.engine.start(alphaRequest.id);
+    await alphaTurn.promise;
+    await settle();
+    expect(h.repo.require(alphaRequest.id).clarifyStarted).toBe(true);
   });
 
   it('marks a request started when its first message is sent', async () => {

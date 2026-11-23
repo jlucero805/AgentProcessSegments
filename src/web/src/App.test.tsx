@@ -40,6 +40,7 @@ function makeCell(id = 'c1', name = 'Alpha'): CellDetail {
     model: null,
     effort: null,
     monthlyBudgetUsd: null,
+    pauseOnExceeded: false,
     autocompactPercent: 80,
     process: { version: process.version, segments: process.segments },
     createdAt: 1,
@@ -199,6 +200,7 @@ describe('App', () => {
       model: null,
       effort: null,
       monthlyBudgetUsd: null,
+    pauseOnExceeded: false,
       autocompactPercent: 80,
       process: { version: process.version, segments: process.segments },
       createdAt: 1,
@@ -282,6 +284,7 @@ describe('App', () => {
       model: null,
       effort: null,
       monthlyBudgetUsd: null,
+    pauseOnExceeded: false,
       autocompactPercent: 80,
       process: {
         version: process.version,

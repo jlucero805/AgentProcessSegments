@@ -64,6 +64,7 @@ const usageSchema = z.object({
 const budgetSchema = z.object({
   monthlyUsd: z.number().positive().max(MAX_BUDGET_USD).nullable(),
   alertAtPercent: z.number().int().min(1).max(100),
+  pauseOnExceeded: z.boolean(),
 }) satisfies z.ZodType<BudgetSettings>;
 
 const retentionSchema = z.object({
@@ -181,14 +182,22 @@ export class SettingsStore {
       const parsed: unknown = JSON.parse(raw);
       const source =
         typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
-      // Files written before the summary or usage blocks existed carry only
-      // `master`. Merge each present block over the defaults so an upgrade
-      // does not silently reset operator customizations.
+      // Files written before a later block existed carry only `master`. Merge
+      // each present block over the defaults so an upgrade does not silently
+      // reset operator customizations.
+      const savedBudget = source?.['budget'];
       const candidate = {
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
         usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,
         retention: source?.['retention'] ?? DEFAULT_SETTINGS.retention,
+        // Merge the budget block over defaults so a file written before
+        // `pauseOnExceeded` existed still loads, and so a saved budget is not
+        // silently reset on restart.
+        budget: {
+          ...DEFAULT_SETTINGS.budget,
+          ...(typeof savedBudget === 'object' && savedBudget !== null ? savedBudget : {}),
+        },
       };
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {

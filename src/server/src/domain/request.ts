@@ -77,6 +77,8 @@ export interface Cell {
   effort: Effort | null;
   /** Advisory monthly spend budget in USD; null means no cell budget. */
   monthlyBudgetUsd: number | null;
+  /** When true, new work for this cell pauses once cap spend reaches its budget. */
+  pauseOnExceeded: boolean;
   /** Context-window percentage at which a request session auto-compacts. */
   autocompactPercent: number;
   createdAt: number;

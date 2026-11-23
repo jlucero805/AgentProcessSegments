@@ -29,8 +29,9 @@ digests.
 7. `docs/07-process-segments.md` is the process.json contract and automation semantics.
 8. `docs/08-user-workflows.md` is the operator workflow: cells, process choices, master
    observation, requests, review, and finalize.
-9. `docs/09-backlog.md` holds scoped but unbuilt work (hard budget caps and pricing
-   maintenance at scale). Usage rollups, budget alerts, and estimated pricing are built.
+9. `docs/09-backlog.md` holds scoped but unbuilt work (external budget delivery, hard-cap
+   refinements, and pricing maintenance at scale). Usage rollups, budget alerts, hard
+   caps, and estimated pricing are built.
 10. `docs/10-error-log.md` is the error-only log contract: path, format, rotation, sites.
 11. `docs/11-skills.md` is slash-command/skill discovery and invocation in chats.
 12. `docs/12-terminals.md` is the server-owned PTY lifecycle, session list, and API.
@@ -39,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 459 vitest cases: 312 server across 30 files and 147 web across 22 files, all green.
+- 476 vitest cases: 327 server across 30 files and 149 web across 22 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -57,7 +58,8 @@ digests.
   polling scheduler with catch-up and backoff), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
-  budgets with durable alerts and an in-app banner, an optional single-worker Merge step
+  budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
+  and an in-app alert/pause banner, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
   a systemd user unit for a VPS, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
@@ -69,9 +71,9 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, hard budget caps, and pricing maintenance at scale such as
-  bulk import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`).
-  Usage retention with daily rollups is built.
+- Not built: KB embeddings, external budget delivery, hard-cap cancellation/override, and
+  pricing maintenance at scale such as bulk import, tiers, or non-USD currencies (scoped
+  in `docs/09-backlog.md`). Usage retention with daily rollups is built.
   Review/finalize automation is configurable per cell but finalize remains human-gated;
   the CI workflow is not published yet and needs the
   `workflow` token scope.
@@ -81,7 +83,7 @@ digests.
 ```bash
 npm install
 npm run typecheck              # server then web, must print nothing
-npm test                       # 312 server + 147 web
+npm test                       # 327 server + 149 web
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -240,9 +242,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     or after the watermark and daily rows before it, so all-time totals never double count
     or lose history. Daily estimates are
     frozen at rollup time; raw days keep query-time estimates. Budget status reads
-    `UsageRepository.totals` (the same merged view), compares reported cost only, never
-    estimates missing cost, and never pauses or blocks work. Do not add guessed prices or
-    partial usage writes. Hard caps, external delivery, and pricing maintenance at scale
+    `UsageRepository.totals` (the same merged view). Advisory status and alerts compare
+    reported cost only; opt-in hard caps compare reported plus estimated cost and mark
+    unpriced spend as a lower bound. Do not add guessed prices or partial usage writes.
+    External delivery, hard-cap cancellation/override, and pricing maintenance at scale
     follow `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
@@ -304,6 +307,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and into Claude as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
     `autoCompactEnabled: true`. Note that Claude cannot raise its built-in threshold.
     KB, master, setup, and summary sessions keep the harness/global behavior.
+34. **Hard spend caps are opt-in admission checks.** `budget.pauseOnExceeded` and
+    `cells.pause_on_exceeded` default false. Cap spend is reported plus estimated cost;
+    warning thresholds and acknowledgement never pause. An overall pause refuses every
+    new agent turn, a cell pause is cell-scoped, and master/summary schedulers skip
+    paused cells without failure backoff. Check admission before `clarifyStarted`, state
+    transitions, `agentStatus`, session writes, or spawning; in-flight turns finish.
+    Refuse with `SpendCapError` / HTTP `409 spend_cap`; never log an expected refusal as an
+    error.
 
 ## Extension recipes
 

@@ -10,6 +10,15 @@ export function createBudgetUsageReader(
 ): BudgetUsageReader {
   return {
     available: () => true,
-    totals: (filter) => usage.totals(filter),
+    totals: (filter) => {
+      const totals = usage.totals(filter);
+      return {
+        turns: totals.turns,
+        costUsd: totals.costUsd,
+        estimatedCostUsd: totals.estimatedCostUsd,
+        unpricedTurns: totals.unpricedTurns,
+        unknownCostTurns: totals.unknownCostTurns,
+      };
+    },
   };
 }

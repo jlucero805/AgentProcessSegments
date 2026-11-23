@@ -124,6 +124,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [budget, setBudget] = useState<BudgetSettings | null>(null);
   const [budgetMonthly, setBudgetMonthly] = useState('');
   const [budgetAlertPercent, setBudgetAlertPercent] = useState('80');
+  const [budgetPauseOnExceeded, setBudgetPauseOnExceeded] = useState(false);
   const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaved, setBudgetSaved] = useState(false);
@@ -157,6 +158,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         loadedBudget.monthlyUsd === null ? '' : String(loadedBudget.monthlyUsd),
       );
       setBudgetAlertPercent(String(loadedBudget.alertAtPercent));
+      setBudgetPauseOnExceeded(loadedBudget.pauseOnExceeded);
       setBudgetView(
         budgetResponse && Array.isArray(budgetResponse.statuses) ? budgetResponse : null,
       );
@@ -296,14 +298,19 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     setBudgetSaving(true);
     try {
       const config = await api.patchConfig({
-        budget: { monthlyUsd, alertAtPercent },
+        budget: { monthlyUsd, alertAtPercent, pauseOnExceeded: budgetPauseOnExceeded },
       });
-      const savedBudget = config.budget ?? { monthlyUsd, alertAtPercent };
+      const savedBudget = config.budget ?? {
+        monthlyUsd,
+        alertAtPercent,
+        pauseOnExceeded: budgetPauseOnExceeded,
+      };
       setBudget(savedBudget);
       setBudgetMonthly(
         savedBudget.monthlyUsd === null ? '' : String(savedBudget.monthlyUsd),
       );
       setBudgetAlertPercent(String(savedBudget.alertAtPercent));
+      setBudgetPauseOnExceeded(savedBudget.pauseOnExceeded);
       const nextView = await api.getBudgets().catch(() => null);
       setBudgetView(nextView && Array.isArray(nextView.statuses) ? nextView : null);
       setBudgetSaved(true);
@@ -550,8 +557,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         <div>
           <SectionTitle>Spend budgets</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
-            Advisory monthly budgets for the whole brain and each cell. Alerts are warnings;
-            they never stop work.
+            Monthly budgets for the whole brain and each cell. Alerts are warnings; enable
+            pause-on-exceeded to stop starting new work for that scope at its cap.
           </p>
         </div>
 
@@ -568,7 +575,10 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-zinc-300">{status.label}</span>
-                  <Badge tone={budgetTone(status)}>{status.state}</Badge>
+                  <div className="flex items-center gap-2">
+                    {status.paused ? <Badge tone="red">paused</Badge> : null}
+                    <Badge tone={budgetTone(status)}>{status.state}</Badge>
+                  </div>
                 </div>
                 {status.state === 'unknown' ? (
                   <p className="text-[11px] text-zinc-500">
@@ -601,6 +611,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                         ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
                         : ''}
                     </p>
+                    {status.paused ? (
+                      <p className="text-[11px] text-red-300">
+                        New work is paused at {moneyLabel(status.capSpendUsd)} of{' '}
+                        {moneyLabel(status.budgetUsd)} cap spend
+                        {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
+                      </p>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -644,16 +661,28 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           </Field>
         </div>
 
+        <Checkbox
+          label="Pause new work when the overall budget is exceeded"
+          checked={budgetPauseOnExceeded}
+          onChange={() => {
+            setBudgetPauseOnExceeded((current) => !current);
+            setBudgetSaved(false);
+          }}
+        />
+
         <p className="text-[11px] text-zinc-600">
-          Budgets use the UTC calendar month. Costs are harness-reported; unpriced turns are
-          shown as unknown or a lower bound. Cell budgets are set when editing a cell.
+          Budgets use the UTC calendar month. Alerts use harness-reported cost; hard caps also
+          count estimated cost, and unpriced turns are shown as a lower bound. Cell budgets and
+          their pause option are set when editing a cell.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[11px] text-zinc-600">
             {budget?.monthlyUsd === null
               ? 'No overall budget saved.'
-              : `Overall budget ${moneyLabel(budget?.monthlyUsd ?? 0)} per month.`}
+              : `Overall budget ${moneyLabel(budget?.monthlyUsd ?? 0)} per month${
+                  budget?.pauseOnExceeded ? ' with pause on exceeded.' : '.'
+                }`}
           </p>
           <div className="flex items-center justify-end gap-2">
             {budgetSaved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}

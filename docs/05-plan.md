@@ -223,3 +223,7 @@ states dispose the session as before; disabling the master stops scheduling imme
   `usage_rollup_state` watermark written in bounded chunks before pruning, merged
   raw/daily queries for totals/series/groups/budgets, additive
   `GET /api/usage` coverage, Usage/Config copy, tests, and docs.
+- [x] **45. Opt-in hard spend caps** — overall and per-cell pause-on-exceeded policy,
+  reported-plus-estimated cap spend, engine admission before turn side effects,
+  scheduler skips, `409 spend_cap`, pause banner/status, persisted budget reload fix,
+  tests and docs.

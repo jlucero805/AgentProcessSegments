@@ -14,6 +14,7 @@ import { TurnParser } from '../src/clarify/stream.js';
 import type { AgentProcess } from '../src/clarify/transport.js';
 import { loadConfig, type Config } from '../src/config.js';
 import { openDb, type Db } from '../src/db.js';
+import type { SpendPause } from '../src/domain/budget.js';
 import type { HarnessId } from '../src/domain/harness.js';
 import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
@@ -186,6 +187,7 @@ export function createHarness(
         autocompactPercent?: number;
       }
     | null,
+  spendCap?: (cellId: string | null) => SpendPause | null,
 ): Harness {
   const config = testConfig();
   const db = openDb(config.dbPath);
@@ -206,6 +208,7 @@ export function createHarness(
     config,
     usage,
     pluginDirs: () => plugins.installedPluginDirs(),
+    spendCap,
     cellConfig:
       cellConfig ??
       ((cellId) => {

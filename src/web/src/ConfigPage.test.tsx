@@ -41,11 +41,12 @@ const cell: Cell = {
   model: null,
   effort: null,
   monthlyBudgetUsd: null,
+  pauseOnExceeded: false,
   autocompactPercent: 80,
   createdAt: 1,
 };
 
-const budget = { monthlyUsd: 100, alertAtPercent: 80 };
+const budget = { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: false };
 
 const budgetView: BudgetsResponse = {
   periodStart: Date.UTC(2026, 10, 1),
@@ -68,9 +69,15 @@ const budgetView: BudgetsResponse = {
       unknownCostTurns: 1,
       spendIsLowerBound: true,
       state: 'warning',
+      pauseOnExceeded: false,
+      capSpendUsd: 85,
+      capSpendIsLowerBound: true,
+      unpricedTurns: 0,
+      paused: false,
     },
   ],
   alerts: [],
+  pauses: [],
 };
 
 const event: MasterEvent = {
@@ -87,7 +94,11 @@ interface Captured {
     master?: Partial<MasterConfig>;
     summary?: Partial<SummaryConfig>;
     usage?: Partial<UsageSettings>;
-    budget?: { monthlyUsd?: number | null; alertAtPercent?: number };
+    budget?: {
+      monthlyUsd?: number | null;
+      alertAtPercent?: number;
+      pauseOnExceeded?: boolean;
+    };
   };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
@@ -243,10 +254,19 @@ describe('ConfigPage', () => {
 
     fireEvent.change(monthly, { target: { value: '250.5' } });
     fireEvent.change(threshold, { target: { value: '90' } });
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: /pause new work when the overall budget is exceeded/i,
+      }),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Save budgets' }));
 
     await waitFor(() =>
-      expect(captured.config?.budget).toEqual({ monthlyUsd: 250.5, alertAtPercent: 90 }),
+      expect(captured.config?.budget).toEqual({
+        monthlyUsd: 250.5,
+        alertAtPercent: 90,
+        pauseOnExceeded: true,
+      }),
     );
     expect(captured.config?.master).toBeUndefined();
   });

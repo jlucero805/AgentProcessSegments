@@ -21,7 +21,13 @@ const NOW = Date.UTC(2026, 10, 15, 12, 0, 0);
 const PERIOD = budgetPeriod(NOW);
 
 function emptyTotals(): BudgetUsageTotals {
-  return { turns: 0, costUsd: null, unknownCostTurns: 0 };
+  return {
+    turns: 0,
+    costUsd: null,
+    estimatedCostUsd: null,
+    unpricedTurns: 0,
+    unknownCostTurns: 0,
+  };
 }
 
 class FakeReader implements BudgetUsageReader {
@@ -270,6 +276,161 @@ describe('budgets', () => {
     const next = service.statuses(nextMonth).alerts[0]!;
     expect(next.periodStart).toBe(Date.UTC(2026, 11, 1));
     expect(next.id).not.toBe(first.id);
+  });
+
+  it('pauses on effective cap spend only when the scope opts in', () => {
+    const reader = new FakeReader();
+    const { service, settings } = makeService(reader);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    reader.overall = {
+      turns: 2,
+      costUsd: 80,
+      estimatedCostUsd: 20,
+      unpricedTurns: 0,
+      unknownCostTurns: 1,
+    };
+
+    const status = service.statuses(NOW).statuses[0]!;
+    expect(status.state).toBe('warning');
+    expect(status.spendUsd).toBe(80);
+    expect(status.capSpendUsd).toBe(100);
+    expect(status.paused).toBe(true);
+    expect(status.capSpendIsLowerBound).toBe(false);
+    expect(service.statuses(NOW).pauses).toHaveLength(1);
+    expect(service.admission(null, NOW)).toMatchObject({
+      scope: 'overall',
+      budgetUsd: 100,
+      spendUsd: 100,
+    });
+
+    settings.patch({ budget: { pauseOnExceeded: false } });
+    expect(service.statuses(NOW).pauses).toEqual([]);
+    expect(service.admission(null, NOW)).toBeNull();
+  });
+
+  it('does not pause at the warning threshold', () => {
+    const reader = new FakeReader();
+    const { service, settings } = makeService(reader);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    reader.overall = {
+      turns: 1,
+      costUsd: 85,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+
+    const status = service.statuses(NOW).statuses[0]!;
+    expect(status.state).toBe('warning');
+    expect(status.paused).toBe(false);
+    expect(service.admission(null, NOW)).toBeNull();
+  });
+
+  it('does not pause on an unknown or unpriced budget', () => {
+    const reader = new FakeReader();
+    const { service, settings } = makeService(reader);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    reader.overall = {
+      turns: 2,
+      costUsd: null,
+      estimatedCostUsd: null,
+      unpricedTurns: 2,
+      unknownCostTurns: 2,
+    };
+
+    const status = service.statuses(NOW).statuses[0]!;
+    expect(status.state).toBe('unknown');
+    expect(status.paused).toBe(false);
+    expect(status.capSpendIsLowerBound).toBe(true);
+    expect(service.admission(null, NOW)).toBeNull();
+  });
+
+  it('scopes a cell pause and lets overall win', () => {
+    const reader = new FakeReader();
+    const { service, cells, settings } = makeService(reader);
+    const alpha = cells.create('Alpha');
+    const beta = cells.create('Beta');
+    cells.setMonthlyBudget(alpha.id, 50);
+    cells.setMonthlyBudget(beta.id, 50);
+    cells.setPauseOnExceeded(alpha.id, true);
+    reader.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 50,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+    reader.cells.set(beta.id, {
+      turns: 1,
+      costUsd: 10,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+
+    expect(service.admission(alpha.id, NOW)).toMatchObject({ scope: 'cell', cellId: alpha.id });
+    expect(service.admission(beta.id, NOW)).toBeNull();
+    expect(service.statuses(NOW).pauses).toHaveLength(1);
+
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    reader.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    expect(service.admission(alpha.id, NOW)).toMatchObject({ scope: 'overall' });
+    expect(service.admission(beta.id, NOW)).toMatchObject({ scope: 'overall' });
+  });
+
+  it('does not let acknowledgement clear a pause and resumes in a new month', () => {
+    const reader = new FakeReader();
+    const { service, settings } = makeService(reader);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    reader.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    service.evaluate(NOW);
+    const alert = service.statuses(NOW).alerts[0]!;
+    service.acknowledge(alert.id);
+    expect(service.statuses(NOW).alerts).toEqual([]);
+    expect(service.admission(null, NOW)).not.toBeNull();
+
+    reader.overall = emptyTotals();
+    const nextMonth = Date.UTC(2026, 11, 2, 12);
+    expect(service.admission(null, nextMonth)).toBeNull();
+  });
+
+  it('fails open when admission cannot read the ledger', () => {
+    const reader = new FakeReader();
+    reader.throwOnTotals = true;
+    const errors: ErrorSink = { error: vi.fn() };
+    const { service, settings } = makeService(reader, makeStore(), errors);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+
+    expect(service.admission(null, NOW)).toBeNull();
+    expect(errors.error).toHaveBeenCalledWith(
+      'usage.budgets',
+      expect.any(Error),
+      expect.objectContaining({ phase: 'admission' }),
+    );
   });
 
   it('reports evaluation failures without throwing', () => {

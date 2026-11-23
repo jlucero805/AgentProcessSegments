@@ -7,7 +7,9 @@ import { openDb, type Db } from '../src/db.js';
 import { SettingsStore } from '../src/settings.js';
 import { SummaryRepository } from '../src/summary/repository.js';
 import { SummaryScheduler } from '../src/summary/scheduler.js';
+import type { SpendPause } from '../src/domain/budget.js';
 import type { Summary, SummaryStats } from '../src/summary/types.js';
+import { SpendCapError } from '../src/usage/spend-cap.js';
 
 const HOUR = 60 * 60_000;
 const INTERVAL = 6 * HOUR;
@@ -66,7 +68,10 @@ interface Fixture {
   generate: ReturnType<typeof vi.fn>;
 }
 
-function setup(generateImpl?: (cellId: string) => Promise<Summary>): Fixture {
+function setup(
+  generateImpl?: (cellId: string) => Promise<Summary>,
+  spendCap?: (cellId: string) => SpendPause | null,
+): Fixture {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-summary-scan-'));
   const db = openDb(path.join(base, 'db.sqlite'));
   const cells = new CellRepository(db);
@@ -92,6 +97,7 @@ function setup(generateImpl?: (cellId: string) => Promise<Summary>): Fixture {
     settings,
     cells,
     summaries,
+    ...(spendCap ? { spendCap } : {}),
   });
   return { db, cells, summaries, settings, scheduler, generate };
 }
@@ -105,6 +111,39 @@ afterEach(() => {
 });
 
 describe('SummaryScheduler', () => {
+  it('skips a paused cell and refuses a manual run without failure backoff', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    let pause: SpendPause | null = {
+      scope: 'cell',
+      cellId: 'cell',
+      cellName: 'Alpha',
+      label: 'Alpha',
+      periodStart: Date.UTC(2026, 0, 1),
+      periodEnd: Date.UTC(2026, 1, 1),
+      budgetUsd: 10,
+      spendUsd: 10,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    const fixture = setup(undefined, () => pause);
+    const cell = fixture.cells.create('Alpha');
+    pause = { ...(pause as SpendPause), cellId: cell.id };
+
+    fixture.scheduler.start();
+    await flush();
+    expect(fixture.generate).not.toHaveBeenCalled();
+    expect(() => fixture.scheduler.runNow(cell.id)).toThrow(SpendCapError);
+    expect(fixture.scheduler.statusFor(cell.id).lastError).toBeNull();
+
+    pause = null;
+    fixture.scheduler.refresh();
+    await flush();
+    expect(fixture.generate).toHaveBeenCalledTimes(1);
+    fixture.scheduler.stop();
+  });
+
   it('catches up immediately, gates on the interval, and stops when disabled', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));

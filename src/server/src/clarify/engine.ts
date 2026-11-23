@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
+import type { SpendPause } from '../domain/budget.js';
 import { isHarnessId, resolveHarness as resolveHarnessOrder, type HarnessId } from '../domain/harness.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import { DEFAULT_AUTOCOMPACT_PERCENT } from '../domain/request.js';
@@ -16,6 +17,7 @@ import {
 import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { UsageRepository } from '../usage/repository.js';
+import { SpendCapError } from '../usage/spend-cap.js';
 import type { UsageScope } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
 import type {
@@ -118,6 +120,8 @@ export interface EngineDeps {
     | null;
   /** Error-only sink; ordinary transcript/turn logs are not persisted here. */
   errors?: ErrorSink;
+  /** Optional admission check; returning a pause refuses a new turn. */
+  spendCap?: (cellId: string | null) => SpendPause | null;
 }
 
 export class Engine {
@@ -150,6 +154,12 @@ export class Engine {
 
   private harnessFor(harnessId: HarnessId): AgentHarness {
     return this.deps.harnesses.get(harnessId);
+  }
+
+  /** Refuse a new turn before any request/session/process side effect. */
+  private assertSpend(cellId: string | null): void {
+    const pause = this.deps.spendCap?.(cellId) ?? null;
+    if (pause) throw new SpendCapError(pause);
   }
 
   hasLive(id: string): boolean {
@@ -196,6 +206,7 @@ export class Engine {
     const existing = this.turns.get(id);
     if (existing) return existing;
 
+    this.assertSpend(this.repo.require(id).cellId);
     const request = this.repo.setClarifyStarted(id, true);
     const savedSession = this.readSession(id, this.resolveHarness(id, request));
     const base = savedSession
@@ -214,6 +225,7 @@ export class Engine {
     const existing = this.turns.get(id);
     if (existing) return existing;
     // Sending the first message is starting clarify, even if `/start` was skipped.
+    this.assertSpend(this.repo.require(id).cellId);
     const request = this.repo.setClarifyStarted(id, true);
     return this.beginTurn(id, text, request);
   }
@@ -222,6 +234,7 @@ export class Engine {
     const existing = this.turns.get(id);
     if (existing) return existing;
     const current = this.repo.require(id);
+    this.assertSpend(current.cellId);
     const request = current.state === 'dispatch' ? current : this.repo.transition(id, 'dispatch');
     return this.beginTurn(id, dispatchPrompt(request), request);
   }
@@ -230,6 +243,7 @@ export class Engine {
     const existing = this.turns.get(id);
     if (existing) return existing;
     const current = this.repo.require(id);
+    this.assertSpend(current.cellId);
     const request = current.state === 'finalize' ? current : this.repo.transition(id, 'finalize');
     return this.beginTurn(id, finalizePrompt(request), request);
   }
@@ -237,6 +251,7 @@ export class Engine {
   async startKb(text: string): Promise<LiveTurn> {
     const existing = this.turns.get(KB_SESSION_ID);
     if (existing) return existing;
+    this.assertSpend(null);
     const saved = this.readSession(KB_SESSION_ID, this.deps.harnesses.defaultId);
     const message = saved ? text : `${kbSeedPrompt()}\n\n---\n\n${text}`;
     return this.beginTurn(KB_SESSION_ID, message, null);
@@ -250,6 +265,7 @@ export class Engine {
   ): Promise<LiveTurn> {
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
+    this.assertSpend(masterCellId(sessionId));
     const saved = this.readSession(sessionId, this.resolveHarness(sessionId, null));
     const message = saved
       ? text.trim() === ''
@@ -267,6 +283,7 @@ export class Engine {
   ): Promise<LiveTurn> {
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
+    this.assertSpend(summaryCellId(sessionId));
     const saved = this.readSession(sessionId, this.resolveHarness(sessionId, null));
     const message = saved
       ? text
@@ -278,6 +295,7 @@ export class Engine {
   async startSetup(text: string, sessionId: string): Promise<LiveTurn> {
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
+    this.assertSpend(null);
     const saved = this.readSession(sessionId, this.deps.harnesses.defaultId);
     const message = saved
       ? text.trim() === ''

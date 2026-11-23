@@ -205,20 +205,24 @@ built and vended by the brain; real-CLI verification is still pending.
   on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
-- Spend budgets: an advisory overall monthly budget and warning percentage live in
-  `config.json`; each cell can store `monthly_budget_usd`. Budgets use the UTC calendar
-  month and only harness-reported cost. `budget_alerts` stores durable warning/exceeded
-  rows keyed by scope, month, threshold, budget, and warning percentage; `GET
-  /api/budgets` exposes status and unacknowledged alerts, and `POST
-  /api/budgets/alerts/:id/ack` dismisses one. The Config page edits the overall budget and
-  threshold, the cell editor edits a cell budget, the Usage page shows the same monthly
-  progress, and an app-wide banner surfaces active alerts. Unpriced turns are reported as
-  unknown or a lower bound, never guessed. The layer reads `UsageRepository.totals` and
-  never stops work.
+- Spend budgets: an overall monthly budget, warning percentage, and opt-in
+  `pauseOnExceeded` live in `config.json`; each cell can store `monthly_budget_usd` and
+  `pause_on_exceeded`. Budgets use the UTC calendar month. Advisory alerts use
+  harness-reported cost; hard caps use reported plus estimated cost and return `409
+  spend_cap` before a new turn. `budget_alerts` stores durable warning/exceeded rows keyed
+  by scope, month, threshold, budget, and warning percentage; `GET /api/budgets` exposes
+  status, unacknowledged alerts, and active `pauses`; `POST
+  /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. The Config
+  page edits the overall policy, the cell editor edits a cell policy, the Usage page shows
+  the same monthly progress, and an app-wide banner surfaces alerts and pauses. Unpriced
+  turns are reported as unknown or a lower bound, never guessed. Overall pauses block all
+  new agent turns; cell pauses are cell-scoped; in-flight turns finish.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), and spend budget
-  (`monthlyUsd`, `alertAtPercent`), validated with zod and written atomically. Older files
+  (`monthlyUsd`, `alertAtPercent`, `pauseOnExceeded`), validated with zod and written
+  atomically. A saved budget block is merged over defaults on load, including files written
+  before `pauseOnExceeded` existed. Older files
   with only `master` keep their values and gain the default summary, usage, and budget
   blocks. `GET/PATCH /api/config` expose all blocks. `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
@@ -246,7 +250,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 432 vitest cases, all passing: 290 server across 28 files and 142 web across 22 files,
+- 466 vitest cases, all passing: 318 server across 29 files and 148 web across 22 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -351,8 +355,8 @@ GET    /api/cell-drafts/:id
 PUT    /api/cell-drafts/:id
 PATCH  /api/cell-drafts/:id
 DELETE /api/cell-drafts/:id
-POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?}
-PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, process?}
+POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, pauseOnExceeded?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, pauseOnExceeded?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}
@@ -360,8 +364,8 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master?:{…}, summary?:{…}, budget?:{monthlyUsd?, alertAtPercent?}}
-GET    /api/budgets                       statuses + unacknowledged current-month alerts
+PATCH  /api/config                        {master?:{…}, summary?:{…}, budget?:{monthlyUsd?, alertAtPercent?, pauseOnExceeded?}}
+GET    /api/budgets                       statuses + unacknowledged alerts + active pauses
 POST   /api/budgets/alerts/:id/ack
 GET    /api/process
 PATCH  /api/process                       {segments:[…]}

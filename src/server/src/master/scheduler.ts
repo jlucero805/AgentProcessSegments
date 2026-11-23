@@ -1,6 +1,7 @@
 import type { CellRepository } from '../cells/repository.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
+import { SpendCapError } from '../usage/spend-cap.js';
 import type { MasterService } from './service.js';
 import type { MasterResult, MasterStatus } from './types.js';
 
@@ -97,6 +98,8 @@ export class MasterScheduler {
   }
 
   async runNow(cellId: string): Promise<MasterResult> {
+    const pause = this.service.pauseFor(cellId);
+    if (pause) throw new SpendCapError(pause);
     return this.runKey(cellId, () => this.service.runCell(cellId));
   }
 

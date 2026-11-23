@@ -114,7 +114,8 @@ function BudgetSummary({
         <div>
           <SectionTitle>Monthly budgets</SectionTitle>
           <p className="mt-1 text-[11px] text-zinc-600">
-            {month} (UTC) · advisory only; budgets never stop work.
+            {month} (UTC) · alerts use reported cost; pause-on-exceeded caps also count
+            estimates.
           </p>
         </div>
         <span className="text-xs text-zinc-500">warning at {budgets.alertAtPercent}%</span>
@@ -137,7 +138,10 @@ function BudgetSummary({
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-xs text-zinc-300">{status.label}</span>
-                <Badge tone={budgetTone(status)}>{status.state}</Badge>
+                <div className="flex items-center gap-2">
+                  {status.paused ? <Badge tone="red">paused</Badge> : null}
+                  <Badge tone={budgetTone(status)}>{status.state}</Badge>
+                </div>
               </div>
               {status.state === 'unknown' ? (
                 <p className="text-[11px] text-zinc-500">
@@ -168,6 +172,12 @@ function BudgetSummary({
                     {status.percentUsed.toFixed(0)}% used · {moneyLabel(status.remainingUsd)}{' '}
                     remaining
                   </p>
+                  {status.paused ? (
+                    <p className="text-[11px] text-red-300">
+                      Paused at {moneyLabel(status.capSpendUsd)} cap spend
+                      {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>

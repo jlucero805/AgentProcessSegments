@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, describeError } from './api';
-import type { BudgetAlert } from './types';
+import type { BudgetAlert, SpendPause } from './types';
 import { cn } from './ui';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -23,16 +23,20 @@ function alertText(alert: BudgetAlert): string {
   return `${label} reached ${pct(alert.alertAtPercent)} of its ${moneyLabel(alert.budgetUsd)} monthly budget (${spend}).`;
 }
 
-/** Durable, dismissible budget alerts shared by every page. */
+/** Durable alerts plus non-dismissible hard-cap pause notices shared by every page. */
 export function BudgetBanner({ onError }: { onError?: (message: string) => void }) {
   const [alerts, setAlerts] = useState<BudgetAlert[]>([]);
+  const [pauses, setPauses] = useState<SpendPause[]>([]);
 
   useEffect(() => {
     let mounted = true;
     const refresh = async () => {
       try {
         const response = await api.getBudgets();
-        if (mounted) setAlerts(Array.isArray(response.alerts) ? response.alerts : []);
+        if (mounted) {
+          setAlerts(Array.isArray(response.alerts) ? response.alerts : []);
+          setPauses(Array.isArray(response.pauses) ? response.pauses : []);
+        }
       } catch {
         // The banner is ambient; a transient poll failure must not replace the page.
       }
@@ -54,7 +58,7 @@ export function BudgetBanner({ onError }: { onError?: (message: string) => void 
     }
   };
 
-  if (alerts.length === 0) return null;
+  if (alerts.length === 0 && pauses.length === 0) return null;
   const ordered = [...alerts].sort((left, right) => {
     if (left.threshold !== right.threshold) return left.threshold === 'exceeded' ? -1 : 1;
     return right.createdAt - left.createdAt;
@@ -65,6 +69,29 @@ export function BudgetBanner({ onError }: { onError?: (message: string) => void 
       aria-label="Budget alerts"
       className="space-y-2 border-b border-zinc-900 bg-zinc-950 px-3 py-2"
     >
+      {pauses.map((pause) => {
+        const label = pause.scope === 'overall' ? 'Overall spend' : pause.cellName ?? 'Cell spend';
+        const spend = `${pause.spendIsLowerBound ? 'at least ' : ''}${moneyLabel(pause.spendUsd)}`;
+        return (
+          <div
+            key={`pause:${pause.scope}:${pause.cellId ?? ''}`}
+            role="alert"
+            className="rounded-lg border border-red-900 bg-red-950/60 px-3 py-2 text-xs text-red-200"
+          >
+            <p className="break-words">
+              {label} hard cap reached: {spend} of {moneyLabel(pause.budgetUsd)} for the current
+              UTC month. New work is paused; raise or clear the budget, or turn off the pause
+              option, to resume.
+            </p>
+            {pause.spendIsLowerBound ? (
+              <p className="mt-0.5 text-[11px] opacity-80">
+                {pause.unpricedTurns} unpriced turn{pause.unpricedTurns === 1 ? '' : 's'}; cap
+                spend is a lower bound.
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
       {ordered.map((alert) => {
         const exceeded = alert.threshold === 'exceeded';
         return (

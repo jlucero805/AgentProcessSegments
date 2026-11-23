@@ -215,16 +215,19 @@ migrated locations.
 
 ## Spend budgets
 
-The Config page edits an advisory **overall monthly budget** and warning percentage; each
-cell has an optional monthly budget in its editor. Budgets use the UTC calendar month and
-only harness-reported `cost_usd`. Unpriced turns are shown as unknown or a lower bound,
-never as zero or a guessed estimate. Crossing the warning percentage or the budget creates
-a durable alert shown in a dismissible banner; acknowledging it silences that alert for the
-month. Budgets never pause or block work.
+The Config page edits an **overall monthly budget** and warning percentage; each cell has
+an optional monthly budget in its editor. Budgets use the UTC calendar month. Alerts use
+harness-reported `cost_usd`; unpriced turns are shown as unknown or a lower bound, never as
+zero. Crossing the warning percentage or the budget creates a durable alert shown in a
+dismissible banner; acknowledging it silences that alert for the month.
 
-The budget layer reads totals from the usage repository and is shown on both the Config
-page and the Usage page. Hard spend caps and external notification delivery are separate
-backlog items.
+Each scope can also opt into **pause on exceeded**. A hard cap counts reported plus
+estimated cost, pauses new work at the cap, and leaves in-flight turns alone. Overall
+pauses every new agent turn; a cell pause affects only that cell's request, master, and
+summary work. Raise or clear the budget, turn the option off, or wait for the UTC month to
+roll over to resume. Acknowledging an alert does not override a pause. The same cap spend
+and pause state are shown on the Config and Usage pages and in the app banner. External
+notification delivery remains a separate backlog item.
 
 ## Docs
 
@@ -236,7 +239,7 @@ backlog items.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (hard budget caps, pricing maintenance)
+- `docs/09-backlog.md` scoped follow-ups (external budget delivery, hard-cap refinements, pricing maintenance)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -326,16 +329,16 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 432 vitest cases: 290 server cases (state machine, migrations including
+`npm test` runs 466 vitest cases: 318 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, engine turns over a
 fake harness, worktree isolation against a real git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts, docs manifest/traversal/HTTP, error-log
+stats/generation/scheduling, budget status/alerts/hard caps, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 142 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 148 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget banner, master detail and scorecard, the usage page and formatters, and

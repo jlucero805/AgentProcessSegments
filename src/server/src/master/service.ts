@@ -1,6 +1,7 @@
 import type { Engine, LiveTurn } from '../clarify/engine.js';
 import { masterSessionId } from '../clarify/engine.js';
 import type { CellRepository } from '../cells/repository.js';
+import type { SpendPause } from '../domain/budget.js';
 import { canTransition, isTerminal, type Request, type State } from '../domain/request.js';
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
@@ -18,6 +19,7 @@ import type { ProcessStore } from '../process/store.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
 import { errorMessage } from '../util/errors.js';
+import { spendPauseMessage } from '../usage/spend-cap.js';
 
 interface Bucket {
   cellId: string;
@@ -43,6 +45,8 @@ export interface MasterServiceDeps {
   /** Optional so tests and old callers keep the legacy derived policy. */
   process?: ProcessStore | undefined;
   errors?: ErrorSink;
+  /** Optional hard-cap admission check for a cell. */
+  spendCap?: (cellId: string) => SpendPause | null;
 }
 
 /** Pipeline position, with the finishing stages later than the planning stages. */
@@ -91,8 +95,14 @@ export class MasterService {
   lastResult: MasterResult | null = null;
 
   private readonly lastByCell = new Map<string, { at: number; result: MasterResult }>();
+  private readonly paused = new Map<string, string>();
 
   constructor(private readonly deps: MasterServiceDeps) {}
+
+  /** Exposed so a manual Run now can return a structured refusal. */
+  pauseFor(cellId: string): SpendPause | null {
+    return this.deps.spendCap?.(cellId) ?? null;
+  }
 
   private note(cellId: string, text: string): void {
     this.deps.engine.note(masterSessionId(cellId), text);
@@ -408,6 +418,32 @@ export class MasterService {
     const process = this.deps.cells.getProcess(bucket.cellId) ?? globalProcess;
     const result = emptyResult(now);
     result.cells = 1;
+
+    const pause = this.deps.spendCap?.(bucket.cellId) ?? null;
+    if (pause) {
+      // A pause episode is the scope + period + budget. Re-noting on every tick
+      // would bury the master chat in identical skip messages.
+      const key = `${pause.scope}:${pause.periodStart}:${pause.budgetUsd}`;
+      if (this.paused.get(bucket.cellId) !== key) {
+        this.paused.set(bucket.cellId, key);
+        const detail = spendPauseMessage(pause);
+        this.record({
+          cellId: bucket.cellId,
+          requestId: null,
+          action: 'skip',
+          detail: `paused: ${detail}`,
+        });
+        this.note(bucket.cellId, `Paused new work: ${detail}`);
+      }
+      result.skipped = 1;
+      this.lastByCell.set(bucket.cellId, { at: now, result });
+      this.lastRunAt = now;
+      this.lastResult = result;
+      return result;
+    }
+    if (this.paused.delete(bucket.cellId)) {
+      this.note(bucket.cellId, 'Resumed new work: spending is under its cap.');
+    }
 
     const selection = this.selectCandidates(process, bucket, now);
     result.dispatch = selection.candidates.length;

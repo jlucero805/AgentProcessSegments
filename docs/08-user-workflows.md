@@ -140,16 +140,20 @@ last five.
 
 1. Open **Config** and use **Spend budgets** to set an overall monthly budget and warning
    percentage. Leave the amount blank to remove the overall budget.
-2. Edit a cell to set its optional monthly budget. Blank means no cell budget.
+2. Tick **Pause new work when the overall budget is exceeded** to make the overall budget a
+   hard cap. Edit a cell for an optional monthly budget and its own pause checkbox.
 3. Budgets use the UTC calendar month. A warning appears at the configured percentage and
-   an exceeded alert appears when known spend reaches the budget. Both are advisory and
-   never stop work.
-4. Active alerts appear above every page. Press the alert's **×** to acknowledge it;
-   that alert stays silent for the rest of the month (a new month or a changed
-   budget/threshold can alert again).
-5. Costs are harness-reported only. Unpriced turns are counted and shown as unknown or a
-   lower bound, never as zero. The Usage page shows the same monthly budget progress
-   beside the token and cost breakdowns.
+   an exceeded alert appears when reported spend reaches the budget. Alerts alone never
+   stop work.
+4. With pause enabled, new work stops when reported plus estimated cap spend reaches the
+   budget. An overall pause stops every new agent turn; a cell pause stops only that
+   cell's request, master, and summary turns. Running turns finish. Raise or clear the
+   budget, turn the checkbox off, or wait for the next UTC month to resume.
+5. Active alerts appear above every page and can be dismissed with **×**; dismissing does
+   not override a hard cap. A separate red pause notice stays until spending is under the
+   cap again. The Usage page shows paused scopes and cap spend.
+6. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
+   are counted and shown as unknown or a lower bound, never as zero.
 ## 4d. Read spend and maintain model prices
 
 - Open **Usage** from the sidebar. Pick 24h, 7d, 30d, or all time and optionally one
@@ -207,8 +211,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Global process template | `$XDG_CONFIG_HOME/agent-process-segments/process.json` (`APS_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
 | Per-cell harness | `cells.harness` in SQLite (NULL = `APS_HARNESS`) |
-| Overall spend budget | `budget` in `config.json` |
-| Cell spend budget | `cells.monthly_budget_usd` in SQLite |
+| Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `pauseOnExceeded`) |
+| Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded` in SQLite |
 | Budget alert history | `budget_alerts` in SQLite |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` |

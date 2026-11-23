@@ -43,6 +43,7 @@ export type {
   BudgetStatus,
   BudgetThreshold,
   BudgetsResponse,
+  SpendPause,
 } from '../../server/src/domain/budget';
 export { DEFAULT_BUDGET_SETTINGS, MAX_BUDGET_USD } from '../../server/src/domain/budget';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';

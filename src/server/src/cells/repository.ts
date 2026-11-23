@@ -16,6 +16,7 @@ interface CellRow {
   model: string | null;
   effort: Effort | null;
   monthly_budget_usd: number | null;
+  pause_on_exceeded: number;
   autocompact_percent: number;
   process_json: string | null;
   created_at: number;
@@ -49,6 +50,7 @@ function toCell(row: CellRow): CellDetail {
     model: row.model,
     effort: row.effort,
     monthlyBudgetUsd: row.monthly_budget_usd ?? null,
+    pauseOnExceeded: row.pause_on_exceeded === 1,
     autocompactPercent: row.autocompact_percent ?? DEFAULT_AUTOCOMPACT_PERCENT,
     process: parseProcess(row.process_json),
     createdAt: row.created_at,
@@ -84,6 +86,7 @@ export class CellRepository {
       model?: string | null;
       effort?: Effort | null;
       monthlyBudgetUsd?: number | null;
+      pauseOnExceeded?: boolean;
       autocompactPercent?: number;
     } = {},
   ): CellDetail {
@@ -92,8 +95,9 @@ export class CellRepository {
       .prepare(
         `INSERT INTO cells
            (id, name, master_enabled, master_interval_minutes, max_concurrent, harness, model,
-            effort, monthly_budget_usd, autocompact_percent, process_json, created_at)
-         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            effort, monthly_budget_usd, pause_on_exceeded, autocompact_percent, process_json,
+            created_at)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -104,6 +108,7 @@ export class CellRepository {
         options.model ?? null,
         options.effort ?? null,
         options.monthlyBudgetUsd ?? null,
+        options.pauseOnExceeded ? 1 : 0,
         options.autocompactPercent ?? DEFAULT_AUTOCOMPACT_PERCENT,
         process ? JSON.stringify(process) : null,
         Date.now(),
@@ -155,6 +160,14 @@ export class CellRepository {
     const result = this.db
       .prepare('UPDATE cells SET monthly_budget_usd = ? WHERE id = ?')
       .run(monthlyBudgetUsd, id);
+    if (result.changes === 0) throw new CellNotFoundError(id);
+    return this.require(id);
+  }
+
+  setPauseOnExceeded(id: string, pauseOnExceeded: boolean): CellDetail {
+    const result = this.db
+      .prepare('UPDATE cells SET pause_on_exceeded = ? WHERE id = ?')
+      .run(pauseOnExceeded ? 1 : 0, id);
     if (result.changes === 0) throw new CellNotFoundError(id);
     return this.require(id);
   }

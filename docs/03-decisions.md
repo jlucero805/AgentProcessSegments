@@ -762,12 +762,12 @@ budget amount and warning percentage, so changing either starts a new generation
 deleting acknowledged history. Exceeded supersedes warning; acknowledging one silences
 that generation for the month. `BudgetService` evaluates on start, every 60 seconds, and
 on settings/cell changes, reports failures as `usage.budgets`, and never affects a turn.
-Budgets never pause or block work.
+Advisory budgets never pause or block work; opt-in hard caps are D53.
 
 **Cost.** Budget status is shown on Config, the Usage page, and the app banner. The unique
 alert identity includes REAL budget amounts, which is acceptable for operator-entered
-dollar values. Hard caps and external delivery remain separate work; usage retention uses
-D45, daily rollups are added by D52. A retention window shorter than the month makes spend
+dollar values. Advisory alerts never pause work; opt-in hard caps are D53. External
+delivery remains separate work; usage retention uses D45, daily rollups are added by D52. A retention window shorter than the month makes spend
 a lower bound, which the docs and UI say explicitly.
 
 ## D48. A request can override its cell's harness
@@ -893,3 +893,33 @@ A custom range that starts or ends inside a rolled day has day resolution at tha
 The `usage_daily` table grows with distinct requests/models per day, not with turns, and
 rollups add bounded synchronous transactions to the retention job. There is no `VACUUM`,
 new dependency, or per-cell retention policy.
+
+## D53. Hard spend caps are opt-in admission checks
+
+**Context.** Advisory alerts tell operators when spend crosses a budget, but some cells
+and installations need a stop-the-line cap. Silently converting an existing advisory
+budget into a hard cap on upgrade would stop automation without warning. Enforcement also
+has to account for estimated cost without changing the shipped alert semantics, and it can
+only be checked at turn boundaries because the ledger is written after a turn completes.
+
+**Decision.** Add `budget.pauseOnExceeded` and `cells.pause_on_exceeded`, both default
+false. A scope with the flag pauses when cap spend, defined as reported plus estimated
+cost for the current UTC month, is greater than or equal to its budget. Advisory
+`spendUsd`, alert state, threshold math, and `budget_alerts` remain reported-cost-only.
+`capSpendIsLowerBound` is true when any turn has neither a reported nor an estimated cost;
+an all-unpriced or unmeasurable scope fails open rather than blocking work. An overall
+pause refuses every new agent turn, including KB and setup; a cell pause refuses only that
+cell's request, master, and summary turns. Master/summary schedulers skip paused cells
+without failure backoff and note the transition once. Acknowledgement never overrides a
+pause. Admission happens before `clarifyStarted`, state transitions, `agentStatus`,
+session writes, or spawning; in-flight turns finish, with no reservations or cancellation.
+Refusals use `SpendCapError` and HTTP `409 spend_cap`. Pause state is recomputed from the
+ledger and policy, so budget changes and month rollover resume without a restart.
+
+**Cost.** Admission-only enforcement lets a concurrent or long in-flight turn overshoot the
+cap; cancelling on a crossing is separate work. Estimated cost is only as good as the
+operator-maintained price table, and an unpriced turn leaves cap spend a lower bound. The
+pause flag adds an additive cell column and one optional budget field. This also fixes
+`SettingsStore.load()`, which previously dropped the saved budget block on restart, because
+the new overall flag must persist. External delivery, a manual one-turn override, and a
+strict unknown-cost policy remain separate.

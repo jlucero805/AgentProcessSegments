@@ -14,6 +14,7 @@ const cell: Cell = {
   model: 'claude-opus-5-5',
   effort: 'high',
   monthlyBudgetUsd: null,
+  pauseOnExceeded: false,
   autocompactPercent: 80,
   createdAt: 1,
 };

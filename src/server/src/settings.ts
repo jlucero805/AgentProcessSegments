@@ -59,6 +59,7 @@ const usageSchema = z.object({
 const budgetSchema = z.object({
   monthlyUsd: z.number().positive().max(MAX_BUDGET_USD).nullable(),
   alertAtPercent: z.number().int().min(1).max(100),
+  pauseOnExceeded: z.boolean(),
 }) satisfies z.ZodType<BudgetSettings>;
 
 const settingsSchema = z.object({
@@ -166,10 +167,18 @@ export class SettingsStore {
       // Files written before the summary or usage blocks existed carry only
       // `master`. Merge each present block over the defaults so an upgrade
       // does not silently reset operator customizations.
+      const savedBudget = source?.['budget'];
       const candidate = {
         master: source?.['master'] ?? DEFAULT_SETTINGS.master,
         summary: source?.['summary'] ?? DEFAULT_SETTINGS.summary,
         usage: source?.['usage'] ?? DEFAULT_SETTINGS.usage,
+        // Merge the budget block over defaults so a file written before
+        // `pauseOnExceeded` existed still loads, and so a saved budget is not
+        // silently reset on restart.
+        budget: {
+          ...DEFAULT_SETTINGS.budget,
+          ...(typeof savedBudget === 'object' && savedBudget !== null ? savedBudget : {}),
+        },
       };
       const result = settingsSchema.safeParse(candidate);
       if (!result.success) {

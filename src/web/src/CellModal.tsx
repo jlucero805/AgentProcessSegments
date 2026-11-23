@@ -16,7 +16,7 @@ import {
   type ProcessConfig,
   type SegmentConfig,
 } from './types';
-import { Button, Field, Input, Modal, Select, Spinner } from './ui';
+import { Button, Checkbox, Field, Input, Modal, Select, Spinner } from './ui';
 
 interface CellModalProps {
   open: boolean;
@@ -44,6 +44,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [maxConcurrent, setMaxConcurrent] = useState('3');
   const [harness, setHarness] = useState<HarnessId | ''>('');
   const [monthlyBudget, setMonthlyBudget] = useState('');
+  const [pauseOnExceeded, setPauseOnExceeded] = useState(false);
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState<Effort | ''>('');
   const [autocompactPercent, setAutocompactPercent] = useState('80');
@@ -83,6 +84,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         ? ''
         : String(cell.monthlyBudgetUsd),
     );
+    setPauseOnExceeded(cell?.pauseOnExceeded ?? false);
     setModel(cell?.model ?? '');
     setEffort(cell?.effort ?? '');
     setAutocompactPercent(String(cell?.autocompactPercent ?? 80));
@@ -374,6 +376,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         maxConcurrent: concurrency,
         harness: harness || null,
         monthlyBudgetUsd: budgetValue,
+        pauseOnExceeded: budgetValue !== null && pauseOnExceeded,
         model: model || null,
         effort: effort || null,
         autocompactPercent: compact,
@@ -461,7 +464,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
 
         <Field
           label="Monthly spend budget (USD)"
-          hint="blank means no budget; alerts only, never a hard stop"
+          hint="blank means no budget"
         >
           <Input
             type="number"
@@ -472,6 +475,13 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
             placeholder="No budget"
           />
         </Field>
+
+        <Checkbox
+          label="Pause this cell's new work when its budget is exceeded"
+          checked={pauseOnExceeded}
+          disabled={monthlyBudget.trim() === ''}
+          onChange={(event) => setPauseOnExceeded(event.target.checked)}
+        />
 
         <Field
           label="Default difficulty"

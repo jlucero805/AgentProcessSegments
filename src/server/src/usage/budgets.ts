@@ -5,10 +5,12 @@ import {
   budgetAlertThreshold,
   budgetPeriod,
   budgetStatus,
+  spendPause,
   type BudgetAlert,
   type BudgetStatus,
   type BudgetsResponse,
   type BudgetUsageReader,
+  type SpendPause,
 } from '../domain/budget.js';
 import { BudgetAlertRepository, type BudgetAlertRecord } from './budget-alerts.js';
 
@@ -16,7 +18,7 @@ const DEFAULT_INTERVAL_MS = 60_000;
 
 export interface BudgetServiceDeps {
   usage: BudgetUsageReader;
-  cells: Pick<CellRepository, 'list'>;
+  cells: Pick<CellRepository, 'list' | 'get'>;
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
   alerts: BudgetAlertRepository;
   errors?: ErrorSink;
@@ -25,13 +27,13 @@ export interface BudgetServiceDeps {
 }
 
 /**
- * Computes monthly budget status and reconciles durable alerts. Evaluation is
- * synchronous and never throws: budgets are advisory, and a failure must not
+ * Computes monthly budget status, reconciles durable alerts, and answers hard-cap
+ * admission. Evaluation is synchronous and never throws: a budget failure must not
  * affect a turn, the master, or the HTTP layer.
  */
 export class BudgetService {
   private readonly usage: BudgetUsageReader;
-  private readonly cells: Pick<CellRepository, 'list'>;
+  private readonly cells: Pick<CellRepository, 'list' | 'get'>;
   private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
   private readonly alerts: BudgetAlertRepository;
   private readonly errors?: ErrorSink;
@@ -89,6 +91,7 @@ export class BudgetService {
           period,
           totals: this.totals(period.start, period.end, usageAvailable),
           usageAvailable,
+          pauseOnExceeded: settings.budget.pauseOnExceeded,
         }),
       );
     }
@@ -105,6 +108,7 @@ export class BudgetService {
           period,
           totals: this.totals(period.start, period.end, usageAvailable, cell.id),
           usageAvailable,
+          pauseOnExceeded: cell.pauseOnExceeded,
         }),
       );
     }
@@ -126,7 +130,66 @@ export class BudgetService {
         .listUnacknowledged(period.start)
         .filter((record) => configured.has(`${record.scope}:${record.scopeId}`))
         .map((record) => this.toAlert(record, cells)),
+      pauses: statuses.filter((status) => status.paused).map(spendPause),
     };
+  }
+
+  /**
+   * Return the pause that refuses a new turn for this cell, if any. This is an
+   * admission check, not a cancellation: callers use it before starting work.
+   * A failed ledger read fails open and is reported to the error sink.
+   */
+  admission(cellId: string | null, now = this.clock()): SpendPause | null {
+    const period = budgetPeriod(now);
+
+    try {
+      const usageAvailable = this.usage.available();
+      if (!usageAvailable) return null;
+      const settings = this.settings.get();
+      if (settings.budget.monthlyUsd !== null && settings.budget.pauseOnExceeded) {
+        const status = budgetStatus({
+          scope: 'overall',
+          cellId: null,
+          cellName: null,
+          budgetUsd: settings.budget.monthlyUsd,
+          alertAtPercent: settings.budget.alertAtPercent,
+          period,
+          totals: this.totals(period.start, period.end, usageAvailable),
+          usageAvailable,
+          pauseOnExceeded: true,
+        });
+        if (status.paused) return spendPause(status);
+      }
+
+      if (cellId !== null) {
+        const cell = this.cells.get(cellId);
+        if (
+          cell?.monthlyBudgetUsd !== null &&
+          cell?.monthlyBudgetUsd !== undefined &&
+          cell.pauseOnExceeded
+        ) {
+          const status = budgetStatus({
+            scope: 'cell',
+            cellId: cell.id,
+            cellName: cell.name,
+            budgetUsd: cell.monthlyBudgetUsd,
+            alertAtPercent: settings.budget.alertAtPercent,
+            period,
+            totals: this.totals(period.start, period.end, usageAvailable, cell.id),
+            usageAvailable,
+            pauseOnExceeded: true,
+          });
+          if (status.paused) return spendPause(status);
+        }
+      }
+    } catch (error) {
+      this.errors?.error('usage.budgets', error, {
+        periodStart: period.start,
+        cellId,
+        phase: 'admission',
+      });
+    }
+    return null;
   }
 
   /** Refresh alert rows for the current month. Never throws. */
@@ -209,8 +272,22 @@ export class BudgetService {
     to: number,
     usageAvailable: boolean,
     cellId?: string,
-  ): { turns: number; costUsd: number | null; unknownCostTurns: number } {
-    if (!usageAvailable) return { turns: 0, costUsd: null, unknownCostTurns: 0 };
+  ): {
+    turns: number;
+    costUsd: number | null;
+    estimatedCostUsd: number | null;
+    unpricedTurns: number;
+    unknownCostTurns: number;
+  } {
+    if (!usageAvailable) {
+      return {
+        turns: 0,
+        costUsd: null,
+        estimatedCostUsd: null,
+        unpricedTurns: 0,
+        unknownCostTurns: 0,
+      };
+    }
     return this.usage.totals({ from, to, ...(cellId ? { cellId } : {}) });
   }
 

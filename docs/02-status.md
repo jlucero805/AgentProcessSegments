@@ -102,7 +102,8 @@ built and vended by the brain; real-CLI verification is still pending.
 - Usage tracking: both parsers normalize token counts and harness-reported cost into a
   `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
   master, KB, and setup sessions. `GET /api/usage` returns reported, estimated, and total
-  cost plus UTC bucket series and model/cell/request groups. Older history is preserved
+  cost plus UTC bucket series, model/cell/request groups, and `coverage` with the
+  raw/rollup boundary and the live retention window. Older history is preserved
   as daily rollups before raw pruning, so all-time totals survive pruning. The
   **Usage** page shows the overall and per-cell timeline with reported-versus-estimated
   chart segments, the raw/rollup boundary, and the retention window; the request drawer

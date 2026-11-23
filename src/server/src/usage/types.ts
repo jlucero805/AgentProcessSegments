@@ -84,6 +84,12 @@ export interface UsageCoverage {
    * when no rollup has run.
    */
   rolledThrough: number | null;
+  /**
+   * Raw rows older than this many days are pruned; `0` keeps them forever.
+   * Served from `usage.retentionDays` so the dashboard can explain what
+   * "all time" covers without a second settings request.
+   */
+  retentionDays: number;
 }
 
 export interface UsageResponse {

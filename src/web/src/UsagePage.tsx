@@ -15,6 +15,7 @@ import type {
   BudgetsResponse,
   CellDetail,
   UsageBucket,
+  UsageCoverage,
   UsageGroup,
   UsageResponse,
   UsageTotals,
@@ -53,13 +54,11 @@ function rangeQuery(range: RangeKey): {
 }
 
 /**
- * Explain how much history is raw versus daily. Config is optional: if the
- * request fails we still describe the rollup boundary from the usage payload.
+ * Explain how much history is raw versus daily, and how far back raw rows are
+ * kept. The coverage rides on the usage payload so a config outage cannot
+ * hide the retention window.
  */
-function coverageNote(
-  rolledThrough: number | null,
-  retentionDays: number | null,
-): string | null {
+function coverageNote({ rolledThrough, retentionDays }: UsageCoverage): string {
   if (rolledThrough !== null) {
     const day = new Date(rolledThrough).toLocaleDateString(undefined, {
       month: 'short',
@@ -67,19 +66,13 @@ function coverageNote(
       year: 'numeric',
       timeZone: 'UTC',
     });
-    if (retentionDays === 0) {
-      return `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. All raw turns are kept indefinitely.`;
-    }
-    if (retentionDays !== null) {
-      return `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. Raw retention is ${retentionDays} days.`;
-    }
-    return `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward.`;
+    return retentionDays === 0
+      ? `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. All raw turns are kept indefinitely.`
+      : `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. Raw retention is ${retentionDays} days.`;
   }
-  if (retentionDays === 0) return 'Usage history is kept indefinitely.';
-  if (retentionDays !== null) {
-    return `Raw usage is kept for ${retentionDays} days; older turns are pruned. All-time totals cover the retained window.`;
-  }
-  return null;
+  return retentionDays === 0
+    ? 'Usage history is kept indefinitely.'
+    : `Raw usage is kept for ${retentionDays} days; older turns are pruned. All-time totals cover the retained window.`;
 }
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -422,7 +415,6 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [data, setData] = useState<UsageResponse | null>(null);
   const [budgets, setBudgets] = useState<BudgetsResponse | null>(null);
-  const [retentionDays, setRetentionDays] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -444,19 +436,17 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
     setLoading(true);
     try {
       const query = rangeQuery(range);
-      const [result, budgetResult, configResult] = await Promise.all([
+      const [result, budgetResult] = await Promise.all([
         api.getUsage({
           ...query,
           ...(cellId ? { cellId } : {}),
         }),
         api.getBudgets().catch(() => null),
-        api.getConfig().catch(() => null),
       ]);
       setData(result);
       setBudgets(
         budgetResult && Array.isArray(budgetResult.statuses) ? budgetResult : null,
       );
-      setRetentionDays(configResult?.usage?.retentionDays ?? null);
     } catch (error) {
       onError(describeError(error));
     } finally {
@@ -480,10 +470,6 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
       onError(describeError(error));
     }
   };
-
-  const retentionNote = data
-    ? coverageNote(data.coverage.rolledThrough, retentionDays)
-    : null;
 
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -536,9 +522,7 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
       ) : data ? (
         <>
           <Summary totals={data.totals} />
-          {retentionNote ? (
-            <p className="text-[11px] text-zinc-600">{retentionNote}</p>
-          ) : null}
+          <p className="text-[11px] text-zinc-600">{coverageNote(data.coverage)}</p>
           <BudgetSummary budgets={budgets} onAck={(alert) => void acknowledge(alert)} />
           <CostChart data={data} />
           {data.totals.turns === 0 ? (

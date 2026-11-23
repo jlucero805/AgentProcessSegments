@@ -230,6 +230,10 @@ The script drains active turns, moves the clone and paths, repairs worktrees, ve
 the new unit, and rolls back in place on failure. See
 [`deploy/vps.md`](deploy/vps.md#cutting-over-a-live-self-hosted-brain).
 
+Each cutover leaves evidence and a rollback backup under `~/.aps-cutover/runs/`. Prune
+old runs with `npm run prune:cutover -- --dry-run` and then `npm run prune:cutover`; see
+[`deploy/vps.md`](deploy/vps.md#prune-cutover-run-directories-and-backups).
+
 ## Spend budgets
 
 The Config page edits an **overall monthly budget** and warning percentage; each cell has
@@ -363,10 +367,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 546 vitest cases: 387 server cases (state machine, migrations including
+`npm test` runs 567 vitest cases: 395 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
-activity retention, engine turns over a fake harness, worktree isolation against a real
+activity retention, cutover run retention, engine turns over a fake harness, worktree
+isolation against a real
 git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
@@ -374,7 +379,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 159 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 172 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

@@ -373,6 +373,36 @@ Notes for similar installs:
   `already migrated` and exits 0 without changing anything. If the new paths exist but
   the unit is not active, it fails and asks you to inspect rather than claiming success.
 
+## Prune cutover run directories and backups
+
+Each real cutover leaves a run directory under `~/.aps-cutover/runs/<UTC>/`. Nothing
+removes older runs, and each one is roughly 6 MB on a typical host: `dist/` holds the
+pre-build bundles, `errors.log.before` the old error log, and `backup/systemd/` the
+rollback unit and drop-ins. Prune them with:
+
+```bash
+npm run prune:cutover -- --dry-run   # list what would be removed
+npm run prune:cutover
+```
+
+The pruner keeps the newest 10 run directories, anything modified in the last 30 days,
+the `latest` target, and the newest successful run, because that run's
+`backup/systemd/` copy is the only in-place rollback artifact. A run whose `state` is
+still `launched` or `running` is kept for seven days even when it falls outside those
+windows. Tune it with `--keep-runs N`, `--keep-days D`, and
+`--incomplete-grace-days D`; `--keep-days 0` keeps only the count and protection rules.
+Deleting a run directory also deletes its rollback copy, so inspect
+`~/.aps-cutover/latest/backup` before an aggressive prune.
+
+`deploy/cutover-vps.sh` does not prune for you yet; run the command after a cutover, or
+schedule it weekly:
+
+```cron
+17 4 * * 0 cd "$HOME/agent-process-segments" && npm run prune:cutover -- --keep-runs 5 --keep-days 14 >> "$HOME/.aps-cutover/prune.log" 2>&1
+```
+
+The pruner only touches `~/.aps-cutover`, so the brain can stay running.
+
 ## System-wide variant
 
 On a multi-user host, install as a system unit instead, running as the account that owns

@@ -17,6 +17,7 @@
     "start": "node src/server/dist/app.js",
     "migrate:paths": "node scripts/migrate-paths.mjs",
     "cutover:vps": "bash deploy/cutover-vps.sh",
+    "prune:cutover": "node scripts/prune-cutover-runs.mjs",
     "smoke:claude": "node scripts/claude-mock-smoke.mjs"
   },
   "devDependencies": {

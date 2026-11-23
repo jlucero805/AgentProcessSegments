@@ -161,6 +161,100 @@ describe('SettingsStore', () => {
     });
   });
 
+  it('merges a partial block over defaults and keeps the saved budget', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        master: {
+          enabled: false,
+          intervalMinutes: DEFAULT_SETTINGS.master.intervalMinutes,
+          idleMinutes: DEFAULT_SETTINGS.master.idleMinutes,
+          autoReview: DEFAULT_SETTINGS.master.autoReview,
+        },
+        budget: { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true },
+      }),
+    );
+
+    const loaded = new SettingsStore(file).get();
+    expect(loaded.master).toEqual({ ...DEFAULT_SETTINGS.master, enabled: false });
+    expect(loaded.master.prompt).toBe(DEFAULT_SETTINGS.master.prompt);
+    expect(loaded.budget).toEqual({
+      monthlyUsd: 250,
+      alertAtPercent: 75,
+      pauseOnExceeded: true,
+    });
+  });
+
+  it('fills an empty block from defaults without discarding the saved budget', () => {
+    const blocks = Object.keys(DEFAULT_SETTINGS).filter((block) => {
+      if (block === 'budget') return false;
+      const value = DEFAULT_SETTINGS[block as keyof typeof DEFAULT_SETTINGS];
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    });
+    expect(blocks).toContain('master');
+
+    const savedBudget = { monthlyUsd: 42, alertAtPercent: 85, pauseOnExceeded: true };
+    for (const block of blocks) {
+      const file = tempFile();
+      writeFileSync(file, JSON.stringify({ [block]: {}, budget: savedBudget }));
+
+      const loaded = new SettingsStore(file).get();
+      expect(loaded[block as keyof typeof loaded]).toEqual(
+        DEFAULT_SETTINGS[block as keyof typeof DEFAULT_SETTINGS],
+      );
+      expect(loaded.budget).toEqual(savedBudget);
+    }
+  });
+
+  it('preserves explicit nulls and empty arrays while loading', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({
+        budget: { monthlyUsd: 60, alertAtPercent: 70, pauseOnExceeded: false },
+        notifications: {
+          webhook: { secret: null },
+          email: { host: null, from: null, to: [] },
+        },
+      }),
+    );
+
+    const loaded = new SettingsStore(file).get();
+    expect(loaded.notifications.webhook.secret).toBeNull();
+    expect(loaded.notifications.email.host).toBeNull();
+    expect(loaded.notifications.email.from).toBeNull();
+    expect(loaded.notifications.email.to).toEqual([]);
+    expect(loaded.budget).toEqual({
+      monthlyUsd: 60,
+      alertAtPercent: 70,
+      pauseOnExceeded: false,
+    });
+  });
+
+  it('loads non-object JSON as defaults', () => {
+    const file = tempFile();
+    for (const raw of ['[]', '"x"', 'null']) {
+      writeFileSync(file, raw);
+      expect(new SettingsStore(file).get()).toEqual(DEFAULT_SETTINGS);
+    }
+  });
+
+  it('does not mutate the shared defaults when loading', () => {
+    const file = tempFile();
+    writeFileSync(
+      file,
+      JSON.stringify({ budget: { monthlyUsd: 99, alertAtPercent: 90, pauseOnExceeded: true } }),
+    );
+
+    const first = new SettingsStore(file).get();
+    const second = new SettingsStore(file).get();
+    expect(DEFAULT_SETTINGS.budget.monthlyUsd).toBeNull();
+    expect(first.budget.monthlyUsd).toBe(99);
+    expect(second.budget.monthlyUsd).toBe(99);
+    expect(first.notifications.email.to).not.toBe(second.notifications.email.to);
+  });
+
   it('rejects invalid budget patches without writing', () => {
     const file = tempFile();
     const store = new SettingsStore(file);

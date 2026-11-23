@@ -281,7 +281,9 @@ additive.
 `$XDG_CONFIG_HOME/agent-process-segments/config.json` (override `APS_CONFIG`). Validate with a
 zod schema, strip unknown keys, write atomically, fall back to defaults with a warning
 for invalid files, and expose `GET/PATCH /api/config` plus a Config page. The file is
-created on the first save.
+created on the first save. On load, each present block is merged field-wise over its
+defaults, so an older or partial block keeps its saved fields and gains new defaults;
+only invalid values trigger the full-default fallback.
 
 **Cost.** A second configuration surface. Invalid files silently use defaults until an
 operator saves a valid patch; the path is shown on the page so it is discoverable.

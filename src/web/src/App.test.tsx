@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { jsonResponse, makeProcessResponse, makeRequest, makeUsageResponse } from './test/fixtures';
-import type { CellDetail, Request } from './types';
+import type { BudgetAlert, CellDetail, Request } from './types';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -47,8 +47,31 @@ function makeCell(id = 'c1', name = 'Alpha'): CellDetail {
   };
 }
 
-function installFetch(request: Request, transcript: unknown[] = [], cells: CellDetail[] = []) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+function makeBudgetAlert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
+  return {
+    id: 'alert-1',
+    scope: 'overall',
+    cellId: null,
+    cellName: null,
+    threshold: 'warning',
+    alertAtPercent: 80,
+    budgetUsd: 100,
+    spendUsd: 85,
+    unknownCostTurns: 1,
+    periodStart: Date.UTC(2026, 10, 1),
+    createdAt: 10,
+    acknowledgedAt: null,
+    ...overrides,
+  };
+}
+
+function installFetch(
+  request: Request,
+  transcript: unknown[] = [],
+  cells: CellDetail[] = [],
+  budgetAlerts: BudgetAlert[] = [],
+) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === '/api/cells') return jsonResponse(cells);
     if (url.startsWith('/api/cells/')) {
@@ -96,6 +119,14 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
         path: '/tmp/config.json',
       });
     }
+    if (url.startsWith('/api/budgets/alerts/') && init?.method === 'POST') {
+      const id = decodeURIComponent(
+        url.slice('/api/budgets/alerts/'.length).split('/')[0] ?? '',
+      );
+      const index = budgetAlerts.findIndex((item) => item.id === id);
+      const found = index >= 0 ? budgetAlerts.splice(index, 1)[0] : undefined;
+      return jsonResponse({ ...found, acknowledgedAt: 99 });
+    }
     if (url === '/api/budgets') {
       return jsonResponse({
         periodStart: Date.UTC(2026, 10, 1),
@@ -103,7 +134,8 @@ function installFetch(request: Request, transcript: unknown[] = [], cells: CellD
         alertAtPercent: 80,
         usageAvailable: true,
         statuses: [],
-        alerts: [],
+        alerts: budgetAlerts,
+        pauses: [],
       });
     }
     if (url === '/api/process') return jsonResponse(makeProcessResponse());
@@ -313,6 +345,42 @@ describe('App', () => {
 
     expect(await screen.findByText('Cost over time')).toBeInTheDocument();
     expect(window.location.search).toContain('page=usage');
+  });
+
+  it('shares budget alert acknowledgement between the banner and the usage page', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [], [makeBudgetAlert()]);
+
+    render(<App />);
+    expect(
+      await screen.findByRole('button', {
+        name: 'Dismiss budget alert for overall spend',
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Usage'));
+    expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', {
+          name: 'Dismiss budget alert for overall spend',
+        }),
+      ).toHaveLength(2),
+    );
+
+    fireEvent.click(
+      screen.getAllByRole('button', {
+        name: 'Dismiss budget alert for overall spend',
+      })[0]!,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: 'Dismiss budget alert for overall spend',
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Overall spend reached 80%/)).not.toBeInTheDocument();
   });
 
   it('opens the config page and records it in the URL', async () => {

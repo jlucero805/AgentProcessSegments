@@ -16,6 +16,7 @@ import { REPO_URL } from './links';
 import { mergeSlashCommands } from './slash';
 import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
+import { useBudgets } from './useBudgets';
 
 type Page = 'board' | 'kb' | 'skills' | 'usage' | 'config';
 
@@ -93,6 +94,7 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const helpButtonRef = useRef<HTMLButtonElement | null>(null);
   const helpWasOpen = useRef(false);
+  const budgetFeed = useBudgets(setError);
 
   const loadCells = useCallback(async () => {
     try {
@@ -410,7 +412,10 @@ export function App() {
           <span className="text-sm font-semibold text-zinc-100">Agent Process Segments</span>
         </header>
 
-        <BudgetBanner onError={setError} />
+        <BudgetBanner
+          budgets={budgetFeed.budgets}
+          onAck={(alert) => void budgetFeed.acknowledge(alert)}
+        />
 
         <div className="min-h-0 flex-1 overflow-hidden">
           {page === 'board' ? (
@@ -427,7 +432,9 @@ export function App() {
           ) : null}
           {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
-          {page === 'usage' ? <UsagePage onError={setError} /> : null}
+          {page === 'usage' ? (
+            <UsagePage onError={setError} budgetFeed={budgetFeed} />
+          ) : null}
           {page === 'config' ? (
             <ConfigPage
               onError={setError}

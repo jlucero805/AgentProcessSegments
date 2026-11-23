@@ -1,53 +1,27 @@
-import { useEffect, useState } from 'react';
-import { api, describeError } from './api';
-import { budgetAlertText, type BudgetAlert, type SpendPause } from './types';
+import { budgetAlertText, type BudgetAlert, type BudgetsResponse } from './types';
 import { cn } from './ui';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-const POLL_MS = 60_000;
 
 function moneyLabel(value: number): string {
   return money.format(value);
 }
 
 /** Durable alerts plus non-dismissible hard-cap pause notices shared by every page. */
-export function BudgetBanner({ onError }: { onError?: (message: string) => void }) {
-  const [alerts, setAlerts] = useState<BudgetAlert[]>([]);
-  const [pauses, setPauses] = useState<SpendPause[]>([]);
-
-  useEffect(() => {
-    let mounted = true;
-    const refresh = async () => {
-      try {
-        const response = await api.getBudgets();
-        if (mounted) {
-          setAlerts(Array.isArray(response.alerts) ? response.alerts : []);
-          setPauses(Array.isArray(response.pauses) ? response.pauses : []);
-        }
-      } catch {
-        // The banner is ambient; a transient poll failure must not replace the page.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), POLL_MS);
-    return () => {
-      mounted = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const dismiss = async (alert: BudgetAlert) => {
-    try {
-      await api.ackBudgetAlert(alert.id);
-      setAlerts((current) => current.filter((item) => item.id !== alert.id));
-    } catch (error) {
-      onError?.(describeError(error));
-    }
-  };
-
+export function BudgetBanner({
+  budgets,
+  onAck,
+}: {
+  budgets: BudgetsResponse | null;
+  onAck: (alert: BudgetAlert) => void;
+}) {
+  const alerts = budgets?.alerts ?? [];
+  const pauses = budgets?.pauses ?? [];
   if (alerts.length === 0 && pauses.length === 0) return null;
   const ordered = [...alerts].sort((left, right) => {
-    if (left.threshold !== right.threshold) return left.threshold === 'exceeded' ? -1 : 1;
+    if (left.threshold !== right.threshold) {
+      return left.threshold === 'exceeded' ? -1 : 1;
+    }
     return right.createdAt - left.createdAt;
   });
 
@@ -104,7 +78,7 @@ export function BudgetBanner({ onError }: { onError?: (message: string) => void 
             <button
               type="button"
               aria-label={`Dismiss budget alert for ${alert.scope === 'overall' ? 'overall spend' : alert.cellName ?? 'cell'}`}
-              onClick={() => void dismiss(alert)}
+              onClick={() => onAck(alert)}
               className="shrink-0 rounded px-1 text-base leading-none opacity-70 hover:opacity-100"
             >
               ×

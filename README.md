@@ -243,7 +243,9 @@ estimated cost, pauses new work at the cap, and leaves in-flight turns alone. Ov
 pauses every new agent turn; a cell pause affects only that cell's request, master, and
 summary work. Raise or clear the budget, turn the option off, or wait for the UTC month to
 roll over to resume. Acknowledging an alert does not override a pause. The same cap spend
-and pause state are shown on the Config and Usage pages and in the app banner.
+and pause state are shown on the Config and Usage pages and in the app banner. The Usage
+card and banner share one budget poll; the card keeps its last good status when a refresh
+fails and offers Retry when budget status cannot be loaded.
 
 ## Alert delivery
 

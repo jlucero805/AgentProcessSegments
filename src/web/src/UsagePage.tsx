@@ -3,6 +3,7 @@ import { api, describeError } from './api';
 import { costBreakdown, formatCost, formatTokens, formatUsd } from './usageFormat';
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   SectionTitle,
@@ -10,9 +11,7 @@ import {
   Spinner,
 } from './ui';
 import type {
-  BudgetAlert,
   BudgetStatus,
-  BudgetsResponse,
   CellDetail,
   UsageBucket,
   UsageCoverage,
@@ -20,6 +19,7 @@ import type {
   UsageResponse,
   UsageTotals,
 } from './types';
+import type { BudgetFeed } from './useBudgets';
 import { USAGE_BUCKET_MS } from './types';
 
 type RangeKey = '24h' | '7d' | '30d' | 'all';
@@ -88,14 +88,39 @@ function budgetTone(status: BudgetStatus): 'neutral' | 'green' | 'amber' | 'red'
   return 'green';
 }
 
-function BudgetSummary({
-  budgets,
-  onAck,
-}: {
-  budgets: BudgetsResponse | null;
-  onAck: (alert: BudgetAlert) => void;
-}) {
-  if (!budgets) return null;
+function BudgetSummary({ feed }: { feed: BudgetFeed }) {
+  const { budgets, error, loading, refresh, acknowledge: onAck } = feed;
+  const retry = (
+    <Button size="sm" variant="secondary" onClick={() => void refresh()} disabled={loading}>
+      {loading ? 'Retrying…' : 'Retry'}
+    </Button>
+  );
+
+  if (!budgets) {
+    if (!error) return null;
+    return (
+      <Card className="space-y-3 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <SectionTitle>Monthly budgets</SectionTitle>
+            <p className="mt-1 text-[11px] text-zinc-600">Current UTC month</p>
+          </div>
+          {retry}
+        </div>
+        <div
+          role="alert"
+          className="space-y-1 rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200"
+        >
+          <p className="font-medium">Couldn&apos;t load budgets.</p>
+          <p className="break-words text-[11px] text-red-300/80">{error}</p>
+        </div>
+        <p className="text-[11px] text-zinc-600">
+          Usage above is unaffected. Retry to load budget status.
+        </p>
+      </Card>
+    );
+  }
+
   const month = new Date(budgets.periodStart).toLocaleDateString(undefined, {
     month: 'long',
     year: 'numeric',
@@ -113,6 +138,16 @@ function BudgetSummary({
         </div>
         <span className="text-xs text-zinc-500">warning at {budgets.alertAtPercent}%</span>
       </div>
+
+      {error ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-200"
+        >
+          <span>Couldn&apos;t refresh budgets; showing the last successful update.</span>
+          {retry}
+        </div>
+      ) : null}
 
       {!budgets.usageAvailable ? (
         <p className="text-xs text-zinc-500">
@@ -409,12 +444,17 @@ function Summary({ totals }: { totals: UsageTotals }) {
   );
 }
 
-export function UsagePage({ onError }: { onError: (message: string) => void }) {
+export function UsagePage({
+  onError,
+  budgetFeed,
+}: {
+  onError: (message: string) => void;
+  budgetFeed: BudgetFeed;
+}) {
   const [range, setRange] = useState<RangeKey>('30d');
   const [cellId, setCellId] = useState('');
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [data, setData] = useState<UsageResponse | null>(null);
-  const [budgets, setBudgets] = useState<BudgetsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -436,17 +476,11 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
     setLoading(true);
     try {
       const query = rangeQuery(range);
-      const [result, budgetResult] = await Promise.all([
-        api.getUsage({
-          ...query,
-          ...(cellId ? { cellId } : {}),
-        }),
-        api.getBudgets().catch(() => null),
-      ]);
+      const result = await api.getUsage({
+        ...query,
+        ...(cellId ? { cellId } : {}),
+      });
       setData(result);
-      setBudgets(
-        budgetResult && Array.isArray(budgetResult.statuses) ? budgetResult : null,
-      );
     } catch (error) {
       onError(describeError(error));
     } finally {
@@ -457,19 +491,6 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const acknowledge = async (alert: BudgetAlert) => {
-    try {
-      await api.ackBudgetAlert(alert.id);
-      setBudgets((current) =>
-        current
-          ? { ...current, alerts: current.alerts.filter((item) => item.id !== alert.id) }
-          : current,
-      );
-    } catch (error) {
-      onError(describeError(error));
-    }
-  };
 
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -523,7 +544,7 @@ export function UsagePage({ onError }: { onError: (message: string) => void }) {
         <>
           <Summary totals={data.totals} />
           <p className="text-[11px] text-zinc-600">{coverageNote(data.coverage)}</p>
-          <BudgetSummary budgets={budgets} onAck={(alert) => void acknowledge(alert)} />
+          <BudgetSummary feed={budgetFeed} />
           <CostChart data={data} />
           {data.totals.turns === 0 ? (
             <EmptyState

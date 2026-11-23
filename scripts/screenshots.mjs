@@ -1,0 +1,541 @@
+#!/usr/bin/env node
+// Regenerate the README/Help screenshots from a staged demo board.
+//
+// The images are committed, so this is a maintainer tool rather than a test. It
+// needs a built SPA and Puppeteer, which is deliberately not a project dependency:
+//   npm run build
+//   npm install --no-save puppeteer
+//   npx puppeteer browsers install chrome
+//   node scripts/screenshots.mjs
+//
+// Everything runs against a throwaway database, data dir, and config. No agent
+// turn starts: the master timer is longer than this script's deadline, and a
+// current scorecard keeps the summary scheduler from catching up.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+let puppeteer;
+try {
+  puppeteer = (await import('puppeteer')).default;
+} catch {
+  console.log('puppeteer not installed; skipping screenshot capture');
+  process.exit(0);
+}
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const appPath = path.join(root, 'src', 'server', 'dist', 'app.js');
+const webIndex = path.join(root, 'src', 'web', 'dist', 'index.html');
+const shotsDir = path.join(root, 'docs', 'screenshots');
+const boardShot = path.join(shotsDir, 'board.png');
+const masterShot = path.join(shotsDir, 'master.png');
+const DEADLINE_MS = 5 * 60_000;
+const MASTER_INTERVAL_MINUTES = 15;
+
+if (!existsSync(appPath) || !existsSync(webIndex)) {
+  console.error('screenshots: built app not found; run `npm run build` first');
+  process.exit(1);
+}
+
+// The built modules own the schema and process defaults, so the seed cannot
+// drift from the server.
+const { openDb } = await import(path.join(root, 'src', 'server', 'dist', 'db.js'));
+const { defaultProcess } = await import(
+  path.join(root, 'src', 'server', 'dist', 'process', 'defaults.js')
+);
+const { DEFAULT_MASTER_PROMPT, DEFAULT_SUMMARY_PROMPT } = await import(
+  path.join(root, 'src', 'server', 'dist', 'settings.js')
+);
+const Database = (await import('better-sqlite3')).default;
+
+const temp = mkdtempSync(path.join(os.tmpdir(), 'aps-screenshots-'));
+const dbPath = path.join(temp, 'screenshots.sqlite');
+const dataDir = path.join(temp, 'data');
+const configPath = path.join(temp, 'config.json');
+const processPath = path.join(temp, 'process.json');
+const errorLog = path.join(temp, 'errors.log');
+const xdgConfig = path.join(temp, 'xdg-config');
+const xdgState = path.join(temp, 'xdg-state');
+
+const now = Date.now();
+const day = 24 * 60 * 60_000;
+const masterConfig = {
+  enabled: true,
+  intervalMinutes: MASTER_INTERVAL_MINUTES,
+  idleMinutes: 10,
+  autoReview: true,
+  prompt: DEFAULT_MASTER_PROMPT,
+};
+
+let server = null;
+let browser = null;
+const serverLogs = [];
+
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+async function waitFor(check, label, timeout = 20_000) {
+  const deadline = Date.now() + timeout;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      if (await check()) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error(`timed out waiting for ${label}${lastError ? `: ${lastError.message}` : ''}`);
+}
+
+function seed() {
+  const db = openDb(dbPath);
+  try {
+    const cellProcess = defaultProcess(masterConfig);
+    // The demo drawer shows every segment enabled, like an operator who has
+    // turned on the full pipeline for this cell.
+    cellProcess.segments = cellProcess.segments.map((segment) => ({ ...segment, enabled: true }));
+
+    const personalId = randomUUID();
+    const workId = randomUUID();
+    const insertCell = db.prepare(
+      `INSERT INTO cells
+         (id, name, master_enabled, master_interval_minutes, max_concurrent, harness, model,
+          effort, process_json, created_at)
+       VALUES (?, ?, 1, NULL, 3, NULL, NULL, NULL, ?, ?)`,
+    );
+    insertCell.run(personalId, 'Personal', null, now - 30 * day);
+    insertCell.run(workId, 'Work repo', JSON.stringify(cellProcess), now - 30 * day);
+
+    const insertRequest = db.prepare(
+      `INSERT INTO requests
+         (id, title, body, state, groomed, clarify_started, agent_status, unchecked, cell_id,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    // Column mapping: Requests is clarify+not started; Plan is clarify+started.
+    const demo = [
+      ['Add ranking load test', 'clarify', 0, 'none', 0, 0],
+      ['Add export endpoint', 'clarify', 0, 'idle', 0, 14 * 60_000],
+      ['Weekend photo workflow', 'clarify', 0, 'idle', 0, 20 * 60_000],
+      ['Refactor auth middleware', 'clarify', 1, 'idle', 0, 28 * 60_000],
+      ['Mobile nav polish', 'clarify', 1, 'idle', 0, 45 * 60_000],
+      ['Billing webhook retries', 'dispatch', 1, 'working', 0, 3 * 60_000],
+      ['Home lab notes', 'dispatch', 1, 'idle', 0, 50 * 60_000],
+      ['Search ranking', 'review', 1, 'idle', 1, 0],
+      ['API pagination', 'review', 1, 'idle', 1, 60 * 60_000],
+      ['Worktree cleanup', 'review', 1, 'idle', 0, 2 * 60 * 60_000],
+      ['Merge billing retries', 'merge', 1, 'idle', 0, 6 * 60_000],
+      ['Digest: queue semantics', 'finalize', 1, 'idle', 0, 3 * 60 * 60_000],
+    ];
+    const ids = new Map();
+    for (const [title, state, started, status, unchecked, ageMs] of demo) {
+      const id = randomUUID();
+      ids.set(title, id);
+      const updatedAt = now - ageMs;
+      insertRequest.run(
+        id,
+        title,
+        `Staged demo request for the ${state} segment.`,
+        state,
+        started,
+        started,
+        status,
+        unchecked,
+        workId,
+        updatedAt - 2 * 60 * 60_000,
+        updatedAt,
+      );
+    }
+
+    const insertEvent = db.prepare(
+      `INSERT INTO master_events (id, cell_id, request_id, action, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const events = [
+      [
+        'cycle',
+        null,
+        0,
+        JSON.stringify({
+          dispatch: 4,
+          started: 1,
+          prodded: 1,
+          advanced: 1,
+          followUps: 1,
+          skipped: 1,
+        }),
+      ],
+      ['prod', 'Search ranking', 20_000, 'Search ranking in Review'],
+      ['review', 'Search ranking', 14_000, 'Search ranking ready for review'],
+      ['advance', 'Merge billing retries', 9_000, 'Merge billing retries → Finalize'],
+      ['followup', 'Add ranking load test', 5_000, 'Add ranking load test'],
+      ['skip', 'Billing webhook retries', 2_000, 'Billing webhook retries still working'],
+    ];
+    for (const [action, title, ageMs, detail] of events) {
+      insertEvent.run(
+        randomUUID(),
+        workId,
+        title ? (ids.get(title) ?? null) : null,
+        action,
+        detail,
+        now - ageMs,
+      );
+    }
+
+    // A current scorecard keeps the summary scheduler from generating one (and
+    // starting a model turn) during capture.
+    const stats = {
+      windowStart: now - 6 * 60 * 60_000,
+      windowEnd: now,
+      windowMinutes: 360,
+      cell: { id: workId, name: 'Work repo' },
+      requests: {
+        total: 12,
+        byState: {
+          clarify: 5,
+          dispatch: 2,
+          review: 3,
+          merge: 1,
+          finalize: 1,
+          done: 0,
+          dropped: 0,
+        },
+        created: 4,
+        updated: 12,
+        completed: 0,
+        dropped: 0,
+        stalled: [],
+        unchecked: 2,
+        agentStatus: { none: 1, idle: 10, working: 1, blocked: 0, error: 0 },
+      },
+      activity: {
+        cycles: 3,
+        started: 2,
+        prodded: 4,
+        reviewed: 3,
+        advanced: 2,
+        followUps: 1,
+        skipped: 1,
+        followUpTitles: ['Add ranking load test'],
+        skipReasons: ['Billing webhook retries still working'],
+      },
+      previous: {
+        created: 2,
+        completed: 1,
+        dropped: 0,
+        activity: {
+          cycles: 2,
+          started: 1,
+          prodded: 2,
+          reviewed: 1,
+          advanced: 1,
+          followUps: 0,
+          skipped: 0,
+        },
+      },
+    };
+    db.prepare(
+      `INSERT INTO cell_summaries
+         (id, cell_id, window_start, window_end, window_minutes, content, stats_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      workId,
+      stats.windowStart,
+      stats.windowEnd,
+      stats.windowMinutes,
+      [
+        '## Summary',
+        'A steady window: work moved through Review and Merge with one follow-up.',
+        '',
+        '## Throughput',
+        '- 4 created, 0 completed, 0 dropped',
+        '- 12 requests updated in the window',
+        '',
+        '## Pipeline',
+        '- 5 in Requests/Plan, 2 in Implement, 3 in Review',
+        '- 1 in Merge, 1 in Finalize, 2 unchecked',
+        '',
+        '## Automation',
+        '- 3 cycles · 2 started · 4 prodded · 3 reviewed',
+        '- 2 advanced · 1 follow-up · 1 skipped',
+        '',
+        '## Risks',
+        '- Billing webhook retries is still working.',
+        '',
+        '## Trend',
+        'More activity than the previous window.',
+      ].join('\n'),
+      JSON.stringify(stats),
+      now,
+    );
+
+    const masterDir = path.join(dataDir, 'requests', `__master__:${workId}`);
+    mkdirSync(masterDir, { recursive: true });
+    writeFileSync(
+      path.join(masterDir, 'transcript.json'),
+      JSON.stringify(
+        [
+          {
+            role: 'you',
+            kind: 'text',
+            text: 'Give me a quick status for this cell.',
+            ts: now - 120_000,
+          },
+          {
+            role: 'agent',
+            kind: 'text',
+            text:
+              'Last cycle: 1 prodded, 1 advanced, 1 follow-up, 1 skipped. ' +
+              'Search ranking is in Review after the agent reported READY FOR REVIEW. ' +
+              'Merge billing retries is queued for Finalize.',
+            ts: now - 110_000,
+          },
+        ],
+        null,
+        2,
+      ),
+    );
+
+  } finally {
+    db.close();
+  }
+}
+
+function writeConfig() {
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        master: masterConfig,
+        summary: {
+          enabled: true,
+          intervalMinutes: 6 * 60,
+          windowMinutes: 6 * 60,
+          prompt: DEFAULT_SUMMARY_PROMPT,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function startServer(port) {
+  return spawn(process.execPath, [appPath], {
+    cwd: root,
+    env: {
+      ...process.env,
+      APS_HOST: '127.0.0.1',
+      APS_PORT: String(port),
+      APS_DB: dbPath,
+      APS_DATA_DIR: dataDir,
+      APS_CONFIG: configPath,
+      APS_PROCESS: processPath,
+      APS_ERROR_LOG: errorLog,
+      APS_WEB_DIR: path.join(root, 'src', 'web', 'dist'),
+      APS_DOCS_DIR: path.join(root, 'docs'),
+      APS_HARNESS: 'claude',
+      APS_CLAUDE_BIN: '/bin/false',
+      APS_OPENCODE_BIN: '/bin/false',
+      APS_TERMINAL_CWD: root,
+      XDG_CONFIG_HOME: xdgConfig,
+      XDG_STATE_HOME: xdgState,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function markWorking() {
+  const db = new Database(dbPath);
+  try {
+    db.pragma('busy_timeout = 5000');
+    const row = db.prepare("SELECT id FROM requests WHERE title = 'Billing webhook retries'").get();
+    assert(row, 'staged working request is missing');
+    db.prepare("UPDATE requests SET agent_status = 'working' WHERE id = ?").run(row.id);
+  } finally {
+    db.close();
+  }
+}
+
+async function clickText(page, text) {
+  const found = await page.evaluate((label) => {
+    const elements = [...document.querySelectorAll('button, a')];
+    const element = elements.find((candidate) => candidate.textContent?.trim() === label);
+    if (!element) return false;
+    element.click();
+    return true;
+  }, text);
+  if (!found) throw new Error(`button not found: ${text}`);
+}
+
+function pngSize(file) {
+  const bytes = readFileSync(file);
+  assert(bytes.length > 24, `${file} is not a PNG`);
+  assert.equal(bytes.subarray(1, 4).toString(), 'PNG', `${file} is not a PNG`);
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+}
+
+async function capture() {
+  seed();
+  writeConfig();
+  mkdirSync(shotsDir, { recursive: true });
+
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  server = startServer(port);
+  server.stdout.on('data', (chunk) => serverLogs.push(chunk.toString()));
+  server.stderr.on('data', (chunk) => serverLogs.push(chunk.toString()));
+
+  await waitFor(async () => {
+    try {
+      return (await fetch(`${base}/health`)).ok;
+    } catch {
+      return false;
+    }
+  }, 'the brain to listen');
+
+  // Startup reconcile rewrites persisted `working` to `idle`; apply the staged
+  // working card once the server is up.
+  markWorking();
+
+  browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+  });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 950, deviceScaleFactor: 2 });
+
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(`pageerror: ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !message.text().includes('favicon')) {
+      pageErrors.push(`console: ${message.text()}`);
+    }
+  });
+
+  await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await waitFor(
+    () => page.evaluate(() => document.body.innerText.includes('Agent Process Segments')),
+    'the current branding',
+  );
+
+  const text = await page.evaluate(() => document.body.innerText);
+  assert(!text.includes('Sandbox Harness'), 'old brand is still rendered');
+  assert(!text.includes('process segments for agents'), 'old tagline is still rendered');
+
+  for (const title of [
+    'Add ranking load test',
+    'Add export endpoint',
+    'Weekend photo workflow',
+    'Refactor auth middleware',
+    'Mobile nav polish',
+    'Billing webhook retries',
+    'Home lab notes',
+    'Search ranking',
+    'API pagination',
+    'Worktree cleanup',
+    'Merge billing retries',
+    'Digest: queue semantics',
+  ]) {
+    await waitFor(
+      () => page.evaluate((label) => document.body.innerText.includes(label), title),
+      `board card ${title}`,
+    );
+  }
+  await waitFor(
+    () =>
+      page.evaluate(
+        () => document.body.innerText.includes('All cells') && document.body.innerText.includes('+ New request'),
+      ),
+    'the board shell',
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await page.screenshot({ path: boardShot, captureBeyondViewport: false });
+
+  await clickText(page, 'Work repo');
+  await waitFor(
+    () => page.evaluate(() => document.body.innerText.includes('Cell master')),
+    'the Cell master action',
+  );
+  await clickText(page, 'Cell master');
+  await waitFor(
+    () =>
+      page.evaluate(
+        () =>
+          document.body.innerText.includes('Work repo · process automation') &&
+          document.body.innerText.includes('Scheduled every 15 min') &&
+          document.body.innerText.includes('Master chat'),
+      ),
+    'the master drawer',
+  );
+  await waitFor(
+    () =>
+      page.evaluate(() =>
+        document.body.innerText.includes('Give me a quick status for this cell.'),
+      ),
+    'the staged master chat',
+  );
+
+  // Let the drawer's first layout/paint settle before capturing the viewport.
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  await page.screenshot({ path: masterShot, captureBeyondViewport: false });
+
+  if (pageErrors.length > 0) throw new Error(`browser errors:\n${pageErrors.join('\n')}`);
+}
+
+const deadline = new Promise((_, reject) => {
+  const timer = setTimeout(
+    () => reject(new Error(`screenshot capture exceeded ${DEADLINE_MS / 60_000} minutes`)),
+    DEADLINE_MS,
+  );
+  timer.unref();
+});
+
+try {
+  await Promise.race([capture(), deadline]);
+  assert.deepEqual(pngSize(boardShot), { width: 2880, height: 1900 });
+  assert.deepEqual(pngSize(masterShot), { width: 2880, height: 1900 });
+  console.log(`wrote ${path.relative(root, boardShot)}`);
+  console.log(`wrote ${path.relative(root, masterShot)}`);
+} catch (error) {
+  console.error('screenshot capture failed:', error.message);
+  if (serverLogs.length > 0) {
+    console.error('server log:');
+    console.error(serverLogs.join('').trim().split('\n').slice(-20).join('\n'));
+  }
+  process.exitCode = 1;
+} finally {
+  if (browser) await browser.close().catch(() => {});
+  if (server && server.exitCode === null) {
+    server.kill('SIGTERM');
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        server.kill('SIGKILL');
+        resolve();
+      }, 3000);
+      server.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+  rmSync(temp, { recursive: true, force: true });
+}

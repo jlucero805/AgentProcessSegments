@@ -120,8 +120,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   and `OPENAI_*` variable, then pins `HOME`, `NODE_ENV=production`, the plugins dir, brain
   URL, docs dir, and the mock binary. Without that, a host `APS_TURN_TIMEOUT_MS`,
   `APS_PLUGINS_DIR`, or legacy `SBOX_HARNESS_BIN` silently changes what the suite proves.
-  `scripts/e2e/env.test.mjs` guards the builder (`npm run test:e2e-env`); reuse the helper
-  in other proof scripts instead of spreading the host env. CI's E2E step exports hostile
+  `scripts/e2e/env.test.mjs` guards the builder and the entrypoint's call site
+  (`npm run test:e2e-env`); `buildE2ePins` rejects missing or relative pins so a dropped
+  mock or port cannot fall back to a real CLI on `PATH`. Reuse the helper in other proof
+  scripts instead of spreading the host env. CI's E2E step exports hostile
   sentinels (`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`,
   `APS_TURN_TIMEOUT_MS=1`, ...); reproduce it with `npm run build`, then
   `env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode node scripts/e2e.mjs`.

@@ -1,6 +1,26 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { buildE2eEnv, buildE2ePins, SCRUB_PREFIXES } from './env.mjs';
+
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const mockBin = path.join(repoRoot, 'scripts', 'e2e', 'mock-claude.mjs');
+
+function validPins(overrides = {}) {
+  return {
+    root: repoRoot,
+    mock: mockBin,
+    home: '/tmp/e2e/home',
+    temp: '/tmp/e2e',
+    dbPath: '/tmp/e2e/e2e.sqlite',
+    port: 7391,
+    base: 'http://127.0.0.1:7391',
+    pluginsDir: '/tmp/e2e/plugins',
+    ...overrides,
+  };
+}
 
 const pins = {
   HOME: '/tmp/e2e/home',
@@ -119,17 +139,96 @@ test('skips undefined host values instead of writing them out', () => {
   assert.equal(env.KEEP, 'value');
 });
 
+test('buildE2ePins returns the full pin set for the real repo', () => {
+  const pinned = buildE2ePins(validPins());
+
+  assert.deepEqual(
+    Object.keys(pinned).sort(),
+    [
+      'APS_BRAIN_URL',
+      'APS_CLAUDE_BIN',
+      'APS_CONFIG',
+      'APS_DATA_DIR',
+      'APS_DB',
+      'APS_DOCS_DIR',
+      'APS_ERROR_LOG',
+      'APS_HARNESS',
+      'APS_HARNESS_BIN',
+      'APS_HOST',
+      'APS_PLUGINS_DIR',
+      'APS_PORT',
+      'APS_PROCESS',
+      'APS_TERMINAL',
+      'APS_WEB_DIR',
+      'HOME',
+      'NODE_ENV',
+    ].sort(),
+  );
+  assert.equal(pinned.APS_HARNESS, 'claude');
+  assert.equal(pinned.APS_HARNESS_BIN, mockBin);
+  assert.equal(pinned.APS_CLAUDE_BIN, mockBin);
+  assert.ok(path.isAbsolute(pinned.APS_HARNESS_BIN));
+  assert.ok(existsSync(pinned.APS_HARNESS_BIN), 'the pinned mock binary exists');
+  assert.equal(pinned.APS_PORT, '7391');
+  assert.equal(pinned.APS_TERMINAL, '0');
+  assert.equal(pinned.APS_DOCS_DIR, path.join(repoRoot, 'docs'));
+  for (const [name, value] of Object.entries(pinned)) {
+    assert.notEqual(value, undefined, `${name} must not be undefined`);
+  }
+});
+
+test('buildE2ePins rejects missing, empty, and relative path arguments', () => {
+  for (const name of ['root', 'mock', 'home', 'temp', 'dbPath', 'pluginsDir']) {
+    for (const value of [undefined, '', 'relative/path']) {
+      assert.throws(
+        () => buildE2ePins(validPins({ [name]: value })),
+        (error) => error instanceof TypeError && error.message.includes(name),
+        `${name}=${String(value)} should throw`,
+      );
+    }
+  }
+});
+
+test('buildE2ePins rejects a missing or empty base URL', () => {
+  for (const value of [undefined, '']) {
+    assert.throws(
+      () => buildE2ePins(validPins({ base: value })),
+      (error) => error instanceof TypeError && error.message.includes('base'),
+      `base=${String(value)} should throw`,
+    );
+  }
+});
+
+test('buildE2ePins rejects an invalid port', () => {
+  for (const value of [
+    undefined,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    0,
+    65536,
+    1.5,
+    '7391',
+  ]) {
+    assert.throws(
+      () => buildE2ePins(validPins({ port: value })),
+      (error) => error instanceof TypeError && error.message.includes('port'),
+      `port=${String(value)} should throw`,
+    );
+  }
+});
+
+test('the E2E entrypoint builds the brain env through the tested pins', () => {
+  // Cheap source tripwire: the factory tests prove behavior; this keeps the
+  // entrypoint from quietly going back to spreading the host environment.
+  const entry = readFileSync(path.join(repoRoot, 'scripts', 'e2e.mjs'), 'utf8');
+  assert.match(entry, /env:\s*buildE2eEnv\(/);
+  assert.match(entry, /buildE2ePins\(/);
+  assert.doesNotMatch(entry, /\.\.\.process\.env/);
+  assert.doesNotMatch(entry, /APS_HARNESS_BIN\s*:/);
+});
+
 test('the real E2E pin set beats hostile harness overrides', () => {
-  const e2ePins = buildE2ePins({
-    root: '/repo',
-    mock: '/repo/scripts/e2e/mock-claude.mjs',
-    home: '/tmp/e2e/home',
-    temp: '/tmp/e2e',
-    dbPath: '/tmp/e2e/e2e.sqlite',
-    port: 7391,
-    base: 'http://127.0.0.1:7391',
-    pluginsDir: '/tmp/e2e/plugins',
-  });
+  const e2ePins = buildE2ePins(validPins());
 
   const env = buildE2eEnv(hostile, e2ePins);
 
@@ -144,8 +243,10 @@ test('the real E2E pin set beats hostile harness overrides', () => {
   }
 
   // The hostile binaries must never survive under either prefix.
-  assert.equal(env.APS_HARNESS_BIN, '/repo/scripts/e2e/mock-claude.mjs');
-  assert.equal(env.APS_CLAUDE_BIN, '/repo/scripts/e2e/mock-claude.mjs');
+  assert.equal(env.APS_HARNESS_BIN, mockBin);
+  assert.equal(env.APS_CLAUDE_BIN, mockBin);
+  assert.ok(path.isAbsolute(env.APS_HARNESS_BIN));
+  assert.ok(existsSync(env.APS_HARNESS_BIN));
   assert.equal(Object.hasOwn(env, 'SBOX_HARNESS_BIN'), false);
   assert.equal(Object.hasOwn(env, 'APS_OPENCODE_BIN'), false);
 

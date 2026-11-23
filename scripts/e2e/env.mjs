@@ -29,11 +29,31 @@ export function buildE2eEnv(hostEnv, pins) {
   return { ...env, ...pins };
 }
 
+function requireString(name, value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new TypeError(`buildE2ePins: ${name} must be a non-empty string`);
+  }
+}
+
+function requireAbsolutePath(name, value) {
+  requireString(name, value);
+  if (!path.isAbsolute(value)) {
+    throw new TypeError(`buildE2ePins: ${name} must be an absolute path`);
+  }
+}
+
+function requirePort(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new TypeError('buildE2ePins: port must be an integer between 1 and 65535');
+  }
+}
+
 /**
  * The pins the E2E brain always gets: a throwaway HOME and database, the repo's
  * docs, a temp plugins dir, and the mock Claude binary. Exported so the unit
  * guard exercises the same set the suite spawns with instead of a copy that can
- * drift. Pure: every path comes from the caller.
+ * drift. Pure: every path comes from the caller, and every argument is checked
+ * so a dropped pin fails here instead of falling back to a real CLI on PATH.
  */
 export function buildE2ePins({
   root,
@@ -45,6 +65,15 @@ export function buildE2ePins({
   base,
   pluginsDir,
 }) {
+  requireAbsolutePath('root', root);
+  requireAbsolutePath('mock', mock);
+  requireAbsolutePath('home', home);
+  requireAbsolutePath('temp', temp);
+  requireAbsolutePath('dbPath', dbPath);
+  requireAbsolutePath('pluginsDir', pluginsDir);
+  requireString('base', base);
+  requirePort(port);
+
   return {
     HOME: home,
     NODE_ENV: 'production',

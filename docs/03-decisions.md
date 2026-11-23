@@ -306,15 +306,20 @@ turns, so they cost tokens.
 **Context.** A turn can take minutes. The operator wants to compose while it runs, cut it
 short deliberately, and interject without losing the conversation.
 
-**Decision.** Queue messages in the SPA per request (localStorage) and drain them in
-order when the turn ends. `POST /clarify/stop` marks the turn cancelled, kills the child
-(SIGTERM then SIGKILL), lets `finishTurn` save the partial transcript, and leaves
-`session.json` alone so the next message resumes. Stop clears the queue; the client shows
-"Stopped. You can interject."
+**Decision.** Queue messages in the SPA per request under `aps-queue:<requestId>` and
+drain them in order when the turn ends. A queue written before the rename under
+`sbox-queue:<requestId>` is adopted once on load, copied to the new key, then deleted; the
+new key is authoritative whenever it exists (even when malformed), so a drained or
+stopped queue cannot resurrect from the legacy key. `POST /clarify/stop` marks the turn
+cancelled, kills the child (SIGTERM then SIGKILL), lets `finishTurn` save the partial
+transcript, and leaves `session.json` alone so the next message resumes. Stop clears the
+queue; the client shows "Stopped. You can interject."
 
 **Cost.** The queue is per browser and not visible to other clients or the server. A stop
 is best-effort: the process can take a moment to die, and the transcript is whatever the
-parser had flushed.
+parser had flushed. Migration is best-effort too: a tab still running the old bundle can
+recreate the legacy key after migration, and that queue is adopted again only when the
+new key is absent.
 
 ## D24. One thread across segments; a scoped master chat
 

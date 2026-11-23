@@ -177,10 +177,12 @@ built and vended by the brain; real-CLI verification is still pending.
   `GET /clarify` reports `active`; the chat hydrates the snapshot and reattaches to a
   live turn, showing a working indicator and streaming text. Verified by reloading
   Chromium mid-turn and seeing the same turn continue.
-- Chat controls: composing while a turn runs queues the message in localStorage per
-  request and drains in order when the turn ends. Stop calls `POST /clarify/stop`, kills
-  the child, saves the partial transcript, keeps the saved session for the next message,
-  and clears the queue so the human can interject.
+- Chat controls: composing while a turn runs queues the message under the per-request
+  `aps-queue:<requestId>` localStorage key and drains in order when the turn ends. A
+  queue left under the pre-rename `sbox-queue:<id>` key is migrated on first load and the
+  legacy key is removed. Stop calls `POST /clarify/stop`, kills the child, saves the
+  partial transcript, keeps the saved session for the next message, and clears the queue
+  so the human can interject.
 - One thread across segments: the drawer renders the same chat for clarify, dispatch,
   review, and finalize (terminal states stay read-only), so the human can interject at
   any point in the workflow.

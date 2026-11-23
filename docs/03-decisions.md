@@ -992,3 +992,29 @@ general event notifications remain separate requests. The outbox adds one small 
 one `unref()`'d timer; delivery is advisory and never changes budgets, turns, or the HTTP
 response path. `destination_hash` is a one-way hash stored only in the local database and
 is never logged.
+
+## D56. Proof scripts share one scrub-then-pin env builder
+
+**Context.** The e2e suite became hermetic first: inherited `APS_*`/`SBOX_*` settings and
+API credentials are dropped before the mock pins are applied. The other proof scripts
+still spread `process.env` and pinned only legacy `SBOX_*` names. Because `readEnv()`
+prefers `APS_*`, a normally configured host overrode those pins, so `mcp-smoke` could call
+the live brain (and exited 0 when every call failed), `claude-mock-smoke` could launch the
+wrong adapter against the live port and database, and inherited `XDG_CONFIG_HOME` could
+still reach the host's config, process, and error-log files even after prefix scrubbing.
+
+**Decision.** `scripts/e2e/env.mjs` owns `scrubEnv(hostEnv)` and
+`buildPinnedEnv(hostEnv, pins)`; the E2E name `buildE2eEnv` is an alias. Every proof
+script — e2e, MCP smoke, Claude mock smoke, and screenshots — builds its child env through
+the helper with a validated pin builder. Scripts that deliberately prove the legacy
+aliases keep `SBOX_*` pins; scrubbing inherited `APS_*` names first is what makes those
+pins authoritative. The Claude smoke also pins `SBOX_CONFIG`/`SBOX_PROCESS`/
+`SBOX_ERROR_LOG` and the XDG dirs because `loadConfig()` reads XDG directly, outside
+`readEnv`. `mcp-smoke` now asserts its tool round trips, persisted request, and KB entry,
+so a broken proof exits non-zero instead of printing `MISSING ID`/`ERROR`.
+
+**Cost.** The proof scripts import from an `e2e`-named module; renaming it to a neutral
+path would churn imports, tests, and docs for no behavioral gain. The pins stay explicit
+and per-script, so adding a script means adding a builder and a hostile-env test rather
+than reusing one global env. `scripts/smoke.sh` is bash and keeps its own pinning; making
+it share the contract is separate work.

@@ -33,6 +33,12 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+      # The web Vitest config pins NODE_ENV=test; run it too with the brain's
+      # inherited production env so React resolution regressions fail here.
+      - name: Web tests with inherited NODE_ENV=production
+        run: NODE_ENV=production npm test --workspace src/web
+
       - run: npm run build
 
       # Export hostile overrides so a regression that spreads process.env into

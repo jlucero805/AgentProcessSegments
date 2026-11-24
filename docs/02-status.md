@@ -327,7 +327,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 792 vitest cases, all passing: 601 server across 41 files and 191 web across 24 files,
+- 793 vitest cases, all passing: 602 server across 42 files and 191 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -358,7 +358,9 @@ built and vended by the brain; real-CLI verification is still pending.
   exported, so a regression that leaks the host env fails the build.
 - CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
   full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
-  `scripts/mcp-smoke.mjs` on pushes and pull requests. It is not active on the remote:
+  `scripts/mcp-smoke.mjs` on pushes and pull requests. It also re-runs the web suite
+  with `NODE_ENV=production` to exercise the inherited-production React resolution. It
+  is not active on the remote:
   publishing a workflow needs a credential with the `workflow` scope. Copy it to
   `.github/workflows/ci.yml` once that is available.
 

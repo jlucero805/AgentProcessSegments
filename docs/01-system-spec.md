@@ -158,7 +158,10 @@ the delivery idempotency key; `idx_budget_alert_deliveries_due` covers
 `(status, next_attempt_at)`. `destination_hash` is a SHA-256 of the channel route
 (URL/format/secret, or host/port/TLS/from/recipients/credentials), never logged or
 returned, so a configuration change cannot send an old alert with new credentials.
-Deliveries older than 400 days are pruned on notifier start.
+Deliveries older than 400 days are pruned on notifier start. The Config **Delivery
+history** card reads this table through the read-only join below; a manual resend resets
+the same `failed`/`skipped` row under the current destination and never creates a second
+row.
 
 ### Spend budgets
 
@@ -282,6 +285,23 @@ and the latest delivery (webhook also reports format). `POST
 /api/notifications/webhook/test` and `POST /api/notifications/email/test` send synthetic
 `budget.test` events through the same timeout and transport paths; they require a
 configured destination, write no alert or delivery rows, and return `200` or `502`.
+
+`GET /api/notifications/deliveries` is a read-only, offset-paginated audit over both
+channels. Filters are `channel`, `status`, `alertId`, `from` (inclusive), and `to`
+(exclusive) on the delivery `created_at`, with `limit` 1–100 (default 25) and `offset`.
+Rows join `budget_alerts` and return the alert scope/cell, threshold, budget/spend,
+attempts, next attempt, sanitized error, timestamps, and `canResend`; they never include
+`destination_hash`, a URL, credentials, recipients, or a payload body. History is
+newest-first by `(created_at, id)`.
+
+`POST /api/notifications/deliveries/:id/resend` re-queues only a `failed` or `skipped`
+row whose alert is unacknowledged in the current UTC month and whose channel is enabled
+and configured. It resets `attempts` to zero, `next_attempt_at` to now, clears
+`delivered_at`, re-stamps `format`/`destination_hash` to the current route, preserves
+`last_error`, and kicks the notifier. `pending`/`delivering` is an idempotent no-op;
+delivered rows return `409 already_delivered`; acknowledged, prior-month, disabled, and
+unconfigured cases return the matching `409`. Unknown ids return `404`. The one row per
+`(alert_id, channel)` remains the dedupe record; a delivered alert is never resent.
 
 ### `kb_entries`
 

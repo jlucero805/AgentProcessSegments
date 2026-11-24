@@ -5,6 +5,8 @@ import { jsonResponse, makePrice, makeProcessResponse } from './test/fixtures';
 import type {
   BudgetsResponse,
   Cell,
+  DeliveryHistoryItem,
+  DeliveryHistoryResponse,
   MasterConfig,
   MasterEvent,
   ModelPrice,
@@ -143,6 +145,41 @@ const budgetView: BudgetsResponse = {
   pauses: [],
 };
 
+const deliveryRow: DeliveryHistoryItem = {
+  id: 'd1',
+  alertId: 'a1',
+  channel: 'webhook',
+  format: 'json',
+  status: 'failed',
+  attempts: 5,
+  nextAttemptAt: Date.UTC(2026, 10, 15, 12),
+  lastError: 'HTTP 503',
+  createdAt: Date.UTC(2026, 10, 15, 12),
+  updatedAt: Date.UTC(2026, 10, 15, 12),
+  deliveredAt: null,
+  canResend: true,
+  alert: {
+    scope: 'overall',
+    cellId: null,
+    cellName: null,
+    threshold: 'warning',
+    alertAtPercent: 80,
+    budgetUsd: 100,
+    spendUsd: 85,
+    unknownCostTurns: 0,
+    periodStart: Date.UTC(2026, 10, 1),
+    createdAt: Date.UTC(2026, 10, 15, 12),
+    acknowledgedAt: null,
+  },
+};
+
+const deliveryHistory: DeliveryHistoryResponse = {
+  deliveries: [deliveryRow],
+  total: 1,
+  limit: 10,
+  offset: 0,
+};
+
 const event: MasterEvent = {
   id: 'e1',
   cellId: 'c1',
@@ -186,6 +223,8 @@ interface Captured {
   cell?: { masterEnabled?: boolean };
   price?: ModelPriceInput;
   deletedPriceId?: string;
+  deliveryQuery?: string;
+  resendId?: string;
 }
 
 function installFetch(
@@ -204,6 +243,8 @@ function installFetch(
     ok: true,
     durationMs: 15,
   },
+  deliveriesView: DeliveryHistoryResponse = deliveryHistory,
+  resendStatus = 200,
 ): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
@@ -262,6 +303,28 @@ function installFetch(
       });
     }
     if (url === '/api/notifications/status') return jsonResponse(notificationStatus);
+    if (url.startsWith('/api/notifications/deliveries/') && init?.method === 'POST') {
+      const suffix = '/resend';
+      const rest = url.slice('/api/notifications/deliveries/'.length);
+      captured.resendId = decodeURIComponent(rest.endsWith(suffix) ? rest.slice(0, -suffix.length) : rest);
+      if (resendStatus >= 400) {
+        return jsonResponse(
+          { error: 'already_delivered', message: 'already delivered' },
+          resendStatus,
+        );
+      }
+      const row = deliveriesView.deliveries.find((item) => item.id === captured.resendId);
+      return jsonResponse({
+        ...(row ?? deliveryRow),
+        status: 'pending',
+        attempts: 0,
+        canResend: false,
+      });
+    }
+    if (url.startsWith('/api/notifications/deliveries')) {
+      captured.deliveryQuery = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+      return jsonResponse(deliveriesView);
+    }
     if (url === '/api/notifications/webhook/test' && init?.method === 'POST') {
       return jsonResponse(webhookTest, webhookTest.ok ? 200 : 502);
     }
@@ -809,5 +872,92 @@ describe('ConfigPage', () => {
 
     fireEvent.click(remove);
     await waitFor(() => expect(captured.deletedPriceId).toBe(price.id));
+  });
+
+  it('renders delivery history and filters by channel and status', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText(/Overall · warning 80%/)).toBeInTheDocument();
+    expect(screen.getByText('HTTP 503')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Resend webhook delivery/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Channel/), { target: { value: 'email' } });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('channel=email'));
+
+    fireEvent.change(screen.getByLabelText(/^Status/), { target: { value: 'failed' } });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('status=failed'));
+  });
+
+  it('shows an empty delivery history', async () => {
+    installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      email,
+      undefined,
+      { deliveries: [], total: 0, limit: 10, offset: 0 },
+    );
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('No deliveries yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Resend/i })).not.toBeInTheDocument();
+  });
+
+  it('pages through delivery history', async () => {
+    const captured = installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      email,
+      undefined,
+      { deliveries: [deliveryRow], total: 25, limit: 10, offset: 0 },
+    );
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('Showing 1–1 of 25')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Older' }));
+    await waitFor(() => expect(captured.deliveryQuery).toContain('offset=10'));
+  });
+
+  it('resends a failed delivery and refreshes the list', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Resend webhook delivery/i }));
+    await waitFor(() => expect(captured.resendId).toBe('d1'));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Resend queued; delivery will retry on the next flush.',
+    );
+  });
+
+  it('reports a resend failure through onError', async () => {
+    const onError = vi.fn();
+    installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      email,
+      undefined,
+      deliveryHistory,
+      409,
+    );
+    render(<ConfigPage onError={onError} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Resend webhook delivery/i }));
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith('already delivered'),
+    );
   });
 });

@@ -1192,3 +1192,29 @@ set lives for the process lifetime (two ids per deleted cell); a crash between t
 database delete and the `rm` can still leave a directory, which a startup sweep would
 handle separately. Usage, budget-alert, and per-request artifacts are untouched; deleting
 a cell still only detaches its requests.
+
+## D63. Delivery history is a read-only audit and resend is guarded
+
+**Context.** The webhook and SMTP outboxes record every alert/channel attempt, but the
+Config page only exposed aggregate pending/failed counts and the latest row. Operators
+could not see why a specific alert failed or re-queue a notification that was skipped
+after a destination change, short of editing SQLite.
+
+**Decision.** Add `GET /api/notifications/deliveries`: a read-only, offset-paginated join
+over `budget_alert_deliveries` and `budget_alerts`, filtered by channel, status, alert id,
+and a `[from, to)` created-at window. It returns alert scope/cell, threshold, budget/spend,
+attempts, next attempt, a sanitized error, timestamps, and a computed `canResend`. It
+never returns `destination_hash`, a URL, credentials, recipients, or a payload body.
+Add `POST /api/notifications/deliveries/:id/resend`, which re-queues only `failed` or
+`skipped` rows whose alert is unacknowledged in the current UTC month and whose channel is
+enabled and configured. Resend reuses the same row (the `(alert_id, channel)` unique key
+stays the dedupe record), resets `attempts`, clears `delivered_at`, re-stamps
+`format`/`destination_hash` to the current route, preserves `last_error`, and kicks a
+flush. `pending`/`delivering` is an idempotent no-op; delivered rows are immutable.
+
+**Cost.** No schema change, migration, new dependency, or background job. The audit is an
+ops list bounded by monthly alerts, two channels, and the existing 400-day prune. History
+rows still cascade with their alert, so clearing a budget, changing a threshold, deleting
+a cell, or a month rollover removes unacknowledged history; snapshotting alert fields is a
+separate follow-up. Resends are not attributed to an operator because the app has no
+user identity.

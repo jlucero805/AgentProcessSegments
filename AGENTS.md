@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 691 vitest cases: 513 server across 37 files and 178 web across 24 files, all green.
+- 714 vitest cases: 530 server across 38 files and 184 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -90,7 +90,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 513 server + 178 web, plus the e2e env guard
+npm test                       # 530 server + 184 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -373,7 +373,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     under so a URL/format/secret change skips pending rows instead of sending them with
     new credentials. Delivery retries are bounded, failures go to `budget.notify` with
     ids only, and a notifier failure must never throw into budget evaluation, an HTTP
-    handler, or a turn. Tests inject the sender; no external network traffic.
+    handler, or a turn. Tests inject the sender; no external network traffic. Delivery
+    history is a read-only view that never returns a destination, secret, recipient, or
+    payload. Manual resend only re-queues `failed`/`skipped` rows for an unacknowledged
+    current-month alert on an enabled, configured channel; it re-stamps the destination
+    and preserves the one-row-per-alert dedupe. A delivered row is never resent. Resend
+    failures reuse `budget.notify` with delivery/alert ids and phase only.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose

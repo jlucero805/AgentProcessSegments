@@ -24,7 +24,7 @@ import { BudgetNotifier, type FetchLike } from '../src/usage/budget-notifier.js'
 import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
-import type { SpendPause } from '../src/domain/budget.js';
+import { budgetPeriod, type SpendPause } from '../src/domain/budget.js';
 import { masterSessionId, summarySessionId } from '../src/domain/sessions.js';
 import type { ErrorSink } from '../src/logging/errors.js';
 
@@ -32,6 +32,7 @@ interface Open {
   h: Harness;
   app: FastifyInstance;
   base: string;
+  notifications: BudgetNotifier;
 }
 
 let open: Open | null = null;
@@ -127,7 +128,7 @@ async function makeApp(
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   const port = typeof address === 'object' && address !== null ? address.port : 0;
-  open = { h, app, base: `http://127.0.0.1:${port}` };
+  open = { h, app, base: `http://127.0.0.1:${port}`, notifications };
   return open;
 }
 
@@ -152,6 +153,43 @@ async function call(
     text,
     json: () => (text === '' ? null : JSON.parse(text)),
   };
+}
+
+function seedDelivery(
+  status: 'pending' | 'delivered' | 'failed',
+  alertAtPercent = 80,
+) {
+  if (!open) throw new Error('no server');
+  const now = Date.now();
+  const alerts = new BudgetAlertRepository(open.h.db);
+  const deliveries = new BudgetAlertDeliveryRepository(open.h.db);
+  const alert = alerts.upsert(
+    {
+      scope: 'overall',
+      scopeId: '',
+      periodStart: budgetPeriod(now).start,
+      threshold: 'warning',
+      alertAtPercent,
+      budgetUsd: 100,
+      spendUsd: 85,
+      unknownCostTurns: 0,
+    },
+    now,
+  );
+  const row = deliveries.enqueue({
+    alertId: alert.id,
+    channel: 'webhook',
+    format: 'json',
+    destinationHash: 'hash-fixture-a',
+    now,
+  });
+  if (status === 'failed') {
+    deliveries.markDelivering(row.id, now);
+    deliveries.markFailed(row.id, now, 'HTTP 503');
+  } else if (status === 'delivered') {
+    deliveries.markDelivered(row.id, now);
+  }
+  return { alert, row, alerts, deliveries };
 }
 
 afterEach(async () => {
@@ -825,6 +863,117 @@ describe('http api', () => {
     await makeApp();
     const result = await call('POST', '/api/notifications/webhook/test');
     expect(result.status).toBe(400);
+  });
+
+  it('lists delivery history with joined alerts and no secrets', async () => {
+    await makeApp();
+    const { row } = seedDelivery('failed');
+
+    const response = await call('GET', '/api/notifications/deliveries');
+
+    expect(response.status).toBe(200);
+    expect(response.json()).toMatchObject({
+      total: 1,
+      limit: 25,
+      offset: 0,
+      deliveries: [
+        {
+          id: row.id,
+          channel: 'webhook',
+          format: 'json',
+          status: 'failed',
+          attempts: 1,
+          lastError: 'HTTP 503',
+          canResend: false,
+          alert: {
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            threshold: 'warning',
+            alertAtPercent: 80,
+            budgetUsd: 100,
+            spendUsd: 85,
+            unknownCostTurns: 0,
+          },
+        },
+      ],
+    });
+    expect(response.text).not.toContain('hash-fixture-a');
+    expect(response.text).not.toContain('hooks.example.test');
+  });
+
+  it('filters delivery history and rejects invalid queries', async () => {
+    await makeApp();
+    seedDelivery('failed');
+
+    const filtered = await call(
+      'GET',
+      '/api/notifications/deliveries?channel=webhook&status=failed&limit=1&offset=0',
+    );
+    expect(filtered.status).toBe(200);
+    expect(filtered.json().deliveries).toHaveLength(1);
+
+    for (const query of [
+      'channel=teams',
+      'status=nope',
+      'limit=0',
+      'offset=-1',
+      'from=5&to=5',
+    ]) {
+      const bad = await call('GET', `/api/notifications/deliveries?${query}`);
+      expect(bad.status).toBe(400);
+      expect(bad.json()).toMatchObject({ error: 'invalid' });
+    }
+  });
+
+  it('resends a failed delivery, refuses a delivered one, and 404s unknown ids', async () => {
+    await makeApp();
+    await call('PATCH', '/api/config', {
+      notifications: { webhook: { enabled: true, url: 'https://hooks.example.test/budget' } },
+    });
+    const failed = seedDelivery('failed');
+
+    const resent = await call(
+      'POST',
+      `/api/notifications/deliveries/${failed.row.id}/resend`,
+    );
+    expect(resent.status).toBe(200);
+    expect(resent.json()).toMatchObject({
+      id: failed.row.id,
+      status: 'pending',
+      attempts: 0,
+      canResend: false,
+    });
+    await open?.notifications.flush();
+
+    const delivered = seedDelivery('delivered', 70);
+    const refused = await call(
+      'POST',
+      `/api/notifications/deliveries/${delivered.row.id}/resend`,
+    );
+    expect(refused.status).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'already_delivered' });
+
+    const missing = await call('POST', '/api/notifications/deliveries/missing/resend');
+    expect(missing.status).toBe(404);
+    expect(missing.json()).toMatchObject({ error: 'not_found' });
+  });
+
+  it('returns a sanitized 500 when a resend fails internally', async () => {
+    await makeApp();
+    const failed = seedDelivery('failed');
+    vi.spyOn(open!.notifications, 'resend').mockReturnValue({
+      ok: false,
+      reason: 'internal',
+    });
+
+    const response = await call(
+      'POST',
+      `/api/notifications/deliveries/${failed.row.id}/resend`,
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.json()).toEqual({ error: 'internal', message: 'resend failed' });
   });
 
   it('acknowledges a budget alert over HTTP', async () => {

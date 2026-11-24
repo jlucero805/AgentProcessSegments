@@ -12,7 +12,12 @@ import type { Config } from '../config.js';
 import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
 import { HARNESS_IDS, isHarnessId, resolveHarness, type HarnessId } from '../domain/harness.js';
-import { emailDeliveryConfigured } from '../domain/budget.js';
+import {
+  DELIVERY_CHANNELS,
+  DELIVERY_STATUSES,
+  emailDeliveryConfigured,
+  type ResendBlockReason,
+} from '../domain/budget.js';
 import { cellSessionIds } from '../domain/sessions.js';
 import {
   EFFORT_LEVELS,
@@ -234,6 +239,27 @@ const usageQuerySchema = z
         path: ['to'],
       });
     }
+  });
+const RESEND_MESSAGES: Record<ResendBlockReason, string> = {
+  already_delivered: 'the delivery already succeeded; delivered alerts are never resent',
+  alert_acknowledged: 'the alert was acknowledged; only active alerts can be resent',
+  not_current_period: 'the alert is not from the current UTC budget month',
+  channel_disabled: 'the delivery channel is disabled',
+  channel_unconfigured: 'the delivery channel is missing required settings',
+};
+const deliveryQuerySchema = z
+  .object({
+    channel: z.enum(DELIVERY_CHANNELS).optional(),
+    status: z.enum(DELIVERY_STATUSES).optional(),
+    alertId: z.string().min(1).max(100).optional(),
+    from: z.coerce.number().int().nonnegative().optional(),
+    to: z.coerce.number().int().nonnegative().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    offset: z.coerce.number().int().nonnegative().optional(),
+  })
+  .refine((value) => value.from === undefined || value.to === undefined || value.from < value.to, {
+    message: 'from must be before to',
+    path: ['from'],
   });
 const priceRateSchema = z.number().finite().nonnegative().max(1_000_000);
 const priceInputSchema = z.object({
@@ -949,6 +975,24 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   });
 
   app.get('/api/notifications/status', async () => notifications.status());
+  app.get('/api/notifications/deliveries', async (request) =>
+    notifications.history(deliveryQuerySchema.parse(request.query)),
+  );
+  app.post('/api/notifications/deliveries/:id/resend', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = notifications.resend(id);
+    if (result.ok) return result.delivery;
+    if (result.reason === 'not_found') {
+      return reply.code(404).send({ error: 'not_found', message: `delivery ${id} not found` });
+    }
+    if (result.reason === 'internal') {
+      return reply.code(500).send({ error: 'internal', message: 'resend failed' });
+    }
+    return reply.code(409).send({
+      error: result.reason,
+      message: RESEND_MESSAGES[result.reason],
+    });
+  });
   app.post('/api/notifications/webhook/test', async (request, reply) => {
     if (settings.get().notifications.webhook.url === null) {
       return reply.code(400).send({

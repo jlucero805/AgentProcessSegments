@@ -8,6 +8,9 @@ import type {
   ClarifyState,
   CommandInfo,
   ConfigResponse,
+  DeliveryHistoryItem,
+  DeliveryHistoryQuery,
+  DeliveryHistoryResponse,
   DocContent,
   DocPage,
   HarnessId,
@@ -349,6 +352,26 @@ export const api = {
   },
   getNotificationStatus(): Promise<NotificationStatusResponse> {
     return request('/api/notifications/status');
+  },
+  getNotificationDeliveries(
+    query: DeliveryHistoryQuery = {},
+  ): Promise<DeliveryHistoryResponse> {
+    return request(
+      withQuery('/api/notifications/deliveries', {
+        channel: query.channel,
+        status: query.status,
+        alertId: query.alertId,
+        from: query.from,
+        to: query.to,
+        limit: query.limit,
+        offset: query.offset,
+      }),
+    );
+  },
+  resendNotificationDelivery(id: string): Promise<DeliveryHistoryItem> {
+    return request(`/api/notifications/deliveries/${encodeURIComponent(id)}/resend`, {
+      method: 'POST',
+    });
   },
   async testWebhook(): Promise<WebhookTestResult> {
     try {

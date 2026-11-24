@@ -157,7 +157,7 @@ built and vended by the brain; real-CLI verification is still pending.
   names that match `/api/commands`. Verified end to end (`/demo-plugin:hello` →
   PLUGINOK, skill invocation → GREETOK).
 - OpenCode verified end to end on this host: 44 probed models, a 50 s clarify turn with
-  tool cards and `tools.harness.*` MCP calls, a 20-message persisted transcript, session
+  tool cards and `tools.aps.*` MCP calls, a 20-message persisted transcript, session
   resume after a brain restart with correct recall, a KB turn with read-only
   permissions, plugin command/skill mapping, a merged user MCP server
   (`tools.userserver.list_kb`), and a target-repo worktree write that stayed off the

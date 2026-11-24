@@ -445,7 +445,7 @@ src/server/src
   master/scheduler.ts per-cell timers, per-cell manual run, one dispatch cycle per cell
   summary/            per-cell scorecard policy, deterministic stats, read-only generation,
                       polling scheduler, persisted report history
-  mcp/server.ts       stdio `aps` MCP server exposing harness tools, proxied to the API
+  mcp/server.ts       stdio `aps` MCP server exposing bundled board/KB/draft tools, proxied to the API
   mcp/identity.ts     shared MCP server key, handshake version, tool prefix,
                       and allow-list helper
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo

@@ -537,7 +537,9 @@ SQLite, and fails if any round trip or persisted value does not match.
 `node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
 probed model catalog. It runs with a hermetic child env and pins the legacy `SBOX_*`
-aliases on purpose. It skips when no `claude` binary is available.
+aliases on purpose. It selects its own binary from `--claude-bin <path>` or
+`CLAUDE_MOCK_SMOKE_BIN`, then `claude` on `PATH`; inherited `APS_*`/`SBOX_*` settings are
+ignored. It skips when no `claude` binary is available.
 
 `npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →
@@ -550,9 +552,10 @@ port, harness, and mock binary are pinned. The Claude and MCP smokes keep delibe
 `SBOX_*` pins so the legacy aliases stay under test. A shell that exports harness
 overrides therefore still exercises the mock.
 
-CI runs that E2E step with hostile overrides exported (`SBOX_HARNESS_BIN=/bin/false`,
-`APS_HARNESS=opencode`, `APS_TURN_TIMEOUT_MS=1`, and similar), so a regression that lets
-the host env through fails the build. Reproduce it locally after building:
+CI runs that E2E step and the Claude mock smoke step with hostile overrides exported
+(`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`, `APS_CLAUDE_BIN=/bin/false`,
+`APS_TURN_TIMEOUT_MS=1`, and similar), so a regression that lets the host env through
+fails the build. Reproduce it locally after building:
 
 ```bash
 npm run build

@@ -148,10 +148,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `npm run build`, then `env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode node
   scripts/e2e.mjs`.
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
-  Code binary can be supplied with `APS_CLAUDE_BIN`.
+  Code binary can be supplied to the brain with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock
   Anthropic API (stream, MCP tool, `--resume`, model probe) and skips when no binary is
-  found. Do not infer live Claude model behavior from the mock.
+  found. Its own binary discovery is script-scoped: `--claude-bin <path>` or
+  `CLAUDE_MOCK_SMOKE_BIN`, then `claude` on `PATH`. Inherited `APS_CLAUDE_BIN` and the
+  legacy `SBOX_CLAUDE_BIN` are ignored so production config cannot choose the binary
+  under test. Do not infer live Claude model behavior from the mock.
 - **OpenCode is one-shot per message.** The adapter starts
   `opencode run --format json --auto --standalone` per turn, carries the `ses_…` session
   id, and maps `text`, `tool_use`, `step_finish`, and `error` events. MCP tools surface

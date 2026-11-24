@@ -11,6 +11,7 @@ import {
   buildMcpSmokePins,
   buildPinnedEnv,
   buildScreenshotPins,
+  resolveClaudeBin,
   SCRUB_PREFIXES,
   scrubEnv,
 } from './env.mjs';
@@ -268,6 +269,7 @@ test('the real E2E pin set beats hostile harness overrides', () => {
 
 const proofHostile = {
   ...hostile,
+  APS_DB: '/tmp/host.sqlite',
   APS_REQUEST_ID: 'hostile-request',
   XDG_CONFIG_HOME: '/hostile/xdg-config',
   XDG_STATE_HOME: '/hostile/xdg-state',
@@ -369,6 +371,9 @@ test('buildClaudeSmokePins keeps the legacy aliases and drops host APS_* names',
   assertOnlyPinnedScrubNames(env, pinned);
   assert.equal(env.SBOX_HARNESS_BIN, claudePinsArgs.claude);
   assert.notEqual(env.SBOX_HARNESS_BIN, '/bin/false');
+  assert.equal(env.SBOX_DB, claudePinsArgs.dbPath);
+  assert.equal(env.SBOX_DATA_DIR, claudePinsArgs.dataDir);
+  assert.notEqual(env.SBOX_DB, '/tmp/host.sqlite');
   assert.equal(Object.hasOwn(env, 'APS_HARNESS'), false);
   assert.equal(Object.hasOwn(env, 'APS_DB'), false);
   assert.equal(Object.hasOwn(env, 'APS_BRAIN_URL'), false);
@@ -376,6 +381,86 @@ test('buildClaudeSmokePins keeps the legacy aliases and drops host APS_* names',
   assert.equal(env.ANTHROPIC_API_KEY, 'test-key');
   assert.equal(Object.hasOwn(env, 'CLAUDE_CODE_OAUTH_TOKEN'), false);
   assert.equal(env.PATH, '/usr/bin:/bin');
+});
+
+test('resolveClaudeBin prefers the flag, then the script env, then PATH', () => {
+  const env = { CLAUDE_MOCK_SMOKE_BIN: '/env/claude', PATH: '/path' };
+  assert.equal(
+    resolveClaudeBin({ argv: ['--claude-bin', '/flag/claude'], env, isExecutable: () => true }),
+    '/flag/claude',
+  );
+  assert.equal(
+    resolveClaudeBin({ argv: ['--claude-bin=/flag/claude'], env, isExecutable: () => true }),
+    '/flag/claude',
+  );
+  assert.equal(resolveClaudeBin({ argv: [], env, isExecutable: () => true }), '/env/claude');
+  assert.equal(
+    resolveClaudeBin({
+      argv: [],
+      env: { PATH: '/path' },
+      isExecutable: (file) => file === '/path/claude',
+    }),
+    '/path/claude',
+  );
+});
+
+test('resolveClaudeBin ignores inherited APS_CLAUDE_BIN and SBOX_CLAUDE_BIN', () => {
+  assert.equal(
+    resolveClaudeBin({
+      argv: [],
+      env: {
+        APS_CLAUDE_BIN: '/bin/false',
+        SBOX_CLAUDE_BIN: '/bin/false',
+        PATH: '/nowhere',
+      },
+      isExecutable: (file) => file === '/nowhere/claude',
+    }),
+    '/nowhere/claude',
+  );
+  assert.equal(
+    resolveClaudeBin({
+      argv: [],
+      env: { APS_CLAUDE_BIN: '/bin/false', SBOX_CLAUDE_BIN: '/bin/false', PATH: '' },
+      isExecutable: () => true,
+    }),
+    null,
+  );
+});
+
+test('resolveClaudeBin skips non-executable PATH candidates and misses', () => {
+  const env = { PATH: ['/one', '/two'].join(path.delimiter) };
+  assert.equal(
+    resolveClaudeBin({
+      argv: [],
+      env,
+      isExecutable: (file) => file === '/two/claude',
+    }),
+    '/two/claude',
+  );
+  assert.equal(resolveClaudeBin({ argv: [], env, isExecutable: () => false }), null);
+});
+
+test('resolveClaudeBin rejects invalid explicit binaries', () => {
+  const cases = [
+    { argv: ['--claude-bin'], env: {}, message: /requires a path/ },
+    { argv: ['--claude-bin', '--other'], env: {}, message: /requires a path/ },
+    { argv: ['--claude-bin='], env: {}, message: /non-empty path/ },
+    { argv: ['--claude-bin', './claude'], env: {}, message: /absolute path/ },
+    { argv: [], env: { CLAUDE_MOCK_SMOKE_BIN: '' }, message: /non-empty path/ },
+    {
+      argv: [],
+      env: { CLAUDE_MOCK_SMOKE_BIN: '/nope/claude' },
+      message: /not an executable file/,
+    },
+  ];
+
+  for (const { argv, env, message } of cases) {
+    assert.throws(
+      () => resolveClaudeBin({ argv, env, isExecutable: () => false }),
+      (error) => error instanceof TypeError && message.test(error.message),
+      `${argv.join(' ') || env.CLAUDE_MOCK_SMOKE_BIN} should throw`,
+    );
+  }
 });
 
 test('buildMcpSmokePins isolates the temp brain from host harness env', () => {
@@ -519,6 +604,11 @@ test('every proof script builds child env through the shared helper', () => {
       source,
       /Object\.entries\(process\.env\)/,
       `${file} must not copy process.env manually`,
+    );
+    assert.doesNotMatch(
+      source,
+      /process\.env\.(APS|SBOX)_/,
+      `${file} must not read inherited APS/SBOX settings directly`,
     );
   }
 });

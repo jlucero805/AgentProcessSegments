@@ -8,32 +8,55 @@
 // config/allow rules, tool execution through the bundled `aps` MCP server, and
 // `--resume` across a brain restart.
 //
-// Skips (exit 0) when no `claude` binary is available. Set APS_CLAUDE_BIN (or the
-// legacy SBOX_CLAUDE_BIN) to point at one; otherwise `claude` must be on PATH.
+// Skips (exit 0) when no `claude` binary is available. Choose one with
+// `--claude-bin <path>` or `CLAUDE_MOCK_SMOKE_BIN`; otherwise `claude` must be on
+// PATH. Inherited APS_CLAUDE_BIN/SBOX_CLAUDE_BIN are ignored on purpose: the
+// smoke's subject binary is not production config.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { buildClaudeSmokePins, buildPinnedEnv } from './e2e/env.mjs';
+import { buildClaudeSmokePins, buildPinnedEnv, resolveClaudeBin } from './e2e/env.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 
-function findBinary() {
-  const configured = process.env.APS_CLAUDE_BIN ?? process.env.SBOX_CLAUDE_BIN;
-  if (configured) return configured;
-  for (const dir of (process.env.PATH ?? '').split(':')) {
-    const candidate = path.join(dir, 'claude');
-    if (dir && existsSync(candidate)) return candidate;
+function isExecutableFile(file) {
+  try {
+    if (!statSync(file).isFile()) return false;
+    accessSync(file, constants.X_OK);
+    return true;
+  } catch {
+    return false;
   }
-  return null;
 }
 
-const claude = findBinary();
+let claude;
+try {
+  claude = resolveClaudeBin({
+    argv: process.argv.slice(2),
+    env: process.env,
+    isExecutable: isExecutableFile,
+  });
+} catch (error) {
+  console.error(`claude mock smoke: ${error instanceof Error ? error.message : error}`);
+  process.exit(1);
+}
 if (!claude) {
-  console.log('claude not found (set APS_CLAUDE_BIN); skipping Claude mock smoke');
+  console.log(
+    'claude not found (pass --claude-bin <path>, set CLAUDE_MOCK_SMOKE_BIN, or put claude on PATH); skipping Claude mock smoke',
+  );
   process.exit(0);
 }
 

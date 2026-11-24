@@ -539,7 +539,9 @@ mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, an
 probed model catalog. It runs with a hermetic child env and pins the legacy `SBOX_*`
 aliases on purpose. It selects its own binary from `--claude-bin <path>` or
 `CLAUDE_MOCK_SMOKE_BIN`, then `claude` on `PATH`; inherited `APS_*`/`SBOX_*` settings are
-ignored. It skips when no `claude` binary is available.
+ignored. The chosen file must answer `--version` with "Claude Code": a wrong explicit
+choice fails the run, and a wrong `claude` on `PATH` is skipped with the rest of the
+binary search. It skips when no qualifying binary is available.
 
 `npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →

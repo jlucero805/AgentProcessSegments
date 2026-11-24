@@ -55,10 +55,15 @@ export const buildE2eEnv = buildPinnedEnv;
  * `--claude-bin <path>` / `--claude-bin=<path>`, then `CLAUDE_MOCK_SMOKE_BIN`,
  * then `claude` on `PATH`. An explicit value must be an absolute executable
  * file; a bad value throws instead of silently falling back. A PATH miss
- * returns null so the caller keeps the documented skip. `isExecutable` is
- * injected so tests do not touch the filesystem.
+ * returns null so the caller keeps the documented skip.
+ *
+ * `isExecutable` is injected so tests do not touch the filesystem. `isClaude` is
+ * the optional identity check (the smoke passes a `--version` probe): a wrong
+ * explicit value throws, while a wrong PATH candidate is skipped so the scan
+ * continues. Without it the resolver only checks the file, matching the older
+ * behavior.
  */
-export function resolveClaudeBin({ argv = [], env = {}, isExecutable } = {}) {
+export function resolveClaudeBin({ argv = [], env = {}, isExecutable, isClaude } = {}) {
   if (typeof isExecutable !== 'function') {
     throw new TypeError('resolveClaudeBin: isExecutable must be a function');
   }
@@ -94,6 +99,9 @@ export function resolveClaudeBin({ argv = [], env = {}, isExecutable } = {}) {
     if (!isExecutable(value)) {
       throw new TypeError(`resolveClaudeBin: ${source} is not an executable file: ${value}`);
     }
+    if (typeof isClaude === 'function' && !identifiesAsClaude(isClaude, value)) {
+      throw new TypeError(`resolveClaudeBin: ${source} did not identify as Claude Code: ${value}`);
+    }
     return value;
   }
 
@@ -101,9 +109,20 @@ export function resolveClaudeBin({ argv = [], env = {}, isExecutable } = {}) {
   for (const dir of pathValue.split(path.delimiter)) {
     if (dir === '') continue;
     const candidate = path.resolve(dir, 'claude');
-    if (isExecutable(candidate)) return candidate;
+    if (!isExecutable(candidate)) continue;
+    if (typeof isClaude === 'function' && !identifiesAsClaude(isClaude, candidate)) continue;
+    return candidate;
   }
   return null;
+}
+
+/** Run the identity check, treating a throwing probe as "not Claude Code". */
+function identifiesAsClaude(isClaude, candidate) {
+  try {
+    return isClaude(candidate) === true;
+  } catch {
+    return false;
+  }
 }
 
 function requireString(name, value, builder = 'buildE2ePins') {

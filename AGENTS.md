@@ -158,7 +158,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   found. Its own binary discovery is script-scoped: `--claude-bin <path>` or
   `CLAUDE_MOCK_SMOKE_BIN`, then `claude` on `PATH`. Inherited `APS_CLAUDE_BIN` and the
   legacy `SBOX_CLAUDE_BIN` are ignored so production config cannot choose the binary
-  under test. Do not infer live Claude model behavior from the mock.
+  under test. The chosen file must answer `--version` with "Claude Code" within 5 s: a
+  wrong explicit choice fails the run, while a wrong `claude` on `PATH` is skipped.
+  Do not infer live Claude model behavior from the mock.
 - **OpenCode is one-shot per message.** The adapter starts
   `opencode run --format json --auto --standalone` per turn, carries the `ses_…` session
   id, and maps `text`, `tool_use`, `step_finish`, and `error` events. MCP tools surface

@@ -467,27 +467,27 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 811 vitest cases: 614 server cases (state machine, migrations including
-the index ordering fix on a legacy database, repositories, both stream parsers, usage
-event capture and aggregation, effective-dated pricing and estimation, usage rollups and
-activity retention, scorecard retention, cell-delete activity and session cleanup,
-request-artifact and worktree retention, cutover run retention, engine
-turns over a fake harness, worktree isolation against a real
-git repo, the MCP tool surface, harness
-config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
-process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
-the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts/hard caps and in-flight cap stops
-including strict unknown cost, time-boxed overrides, webhook/email/Slack/Discord
-delivery dedupe/retry/signing with an injected sender, delivery history and resend,
-docs manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal
-session lifecycle, and the HTTP API over a real socket) and 197 web cases (shared contract
-re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
-docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
-cell creation, config/process and pricing editor, budget and alert-delivery cards
-including chat bot routing, delivery history, and spend-cap overrides, budget banner,
-master detail and scorecard, the usage page and formatters, and the app shell with the
-drawer and chat mounted under jsdom).
+`npm test` runs 816 vitest cases: 619 server cases across 44 files (state machine,
+migrations including the index ordering fix on a legacy database, repositories, both
+stream parsers, usage event capture and aggregation, effective-dated pricing and
+estimation, usage rollups and activity retention, scorecard retention, cell-delete
+activity and session cleanup, request-artifact and worktree retention, cutover run
+retention, engine turns over a fake harness, worktree isolation against a real git repo,
+the MCP tool surface, harness config/MCP/plugin mapping, model probing, the plugin
+manager against real git clones, process definitions/store/follow-ups, per-cell
+policies/tickers/limits/auto-compaction, the generic master pipeline, segment caps and
+merge, turn watchdogs/stderr, scorecard stats/generation/scheduling, budget
+status/alerts/hard caps and in-flight cap stops including strict unknown cost,
+time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
+injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
+format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
+real socket) and 197 web cases across 24 files (shared contract re-exports, NDJSON
+client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
+Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
+config/process and pricing editor, budget and alert-delivery cards including chat bot
+routing, delivery history, and spend-cap overrides, budget banner, master detail and
+scorecard, the usage page and formatters, and the app shell with the drawer and chat
+mounted under jsdom).
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
 proof scripts hand to their children; it is not counted in the vitest totals.

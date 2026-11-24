@@ -339,7 +339,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 854 vitest cases, all passing: 655 server across 45 files and 199 web across 24 files,
+- 864 vitest cases, all passing: 665 server across 46 files and 199 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -350,8 +350,12 @@ built and vended by the brain; real-CLI verification is still pending.
   Anthropic account was needed; the mock API answered the Messages stream and the
   `StructuredOutput` probe tool.
 - Deployment: the systemd user unit in `deploy/agent-process-segments.service`, the VPS
-  runbook in `deploy/vps.md`, and the reviewed `deploy/cutover-vps.sh` (`npm run
-  cutover:vps`) for a live self-hosted migration that must survive its own service stop.
+  runbook in `deploy/vps.md`, the reviewed `deploy/cutover-vps.sh` (`npm run
+  cutover:vps`) for a live self-hosted migration that must survive its own service stop,
+  and `deploy/upgrade-vps.sh` (`npm run upgrade:vps`) for upgrading an already migrated
+  host. The upgrade detaches, drains turns, snapshots the database and build, installs
+  dependencies only when the lockfile moved, rebuilds, restarts, verifies the new build,
+  and rolls back in place; each run leaves evidence under `~/.aps-cutover/upgrades/`.
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`
   with APS paths, bound to `127.0.0.1:7391`; SPA and API are served with `/api` winning
   over the SPA fallback. The legacy `sandbox-harness.service` is disabled and its

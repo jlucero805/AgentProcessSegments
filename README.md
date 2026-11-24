@@ -291,6 +291,13 @@ Each cutover leaves evidence and a rollback backup under `~/.aps-cutover/runs/`.
 old runs with `npm run prune:cutover -- --dry-run` and then `npm run prune:cutover`; see
 [`deploy/vps.md`](deploy/vps.md#prune-cutover-run-directories-and-backups).
 
+Once the host is on the Agent Process Segments names, upgrade it with
+`npm run upgrade:vps -- --dry-run` and then `--detach` instead of the manual pull/build.
+The script drains active turns, snapshots the database and `dist`, installs dependencies
+when the lockfile moved, rebuilds, restarts, verifies the new build, and restores the
+previous commit and build in place when anything fails. See
+[`deploy/vps.md`](deploy/vps.md#upgrade-a-live-self-hosted-brain).
+
 ## Spend budgets
 
 The Config page edits an **overall monthly budget** and warning percentage; each cell has
@@ -485,7 +492,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 854 vitest cases: 655 server cases across 45 files (state machine,
+`npm test` runs 864 vitest cases: 665 server cases across 46 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

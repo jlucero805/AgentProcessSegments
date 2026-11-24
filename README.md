@@ -147,6 +147,12 @@ npm run build
 APS_DB=$PWD/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
+The brain's systemd unit exports `NODE_ENV=production`, and agent shells inherit it. npm
+then installs production dependencies only: a plain `npm install` or `npm ci` omits
+`typescript`, `vitest`, and ESLint, so `npm run typecheck` fails with `tsc: not found`. In
+such a shell run `npm ci --include=dev` (or `NODE_ENV=development npm ci`) before the
+commands above.
+
 The brain binds `127.0.0.1:7391` unless `APS_HOST` / `APS_PORT` say otherwise. Do not
 widen the bind. A tunnel is the audience gate, not the process.
 

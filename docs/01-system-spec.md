@@ -879,6 +879,11 @@ npm run lint                # eslint over src, zero warnings
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
+If the shell inherits `NODE_ENV=production` (the brain unit exports it), a plain
+`npm install` omits devDependencies and `npm run typecheck` fails with `tsc: not found`;
+install with `npm ci --include=dev`, or unset `NODE_ENV`. See the `AGENTS.md`
+environment-facts bullet.
+
 The original test suite covered the request repo and state machine, the cells repo,
 the KB repo, models, MCP grants parsing, worktree isolation, and an HTTP server test.
 

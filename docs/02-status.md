@@ -151,7 +151,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `mcp__<server>__*` allow rules; OpenCode merges `mcp` entries from its config and runs
   with `--auto`. Read-only KB sessions exclude user servers and plugins. The bundled `aps`
   key is reserved: a user entry with that name is replaced by the bundled server, with a
-  one-time warning naming its config file.
+  one-time warning naming its config file. A missing config file stays silent; one that
+  exists but is unreadable or malformed is named once on stderr and in the
+  `harness.mcpConfig` error-log record, and the session continues without those servers.
 - Installed plugins reach OpenCode too: `commands/**/*.md` become `commands` templates
   and `skills/*/SKILL.md` become skill paths in the generated config, with plugin-prefixed
   names that match `/api/commands`. Verified end to end (`/demo-plugin:hello` →
@@ -339,7 +341,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 864 vitest cases, all passing: 665 server across 46 files and 199 web across 24 files,
+- 877 vitest cases, all passing: 678 server across 46 files and 199 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

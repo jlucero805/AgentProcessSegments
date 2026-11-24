@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
+import type { ErrorSink } from '../../logging/errors.js';
 import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
 import { warnOnce } from '../../util/warn-once.js';
@@ -18,6 +19,7 @@ import {
 } from '../harness.js';
 import type { ModelOption } from '../models.js';
 import type { AgentProcess } from '../transport.js';
+import { type McpConfigIssue, reportMcpConfigIssues } from './config-diagnostics.js';
 import { LineProcess } from './line-process.js';
 import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
 
@@ -50,6 +52,8 @@ export interface OpencodeConfigFile {
   config: Record<string, unknown>;
   /** The file that supplied the config, or null when none parsed. */
   path: string | null;
+  /** Candidates that exist but could not be read or interpreted. */
+  issues: McpConfigIssue[];
 }
 
 /** Reads the user's OpenCode config so its MCP servers and settings survive injection. */
@@ -61,16 +65,38 @@ export function readOpencodeConfig(
     env.OPENCODE_CONFIG_DIR ??
     path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'opencode');
 
+  const issues: McpConfigIssue[] = [];
   for (const name of ['opencode.json', 'opencode.jsonc']) {
     const file = path.join(dir, name);
+    let raw: string;
     try {
-      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
-      if (isRecord(parsed)) return { config: parsed, path: file };
-    } catch {
-      // Missing or non-JSON config: fall through.
+      raw = readFileSync(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+        issues.push({ path: file, reason: `unreadable: ${code}` });
+      }
+      continue;
     }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Never include the parser message: recent Node versions quote the input.
+      issues.push({ path: file, reason: 'invalid JSON' });
+      continue;
+    }
+    if (!isRecord(parsed)) {
+      issues.push({ path: file, reason: 'not a JSON object' });
+      continue;
+    }
+    if (parsed.mcp !== undefined && !isRecord(parsed.mcp)) {
+      issues.push({ path: file, reason: 'mcp is not an object' });
+    }
+    return { config: parsed, path: file, issues };
   }
-  return { config: {}, path: null };
+  return { config: {}, path: null, issues };
 }
 
 /** Accepts both the documented direct `mcp.<name>` shape and the encoded `mcp.servers` shape. */
@@ -111,12 +137,14 @@ export class OpencodeHarness implements AgentHarness {
     private readonly brainUrl = 'http://127.0.0.1:7391',
     private readonly home = os.homedir(),
     private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly errors?: ErrorSink,
   ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
-    const { config: user, path: configPath } = readOpencodeConfig(this.home, this.env);
+    const { config: user, path: configPath, issues } = readOpencodeConfig(this.home, this.env);
     const requestScope = session.scope === 'request';
     // User MCP servers, plugins, and user permissions are request-session only.
+    if (requestScope) reportMcpConfigIssues('opencode', issues, this.errors);
     const userServers = requestScope ? opencodeMcpServers(user) : {};
     if (requestScope && configPath !== null && userServers[MCP_SERVER_KEY] !== undefined) {
       warnOnce(

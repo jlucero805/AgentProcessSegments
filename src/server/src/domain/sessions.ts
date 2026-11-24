@@ -49,6 +49,11 @@ export function summaryCellId(id: string): string | null {
   return cellId === '' ? null : cellId;
 }
 
+/** Reserved session ids owned by one cell, removed when that cell is deleted. */
+export function cellSessionIds(cellId: string): string[] {
+  return [masterSessionId(cellId), summarySessionId(cellId)];
+}
+
 export function isVirtualSessionId(id: string): boolean {
   return id === KB_SESSION_ID || isMasterSession(id) || isSetupSession(id);
 }

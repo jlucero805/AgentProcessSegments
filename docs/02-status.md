@@ -15,8 +15,10 @@ built and vended by the brain; real-CLI verification is still pending.
   boolean/array encoding, guarded transitions (`ILLEGAL_TRANSITION`, `NOT_FOUND`),
   run ids, agent status, unchecked, branch.
 - `CellRepository`: list, get, create, rename, delete in a transaction that detaches
-  requests instead of deleting them, plus `master_enabled`, `master_interval_minutes`,
-  and the per-cell process snapshot.
+  requests instead of deleting them, removes summaries and non-followup activity, and
+  keeps follow-up markers, plus `master_enabled`, `master_interval_minutes`, and the
+  per-cell process snapshot. The delete route then discards the cell’s reserved
+  `__master__` and `__summary__` session directories.
 - Cell masters: the scheduler keeps one timer per enabled cell (cell interval or the
   global default), and evaluates the configured process segments from right to left so
   finishing work runs before more planning. Requests without a cell have no master and
@@ -276,7 +278,10 @@ built and vended by the brain; real-CLI verification is still pending.
   rolled up; scorecards keep their own `cell_summaries` reports. Rows with
   `action = 'followup'` are never pruned, because they are the deduplication key for
   `FOLLOW-UP:` titles. It records only `retention.prune` failures and joins overlapping
-  runs. Retention windows are independent settings with independent save actions.
+  runs. Deleting a cell removes its non-followup activity immediately; its reserved master
+  and summary session directories are discarded too, and a failed removal records
+  `cells.cleanup` without failing the delete. Retention windows are independent settings
+  with independent save actions.
 - Scorecard retention: `retention.cellSummariesDays` (default 90, `0` keeps scorecard
   history forever) is edited on its own Config card and stored in `config.json`. The same
   startup + hourly job deletes old `cell_summaries` report rows in 1000-row batches, but
@@ -303,7 +308,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 683 vitest cases, all passing: 505 server across 37 files and 178 web across 24 files,
+- 691 vitest cases, all passing: 513 server across 37 files and 178 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

@@ -186,7 +186,9 @@ editable from the Config page. The default is 90 days; `0` keeps activity foreve
 startup/hourly job deletes older `master_events` rows in batches. Activity is not rolled
 up: the UI reads only the latest events, and scorecard history stays in `cell_summaries`.
 Rows that record a created follow-up (`action = 'followup'`) are never pruned, because
-they are the deduplication key for repeated `FOLLOW-UP:` titles.
+they are the deduplication key for repeated `FOLLOW-UP:` titles. Deleting a cell
+immediately removes its non-followup activity and its reserved master and summary session
+directories; the follow-up markers survive so detached requests keep their dedupe history.
 
 Scorecard retention lives in `config.json` as `retention.cellSummariesDays`, also
 editable from the Config page. The default is 90 days; `0` keeps scorecard history
@@ -415,11 +417,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 683 vitest cases: 505 server cases (state machine, migrations including
+`npm test` runs 691 vitest cases: 513 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
-activity retention, scorecard retention, request-artifact and worktree retention, cutover
-run retention, engine
+activity retention, scorecard retention, cell-delete activity and session cleanup,
+request-artifact and worktree retention, cutover run retention, engine
 turns over a fake harness, worktree isolation against a real
 git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
@@ -428,7 +430,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 177 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 178 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

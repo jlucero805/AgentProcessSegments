@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 683 vitest cases: 505 server across 37 files and 178 web across 24 files, all green.
+- 691 vitest cases: 513 server across 37 files and 178 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -68,7 +68,8 @@ digests.
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, configurable master-activity retention for `master_events`,
-  configurable scorecard-history retention for `cell_summaries`,
+  configurable scorecard-history retention for `cell_summaries`, cell-delete cleanup for
+  activity and reserved master/summary session directories,
   configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
   accounting, and a GitHub Actions CI workflow template in
@@ -89,7 +90,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 499 server + 177 web, plus the e2e env guard
+npm test                       # 513 server + 178 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -250,15 +251,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `sbox-queue:<id>` key is adopted once on load, copied to the new key, and removed.
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
-    delete a live turn's maps without resolving its promise.
+    delete a live turn's maps without resolving its promise. `Engine.discardSession` is
+    the cell-delete variant: cancel, wait for the `runTurn` continuation, then remove the
+    reserved session directory and refuse new turns for that id.
 15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
     into the KB is a human action. The Finalize column's **Index all** is an explicit
     human bulk action: keep it scoped to `finalize` and skip working requests or requests
     with no digest instead of closing them silently. Do not add an automatic finalize
     transition without an explicit indexing path.
 16. **Follow-ups are deduplicated.** A `FOLLOW-UP:` line creates one request per source
-    request/title; the `followup` event is the dedupe key. `master_events` retention never
-    deletes `followup` rows, so pruning activity cannot resurrect a duplicate.
+    request/title; the `followup` event is the dedupe key. `master_events` retention and
+    cell deletion never delete `followup` rows, so pruning activity or deleting a cell
+    cannot resurrect a duplicate.
 17. **Terminal sessions are server-owned and visible.** A WebSocket attaches/detaches; it
     must never kill the PTY on close. Hide detaches, an explicit close kills, and
     `GET /api/terminals` lists every session. Keep scrollback bounded and the UI

@@ -104,11 +104,18 @@ export class MasterService {
     return this.deps.spendCap?.(cellId) ?? null;
   }
 
+  /** True while the cell still exists; a deleted cell must not gain new activity. */
+  private cellExists(cellId: string): boolean {
+    return this.deps.cells.get(cellId) !== null;
+  }
+
   private note(cellId: string, text: string): void {
+    if (!this.cellExists(cellId)) return;
     this.deps.engine.note(masterSessionId(cellId), text);
   }
 
   private record(event: MasterEventInput): void {
+    if (event.cellId !== null && !this.cellExists(event.cellId)) return;
     this.deps.events.record(event);
   }
 
@@ -230,7 +237,7 @@ export class MasterService {
     segment: SegmentConfig,
     cellId: string,
   ): number {
-    if (!segment.followUps.enabled) return 0;
+    if (!segment.followUps.enabled || !this.cellExists(cellId)) return 0;
     const titles = parseFollowUps(text, segment.followUps.marker);
     let created = 0;
     for (const title of titles) {

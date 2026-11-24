@@ -13,6 +13,7 @@ import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
 import { HARNESS_IDS, isHarnessId, resolveHarness, type HarnessId } from '../domain/harness.js';
 import { emailDeliveryConfigured } from '../domain/budget.js';
+import { cellSessionIds } from '../domain/sessions.js';
 import {
   EFFORT_LEVELS,
   STATES,
@@ -900,6 +901,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     master.refresh();
     summary.refresh();
     budgets.evaluate();
+    for (const sessionId of cellSessionIds(id)) {
+      try {
+        await engine.discardSession(sessionId);
+      } catch (error) {
+        errorLog?.error('cells.cleanup', error, { cellId: id, session: sessionId });
+      }
+    }
     return reply.code(204).send();
   });
 

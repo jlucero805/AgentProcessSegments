@@ -1161,3 +1161,34 @@ every such cell. Keeping one row per cell is bounded by the cell count.
 **Cost.** Up to one retained row per cell regardless of the window, and a correlated
 keep-latest subquery inside each batch (backed by the two cell_summaries indexes). No
 route, env var, column, or table changes.
+## D62. Deleting a cell removes its activity and reserved sessions
+
+**Context.** `DELETE /api/cells/:id` detached the cell's requests and deleted
+`cell_summaries` and the `cells` row, but left every `master_events` row with that
+`cell_id` and the lazily-created `requests/__master__:<cellId>/` and
+`requests/__summary__:<cellId>/` directories. Artifact retention deliberately skips
+reserved session ids, so those transcripts, adapter session ids, generated config, and
+scratch `cwd` survived forever. An in-flight master cycle could also settle after the
+delete and write new activity, notes, or a follow-up request for the dead cell.
+
+**Decision.** `CellRepository.remove` deletes non-followup `master_events` in the same
+transaction that detaches requests and deletes summaries. `followup` rows stay because
+they are the permanent dedupe key for invariant 16 and the requests still exist as
+detached rows. After the transaction, the DELETE route calls
+`Engine.discardSession` for `__master__:<id>` and `__summary__:<id>`: it marks the id
+discarded, cancels a live turn, waits for the background `runTurn` continuation to
+settle, then recursively removes the session directory. Waiting is required because
+`Engine.cancel` finishes the turn synchronously while `ensureProc`/`prepare` may still
+write `session.json` or the scratch directory. A discarded id refuses new master/summary
+turns and ignores notes, so a stale client cannot recreate it. `MasterService.record`,
+`note`, and `createFollowUps` also no-op when the cell row is gone, so an in-flight cycle
+cannot resurrect activity. Directory-removal failures are best-effort: each failed
+session records one `cells.cleanup` error with the cell and session ids only, and the
+delete still returns `204` because the database deletion is authoritative.
+
+**Cost.** A deleted cell’s activity history is gone; follow-up markers remain forever with
+no owning cell row, which is the same trade-off as activity retention. The discarded-id
+set lives for the process lifetime (two ids per deleted cell); a crash between the
+database delete and the `rm` can still leave a directory, which a startup sweep would
+handle separately. Usage, budget-alert, and per-request artifacts are untouched; deleting
+a cell still only detaches its requests.

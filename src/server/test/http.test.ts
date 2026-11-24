@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellDraftStore } from '../src/cells/drafts.js';
 import { HarnessModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
 import { MASTER_SESSION_ID } from '../src/clarify/engine.js';
@@ -25,6 +25,8 @@ import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import type { SpendPause } from '../src/domain/budget.js';
+import { masterSessionId, summarySessionId } from '../src/domain/sessions.js';
+import type { ErrorSink } from '../src/logging/errors.js';
 
 interface Open {
   h: Harness;
@@ -39,6 +41,7 @@ async function makeApp(
   script?: (text: string) => string[],
   send?: FetchLike,
   sendEmail?: EmailSendLike,
+  errors?: ErrorSink,
 ): Promise<Open> {
   let admission: ((cellId: string | null) => SpendPause | null) | null = null;
   const h = createHarness(
@@ -119,6 +122,7 @@ async function makeApp(
     process,
     skills,
     config: h.config,
+    ...(errors ? { errorLog: errors } : {}),
   });
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
@@ -1270,6 +1274,73 @@ describe('http api', () => {
 
     const list = await call('GET', '/api/cells');
     expect(list.json()).toEqual([]);
+  });
+
+  it('removes cell activity and reserved session directories on delete', async () => {
+    const { h } = await makeApp();
+    const cell = h.cells.create('Doomed');
+    const other = h.cells.create('Other');
+    const request = h.repo.create({ title: 'In a cell', cellId: cell.id });
+    const events = new MasterEventRepository(h.db);
+    events.record({
+      cellId: cell.id,
+      requestId: request.id,
+      action: 'start',
+      detail: request.title,
+    });
+    events.record({
+      cellId: cell.id,
+      requestId: request.id,
+      action: 'followup',
+      detail: 'Add metrics',
+    });
+    events.record({ cellId: other.id, requestId: null, action: 'cycle', detail: '{}' });
+
+    const requests = path.join(h.config.dataDir, 'requests');
+    const masterDir = path.join(requests, masterSessionId(cell.id));
+    const summaryDir = path.join(requests, summarySessionId(cell.id));
+    const otherDir = path.join(requests, masterSessionId(other.id));
+    for (const dir of [masterDir, summaryDir, otherDir]) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'session.json'), '{}');
+      writeFileSync(path.join(dir, 'transcript.json'), '[]');
+    }
+
+    const removed = await call('DELETE', `/api/cells/${cell.id}`);
+    expect(removed.status).toBe(204);
+
+    expect(existsSync(masterDir)).toBe(false);
+    expect(existsSync(summaryDir)).toBe(false);
+    expect(existsSync(otherDir)).toBe(true);
+    expect(events.list({ cellId: cell.id }).map((event) => event.action)).toEqual(['followup']);
+    expect(events.hasEvent(request.id, 'followup', 'Add metrics')).toBe(true);
+    expect(events.list({ cellId: other.id })).toHaveLength(1);
+    expect(h.repo.require(request.id).cellId).toBeNull();
+  });
+
+  it('reports session cleanup failures without failing the cell delete', async () => {
+    const records: Array<{ source: string; context?: Record<string, unknown> }> = [];
+    const errors: ErrorSink = {
+      error(source, _error, context) {
+        records.push({ source, ...(context ? { context } : {}) });
+      },
+    };
+    const { h } = await makeApp({}, undefined, undefined, undefined, errors);
+    const cell = h.cells.create('Broken cleanup');
+    vi.spyOn(h.engine, 'discardSession').mockRejectedValue(new Error('cannot remove'));
+
+    const removed = await call('DELETE', `/api/cells/${cell.id}`);
+    expect(removed.status).toBe(204);
+    expect(records).toEqual([
+      {
+        source: 'cells.cleanup',
+        context: { cellId: cell.id, session: masterSessionId(cell.id) },
+      },
+      {
+        source: 'cells.cleanup',
+        context: { cellId: cell.id, session: summarySessionId(cell.id) },
+      },
+    ]);
   });
 
   it('stores knowledge-base entries', async () => {

@@ -199,13 +199,17 @@ export class CellRepository {
   }
 
   /**
-   * A cell owns no requests. Deleting one only detaches its requests so they
-   * fall back to the unfiltered floor.
+   * A cell owns no requests. Deleting one detaches its requests so they fall
+   * back to the unfiltered floor, drops its summaries and activity, and keeps
+   * `followup` rows because they are the permanent deduplication markers.
    */
   remove(id: string): void {
     const remove = this.db.transaction((cellId: string) => {
       this.db.prepare('UPDATE requests SET cell_id = NULL WHERE cell_id = ?').run(cellId);
       this.db.prepare('DELETE FROM cell_summaries WHERE cell_id = ?').run(cellId);
+      this.db
+        .prepare("DELETE FROM master_events WHERE cell_id = ? AND action <> 'followup'")
+        .run(cellId);
       return this.db.prepare('DELETE FROM cells WHERE id = ?').run(cellId).changes;
     });
     if (remove(id) === 0) throw new CellNotFoundError(id);

@@ -272,8 +272,10 @@ hard cap but not to be currently paused. The override only suppresses admission 
 in-flight stop: `paused`, `pauseReason`, `pauses`, alerts, thresholds, and budgets do not
 change, and the response exposes the covering override so the UI keeps showing the cap. A
 grant is `created` the first time and extends the same active row afterward; `DELETE` sets
-`revoked_at` and is idempotent. Policy edits and cell deletion do not revoke overrides, and
-month rollover makes them inert.
+`revoked_at` and is idempotent. A revoke re-runs budget evaluation immediately, so the
+scope resumes refusing new turns and its live turns are stopped; an expiry refuses new
+turns at `expiresAt` and is enforced by the next evaluation (within 60 seconds). Policy
+edits and cell deletion do not revoke overrides, and month rollover makes them inert.
 
 `GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
 `pauseOnUnknownCost`, `capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, `paused`,

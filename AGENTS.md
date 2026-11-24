@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 811 vitest cases: 614 server across 43 files and 197 web across 24 files, all green.
+- 817 vitest cases: 618 server across 43 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -79,7 +79,7 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, a hard-cap operator override/snooze, fan-out to multiple chat
+- Not built: KB embeddings, fan-out to multiple chat
   destinations per scope, webhook/email per-scope routing, interactive acknowledgement,
   and pricing maintenance at scale such as bulk import, tiers, or non-USD currencies
   (scoped in `docs/09-backlog.md`). Usage retention with daily rollups is built.
@@ -93,7 +93,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 614 server + 197 web, plus the e2e env guard
+npm test                       # 618 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -388,6 +388,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     every scope, a cell override admits only its cell, and neither changes `paused`,
     `pauseReason`, alerts, or the budget. Overrides are clamped before the next UTC
     period, are revocable, and must fail open if the override store cannot be read.
+    Revoking an override re-runs evaluation so the enforcer stops live turns in a scope
+    that is still over its cap; an expiry refuses new turns at once and is observed by the
+    next evaluation (within 60 seconds).
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

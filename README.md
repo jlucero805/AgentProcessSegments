@@ -309,8 +309,11 @@ status when a refresh fails and offers Retry when budget status cannot be loaded
 A paused scope can also be **snoozed** for 15 minutes up to the rest of the UTC month. An
 overall snooze admits every new turn; a cell snooze admits only that cell. Snoozing never
 raises the budget or clears an alert: the banner and status rows keep showing the cap and
-the override expiry until it is ended early or expires, when the pause resumes. In-flight
-turns still finish, so spend can overshoot during the window.
+the override expiry until it is ended early or expires, when the pause resumes. Granting a
+snooze does not stop or resume anything: turns already stopped stay stopped, and a live
+turn keeps running while the override is active, so spend can overshoot during the window.
+Ending a snooze immediately re-pauses the scope and stops its live turns; an expiry is
+enforced by the next budget check (within 60 seconds).
 
 ## Alert delivery
 
@@ -467,7 +470,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 811 vitest cases: 614 server cases (state machine, migrations including
+`npm test` runs 817 vitest cases: 618 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -481,7 +484,7 @@ stats/generation/scheduling, budget status/alerts/hard caps and in-flight cap st
 including strict unknown cost, time-boxed overrides, webhook/email/Slack/Discord
 delivery dedupe/retry/signing with an injected sender, delivery history and resend,
 docs manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal
-session lifecycle, and the HTTP API over a real socket) and 197 web cases (shared contract
+session lifecycle, and the HTTP API over a real socket) and 199 web cases (shared contract
 re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
 docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
 cell creation, config/process and pricing editor, budget and alert-delivery cards

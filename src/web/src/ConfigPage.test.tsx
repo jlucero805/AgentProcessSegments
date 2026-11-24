@@ -792,10 +792,65 @@ describe('ConfigPage', () => {
     render(<ConfigPage onError={() => {}} />);
 
     expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
+    expect(screen.getByText('snoozed')).toBeInTheDocument();
+    expect(
+      screen.getByText(/an override is admitting new work until/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/New work is paused and in-flight turns were stopped/),
+    ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'End override for overall spend' }),
     );
     await waitFor(() => expect(second.revokedOverrideId).toBe('o1'));
+  });
+
+  it('explains a strict unknown-cost pause that an override is admitting', async () => {
+    const view: BudgetsResponse = {
+      ...budgetView,
+      statuses: [
+        {
+          ...budgetView.statuses[0]!,
+          state: 'unknown',
+          spendUsd: 40,
+          remainingUsd: 60,
+          percentUsed: 40,
+          capSpendUsd: 40,
+          unknownCostTurns: 2,
+          unpricedTurns: 2,
+          paused: true,
+          pauseReason: 'unknown_cost',
+          overrideId: 'o1',
+          overrideExpiresAt: Date.UTC(2026, 10, 15, 13),
+        },
+      ],
+      overrides: [
+        {
+          id: 'o1',
+          scope: 'overall',
+          cellId: null,
+          cellName: null,
+          periodStart: Date.UTC(2026, 10, 1),
+          createdAt: Date.UTC(2026, 10, 15, 12),
+          updatedAt: Date.UTC(2026, 10, 15, 12),
+          expiresAt: Date.UTC(2026, 10, 15, 13),
+          note: null,
+          revokedAt: null,
+        },
+      ],
+    };
+    installFetch(view);
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('snoozed')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Cost is unknown: 2 unpriced turns, so cost cannot be verified; an override is admitting new work until/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/New work is paused and in-flight turns were stopped/),
+    ).not.toBeInTheDocument();
   });
 
   it('configures and saves webhook delivery', async () => {

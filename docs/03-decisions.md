@@ -1040,6 +1040,13 @@ legacy `SBOX_CLAUDE_BIN`) cannot choose the binary under test (the brain still r
 those normally), and the script-scoped variable is dropped from the child env by the same
 `CLAUDE_*` scrub.
 
+The chosen file must identify as Claude Code: the smoke runs `<bin> --version` with a 5 s
+timeout and requires "Claude Code" in the output. A wrong `--claude-bin` or
+`CLAUDE_MOCK_SMOKE_BIN` is an error, so an operator typo cannot quietly pass; a wrong
+`claude` on `PATH` is skipped and the scan continues, so a hostile or unrelated PATH entry
+cannot run the Claude proof. This only proves the binary's identity, not live model
+behavior, which the mock cannot show.
+
 ## D57. Budget alerts also deliver by SMTP email
 
 **Context.** D55 built one durable, signed webhook channel. Operators without a webhook

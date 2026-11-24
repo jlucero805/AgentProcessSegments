@@ -11,7 +11,9 @@
 // Skips (exit 0) when no `claude` binary is available. Choose one with
 // `--claude-bin <path>` or `CLAUDE_MOCK_SMOKE_BIN`; otherwise `claude` must be on
 // PATH. Inherited APS_CLAUDE_BIN/SBOX_CLAUDE_BIN are ignored on purpose: the
-// smoke's subject binary is not production config.
+// smoke's subject binary is not production config. The chosen file must answer
+// `--version` with "Claude Code": a wrong explicit choice fails the run, while a
+// wrong PATH candidate is skipped.
 
 import { spawn } from 'node:child_process';
 import {
@@ -28,6 +30,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { identifiesAsClaude } from './e2e/claude-bin.mjs';
 import { buildClaudeSmokePins, buildPinnedEnv, resolveClaudeBin } from './e2e/env.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -48,6 +51,7 @@ try {
     argv: process.argv.slice(2),
     env: process.env,
     isExecutable: isExecutableFile,
+    isClaude: identifiesAsClaude,
   });
 } catch (error) {
   console.error(`claude mock smoke: ${error instanceof Error ? error.message : error}`);

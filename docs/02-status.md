@@ -344,7 +344,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - 892 vitest cases, all passing: 693 server across 46 files and 199 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
-  against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
+  against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
+  `PATH` and validated by its `--version` output), and `scripts/e2e.mjs` (built brain +
+  deterministic
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
   streamed turn with an `mcp__aps__*` tool call, merged `aps` plus user MCP config,

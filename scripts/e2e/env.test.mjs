@@ -463,6 +463,72 @@ test('resolveClaudeBin rejects invalid explicit binaries', () => {
   }
 });
 
+test('resolveClaudeBin validates an explicit binary as Claude Code', () => {
+  assert.equal(
+    resolveClaudeBin({
+      argv: ['--claude-bin', '/flag/claude'],
+      env: {},
+      isExecutable: () => true,
+      isClaude: () => true,
+    }),
+    '/flag/claude',
+  );
+  assert.throws(
+    () =>
+      resolveClaudeBin({
+        argv: ['--claude-bin', '/flag/false'],
+        env: {},
+        isExecutable: () => true,
+        isClaude: () => false,
+      }),
+    (error) =>
+      error instanceof TypeError &&
+      /--claude-bin did not identify as Claude Code: \/flag\/false/.test(error.message),
+  );
+  assert.throws(
+    () =>
+      resolveClaudeBin({
+        argv: [],
+        env: { CLAUDE_MOCK_SMOKE_BIN: '/env/opencode' },
+        isExecutable: () => true,
+        isClaude: () => {
+          throw new Error('probe failed');
+        },
+      }),
+    (error) =>
+      error instanceof TypeError &&
+      /CLAUDE_MOCK_SMOKE_BIN did not identify as Claude Code: \/env\/opencode/.test(error.message),
+  );
+});
+
+test('resolveClaudeBin skips PATH candidates that are not Claude Code', () => {
+  const env = { PATH: ['/one', '/two'].join(path.delimiter) };
+  assert.equal(
+    resolveClaudeBin({
+      argv: [],
+      env,
+      isExecutable: () => true,
+      isClaude: (file) => file === '/two/claude',
+    }),
+    '/two/claude',
+  );
+  assert.equal(
+    resolveClaudeBin({
+      argv: [],
+      env,
+      isExecutable: () => true,
+      isClaude: () => {
+        throw new Error('probe failed');
+      },
+    }),
+    null,
+  );
+  assert.equal(
+    resolveClaudeBin({ argv: [], env, isExecutable: () => true, isClaude: () => false }),
+    null,
+  );
+});
+
 test('buildMcpSmokePins isolates the temp brain from host harness env', () => {
   const pinned = buildMcpSmokePins(mcpPinsArgs);
   assert.equal(pinned.APS_DB, '/tmp/mcp-smoke/harness.sqlite');

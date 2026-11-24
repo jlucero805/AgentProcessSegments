@@ -2,6 +2,10 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  MCP_SERVER_KEY,
+  MCP_SERVER_VERSION,
+} from '../src/mcp/identity.js';
 import { buildMcpServer, readMcpEnv, type FetchLike } from '../src/mcp/server.js';
 
 interface Recorded {
@@ -121,7 +125,11 @@ afterEach(async () => {
 describe('bundled aps mcp server', () => {
   it('identifies as the bundled aps server', async () => {
     const { client } = await connect('req-1');
-    expect(client.getServerVersion()).toMatchObject({ name: 'aps', version: '0.1.0' });
+    expect(client.getServerVersion()).toMatchObject({
+      name: MCP_SERVER_KEY,
+      version: MCP_SERVER_VERSION,
+    });
+    expect(MCP_SERVER_VERSION).toBe('0.1.0');
   });
 
   it('exposes the request tools scoped to one request', async () => {

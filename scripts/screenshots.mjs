@@ -6,7 +6,11 @@
 //   npm run build
 //   npm install --no-save puppeteer
 //   npx puppeteer browsers install chrome
-//   node scripts/screenshots.mjs
+//   node scripts/screenshots.mjs [--allow-missing-puppeteer]
+//
+// A missing Puppeteer fails the run: a skipped capture is not a refresh of the
+// committed images. --allow-missing-puppeteer is the deliberate opt-out and
+// prints the current image timestamps instead.
 //
 // Everything runs against a throwaway database, data dir, and config. No agent
 // turn starts: the master timer is longer than this script's deadline, and a
@@ -20,14 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPinnedEnv, buildScreenshotPins } from './e2e/env.mjs';
-
-let puppeteer;
-try {
-  puppeteer = (await import('puppeteer')).default;
-} catch {
-  console.log('puppeteer not installed; skipping screenshot capture');
-  process.exit(0);
-}
+import { resolvePuppeteer } from './e2e/puppeteer.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const appPath = path.join(root, 'src', 'server', 'dist', 'app.js');
@@ -37,6 +34,21 @@ const boardShot = path.join(shotsDir, 'board.png');
 const masterShot = path.join(shotsDir, 'master.png');
 const DEADLINE_MS = 5 * 60_000;
 const MASTER_INTERVAL_MINUTES = 15;
+
+// The guard runs before the build check so --allow-missing-puppeteer also works
+// on an unbuilt tree; a deliberate skip wins over "run npm run build first".
+const guard = await resolvePuppeteer({
+  argv: process.argv.slice(2),
+  outputs: [
+    { label: 'docs/screenshots/board.png', file: boardShot },
+    { label: 'docs/screenshots/master.png', file: masterShot },
+  ],
+});
+if (!guard.ok) {
+  for (const line of guard.lines) console.error(line);
+  process.exit(guard.exitCode);
+}
+const puppeteer = guard.puppeteer;
 
 if (!existsSync(appPath) || !existsSync(webIndex)) {
   console.error('screenshots: built app not found; run `npm run build` first');
@@ -416,6 +428,11 @@ async function capture() {
   browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+  }).catch((error) => {
+    throw new Error(
+      `${error.message}\n  hint: run \`npx puppeteer browsers install chrome\` ` +
+        '(or set PUPPETEER_EXECUTABLE_PATH)',
+    );
   });
   const page = await browser.newPage();
   await page.setViewport({ width: 1440, height: 950, deviceScaleFactor: 2 });

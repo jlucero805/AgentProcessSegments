@@ -119,6 +119,10 @@ npx puppeteer browsers install chrome
 node scripts/screenshots.mjs
 ```
 
+The script exits non-zero when Puppeteer is missing, because a skipped capture is not a
+refresh of the committed images. Rerun with `--allow-missing-puppeteer` only when you
+mean to skip: it prints each image's timestamp so a stale capture stays visible.
+
 ![Agent Process Segments board with staged tasks across Requests, Plan, Implement, Review, Merge, and Finalize](docs/screenshots/board.png)
 
 ![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
@@ -503,8 +507,9 @@ including chat bot routing, delivery history, and spend-cap overrides, budget ba
 master detail and scorecard, the usage page and formatters, and the app shell with the
 drawer and chat mounted under jsdom).
 
-`npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
-proof scripts hand to their children; it is not counted in the vitest totals.
+`npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
+environments they hand to their children and the missing-Puppeteer policy; it is not
+counted in the vitest totals.
 
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing
@@ -555,7 +560,9 @@ is absent.
 
 `node scripts/screenshots.mjs` uses the same optional Puppeteer install to rebuild
 `docs/screenshots/board.png` and `docs/screenshots/master.png` from a staged temp board.
-It needs `npm run build` first and skips when Puppeteer is absent.
+It needs `npm run build` first and exits non-zero when Puppeteer is absent; pass
+`--allow-missing-puppeteer` to skip the capture deliberately (it prints the current
+image timestamps).
 
 CI (`deploy/ci-workflow.yml`) runs lint, typecheck, the full test suite, the build, the
 E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also

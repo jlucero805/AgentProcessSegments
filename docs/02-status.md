@@ -366,7 +366,8 @@ built and vended by the brain; real-CLI verification is still pending.
   dropped, then paths, ports, harness, and the mock binary are pinned. The Claude and MCP
   smokes keep deliberate `SBOX_*` pins for legacy-alias coverage, and `mcp-smoke` now
   fails when a tool round trip does not persist. `npm run test:e2e-env` guards the
-  builders and call sites. CI runs the E2E step with hostile `SBOX_*`/`APS_*` overrides
+  builders, their call sites, and the screenshot script's missing-Puppeteer policy. CI
+  runs the E2E step with hostile `SBOX_*`/`APS_*` overrides
   exported, so a regression that leaks the host env fails the build.
 - CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
   full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and

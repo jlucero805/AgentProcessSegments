@@ -122,6 +122,7 @@ describe('chat transcript helpers', () => {
           cellId: null,
           cellName: null,
           label: 'Overall',
+          reason: 'cap_reached',
           periodStart: ts,
           periodEnd: ts,
           budgetUsd: 100,

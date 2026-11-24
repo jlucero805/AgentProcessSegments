@@ -8,8 +8,9 @@ can be picked up without re-deciding the shape.
 Token/cost tracking is built: `usage_events`, parser normalization, engine capture,
 `GET /api/usage`, the **Usage** page, the request Usage card, daily rollups that survive
 raw pruning, advisory monthly overall/per-cell budgets with durable alerts and signed
-webhook, SMTP email, and native Slack/Discord bot delivery with per-cell routing, and
-opt-in hard caps that pause new work at turn boundaries. Estimated pricing is built too: `model_pricing`, `/api/pricing`, the Config
+webhook, SMTP email, and native Slack/Discord bot delivery with per-cell routing, opt-in
+hard caps that pause new work and stop in-flight turns in the paused scope, and strict
+unknown-cost caps that pause while any turn is unpriced. Estimated pricing is built too: `model_pricing`, `/api/pricing`, the Config
 page editor, and estimates that never overwrite a harness-reported cost. Deferred work:
 
 - **Alert delivery refinements.** Signed webhook, SMTP email, and native Slack/Discord
@@ -19,10 +20,11 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
   interactive acknowledgement from chat, pause-transition delivery, summary-failure
   events, bot event routes, and configurable event coalescing windows. Keep every
   destination deduped by its delivery row and credentials redacted.
-- **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65). An
-  operator one-turn override/snooze, automatic replay of a cap-stopped prompt, a broad
-  partial-usage rule for user stop/timeout, and a strict unknown-cost policy are deferred;
-  caps still fail open when spend is unknowable.
+- **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65), and
+  strict unknown-cost enforcement is built (D67). An operator one-turn override/snooze,
+  automatic replay of a cap-stopped prompt, a broad partial-usage rule for user
+  stop/timeout, and a fail-closed policy for an unreadable usage ledger are deferred; caps
+  still fail open when the ledger is unreadable.
 - **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
   context-length tiers, currencies other than USD, and a per-turn applied-price audit
   view. The current table is exact-model, flat, USD-only, and operator-maintained.

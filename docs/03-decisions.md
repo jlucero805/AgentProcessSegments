@@ -978,7 +978,7 @@ operator-maintained price table, and an unpriced turn leaves cap spend a lower b
 pause flag adds an additive cell column and one optional budget field. This also fixes
 `SettingsStore.load()`, which previously dropped the saved budget block on restart, because
 the new overall flag must persist. External delivery, a manual one-turn override, and a
-strict unknown-cost policy remain separate.
+strict unknown-cost policy remain separate; D67 later adds the strict option.
 ## D55. Budget alerts are delivered by a durable, signed webhook outbox
 
 **Context.** Advisory budget alerts were in-app only (D47). Operators need them to reach a
@@ -1293,8 +1293,8 @@ usage can trigger another check.
 finished and a single long turn can overshoot; a just-started turn can be stopped
 immediately by a sibling crossing. Enforcement adds two database reads per distinct live
 cell at most once per completed turn and once per evaluation. Auto-resume of the interrupted
-prompt, a broad partial-usage rule for user stop/timeout, an operator override/snooze, and a
-strict unknown-cost policy remain separate work.
+prompt, a broad partial-usage rule for user stop/timeout, and an operator override/snooze
+remain separate work. D67 later adds strict unknown-cost enforcement.
 
 ## D66. Operational errors reuse the notification channels with a sibling outbox
 
@@ -1327,3 +1327,40 @@ events; disabling a route marks pending rows `skipped`. Failures use error sourc
 budget rows and no new dependency. Event history/resend is not part of the existing budget
 history view; that, summary-generation events, bot event routes, and configurable
 coalescing windows remain follow-ups.
+
+## D67. Strict unknown-cost caps fail closed on unpriced turns
+
+**Context.** D54 hard caps count reported plus estimated cost and fail open when the
+period contains a turn with neither, because the lower bound is still below the budget.
+That is safe for availability but wrong for an operator who needs a true ceiling: one
+unpriced model can hide any amount of spend for the rest of the UTC month.
+
+**Decision.** Add `budget.pauseOnUnknownCost` and `cells.pause_on_unknown_cost`, both
+default false, effective only when the same scope has `pauseOnExceeded` and a budget. A
+strict scope pauses when `unpricedTurns > 0` for the current UTC month, even if cap spend
+is below the budget. Estimated-cost turns do not trigger it because cap spend already
+counts them. A reached cap still wins the pause reason (`cap_reached`), with
+`unknown_cost` used only while the lower bound remains below the budget. `BudgetStatus`
+carries `pauseOnUnknownCost` and `pauseReason`; `SpendPause` and the HTTP 409 carry
+`reason`.
+
+Pricing is effective-dated and recomputed on read, so adding a matching price clears the
+pause on the next admission without a restart. Clearing the budget, disabling
+`pauseOnExceeded` or `pauseOnUnknownCost`, or the next UTC month also clears it. Raising a
+budget does **not** clear an unknown-cost pause because the trigger does not depend on the
+budget amount. A turn with no reported model cannot match a price, so clearing the cap or
+disabling strict mode is its only non-rollover remedy. Acknowledgement never clears a
+pause. The master pause episode includes the reason so a cap-to-unknown transition notes
+once.
+
+Admission remains at turn boundaries; D65's in-flight stop applies when a strict pause is
+observed, so a strict pause also stops live turns in that scope. Scope ordering is
+unchanged, and a cell strict pause covers only that cell's request/master/summary turns. A
+failed ledger read still fails open and is logged as `usage.budgets`, even in strict mode:
+the policy governs cost data, not database availability. No new alert type is created; the
+existing `pauses` array and banner surface the pause.
+
+**Cost.** One additive cell column and one optional budget field. Strict mode can stop a
+scope for the rest of the month over one unpriced turn, so operators must maintain prices.
+The ledger-error fail-open is a deliberate availability tradeoff; a future fail-closed
+ledger policy is separate work.

@@ -10,6 +10,9 @@ export type BudgetScope = (typeof BUDGET_SCOPES)[number];
 export const BUDGET_THRESHOLDS = ['warning', 'exceeded'] as const;
 export type BudgetThreshold = (typeof BUDGET_THRESHOLDS)[number];
 
+export const SPEND_PAUSE_REASONS = ['cap_reached', 'unknown_cost'] as const;
+export type SpendPauseReason = (typeof SPEND_PAUSE_REASONS)[number];
+
 export type BudgetState = 'ok' | 'warning' | 'exceeded' | 'unknown';
 
 /** The operator-editable brain-level budget policy. */
@@ -20,12 +23,15 @@ export interface BudgetSettings {
   alertAtPercent: number;
   /** When true, new work is paused once cap spend reaches the overall budget. */
   pauseOnExceeded: boolean;
+  /** When true, new work is also paused while any current-month turn has unknown cost. */
+  pauseOnUnknownCost: boolean;
 }
 
 export const DEFAULT_BUDGET_SETTINGS: BudgetSettings = {
   monthlyUsd: null,
   alertAtPercent: 80,
   pauseOnExceeded: false,
+  pauseOnUnknownCost: false,
 };
 
 export const MAX_BUDGET_USD = 1_000_000;
@@ -55,6 +61,8 @@ export interface BudgetStatus {
   state: BudgetState;
   /** True when this scope pauses new work at the budget. */
   pauseOnExceeded: boolean;
+  /** True when unknown cost also pauses this scope. */
+  pauseOnUnknownCost: boolean;
   /** Reported plus estimated cost; used by hard caps only. */
   capSpendUsd: number;
   /** True when an unpriced turn makes cap spend a lower bound. */
@@ -63,6 +71,8 @@ export interface BudgetStatus {
   unpricedTurns: number;
   /** True when this scope is currently refusing new work. */
   paused: boolean;
+  /** Why this scope is paused, or null when it is not. */
+  pauseReason: SpendPauseReason | null;
 }
 
 /** A scope that is currently refusing new work because of a hard cap. */
@@ -71,6 +81,8 @@ export interface SpendPause {
   cellId: string | null;
   cellName: string | null;
   label: string;
+  /** Why the cap refuses work. */
+  reason: SpendPauseReason;
   periodStart: number;
   periodEnd: number;
   budgetUsd: number;
@@ -692,6 +704,7 @@ export interface BudgetStatusInput {
   period: BudgetPeriod;
   totals: BudgetUsageTotals;
   pauseOnExceeded?: boolean;
+  pauseOnUnknownCost?: boolean;
 }
 
 export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
@@ -704,6 +717,7 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
     period,
     totals,
     pauseOnExceeded = false,
+    pauseOnUnknownCost = false,
   } = input;
   const pricedTurns = Math.max(0, totals.turns - totals.unknownCostTurns);
   const spendUsd = totals.costUsd ?? 0;
@@ -711,7 +725,14 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
   const percentUsed = budgetUsd > 0 ? (spendUsd / budgetUsd) * 100 : 0;
   const capSpendUsd = spendUsd + (totals.estimatedCostUsd ?? 0);
   const capSpendIsLowerBound = totals.unpricedTurns > 0;
-  const paused = pauseOnExceeded && capSpendUsd >= budgetUsd;
+  const pauseReason: SpendPauseReason | null = !pauseOnExceeded
+    ? null
+    : capSpendUsd >= budgetUsd
+      ? 'cap_reached'
+      : pauseOnUnknownCost && totals.unpricedTurns > 0
+        ? 'unknown_cost'
+        : null;
+  const paused = pauseReason !== null;
 
   let state: BudgetState;
   if (totals.turns > 0 && pricedTurns === 0) {
@@ -743,10 +764,12 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
     spendIsLowerBound,
     state,
     pauseOnExceeded,
+    pauseOnUnknownCost,
     capSpendUsd,
     capSpendIsLowerBound,
     unpricedTurns: totals.unpricedTurns,
     paused,
+    pauseReason,
   };
 }
 
@@ -757,6 +780,7 @@ export function spendPause(status: BudgetStatus): SpendPause {
     cellId: status.cellId,
     cellName: status.cellName,
     label: status.label,
+    reason: status.pauseReason ?? 'cap_reached',
     periodStart: status.periodStart,
     periodEnd: status.periodEnd,
     budgetUsd: status.budgetUsd,

@@ -232,3 +232,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   the `⏸` transcript line and `paused` stream event, records already-reported usage, and
   keeps stopped master/summary work out of advancement and failure backoff; tests and
   docs.
+- [x] **47. Strict unknown-cost hard caps** — overall and per-cell pause-on-unknown-cost
+  policy, strict admission while any turn is unpriced, cap-reached precedence, reason-aware
+  409/banner/status copy, additive cell column, tests and docs.

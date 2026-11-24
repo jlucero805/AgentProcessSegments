@@ -138,6 +138,7 @@ const cellSchema = z.object({
   effort: z.enum(EFFORT_LEVELS).nullable().optional(),
   monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
   pauseOnExceeded: z.boolean().optional(),
+  pauseOnUnknownCost: z.boolean().optional(),
   autocompactPercent: z.number().int().min(1).max(99).optional(),
 });
 const cellDraftSchema = z.object({
@@ -190,6 +191,7 @@ const cellPatchSchema = z
     effort: z.enum(EFFORT_LEVELS).nullable().optional(),
     monthlyBudgetUsd: z.number().positive().max(1_000_000).nullable().optional(),
     pauseOnExceeded: z.boolean().optional(),
+    pauseOnUnknownCost: z.boolean().optional(),
     autocompactPercent: z.number().int().min(1).max(99).optional(),
     process: processSchema.nullable().optional(),
   })
@@ -204,11 +206,12 @@ const cellPatchSchema = z
       value.effort !== undefined ||
       value.monthlyBudgetUsd !== undefined ||
       value.pauseOnExceeded !== undefined ||
+      value.pauseOnUnknownCost !== undefined ||
       value.autocompactPercent !== undefined ||
       value.process !== undefined,
     {
       message:
-        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, pauseOnExceeded, autocompactPercent, or process is required',
+        'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, pauseOnExceeded, pauseOnUnknownCost, autocompactPercent, or process is required',
     },
   );
 const masterEventsQuerySchema = z.object({
@@ -481,6 +484,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       return reply.code(409).send({
         error: 'spend_cap',
         message: error.message,
+        reason: error.pause.reason,
         scope: error.pause.scope,
         cellId: error.pause.cellId,
         cellName: error.pause.cellName,
@@ -873,6 +877,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         effort: input.effort,
         monthlyBudgetUsd: input.monthlyBudgetUsd,
         pauseOnExceeded: input.pauseOnExceeded,
+        pauseOnUnknownCost: input.pauseOnUnknownCost,
         autocompactPercent: input.autocompactPercent,
       },
     );
@@ -903,6 +908,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (body.pauseOnExceeded !== undefined) {
       cells.setPauseOnExceeded(id, body.pauseOnExceeded);
+    }
+    if (body.pauseOnUnknownCost !== undefined) {
+      cells.setPauseOnUnknownCost(id, body.pauseOnUnknownCost);
     }
     if (body.model !== undefined || body.effort !== undefined) {
       const current = cells.require(id);

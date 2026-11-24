@@ -23,6 +23,7 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('harness');
     expect(columns(db, 'cells')).toContain('monthly_budget_usd');
     expect(columns(db, 'cells')).toContain('pause_on_exceeded');
+    expect(columns(db, 'cells')).toContain('pause_on_unknown_cost');
     expect(columns(db, 'cells')).toContain('autocompact_percent');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
@@ -91,11 +92,20 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('harness');
     expect(columns(db, 'cells')).toContain('monthly_budget_usd');
     expect(columns(db, 'cells')).toContain('pause_on_exceeded');
+    expect(columns(db, 'cells')).toContain('pause_on_unknown_cost');
     expect(columns(db, 'cells')).toContain('autocompact_percent');
     const migrated = db
-      .prepare('SELECT autocompact_percent FROM cells WHERE id = ?')
-      .get('c1') as { autocompact_percent: number };
+      .prepare(
+        'SELECT autocompact_percent, pause_on_exceeded, pause_on_unknown_cost FROM cells WHERE id = ?',
+      )
+      .get('c1') as {
+        autocompact_percent: number;
+        pause_on_exceeded: number;
+        pause_on_unknown_cost: number;
+      };
     expect(migrated.autocompact_percent).toBe(80);
+    expect(migrated.pause_on_exceeded).toBe(0);
+    expect(migrated.pause_on_unknown_cost).toBe(0);
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
       (row) => row.name,
     );

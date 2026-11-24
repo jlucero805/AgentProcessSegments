@@ -64,6 +64,7 @@ export type {
   NotificationsSettings,
   NotificationsView,
   SpendPause,
+  SpendPauseReason,
   WebhookFormat,
   WebhookPatch,
   WebhookSettings,

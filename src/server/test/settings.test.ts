@@ -13,14 +13,14 @@ describe('SettingsStore', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
-    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false });
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false, pauseOnUnknownCost: false });
   });
 
   it('loads a legacy file with only master and defaults the budget', () => {
     const file = tempFile();
     writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
     const store = new SettingsStore(file);
-    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false });
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false, pauseOnUnknownCost: false });
   });
 
   it('falls back to defaults for invalid or unreadable files', () => {
@@ -227,17 +227,18 @@ describe('SettingsStore', () => {
   it('merges budget patches without disturbing master', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
-    const saved = store.patch({ budget: { monthlyUsd: 125.5, alertAtPercent: 90, pauseOnExceeded: false } });
+    const saved = store.patch({ budget: { monthlyUsd: 125.5, alertAtPercent: 90, pauseOnExceeded: false, pauseOnUnknownCost: false } });
     expect(saved.master.enabled).toBe(true);
-    expect(saved.budget).toEqual({ monthlyUsd: 125.5, alertAtPercent: 90, pauseOnExceeded: false });
+    expect(saved.budget).toEqual({ monthlyUsd: 125.5, alertAtPercent: 90, pauseOnExceeded: false, pauseOnUnknownCost: false });
     expect(JSON.parse(readFileSync(file, 'utf8')).budget).toEqual({
       monthlyUsd: 125.5,
       alertAtPercent: 90,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
 
     const cleared = store.patch({ budget: { monthlyUsd: null } });
-    expect(cleared.budget).toEqual({ monthlyUsd: null, alertAtPercent: 90, pauseOnExceeded: false });
+    expect(cleared.budget).toEqual({ monthlyUsd: null, alertAtPercent: 90, pauseOnExceeded: false, pauseOnUnknownCost: false });
     expect(cleared.master.intervalMinutes).toBe(DEFAULT_SETTINGS.master.intervalMinutes);
   });
 
@@ -245,7 +246,7 @@ describe('SettingsStore', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
     store.patch({
-      budget: { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true },
+      budget: { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true, pauseOnUnknownCost: true },
     });
 
     const reloaded = new SettingsStore(file).get();
@@ -253,6 +254,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 250,
       alertAtPercent: 75,
       pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
     });
 
     // A partial patch that omits the flag must not silently turn the cap off.
@@ -261,6 +263,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 300,
       alertAtPercent: 75,
       pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
     });
   });
 
@@ -272,6 +275,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 100,
       alertAtPercent: 80,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
   });
 
@@ -286,7 +290,7 @@ describe('SettingsStore', () => {
           idleMinutes: DEFAULT_SETTINGS.master.idleMinutes,
           autoReview: DEFAULT_SETTINGS.master.autoReview,
         },
-        budget: { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true },
+        budget: { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true, pauseOnUnknownCost: true },
       }),
     );
 
@@ -297,6 +301,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 250,
       alertAtPercent: 75,
       pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
     });
   });
 
@@ -308,7 +313,7 @@ describe('SettingsStore', () => {
     });
     expect(blocks).toContain('master');
 
-    const savedBudget = { monthlyUsd: 42, alertAtPercent: 85, pauseOnExceeded: true };
+    const savedBudget = { monthlyUsd: 42, alertAtPercent: 85, pauseOnExceeded: true, pauseOnUnknownCost: true };
     for (const block of blocks) {
       const file = tempFile();
       writeFileSync(file, JSON.stringify({ [block]: {}, budget: savedBudget }));
@@ -326,7 +331,7 @@ describe('SettingsStore', () => {
     writeFileSync(
       file,
       JSON.stringify({
-        budget: { monthlyUsd: 60, alertAtPercent: 70, pauseOnExceeded: false },
+        budget: { monthlyUsd: 60, alertAtPercent: 70, pauseOnExceeded: false, pauseOnUnknownCost: false },
         notifications: {
           webhook: { secret: null },
           email: { host: null, from: null, to: [] },
@@ -343,6 +348,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 60,
       alertAtPercent: 70,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
   });
 
@@ -358,7 +364,7 @@ describe('SettingsStore', () => {
     const file = tempFile();
     writeFileSync(
       file,
-      JSON.stringify({ budget: { monthlyUsd: 99, alertAtPercent: 90, pauseOnExceeded: true } }),
+      JSON.stringify({ budget: { monthlyUsd: 99, alertAtPercent: 90, pauseOnExceeded: true, pauseOnUnknownCost: true } }),
     );
 
     const first = new SettingsStore(file).get();
@@ -378,7 +384,10 @@ describe('SettingsStore', () => {
     expect(() => store.patch({ budget: { alertAtPercent: 0 } })).toThrow();
     expect(() => store.patch({ budget: { alertAtPercent: 101 } })).toThrow();
     expect(() => store.patch({ budget: { alertAtPercent: 80.5 } })).toThrow();
-    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false });
+    expect(() =>
+      store.patch({ budget: { pauseOnUnknownCost: 'yes' as unknown as boolean } }),
+    ).toThrow();
+    expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false, pauseOnUnknownCost: false });
     expect(() => readFileSync(file)).toThrow();
   });
 
@@ -484,6 +493,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 120,
       alertAtPercent: 75,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
     expect(reloaded.notifications.webhook).toEqual({
       enabled: true,
@@ -548,6 +558,7 @@ describe('SettingsStore', () => {
       monthlyUsd: 50,
       alertAtPercent: 70,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
     expect(settings.notifications.webhook).toEqual({
       enabled: true,

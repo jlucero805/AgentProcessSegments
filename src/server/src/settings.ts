@@ -96,6 +96,7 @@ const budgetSchema = z.object({
   monthlyUsd: z.number().positive().max(MAX_BUDGET_USD).nullable(),
   alertAtPercent: z.number().int().min(1).max(100),
   pauseOnExceeded: z.boolean(),
+  pauseOnUnknownCost: z.boolean(),
 }) satisfies z.ZodType<BudgetSettings>;
 
 const retentionSchema = z.object({

@@ -98,6 +98,7 @@ export class BudgetService {
           period,
           totals: this.usage.totals({ from: period.start, to: period.end }),
           pauseOnExceeded: settings.budget.pauseOnExceeded,
+          pauseOnUnknownCost: settings.budget.pauseOnUnknownCost,
         }),
       );
     }
@@ -118,6 +119,7 @@ export class BudgetService {
             cellId: cell.id,
           }),
           pauseOnExceeded: cell.pauseOnExceeded,
+          pauseOnUnknownCost: cell.pauseOnUnknownCost,
         }),
       );
     }
@@ -162,6 +164,7 @@ export class BudgetService {
           period,
           totals: this.usage.totals({ from: period.start, to: period.end }),
           pauseOnExceeded: true,
+          pauseOnUnknownCost: settings.budget.pauseOnUnknownCost,
         });
         if (status.paused) return spendPause(status);
       }
@@ -186,6 +189,7 @@ export class BudgetService {
               cellId: cell.id,
             }),
             pauseOnExceeded: true,
+            pauseOnUnknownCost: cell.pauseOnUnknownCost,
           });
           if (status.paused) return spendPause(status);
         }

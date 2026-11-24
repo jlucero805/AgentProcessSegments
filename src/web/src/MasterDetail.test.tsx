@@ -17,6 +17,7 @@ function makeCell(): CellDetail {
     effort: null,
     monthlyBudgetUsd: null,
     pauseOnExceeded: false,
+    pauseOnUnknownCost: false,
     autocompactPercent: 80,
     process: { version: process.version, segments: process.segments },
     createdAt: 1,

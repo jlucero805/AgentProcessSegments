@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 849 vitest cases: 650 server across 44 files and 199 web across 24 files, all green.
+- 854 vitest cases: 655 server across 45 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -93,7 +93,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 650 server + 199 web, plus the e2e env guard
+npm test                       # 655 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -313,7 +313,7 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     reported cost only; opt-in hard caps compare reported plus estimated cost and mark
     unpriced spend as a lower bound. Strict caps can also refuse work while any turn is
     unpriced. Do not add guessed prices or partial usage writes.
-    External delivery, a hard-cap operator override/snooze, and pricing maintenance at
+    External delivery, a hard-cap snooze/replay, and pricing maintenance at
     scale follow `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
@@ -513,3 +513,6 @@ by mutating the global file.
   HTTP request is the behavior.
 - Commit each green unit. Message shape: `type(scope): subject`.
 - Update `docs/02-status.md` in the same commit that changes what is built.
+- The suite totals in `AGENTS.md`, `README.md`, and `docs/02-status.md` (cases, files,
+  total) are guarded by `test/doc-counts.test.ts`; update all three and the `npm test`
+  comment when the totals change.

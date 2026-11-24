@@ -138,9 +138,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   that, a host `APS_TURN_TIMEOUT_MS`, `APS_PLUGINS_DIR`, or legacy `SBOX_HARNESS_BIN`
   silently changes what a proof proves. The Claude and MCP smokes keep deliberate
   `SBOX_*` pins to prove the legacy aliases: scrubbing inherited `APS_*` first is what
-  makes those pins authoritative. They also pin `SBOX_CONFIG`/`SBOX_PROCESS`/
-  `SBOX_ERROR_LOG` and `XDG_CONFIG_HOME`/`XDG_STATE_HOME` because `loadConfig()` reads
-  XDG_* directly, outside `readEnv`. `scripts/e2e/env.test.mjs` guards the builders and
+  makes those pins authoritative. The Claude smoke pins its legacy
+  `SBOX_CONFIG`/`SBOX_PROCESS`/`SBOX_ERROR_LOG` paths; the MCP smoke pins the canonical
+  `APS_*` paths. Both pin `XDG_CONFIG_HOME`/`XDG_STATE_HOME`, and the MCP smoke also pins
+  `OPENCODE_CONFIG_DIR`, because `loadConfig()` and `SkillCatalog` read those directories
+  directly, outside `readEnv`. `scripts/e2e/env.test.mjs` guards the builders and
   each script's call site (`npm run test:e2e-env`); the pin builders reject missing or
   relative paths so a dropped mock or port cannot fall back to a real CLI on `PATH`.
   CI's E2E, MCP stdio, and Claude mock smoke steps export the same hostile sentinels

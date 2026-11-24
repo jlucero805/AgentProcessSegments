@@ -372,7 +372,9 @@ built and vended by the brain; real-CLI verification is still pending.
   (`scrubEnv` + `buildPinnedEnv`): host `APS_*`/`SBOX_*` settings and API credentials are
   dropped, then paths, ports, harness, and the mock binary are pinned. The Claude and MCP
   smokes keep deliberate `SBOX_*` pins for legacy-alias coverage, and `mcp-smoke` now
-  fails when a tool round trip does not persist. `npm run test:e2e-env` guards the
+  fails when a tool round trip does not persist. The MCP smoke's brain also pins
+  `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `OPENCODE_CONFIG_DIR` under its temp dir, so
+  its skill catalog cannot read host config. `npm run test:e2e-env` guards the
   builders, their call sites, and the screenshot script's missing-Puppeteer policy. CI
   runs the E2E and MCP stdio smoke steps with the same hostile `SBOX_*`/`APS_*`
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression

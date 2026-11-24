@@ -532,7 +532,9 @@ and fails on any warning.
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, proves a tool call persists through the API into
-SQLite, and fails if any round trip or persisted value does not match.
+SQLite, and fails if any round trip or persisted value does not match. Its brain env
+pins the XDG config/state bases and `OPENCODE_CONFIG_DIR` under the temp dir, so the
+skill catalog cannot read host config.
 
 `node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
@@ -549,8 +551,9 @@ temp directory. The JavaScript proof scripts build their child env with
 `scripts/e2e/env.mjs` (`scrubEnv` + `buildPinnedEnv`): host `APS_*`/`SBOX_*` settings and
 `ANTHROPIC_*`/`CLAUDE_*`/`OPENAI_*` credentials are dropped, then each script's paths,
 port, harness, and mock binary are pinned. The Claude and MCP smokes keep deliberate
-`SBOX_*` pins so the legacy aliases stay under test. A shell that exports harness
-overrides therefore still exercises the mock.
+`SBOX_*` pins so the legacy aliases stay under test; the MCP smoke also pins
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `OPENCODE_CONFIG_DIR` under its temp dir. A
+shell that exports harness overrides therefore still exercises the mock.
 
 CI runs the E2E, MCP stdio, and Claude mock smoke steps with hostile overrides exported
 (`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`, `APS_CLAUDE_BIN=/bin/false`,

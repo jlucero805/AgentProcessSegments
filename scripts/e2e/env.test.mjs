@@ -273,6 +273,7 @@ const proofHostile = {
   APS_REQUEST_ID: 'hostile-request',
   XDG_CONFIG_HOME: '/hostile/xdg-config',
   XDG_STATE_HOME: '/hostile/xdg-state',
+  OPENCODE_CONFIG_DIR: '/hostile/opencode-config',
 };
 
 const claudePinsArgs = {
@@ -471,10 +472,16 @@ test('buildMcpSmokePins isolates the temp brain from host harness env', () => {
   assert.equal(pinned.APS_HARNESS, 'claude');
   assert.equal(pinned.APS_HARNESS_BIN, '/bin/false');
   assert.equal(pinned.APS_TERMINAL, '0');
+  assert.equal(pinned.XDG_CONFIG_HOME, '/tmp/mcp-smoke/xdg-config');
+  assert.equal(pinned.XDG_STATE_HOME, '/tmp/mcp-smoke/xdg-state');
+  assert.equal(pinned.OPENCODE_CONFIG_DIR, '/tmp/mcp-smoke/xdg-config/opencode');
 
   const env = buildPinnedEnv(proofHostile, pinned);
   assertOnlyPinnedScrubNames(env, pinned);
   assert.equal(env.APS_DB, '/tmp/mcp-smoke/harness.sqlite');
+  assert.equal(env.XDG_CONFIG_HOME, '/tmp/mcp-smoke/xdg-config');
+  assert.equal(env.XDG_STATE_HOME, '/tmp/mcp-smoke/xdg-state');
+  assert.equal(env.OPENCODE_CONFIG_DIR, '/tmp/mcp-smoke/xdg-config/opencode');
   assert.equal(Object.hasOwn(env, 'SBOX_HARNESS'), false);
   assert.equal(Object.hasOwn(env, 'SBOX_BRAIN_URL'), false);
   assert.equal(Object.hasOwn(env, 'ANTHROPIC_API_KEY'), false);

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 849 vitest cases: 650 server across 44 files and 199 web across 24 files, all green.
+- 859 vitest cases: 660 server across 45 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -67,8 +67,11 @@ digests.
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
   a systemd user unit for a VPS, a reviewed live-VPS cutover script
   (`deploy/cutover-vps.sh`, `npm run cutover:vps`) that detaches, drains, moves, verifies,
-  and rolls back, a harness seam with `claude` and `opencode` adapters, OpenCode plugin
-  parity (skills and slash commands), chat slash-menu skill discovery with per-request
+  and rolls back, a self-hosted upgrade script (`deploy/upgrade-vps.sh`,
+  `npm run upgrade:vps`) that detaches, drains, fast-forwards, rebuilds, restarts,
+  verifies, and rolls back in place, a harness seam with `claude` and `opencode` adapters,
+  OpenCode plugin parity (skills and slash commands), chat slash-menu skill discovery
+  with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, configurable master-activity retention for `master_events`,
   configurable scorecard-history retention for `cell_summaries`, cell-delete cleanup for
@@ -93,7 +96,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 650 server + 199 web, plus the e2e env guard
+npm test                       # 660 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -110,6 +113,7 @@ node scripts/clean-test-tmp.mjs  # dry-run: stale test temp dirs; --apply to del
 npm run migrate:paths           # move legacy paths; refuses while a brain unit is active
 npm run migrate:branches        # migrate finished sbox/* worktree branches (dry run first)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
+npm run upgrade:vps -- --dry-run  # pull + rebuild + restart; --detach inside the brain
 # on a VPS, the brain runs as a systemd user unit:
 systemctl --user restart agent-process-segments
 journalctl --user -u agent-process-segments -n 50 --no-pager

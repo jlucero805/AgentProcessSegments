@@ -257,6 +257,92 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 Requests, transcripts, and agent session ids are on disk. A restart loses no request
 state; the engine resumes the agent session from `session.json` on the next turn.
 
+An operator with a shell outside the service can run that sequence by hand. It kills
+in-flight turns, and it cannot be run from inside the brain itself, because the
+`systemctl --user restart` stops the service cgroup that owns the shell. Use the
+self-hosted upgrade below for that case.
+
+## Upgrade a live, self-hosted brain
+
+`deploy/upgrade-vps.sh` upgrades an install that is already on the Agent Process Segments
+names, including one whose own brain is orchestrating the upgrade. It pauses
+`master.enabled`, drains every request with `agentStatus=working`, snapshots the database
+and the current `dist`/`node_modules` trees, fast-forwards the clone, installs
+dependencies only when the lockfile or a workspace `package.json` changed, rebuilds,
+restarts the unit, and verifies the new build before restoring the master setting.
+Running it from inside the service requires `--detach`: the script copies itself into a
+run directory and launches it in a transient user unit, so the restart cannot kill it.
+
+A failure before the restart restores the old commit, dependencies, and `dist` in place
+and never restarts. A failure after the restart puts them back, restarts the old build,
+and marks the run `rolled_back`.
+
+```bash
+cd ~/agent-process-segments
+npm run upgrade:vps -- --dry-run            # inspect the plan; changes nothing
+npm run upgrade:vps -- --detach --request-id <request-id>
+```
+
+The first upgrade runs on a clone that does not contain the script yet. Invoke it from a
+worktree that is already at the merged commit; `--clone` defaults to the unit's
+`WorkingDirectory`, so the worktree does not need to be the live checkout:
+
+```bash
+git worktree add /tmp/aps-upgrade origin/main
+bash /tmp/aps-upgrade/deploy/upgrade-vps.sh --dry-run
+bash /tmp/aps-upgrade/deploy/upgrade-vps.sh --detach
+```
+
+Options: `--unit NAME`, `--branch NAME`, `--to REF`, `--wait-seconds N`,
+`--health-timeout N`, `--allow-busy`, `--home DIR`, `--clone DIR`, `--request-id ID`.
+`--clone` must resolve to the unit's `WorkingDirectory`; the script refuses any other
+directory because that is not the live deployment.
+
+Watch the run, and read the evidence afterwards:
+
+```bash
+cat ~/.aps-cutover/upgrades/latest/state
+tail -f ~/.aps-cutover/upgrades/latest/upgrade.log
+journalctl --user -f | grep aps-upgrade
+```
+
+`--detach` prints the transient unit name; `journalctl --user -u <name>` shows that unit
+while it still exists. `state` is one of `launched`, `running`, `success`, `failed`, or
+`rolled_back`. Each run directory keeps `before.json`, `after.json`,
+`config-before.json`, `config-after.json`, `db-backup.sqlite`, and the previous `dist`
+and `node_modules` trees. The script prunes all but the 5 newest finished runs; a run
+still marked `launched` or `running` is never pruned.
+
+Notes:
+
+- The turn that launched a detached upgrade dies with the service. Check
+  `state` and `upgrade.log` after the unit comes back instead of waiting for the turn.
+- `npm ci` is not optional when the lockfile moves, and it must pass `--include=dev`:
+  the unit exports `NODE_ENV=production`, which otherwise omits `typescript`, `vite`, and
+  the rest of the devDependencies and breaks the build. The script handles this.
+- `db-backup.sqlite` is a consistent snapshot taken before the install. The script never
+  restores it automatically. Migrations are additive, so a rolled-back build can usually
+  read the upgraded database; restore the snapshot by hand only if it cannot.
+- The script refuses a dirty clone, a non-fast-forward target, a branch mismatch, or a
+  target commit that changes `deploy/agent-process-segments.service`; install a changed
+  unit deliberately instead of letting an upgrade replace it.
+- Re-running when the clone is already at the target prints `already up to date` and
+  changes nothing.
+
+After a finished run, verify the service independently:
+
+```bash
+systemctl --user is-active agent-process-segments
+systemctl --user show agent-process-segments -p WorkingDirectory -p ActiveEnterTimestamp
+curl -fsS http://127.0.0.1:7391/health
+curl -fsS http://127.0.0.1:7391/api/models
+git -C ~/agent-process-segments log --oneline -1
+```
+
+The script also probes a route added in the target build (currently
+`/api/notifications/status`, which returns 404 on older builds) so a green `/health`
+alone cannot hide a restart on the previous binary.
+
 ## Upgrade from Sandbox Harness
 
 An existing install keeps working after a binary upgrade: the brain still reads the

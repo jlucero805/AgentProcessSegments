@@ -144,6 +144,42 @@ describe('SummaryScheduler', () => {
     fixture.scheduler.stop();
   });
 
+  it('does not set failure backoff when a cap stops a generation mid-flight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const pause: SpendPause = {
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: Date.UTC(2026, 0, 1),
+      periodEnd: Date.UTC(2026, 1, 1),
+      budgetUsd: 10,
+      spendUsd: 10,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    let attempts = 0;
+    const fixture = setup(async () => {
+      attempts += 1;
+      throw new SpendCapError(pause);
+    });
+    const cell = fixture.cells.create('Alpha');
+
+    fixture.scheduler.start();
+    await flush();
+    expect(attempts).toBe(1);
+    expect(fixture.scheduler.statusFor(cell.id).lastError).toBeNull();
+    expect(fixture.scheduler.statusFor(cell.id).nextRunAt).toBe(Date.now());
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(attempts).toBe(2);
+    expect(fixture.scheduler.statusFor(cell.id).lastError).toBeNull();
+    fixture.scheduler.stop();
+  });
+
   it('catches up immediately, gates on the interval, and stops when disabled', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));

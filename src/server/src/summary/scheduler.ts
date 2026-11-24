@@ -190,7 +190,11 @@ export class SummaryScheduler {
           this.failures.delete(cellId);
           job.resolve(summary);
         } catch (error) {
-          this.failures.set(cellId, { at: Date.now(), message: errorMessage(error) });
+          // A hard-cap pause is not a generation failure: no backoff and no
+          // lastError. The next due scan after resume runs normally.
+          if (!(error instanceof SpendCapError)) {
+            this.failures.set(cellId, { at: Date.now(), message: errorMessage(error) });
+          }
           job.reject(error);
         } finally {
           this.jobs.delete(cellId);

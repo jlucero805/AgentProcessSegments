@@ -41,8 +41,8 @@ export function BudgetBanner({
           >
             <p className="break-words">
               {label} hard cap reached: {spend} of {moneyLabel(pause.budgetUsd)} for the current
-              UTC month. New work is paused; raise or clear the budget, or turn off the pause
-              option, to resume.
+              UTC month. New work is paused and in-flight turns stopped; raise or clear the
+              budget, or turn off the pause option, to resume.
             </p>
             {pause.spendIsLowerBound ? (
               <p className="mt-0.5 text-[11px] opacity-80">

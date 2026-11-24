@@ -114,6 +114,24 @@ describe('chat transcript helpers', () => {
   it('ignores events it does not render', () => {
     const before = appendUser([], 'hi');
     expect(applyEvent(before, { t: 'done', request: null, transcript: [] })).toBe(before);
+    expect(
+      applyEvent(before, {
+        t: 'paused',
+        pause: {
+          scope: 'overall',
+          cellId: null,
+          cellName: null,
+          label: 'Overall',
+          periodStart: ts,
+          periodEnd: ts,
+          budgetUsd: 100,
+          spendUsd: 100,
+          spendIsLowerBound: false,
+          unpricedTurns: 0,
+          percentUsed: 100,
+        },
+      }),
+    ).toBe(before);
   });
 
   it('extracts text parts from an assistant-ui append message', () => {

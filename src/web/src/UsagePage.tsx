@@ -198,7 +198,8 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
                   </p>
                   {status.paused ? (
                     <p className="text-[11px] text-red-300">
-                      Paused at {moneyLabel(status.capSpendUsd)} cap spend
+                      Paused: new work is refused and in-flight turns were stopped at{' '}
+                      {moneyLabel(status.capSpendUsd)} cap spend
                       {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
                     </p>
                   ) : null}

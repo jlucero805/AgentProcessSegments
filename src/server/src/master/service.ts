@@ -19,7 +19,7 @@ import type { ProcessStore } from '../process/store.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
 import { errorMessage } from '../util/errors.js';
-import { spendPauseMessage } from '../usage/spend-cap.js';
+import { SpendCapError, spendPauseMessage } from '../usage/spend-cap.js';
 
 interface Bucket {
   cellId: string;
@@ -348,6 +348,9 @@ export class MasterService {
       void this.settleCandidate(bucket, request, segment, turn, result);
     } catch (error) {
       outcome.skipped = 1;
+      // An admission race is an expected policy refusal, not a turn failure.
+      // The next cycle records the pause episode once.
+      if (error instanceof SpendCapError) return outcome;
       const message = errorMessage(error);
       this.deps.errors?.error('master.turn', error, {
         cellId: bucket.cellId,
@@ -391,12 +394,18 @@ export class MasterService {
       // after the promise settles.
       await new Promise<void>((resolve) => setImmediate(resolve));
 
-      const text = this.lastAgentText(request.id);
-      outcome.followUps = this.createFollowUps(request, text, segment, bucket.cellId);
-      const target = await this.advanceIfReady(request, segment, text, bucket.cellId);
-      if (target) {
-        outcome.advanced = 1;
-        if (target === 'review') outcome.reviewed = 1;
+      if (turn.stoppedBy) {
+        // A cap stopped the turn mid-segment. Its partial text is not a
+        // completion: never create follow-ups or advance the marker from it.
+        outcome.skipped = 1;
+      } else {
+        const text = this.lastAgentText(request.id);
+        outcome.followUps = this.createFollowUps(request, text, segment, bucket.cellId);
+        const target = await this.advanceIfReady(request, segment, text, bucket.cellId);
+        if (target) {
+          outcome.advanced = 1;
+          if (target === 'review') outcome.reviewed = 1;
+        }
       }
     } catch (error) {
       outcome.skipped = 1;

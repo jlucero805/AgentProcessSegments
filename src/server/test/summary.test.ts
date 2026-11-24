@@ -10,6 +10,7 @@ import { RequestRepository } from '../src/requests/repository.js';
 import { SettingsStore } from '../src/settings.js';
 import { SummaryRepository } from '../src/summary/repository.js';
 import { collectSummaryStats, SummaryService } from '../src/summary/service.js';
+import { SpendCapError } from '../src/usage/spend-cap.js';
 import type { SummaryStats } from '../src/summary/types.js';
 import {
   createHarness,
@@ -358,6 +359,39 @@ describe('SummaryService', () => {
       expect.any(Error),
       { cellId: cell.id },
     );
+  });
+
+  it('treats a cap-stopped generation as a pause, not a failure', async () => {
+    const fixture = setup(() => []);
+    const cell = fixture.harness.cells.create('Alpha');
+    const pending = fixture.service.generate(cell.id);
+    await settle();
+
+    const pause = {
+      scope: 'cell' as const,
+      cellId: cell.id,
+      cellName: 'Alpha',
+      label: 'Alpha',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 50,
+      spendUsd: 50,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    expect(
+      fixture.harness.engine.cancelForSpendCap(summarySessionId(cell.id), pause),
+    ).toBe(true);
+    await expect(pending).rejects.toBeInstanceOf(SpendCapError);
+
+    expect(fixture.summaries.latest(cell.id)).toBeNull();
+    expect(fixture.errors.error).not.toHaveBeenCalled();
+    expect(
+      fixture.harness.engine
+        .transcript(summarySessionId(cell.id))
+        .some((message) => message.text.startsWith('⏸')),
+    ).toBe(true);
   });
 
   it('removes stored reports with their cell', () => {

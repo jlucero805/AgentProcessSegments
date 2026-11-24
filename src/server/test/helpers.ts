@@ -225,6 +225,7 @@ export function createHarness(
   spendCap?: (cellId: string | null) => SpendPause | null,
   errors?: ErrorSink,
   configOverrides: Partial<Config> = {},
+  onUsageRecorded?: () => void,
 ): Harness {
   const config = withConfigOverrides(testConfig(), configOverrides);
   const db = openDb(config.dbPath);
@@ -246,6 +247,7 @@ export function createHarness(
     usage,
     pluginDirs: () => plugins.installedPluginDirs(),
     spendCap,
+    ...(onUsageRecorded ? { onUsageRecorded } : {}),
     ...(errors ? { errors } : {}),
     cellConfig:
       cellConfig ??

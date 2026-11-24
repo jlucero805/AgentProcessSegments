@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 741 vitest cases: 555 server across 39 files and 186 web across 24 files, all green.
+- 758 vitest cases: 571 server across 40 files and 187 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -58,8 +58,8 @@ digests.
   polling scheduler with catch-up and backoff), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
-  budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
-  an in-app alert/pause banner, opt-in signed webhook, SMTP email, and native
+  budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight
+  turns in the paused scope, an in-app alert/pause banner, opt-in signed webhook, SMTP email, and native
   Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
@@ -77,7 +77,7 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, hard-cap cancellation/override, fan-out to multiple chat
+- Not built: KB embeddings, a hard-cap operator override/snooze, fan-out to multiple chat
   destinations per scope, webhook/email per-scope routing, interactive acknowledgement,
   and pricing maintenance at scale such as bulk import, tiers, or non-USD currencies
   (scoped in `docs/09-backlog.md`). Usage retention with daily rollups is built.
@@ -295,8 +295,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `UsageRepository.totals` (the same merged view). Advisory status and alerts compare
     reported cost only; opt-in hard caps compare reported plus estimated cost and mark
     unpriced spend as a lower bound. Do not add guessed prices or partial usage writes.
-    External delivery, hard-cap cancellation/override, and pricing maintenance at scale
-    follow `docs/09-backlog.md`.
+    External delivery, a hard-cap operator override/snooze, and pricing maintenance at
+    scale follow `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
     the master must check segment caps in addition to the cell cap. Its prompt rebases,
     tests, and pushes one request at a time before advancing to Finalize.
@@ -360,14 +360,19 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and into Claude as `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` plus
     `autoCompactEnabled: true`. Note that Claude cannot raise its built-in threshold.
     KB, master, setup, and summary sessions keep the harness/global behavior.
-34. **Hard spend caps are opt-in admission checks.** `budget.pauseOnExceeded` and
-    `cells.pause_on_exceeded` default false. Cap spend is reported plus estimated cost;
-    warning thresholds and acknowledgement never pause. An overall pause refuses every
-    new agent turn, a cell pause is cell-scoped, and master/summary schedulers skip
-    paused cells without failure backoff. Check admission before `clarifyStarted`, state
-    transitions, `agentStatus`, session writes, or spawning; in-flight turns finish.
-    Refuse with `SpendCapError` / HTTP `409 spend_cap`; never log an expected refusal as an
-    error.
+34. **Hard spend caps are opt-in admission checks and in-flight stops.** `budget.pauseOnExceeded`
+    and `cells.pause_on_exceeded` default false. Cap spend is reported plus estimated
+    cost; warning thresholds and acknowledgement never pause. An overall pause refuses
+    every new agent turn and stops every live one; a cell pause is cell-scoped for both.
+    Check admission before `clarifyStarted`, state transitions, `agentStatus`, session
+    writes, or spawning. `SpendCapEnforcer.check()` runs after a usage row is written and
+    after budget evaluation: it cancels paused-scope turns through
+    `Engine.cancelForSpendCap`, which keeps the saved session, appends a `⏸` transcript
+    line, and emits `paused` before `done`. A cap stop records harness-reported usage it
+    already has; user stop, dispose, and timeout still write none. Master/summary
+    schedulers skip paused cells without failure backoff and never advance or write a
+    scorecard from a stopped turn. Refuse with `SpendCapError` / HTTP `409 spend_cap`;
+    never log an expected refusal or cap stop as an error.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

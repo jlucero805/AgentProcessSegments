@@ -781,11 +781,12 @@ budget amount and warning percentage, so changing either starts a new generation
 deleting acknowledged history. Exceeded supersedes warning; acknowledging one silences
 that generation for the month. `BudgetService` evaluates on start, every 60 seconds, and
 on settings/cell changes, reports failures as `usage.budgets`, and never affects a turn.
-Advisory budgets never pause or block work; opt-in hard caps are D53.
+Advisory budgets never pause or block work; opt-in hard caps are D54, extended by D65 to
+stop in-flight turns.
 
 **Cost.** Budget status is shown on Config, the Usage page, and the app banner. The unique
 alert identity includes REAL budget amounts, which is acceptable for operator-entered
-dollar values. Advisory alerts never pause work; opt-in hard caps are D53. External
+dollar values. Advisory alerts never pause work; opt-in hard caps are D54/D65. External
 delivery remains separate work; usage retention uses D45, daily rollups are added by D52. A retention window shorter than the month makes spend
 a lower bound, which the docs and UI say explicitly.
 
@@ -965,12 +966,14 @@ pause refuses every new agent turn, including KB and setup; a cell pause refuses
 cell's request, master, and summary turns. Master/summary schedulers skip paused cells
 without failure backoff and note the transition once. Acknowledgement never overrides a
 pause. Admission happens before `clarifyStarted`, state transitions, `agentStatus`,
-session writes, or spawning; in-flight turns finish, with no reservations or cancellation.
-Refusals use `SpendCapError` and HTTP `409 spend_cap`. Pause state is recomputed from the
-ledger and policy, so budget changes and month rollover resume without a restart.
+session writes, or spawning; in-flight turns finished, with no reservations. D65 later
+added in-flight cancellation on a crossing; reservations are still not used. Refusals use
+`SpendCapError` and HTTP `409 spend_cap`. Pause state is recomputed from the ledger and
+policy, so budget changes and month rollover resume without a restart.
 
 **Cost.** Admission-only enforcement lets a concurrent or long in-flight turn overshoot the
-cap; cancelling on a crossing is separate work. Estimated cost is only as good as the
+cap; D65 stops in-flight work when a crossing is observed but keeps the no-reservation
+limit. Estimated cost is only as good as the
 operator-maintained price table, and an unpriced turn leaves cap spend a lower bound. The
 pause flag adds an additive cell column and one optional budget field. This also fixes
 `SettingsStore.load()`, which previously dropped the saved budget block on restart, because
@@ -1251,3 +1254,44 @@ Tokens are redacted from config responses and never logged; tests inject the sen
 two Config cards. Fan-out to multiple destinations for one scope, per-scope routing for
 webhook/email, delivery history/resend, rich Block Kit/embeds, interactive
 acknowledgement, and token storage outside `config.json` remain separate work.
+
+## D65. Hard caps stop in-flight turns when a crossing is observed
+
+**Context.** D54 refused new turns at a hard cap but let everything already running finish.
+Operators read "paused" as "nothing is spending", yet a cell with several concurrent turns
+could keep spending after the cap was crossed. Harness CLIs have no pause protocol, and the
+ledger only records spend when a turn completes, so a long single turn cannot be seen or
+stopped mid-flight from its own usage.
+
+**Decision.** Add `SpendCapEnforcer.check()`, called after a usage row is written and after
+`BudgetService.evaluate()` (the 60-second tick, settings changes, and the existing
+cell/config evaluate calls). It snapshots `Engine.liveTurns()`, resolves admission once per
+distinct cell, and stops every live turn whose scope is paused through
+`Engine.cancelForSpendCap`. A stop kills the child with the existing SIGTERM→SIGKILL
+escalation, marks the turn `cancelled` with `stoppedBy`, appends a deduplicated `⏸` agent
+line, emits `{t:'paused', pause}` before `done`, keeps `session.json`, and sets request
+`agentStatus` idle plus `unchecked`. Overall pauses stop every scope including KB, setup,
+unassigned, master, and summary; a cell pause stops only that cell's live turns. There is
+no SIGSTOP suspension, no persisted pause bit, and no automatic replay; the operator
+resends after the pause clears and the saved session resumes.
+
+A cap stop is a policy outcome, not an error: no `engine.turn`, `master.turn`,
+`summary.generate`, HTTP error-log, or error-sink entry. A master candidate stopped this way
+is not advanced and creates no follow-ups; a summary generation stopped this way throws
+`SpendCapError` and the scheduler records no failure backoff. An admission race in the
+master becomes a quiet skipped candidate instead of a logged failure.
+
+Invariant 20 gains one narrow exception: a cap-stopped turn records usage the parser already
+reported for completed steps (OpenCode `step_finish`) or a final result, because dropping it
+would erase real spend from the ledger. User stop, dispose, and timeout still write nothing,
+and no estimate is inserted into `usage_events`. Optional fields stay additive: the
+`paused` event variant and `LiveTurn.stoppedBy` are the only contract additions. The
+enforcer is single-flight with a bounded re-entry loop because a stopped turn recording
+usage can trigger another check.
+
+**Cost.** In-flight spend remains invisible, so the turn that crossed the cap has already
+finished and a single long turn can overshoot; a just-started turn can be stopped
+immediately by a sibling crossing. Enforcement adds two database reads per distinct live
+cell at most once per completed turn and once per evaluation. Auto-resume of the interrupted
+prompt, a broad partial-usage rule for user stop/timeout, an operator override/snooze, and a
+strict unknown-cost policy remain separate work.

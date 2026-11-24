@@ -1112,7 +1112,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           <SectionTitle>Spend budgets</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
             Monthly budgets for the whole brain and each cell. Alerts are warnings; enable
-            pause-on-exceeded to stop starting new work for that scope at its cap.
+            pause-on-exceeded to stop new work for that scope at its cap and stop its
+            in-flight turns.
           </p>
         </div>
 
@@ -1163,9 +1164,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                     </p>
                     {status.paused ? (
                       <p className="text-[11px] text-red-300">
-                        New work is paused at {moneyLabel(status.capSpendUsd)} of{' '}
-                        {moneyLabel(status.budgetUsd)} cap spend
-                        {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
+                        New work is paused and in-flight turns were stopped at{' '}
+                        {moneyLabel(status.capSpendUsd)} of {moneyLabel(status.budgetUsd)} cap
+                        spend{status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
                       </p>
                     ) : null}
                   </>

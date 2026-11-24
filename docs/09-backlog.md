@@ -19,9 +19,10 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
   pause-transition delivery, and reuse of the outbox for non-budget events (failed turns,
   master errors). Keep every destination deduped by the existing delivery row and
   credentials redacted.
-- **Hard-cap refinements.** Cancelling in-flight work on a crossing, an operator one-turn
-  override/snooze, and a strict unknown-cost policy are deferred; current caps are
-  admission-only and fail open when spend is unknowable.
+- **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65). An
+  operator one-turn override/snooze, automatic replay of a cap-stopped prompt, a broad
+  partial-usage rule for user stop/timeout, and a strict unknown-cost policy are deferred;
+  caps still fail open when spend is unknowable.
 - **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
   context-length tiers, currencies other than USD, and a per-turn applied-price audit
   view. The current table is exact-model, flat, USD-only, and operator-maintained.

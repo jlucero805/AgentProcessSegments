@@ -18,7 +18,7 @@ import {
 import type { ErrorSink } from '../logging/errors.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { UsageRepository } from '../usage/repository.js';
-import { SpendCapError } from '../usage/spend-cap.js';
+import { SpendCapError, spendPauseInterruptMessage } from '../usage/spend-cap.js';
 import type { UsageScope } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
 import { ensurePrivateDir, writePrivateFile } from '../util/files.js';
@@ -59,6 +59,8 @@ export interface LiveTurn {
   readonly promise: Promise<void>;
   done: boolean;
   cancelled: boolean;
+  /** Set when a hard spend cap stopped the turn instead of the user or dispose. */
+  stoppedBy: SpendPause | null;
   resolve: () => void;
   failure: string | null;
   /** True once the failure has been broadcast to this turn's subscribers. */
@@ -128,6 +130,8 @@ export interface EngineDeps {
   errors?: ErrorSink;
   /** Optional admission check; returning a pause refuses a new turn. */
   spendCap?: (cellId: string | null) => SpendPause | null;
+  /** Called after a usage row is written so hard caps can stop sibling turns. */
+  onUsageRecorded?: () => void;
 }
 
 export class Engine {
@@ -180,6 +184,13 @@ export class Engine {
     return this.turns.has(id);
   }
 
+  /** Snapshot of in-flight work so hard-cap enforcement can target a scope. */
+  liveTurns(): Array<{ id: string; cellId: string | null; scope: UsageScope }> {
+    return [...this.turns.entries()]
+      .filter(([, turn]) => !turn.done)
+      .map(([id, turn]) => ({ id, cellId: turn.cellId, scope: turn.scope }));
+  }
+
   /**
    * Stop a live turn without disposing the session. The partial transcript is
    * finished and saved; the saved session id is reused by the next message.
@@ -187,8 +198,25 @@ export class Engine {
   cancel(id: string): boolean {
     const turn = this.turns.get(id);
     if (!turn || turn.done) return false;
+    this.stopTurn(id, turn, null);
+    return true;
+  }
 
+  /**
+   * Stop a live turn because a hard spend cap is paused for its scope. The
+   * session is kept, the partial transcript is saved with a visible reason, and
+   * the next send after the pause clears resumes from the saved session.
+   */
+  cancelForSpendCap(id: string, pause: SpendPause): boolean {
+    const turn = this.turns.get(id);
+    if (!turn || turn.done) return false;
+    this.stopTurn(id, turn, pause);
+    return true;
+  }
+
+  private stopTurn(id: string, turn: LiveTurn, stoppedBy: SpendPause | null): void {
     turn.cancelled = true;
+    if (stoppedBy) turn.stoppedBy = stoppedBy;
     this.clearWatchdog(id);
     const active = this.procs.get(id);
     this.procs.delete(id);
@@ -201,7 +229,6 @@ export class Engine {
     // later `runTurn` continuation sees `turn.done` and only cleans up.
     this.finishTurn(id, turn, this.repo.get(id) ?? null);
     turn.resolve();
-    return true;
   }
 
   /**
@@ -373,6 +400,7 @@ export class Engine {
       promise: settled,
       done: false,
       cancelled: false,
+      stoppedBy: null,
       resolve,
       failure: null,
       failureReported: false,
@@ -489,9 +517,12 @@ export class Engine {
     this.clearWatchdog(id);
     const parser = this.parsers.get(id);
     const transcript = parser ? parser.finalize() : this.loadTranscript(id);
-    const failure = turn.failure;
-    if (failure) {
-      const warning = `⚠ ${failure}`;
+    const warning = turn.stoppedBy
+      ? `⏸ ${spendPauseInterruptMessage(turn.stoppedBy)}`
+      : turn.failure
+        ? `⚠ ${turn.failure}`
+        : null;
+    if (warning) {
       const alreadySaved = transcript
         .slice(turn.transcriptStart)
         .some((message) => message.kind === 'text' && message.text === warning);
@@ -511,20 +542,32 @@ export class Engine {
       this.repo.setUnchecked(id, true);
     }
 
-    this.recordUsage(id, turn, parser);
+    const recorded = this.recordUsage(id, turn, parser);
 
     const fresh = this.repo.get(id) ?? null;
     turn.done = true;
+    if (turn.stoppedBy) this.broadcast(turn, { t: 'paused', pause: turn.stoppedBy });
     this.broadcast(turn, { t: 'done', request: fresh, transcript });
 
     this.turns.delete(id);
     this.parsers.delete(id);
+    if (recorded) {
+      try {
+        this.deps.onUsageRecorded?.();
+      } catch (error) {
+        this.deps.errors?.error('budget.enforce', error, { session: id });
+      }
+    }
   }
 
   /** Best-effort persistence: a failed usage write never changes turn outcome. */
-  private recordUsage(id: string, turn: LiveTurn, parser: TurnParserLike | undefined): void {
+  private recordUsage(id: string, turn: LiveTurn, parser: TurnParserLike | undefined): boolean {
     const usage = parser?.usage ?? null;
-    if (!usage || !parser?.finished || turn.cancelled) return;
+    // A cap stop keeps spend the harness already reported: dropping it would
+    // erase real work from the ledger. User stop and timeout still write nothing.
+    const reportedBeforeStop = turn.stoppedBy !== null && usage !== null;
+    if (!usage || !(parser?.finished === true || reportedBeforeStop)) return false;
+    if (turn.cancelled && !reportedBeforeStop) return false;
     const previous = turn.harnessId === 'claude' ? this.readStoredUsage(id) : EMPTY_USAGE;
     const delta = this.deltaUsage(usage, previous);
     try {
@@ -545,11 +588,13 @@ export class Engine {
         createdAt: Date.now(),
       });
       if (turn.harnessId === 'claude') this.writeStoredUsage(id, usage);
+      return true;
     } catch (error) {
       this.deps.errors?.error('usage.record', error, {
         session: id,
         turnId: turn.turnId,
       });
+      return false;
     }
   }
 

@@ -32,6 +32,7 @@ import { BudgetNotifier } from './usage/budget-notifier.js';
 import { BudgetService } from './usage/budgets.js';
 import { UsageRepository } from './usage/repository.js';
 import { UsageRetention } from './usage/retention.js';
+import { SpendCapEnforcer } from './usage/spend-cap-enforcer.js';
 
 export async function main(): Promise<void> {
   const config = loadConfig();
@@ -66,6 +67,9 @@ export async function main(): Promise<void> {
       errors,
       brainUrl: config.brainUrl,
     });
+    // Late-bound: budgets evaluates before the engine exists, and the engine's
+    // usage hook must reach the enforcer that owns the live turns.
+    let enforcement: SpendCapEnforcer | null = null;
     const budgets = new BudgetService({
       usage,
       cells,
@@ -73,6 +77,7 @@ export async function main(): Promise<void> {
       alerts: budgetAlerts,
       errors,
       onAlerts: (alerts) => notifications.observe(alerts),
+      onEvaluated: () => enforcement?.check(),
     });
     const harnesses = createHarnessRegistry(config);
     const engine = new Engine({
@@ -83,6 +88,7 @@ export async function main(): Promise<void> {
       pluginDirs: () => plugins.installedPluginDirs(),
       errors,
       spendCap: (cellId) => budgets.admission(cellId),
+      onUsageRecorded: () => enforcement?.check(),
       cellConfig: (cellId) => {
         const cell = cells.get(cellId);
         return cell
@@ -94,6 +100,11 @@ export async function main(): Promise<void> {
             }
           : null;
       },
+    });
+    enforcement = new SpendCapEnforcer({
+      engine,
+      admission: (cellId) => budgets.admission(cellId),
+      errors,
     });
     const models = new HarnessModelCatalog({
       claude: harnesses.get('claude'),

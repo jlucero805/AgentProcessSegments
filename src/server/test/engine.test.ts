@@ -21,6 +21,7 @@ import { requestDir } from '../src/config.js';
 import { masterSessionId, setupSessionId, summarySessionId } from '../src/domain/sessions.js';
 import type { SpendPause } from '../src/domain/budget.js';
 import { SpendCapError } from '../src/usage/spend-cap.js';
+import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
 
 let harness: Harness | null = null;
 
@@ -32,6 +33,23 @@ function fresh(script?: (text: string) => string[]): Harness {
 function freshWithErrors(script: (text: string) => string[], errors: ErrorSink): Harness {
   harness = createHarness(script, undefined, undefined, errors);
   return harness;
+}
+
+function spendPause(overrides: Partial<SpendPause> = {}): SpendPause {
+  return {
+    scope: 'overall',
+    cellId: null,
+    cellName: null,
+    label: 'Overall',
+    periodStart: Date.UTC(2026, 10, 1),
+    periodEnd: Date.UTC(2026, 11, 1),
+    budgetUsd: 100,
+    spendUsd: 100,
+    spendIsLowerBound: false,
+    unpricedTurns: 0,
+    percentUsed: 100,
+    ...overrides,
+  };
 }
 
 /** A real repo, since the engine only creates worktrees for a real checkout. */
@@ -297,6 +315,8 @@ describe('turn engine', () => {
     expect(h.engine.hasLive(request.id)).toBe(false);
     expect(h.repo.require(request.id).agentStatus).toBe('idle');
     expect(h.harness.process?.killed).toBe(true);
+    expect(first.stoppedBy).toBeNull();
+    expect(first.events.some((event) => event.t === 'paused')).toBe(false);
     expect(first.events.some((event) => event.t === 'done')).toBe(true);
     expect(h.engine.cancel(request.id)).toBe(false);
 
@@ -306,6 +326,152 @@ describe('turn engine', () => {
     await second.promise;
     await settle();
     expect(h.harness.sessions[1]?.sessionId).toBe('sess-stop');
+  });
+
+  it('stops a live turn for a hard cap, saves the reason, and keeps the session', async () => {
+    const h = fresh(() => [initLine('sess-cap')]);
+    const cell = h.cells.create('Alpha');
+    const request = h.repo.create({ title: 'Capped turn', cellId: cell.id });
+    const turn = await h.engine.start(request.id);
+    await settle();
+    expect(h.engine.liveTurns()).toEqual([
+      { id: request.id, cellId: cell.id, scope: 'request' },
+    ]);
+
+    const cap = spendPause({
+      scope: 'cell',
+      cellId: cell.id,
+      cellName: 'Alpha',
+      label: 'Alpha',
+    });
+    expect(h.engine.cancelForSpendCap(request.id, cap)).toBe(true);
+    await turn.promise;
+    await settle();
+
+    expect(turn.stoppedBy).toEqual(cap);
+    expect(turn.failure).toBeNull();
+    expect(turn.events.map((event) => event.t)).toEqual(['paused', 'done']);
+    expect(h.engine.liveTurns()).toEqual([]);
+    expect(h.engine.hasLive(request.id)).toBe(false);
+    expect(h.harness.process?.killed).toBe(true);
+
+    const stopped = h.engine
+      .transcript(request.id)
+      .filter((message) => message.kind === 'text' && message.text.startsWith('⏸'));
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.text).toContain('Alpha monthly spend cap');
+    expect(stopped[0]?.text).toContain('This turn was stopped');
+
+    const after = h.repo.require(request.id);
+    expect(after.agentStatus).toBe('idle');
+    expect(after.unchecked).toBe(true);
+    expect(h.usage.query({}).totals.turns).toBe(0);
+    expect(h.engine.cancelForSpendCap('missing', cap)).toBe(false);
+
+    // The saved harness session survives the stop and is reused on resume.
+    const next = await h.engine.send(request.id, 'continue');
+    await settle();
+    h.harness.process?.emit(resultLine());
+    await next.promise;
+    await settle();
+    expect(h.harness.sessions[1]?.sessionId).toBe('sess-cap');
+  });
+
+  it('stops sibling turns when a completed usage row crosses the overall cap', async () => {
+    const errors = { error: vi.fn() };
+    const cap = spendPause({ budgetUsd: 1, spendUsd: 1 });
+    let enforcement: SpendCapEnforcer | null = null;
+    harness = createHarness(
+      () => [],
+      undefined,
+      undefined,
+      errors,
+      {},
+      () => enforcement?.check(),
+    );
+    const h = harness;
+    enforcement = new SpendCapEnforcer({
+      engine: h.engine,
+      admission: () => ((h.usage.query({}).totals.costUsd ?? 0) >= 1 ? cap : null),
+      errors,
+    });
+    const cell = h.cells.create('Alpha');
+    const first = h.repo.create({ title: 'First', cellId: cell.id });
+    const second = h.repo.create({ title: 'Second', cellId: cell.id });
+
+    const firstTurn = await h.engine.start(first.id);
+    await settle();
+    const firstProcess = h.harness.process;
+    const secondTurn = await h.engine.start(second.id);
+    await settle();
+    const secondProcess = h.harness.process;
+
+    secondProcess?.emit(initLine('sess-second'));
+    secondProcess?.emit(resultLine('ok', { input_tokens: 10, output_tokens: 5 }, 1));
+    await secondTurn.promise;
+    await settle();
+
+    expect(secondTurn.stoppedBy).toBeNull();
+    expect(secondTurn.events.some((event) => event.t === 'paused')).toBe(false);
+    expect(firstTurn.stoppedBy).toEqual(cap);
+    expect(firstTurn.events.map((event) => event.t)).toEqual(['paused', 'done']);
+    expect(firstProcess?.killed).toBe(true);
+    expect(
+      h.engine
+        .transcript(first.id)
+        .some((message) => message.text.startsWith('⏸') && message.text.includes('Overall')),
+    ).toBe(true);
+    expect(h.repo.require(first.id).agentStatus).toBe('idle');
+    expect(h.repo.require(first.id).unchecked).toBe(true);
+    expect(errors.error).not.toHaveBeenCalled();
+  });
+
+  it('records harness-reported spend when a hard cap stops an opencode turn', async () => {
+    const h = fresh(() => []);
+    h.opencode.parserFactory = (transcript) => new OpencodeTurnParser(transcript);
+    const request = h.repo.create({ title: 'Metered stop' });
+    h.repo.edit(request.id, { harness: 'opencode' });
+    const turn = await h.engine.start(request.id);
+    await settle();
+
+    h.opencode.process?.emit(
+      line({
+        type: 'text',
+        sessionID: 'ses_partial',
+        part: { type: 'text', text: 'working' },
+      }),
+    );
+    h.opencode.process?.emit(
+      line({
+        type: 'step_finish',
+        part: {
+          reason: 'tool-calls',
+          cost: 0.25,
+          tokens: { input: 100, output: 20, cache: { read: 5, write: 0 } },
+        },
+      }),
+    );
+    await settle();
+
+    expect(h.engine.cancelForSpendCap(request.id, spendPause())).toBe(true);
+    await turn.promise;
+    await settle();
+
+    const rows = h.db.prepare('SELECT * FROM usage_events').all() as Array<
+      Record<string, unknown>
+    >;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      session_id: request.id,
+      scope: 'request',
+      cost_usd: 0.25,
+      input_tokens: 100,
+      output_tokens: 20,
+      cache_read_tokens: 5,
+    });
+    expect(h.engine.transcript(request.id).some((message) => message.text.startsWith('⏸'))).toBe(
+      true,
+    );
   });
 
   it('runs a cell master chat read-only and appends scheduler notes', async () => {

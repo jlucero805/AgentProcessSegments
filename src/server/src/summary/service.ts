@@ -17,6 +17,7 @@ import type { MasterAction } from '../master/types.js';
 import type { CellDetail } from '../process/definition.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { SettingsStore } from '../settings.js';
+import { SpendCapError } from '../usage/spend-cap.js';
 import type { SummaryRepository } from './repository.js';
 import {
   SUMMARY_DERIVED_NOTE,
@@ -213,6 +214,8 @@ export class SummaryService {
     // finishTurn persists the transcript one tick after the promise settles.
     await new Promise<void>((resolve) => setImmediate(resolve));
 
+    // A cap stop is a pause, not a failed scorecard: no row and no error log.
+    if (turn.stoppedBy) throw new SpendCapError(turn.stoppedBy);
     if (turn.failure) return this.fail(cellId, new Error(turn.failure));
     const body = this.deps.engine
       .transcript(sessionId)

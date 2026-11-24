@@ -154,6 +154,11 @@ export function ClarifyChat({
         failedAttempt.current = null;
         return;
       }
+      if (event.t === 'paused') {
+        // A cap stop clears the client queue like a stop: draining it while
+        // paused would only produce a burst of spend_cap refusals.
+        setQueue([]);
+      }
       if (event.t === 'error') onErrorRef.current(event.message);
       if (event.t === 'tool') toolNames.current.set(event.id, event.name);
       if (event.t === 'tool_result') {

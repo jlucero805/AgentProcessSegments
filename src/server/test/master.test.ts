@@ -15,6 +15,8 @@ import type { ProcessConfig } from '../src/process/definition.js';
 import type { ProcessStore } from '../src/process/store.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { DEFAULT_SETTINGS, SettingsStore } from '../src/settings.js';
+import type { ErrorSink } from '../src/logging/errors.js';
+import { SpendCapError } from '../src/usage/spend-cap.js';
 
 interface Fixture {
   db: Db;
@@ -28,12 +30,14 @@ interface Fixture {
   startTexts: Array<{ id: string; text: string }>;
   turns: Array<{ action: 'start' | 'send'; id: string }>;
   service: MasterService;
+  setTurnStoppedBy: (pause: SpendPause | null) => void;
 }
 
 function setup(
   overrides: Record<string, unknown> = {},
   processConfig?: ProcessConfig,
   spendCap?: (cellId: string) => SpendPause | null,
+  errors?: ErrorSink,
 ): Fixture {
   const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-master-'));
   const db = openDb(path.join(base, 'db.sqlite'));
@@ -55,7 +59,9 @@ function setup(
   const started: string[] = [];
   const startTexts: Array<{ id: string; text: string }> = [];
   const turns: Array<{ action: 'start' | 'send'; id: string }> = [];
-  const turn = () => ({ promise: Promise.resolve() }) as unknown as LiveTurn;
+  let turnStoppedBy: SpendPause | null = null;
+  const turn = () =>
+    ({ promise: Promise.resolve(), stoppedBy: turnStoppedBy }) as unknown as LiveTurn;
   const engine = {
     hasLive: vi.fn(() => false),
     start: vi.fn(async (id: string, text = '') => {
@@ -86,8 +92,24 @@ function setup(
     events,
     process,
     ...(spendCap ? { spendCap } : {}),
+    ...(errors ? { errors } : {}),
   });
-  return { db, repo, cells, events, settings, engine, sent, started, startTexts, turns, service };
+  return {
+    db,
+    repo,
+    cells,
+    events,
+    settings,
+    engine,
+    sent,
+    started,
+    startTexts,
+    turns,
+    service,
+    setTurnStoppedBy: (pause) => {
+      turnStoppedBy = pause;
+    },
+  };
 }
 
 function dispatchRequest(
@@ -883,6 +905,81 @@ describe('MasterScheduler', () => {
     expect(fixture.engine.note).toHaveBeenCalledWith(
       expect.any(String),
       expect.stringContaining('Resumed new work'),
+    );
+  });
+
+  it('does not advance or add follow-ups when a cap stops the turn', async () => {
+    const process = processFor((config) => {
+      const plan = segment(config, 'plan');
+      plan.enabled = true;
+      plan.idleMinutes = 1;
+      segment(config, 'implement').enabled = false;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Plan cell');
+    const request = fixture.repo.create({ title: 'Plan me', cellId: cell.id });
+    fixture.repo.setClarifyStarted(request.id, true);
+    age(fixture, request.id, 2 * 60_000);
+    (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
+      { role: 'agent', kind: 'text', text: `planned. ${READY_FOR_IMPLEMENTATION}`, ts: 1 },
+    ]);
+    fixture.setTurnStoppedBy({
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: Date.UTC(2026, 10, 1),
+      periodEnd: Date.UTC(2026, 11, 1),
+      budgetUsd: 100,
+      spendUsd: 100,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    });
+
+    await fixture.service.runCell(cell.id);
+    await settleMaster();
+
+    expect(fixture.repo.require(request.id).state).toBe('clarify');
+    expect(fixture.events.list().some((event) => event.action === 'advance')).toBe(false);
+    expect(fixture.events.list().some((event) => event.action === 'followup')).toBe(false);
+    expect(fixture.engine.note).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('Moved'),
+    );
+  });
+
+  it('treats an admission race as a quiet skipped candidate', async () => {
+    const errors = { error: vi.fn() };
+    const fixture = setup({}, undefined, undefined, errors);
+    const cell = fixture.cells.create('Alpha');
+    dispatchRequest(fixture, 'Raced work', cell.id);
+    (fixture.engine.send as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new SpendCapError({
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        label: 'Overall',
+        periodStart: Date.UTC(2026, 10, 1),
+        periodEnd: Date.UTC(2026, 11, 1),
+        budgetUsd: 100,
+        spendUsd: 100,
+        spendIsLowerBound: false,
+        unpricedTurns: 0,
+        percentUsed: 100,
+      }),
+    );
+
+    const result = await fixture.service.runCell(cell.id);
+
+    expect(result.started).toBe(0);
+    expect(result.prodded).toBe(0);
+    expect(result.skipped).toBeGreaterThanOrEqual(1);
+    expect(errors.error).not.toHaveBeenCalled();
+    expect(fixture.events.list().some((event) => event.action === 'skip')).toBe(false);
+    expect(fixture.engine.note).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('Could not run'),
     );
   });
 

@@ -24,6 +24,8 @@ export interface BudgetServiceDeps {
   errors?: ErrorSink;
   /** Receives the current unacknowledged alerts after reconciliation. */
   onAlerts?: (alerts: BudgetAlert[]) => void;
+  /** Runs after a successful evaluation so hard caps can stop in-flight turns. */
+  onEvaluated?: () => void;
   now?: () => number;
   intervalMs?: number;
 }
@@ -40,6 +42,7 @@ export class BudgetService {
   private readonly alerts: BudgetAlertRepository;
   private readonly errors?: ErrorSink;
   private readonly onAlerts?: (alerts: BudgetAlert[]) => void;
+  private readonly onEvaluated?: () => void;
   private readonly clock: () => number;
   private readonly intervalMs: number;
 
@@ -53,6 +56,7 @@ export class BudgetService {
     this.alerts = options.alerts;
     this.errors = options.errors;
     this.onAlerts = options.onAlerts;
+    this.onEvaluated = options.onEvaluated;
     this.clock = options.now ?? (() => Date.now());
     this.intervalMs =
       options.intervalMs && options.intervalMs > 0
@@ -265,6 +269,13 @@ export class BudgetService {
         this.onAlerts?.(response.alerts);
       } catch (error) {
         this.errors?.error('budget.notify', error, { phase: 'observe' });
+      }
+      // Enforcement is a separate hazard domain: a bug there must not be
+      // reported as a budget-evaluation failure or block the next run.
+      try {
+        this.onEvaluated?.();
+      } catch (error) {
+        this.errors?.error('budget.enforce', error, { periodStart: response.periodStart });
       }
     } catch (error) {
       this.errors?.error('usage.budgets', error, { periodStart });

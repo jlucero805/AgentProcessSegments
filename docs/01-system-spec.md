@@ -209,8 +209,14 @@ never pause, and a scope whose spend is unknowable fails open rather than blocki
 An overall pause refuses every new agent turn (request, master, summary, KB, setup); a
 cell pause refuses only that cell's request, master, and summary turns. Acknowledgement
 does not clear a pause. Raising or clearing the budget, disabling the option, or the next
-UTC month resumes. Admission is checked before any turn side effect; in-flight turns
-finish and there are no spend reservations.
+UTC month resumes. Admission is checked before any turn side effect. When a usage row is
+written or an evaluation finishes, `SpendCapEnforcer` stops every live turn in a paused
+scope: the child is killed, the partial transcript is saved with a `⏸` line, the stream
+emits `paused` before `done`, and the saved harness session is reused on the next send.
+A cap stop records harness-reported usage it already has; user stop and timeout still
+write none. There are no spend reservations, so one long turn can still overshoot and a
+just-started turn can be stopped at once. A stopped master candidate is not advanced and
+creates no follow-ups; a stopped summary is a pause, not a failure, and sets no backoff.
 
 `GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
 `capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, and `paused`), unacknowledged
@@ -533,8 +539,12 @@ object per line.
 ### NDJSON event shape
 
 `{t:'text', text}` · `{t:'tool', id, name, input}` ·
-`{t:'tool_result', id, text, isError}` · `{t:'done', request|null, transcript}` ·
-`{t:'error', message}`.
+`{t:'tool_result', id, text, isError}` · `{t:'paused', pause}` ·
+`{t:'done', request|null, transcript}` · `{t:'error', message}`.
+
+`paused` appears once, immediately before `done`, only when a hard spend cap stopped the
+turn. The same reason is persisted as a `⏸` agent text line in the transcript, so a
+client that attaches after the turn still sees it.
 
 ---
 
@@ -760,7 +770,9 @@ carried in the `done` event:
   carries the
   optional per-cell budget and pause option. `BudgetBanner` polls `GET /api/budgets` every 60
   seconds, shows dismissible warning/exceeded alerts above the page, and shows
-  non-dismissible hard-cap pause notices, with lower-bound copy for unpriced turns.
+  non-dismissible hard-cap pause notices that say new work is paused and in-flight turns
+  were stopped, with lower-bound copy for unpriced turns. A chat that receives `paused`
+  clears its local queue instead of draining it into 409s.
 - `api.ts` is the typed client (fetch plus NDJSON readers). `ui.tsx` is the component
   kit. The bundle is vended by the brain at `/`.
 
@@ -873,6 +885,7 @@ type ClarifyEvent =
   | { t: 'text'; text: string }
   | { t: 'tool'; id: string; name: string; input: string }
   | { t: 'tool_result'; id: string; text: string; isError: boolean }
+  | { t: 'paused'; pause: SpendPause }
   | { t: 'done'; request: Request | null; transcript: TranscriptMsg[] }
   | { t: 'error'; message: string };
 ```

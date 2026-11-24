@@ -160,6 +160,64 @@ describe('ClarifyChat live turns', () => {
     expect(sendBodies).toHaveLength(0);
   });
 
+  it('clears queued messages when a hard cap stops the turn', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return jsonResponse([]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-paused" started commands={[]} onError={() => {}} />);
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+
+    const composer = screen.getByPlaceholderText('Queue a message…');
+    fireEvent.change(composer, { target: { value: 'queued behind the cap' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+
+    const pause = {
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      label: 'Overall',
+      periodStart: 1,
+      periodEnd: 2,
+      budgetUsd: 100,
+      spendUsd: 100,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(`{"t":"paused","pause":${JSON.stringify(pause)}}\n`));
+      live.controller.enqueue(encoder.encode(doneEvent('⏸ stopped by the cap')));
+      live.controller.close();
+    });
+
+    expect(await screen.findByText('⏸ stopped by the cap')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('1 queued')).not.toBeInTheDocument());
+    expect(sendBodies).toHaveLength(0);
+    expect(screen.getAllByText(/⏸/)).toHaveLength(1);
+    expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled();
+  });
+
   it('aborts the live stream when the chat unmounts', async () => {
     let signal: AbortSignal | undefined;
     const live = controllableStream();

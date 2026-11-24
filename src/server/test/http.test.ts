@@ -23,6 +23,7 @@ import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js
 import { BudgetNotifier, type FetchLike } from '../src/usage/budget-notifier.js';
 import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
+import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { budgetPeriod, type SpendPause } from '../src/domain/budget.js';
 import { masterSessionId, summarySessionId } from '../src/domain/sessions.js';
@@ -45,12 +46,14 @@ async function makeApp(
   errors?: ErrorSink,
 ): Promise<Open> {
   let admission: ((cellId: string | null) => SpendPause | null) | null = null;
+  let enforcement: SpendCapEnforcer | null = null;
   const h = createHarness(
     script,
     undefined,
     (cellId) => admission?.(cellId) ?? null,
     undefined,
     config,
+    () => enforcement?.check(),
   );
   const settings = new SettingsStore(h.config.configPath);
   const process = new ProcessStore(h.config.processPath, () => defaultProcess(settings.get().master));
@@ -98,8 +101,14 @@ async function makeApp(
     cells: h.cells,
     settings,
     alerts: budgetAlerts,
+    onEvaluated: () => enforcement?.check(),
   });
   admission = (cellId) => budgets.admission(cellId);
+  enforcement = new SpendCapEnforcer({
+    engine: h.engine,
+    admission: (cellId) => admission?.(cellId) ?? null,
+    ...(errors ? { errors } : {}),
+  });
   const app = await buildServer({
     repo: h.repo,
     cells: h.cells,
@@ -574,6 +583,87 @@ describe('http api', () => {
     expect(after.clarifyStarted).toBe(false);
     expect(after.agentStatus).toBe('none');
     expect(after.state).toBe('clarify');
+  });
+
+  it('stops a live sibling when a completed turn crosses the overall cap', async () => {
+    await makeApp(
+      {},
+      (text) =>
+        text.includes('slow work')
+          ? []
+          : [initLine('fast-session'), resultLine('ok', { input_tokens: 10, output_tokens: 5 }, 1)],
+    );
+    const patched = await call('PATCH', '/api/config', {
+      budget: { monthlyUsd: 1, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    expect(patched.status).toBe(200);
+    const h = open!.h;
+    const first = await call('POST', '/api/requests', { title: 'Slow' });
+    const second = await call('POST', '/api/requests', { title: 'Fast' });
+    const firstId = (first.json() as { id: string }).id;
+    const secondId = (second.json() as { id: string }).id;
+
+    const slow = await h.engine.send(firstId, 'slow work');
+    await settle();
+    const slowProcess = h.harness.process;
+    const fast = await h.engine.send(secondId, 'fast work');
+    await fast.promise;
+    await settle();
+
+    expect(fast.stoppedBy).toBeNull();
+    expect(slow.stoppedBy).toMatchObject({ scope: 'overall' });
+    expect(slow.events.some((event) => event.t === 'paused')).toBe(true);
+    expect(slowProcess?.killed).toBe(true);
+    expect(h.repo.require(firstId).agentStatus).toBe('idle');
+
+    const refused = await call('POST', `/api/requests/${firstId}/clarify/send`, {
+      text: 'continue',
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'spend_cap', scope: 'overall' });
+  });
+
+  it('stops a live turn when a cell patch enables its cap', async () => {
+    await makeApp({}, () => []);
+    const cell = await call('POST', '/api/cells', {
+      name: 'Capped',
+      monthlyBudgetUsd: 1,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    const request = await call('POST', '/api/requests', { title: 'Live', cellId });
+    const requestId = (request.json() as { id: string }).id;
+    open?.h.usage.record({
+      turnId: 'cell-spend',
+      sessionId: 'cell-session',
+      scope: 'request',
+      cellId,
+      requestId,
+      model: null,
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 2,
+      createdAt: Date.now(),
+    });
+
+    const turn = await open!.h.engine.send(requestId, 'work');
+    await settle();
+    const proc = open!.h.harness.process;
+
+    const patched = await call('PATCH', `/api/cells/${cellId}`, { pauseOnExceeded: true });
+    expect(patched.status).toBe(200);
+    await turn.promise;
+    await settle();
+
+    expect(turn.stoppedBy).toMatchObject({ scope: 'cell', cellId });
+    expect(proc?.killed).toBe(true);
+    expect(open!.h.repo.require(requestId).agentStatus).toBe('idle');
+    expect(open!.h.engine.transcript(requestId).some((message) => message.text.startsWith('⏸'))).toBe(
+      true,
+    );
   });
 
   it('refuses manual master and summary runs when the overall cap is exceeded', async () => {

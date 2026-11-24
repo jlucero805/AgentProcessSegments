@@ -227,3 +227,8 @@ states dispose the session as before; disabling the master stops scheduling imme
   reported-plus-estimated cap spend, engine admission before turn side effects,
   scheduler skips, `409 spend_cap`, pause banner/status, persisted budget reload fix,
   tests and docs.
+- [x] **46. In-flight hard-cap stops** — a `SpendCapEnforcer` triggered by usage writes
+  and budget evaluation stops live turns in a paused scope, keeps the saved session, adds
+  the `⏸` transcript line and `paused` stream event, records already-reported usage, and
+  keeps stopped master/summary work out of advancement and failure backoff; tests and
+  docs.

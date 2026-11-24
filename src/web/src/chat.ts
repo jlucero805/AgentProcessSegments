@@ -136,6 +136,9 @@ export function applyEvent(messages: ChatMessage[], event: ClarifyEvent): ChatMe
       return attachToolResult(messages, event.id, event.text, event.isError);
     case 'error':
       return appendAgentPart(messages, { type: 'text', text: `⚠ ${event.message}` });
+    case 'paused':
+      // The persisted ⏸ line arrives in the done transcript; do not duplicate it.
+      return messages;
     default:
       return messages;
   }

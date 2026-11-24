@@ -285,13 +285,20 @@ zero. Crossing the warning percentage or the budget creates a durable alert show
 dismissible banner; acknowledging it silences that alert for the month.
 
 Each scope can also opt into **pause on exceeded**. A hard cap counts reported plus
-estimated cost, pauses new work at the cap, and leaves in-flight turns alone. Overall
-pauses every new agent turn; a cell pause affects only that cell's request, master, and
-summary work. Raise or clear the budget, turn the option off, or wait for the UTC month to
-roll over to resume. Acknowledging an alert does not override a pause. The same cap spend
-and pause state are shown on the Config and Usage pages and in the app banner. The Usage
-card and banner share one budget poll; the card keeps its last good status when a refresh
-fails and offers Retry when budget status cannot be loaded.
+estimated cost, pauses new work at the cap, and stops the turns already running in that
+scope. Overall pauses every new agent turn and stops every live one; a cell pause affects
+only that cell's request, master, and summary work. Raise or clear the budget, turn the
+option off, or wait for the UTC month to roll over to resume. Acknowledging an alert does
+not override a pause. The same cap spend and pause state are shown on the Config and Usage
+pages and in the app banner. The Usage card and banner share one budget poll; the card
+keeps its last good status when a refresh fails and offers Retry when budget status cannot
+be loaded.
+
+A stopped turn is not lost: its partial transcript is saved, the transcript records why it
+stopped, and the harness session stays on disk, so sending again after the pause clears
+continues from the same session. Nothing is replayed automatically. Spend is recorded when
+a turn completes, so one long turn can still overshoot the cap before the next crossing is
+observed.
 
 ## Alert delivery
 
@@ -438,7 +445,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 741 vitest cases: 555 server cases (state machine, migrations including
+`npm test` runs 758 vitest cases: 571 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -448,10 +455,11 @@ git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts/hard caps, webhook/email/Slack/Discord
+stats/generation/scheduling, budget status/alerts/hard caps and in-flight cap stops,
+webhook/email/Slack/Discord
 delivery dedupe/retry/signing with an injected sender, delivery history and resend,
 docs manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal
-session lifecycle, and the HTTP API over a real socket) and 186 web cases (shared contract
+session lifecycle, and the HTTP API over a real socket) and 187 web cases (shared contract
 re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
 docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
 cell creation, config/process and pricing editor, budget and alert-delivery cards

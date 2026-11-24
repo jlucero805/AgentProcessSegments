@@ -233,8 +233,11 @@ built and vended by the brain; real-CLI verification is still pending.
   the same monthly progress, and an app-wide banner surfaces alerts and pauses. The Usage
   card and banner share one poll; the card keeps its last good status when a refresh fails
   and offers Retry when budget status cannot be loaded. Unpriced turns are reported as
-  unknown or a lower bound, never guessed. Overall pauses block all new agent turns; cell
-  pauses are cell-scoped; in-flight turns finish.
+  unknown or a lower bound, never guessed. Overall pauses block all new agent turns and
+  stop every live one; cell pauses are cell-scoped for both. A cap stop saves the partial
+  transcript with a `⏸` line, emits `paused` before `done`, keeps the harness session for
+  a later resume, and records harness-reported usage. Master/summary schedulers skip
+  paused cells without backoff; a stopped summary is not a failure.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
   Discord text format. An independent SMTP channel in `notifications.email` sends the
@@ -307,15 +310,16 @@ built and vended by the brain; real-CLI verification is still pending.
   `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
   `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
   process files, unexpected HTTP 5xx, engine turn/exit/timeout failures, master
-  turn/cycle failures, and PTY open failures. Normal logs and expected 4xx responses are
-  not persisted. See `docs/10-error-log.md`.
+  turn/cycle failures, PTY open failures, and hard-cap enforcement bugs. Normal logs,
+  expected 4xx responses, spend-cap refusals, and cap stops are not persisted. See
+  `docs/10-error-log.md`.
 - Chat slash menu: combines installed plugin commands/skills with skills discovered from
   `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, and project
   `.opencode`/`.claude`/`.agents` skill directories. Request chats also discover skills
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 741 vitest cases, all passing: 555 server across 39 files and 186 web across 24 files,
+- 758 vitest cases, all passing: 571 server across 40 files and 187 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -396,7 +400,9 @@ built and vended by the brain; real-CLI verification is still pending.
   recall.
 - Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
   per-turn applied-price audit). Advisory budget alerts, webhook/email/chat delivery,
-  effective-dated estimates, and daily usage rollups are built.
+  effective-dated estimates, daily usage rollups, and hard-cap cancellation are built.
+- A hard-cap operator override/snooze, automatic replay of a cap-stopped prompt, and a
+  strict unknown-cost policy. Admission plus in-flight cancellation is built.
 - Fan-out to multiple Slack/Discord destinations per scope, per-scope routing for the
   webhook/email channels, interactive acknowledgement, and reusing the outbox for
   non-budget events. Webhook, email, and native Slack/Discord bot channels with

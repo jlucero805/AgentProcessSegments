@@ -173,7 +173,7 @@ describe('UsagePage', () => {
     });
 
     expect(await screen.findByText('paused')).toBeInTheDocument();
-    expect(screen.getByText(/Paused at \$100\.00 cap spend/)).toBeInTheDocument();
+    expect(screen.getByText(/in-flight turns were stopped at \$100\.00 cap spend/)).toBeInTheDocument();
     expect(screen.queryByText(/budgets never stop work/i)).not.toBeInTheDocument();
   });
 

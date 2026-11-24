@@ -1,3 +1,4 @@
+import type { SpendPause } from './budget.js';
 import type { HarnessId } from './harness.js';
 
 export const STATES = ['clarify', 'dispatch', 'review', 'merge', 'finalize', 'done', 'dropped'] as const;
@@ -137,5 +138,6 @@ export type ClarifyEvent =
   | { t: 'text'; text: string }
   | { t: 'tool'; id: string; name: string; input: string }
   | { t: 'tool_result'; id: string; text: string; isError: boolean }
+  | { t: 'paused'; pause: SpendPause }
   | { t: 'done'; request: Request | null; transcript: TranscriptMsg[] }
   | { t: 'error'; message: string };

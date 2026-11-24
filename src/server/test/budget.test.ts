@@ -493,6 +493,36 @@ describe('budgets', () => {
     );
   });
 
+  it('runs the enforcement callback after evaluation and contains its failure', () => {
+    const db = openDb(':memory:');
+    const cells = new CellRepository(db);
+    const settings = makeStore();
+    const alerts = new BudgetAlertRepository(db);
+    const onEvaluated = vi.fn();
+    const errors = { error: vi.fn() };
+    const service = new BudgetService({
+      usage: new FakeUsageSource(),
+      cells,
+      settings,
+      alerts,
+      onEvaluated,
+      errors,
+      now: () => NOW,
+    });
+
+    service.evaluate();
+    expect(onEvaluated).toHaveBeenCalledTimes(1);
+
+    onEvaluated.mockImplementation(() => {
+      throw new Error('enforcer bug');
+    });
+    expect(() => service.evaluate()).not.toThrow();
+    expect(errors.error).toHaveBeenCalledWith('budget.enforce', expect.any(Error), {
+      periodStart: PERIOD.start,
+    });
+    db.close();
+  });
+
   it('starts, reacts to settings changes, and stops idempotently', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);

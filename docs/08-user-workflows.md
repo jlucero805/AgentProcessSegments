@@ -149,13 +149,16 @@ last five.
 3. Budgets use the UTC calendar month. A warning appears at the configured percentage and
    an exceeded alert appears when reported spend reaches the budget. Alerts alone never
    stop work.
-4. With pause enabled, new work stops when reported plus estimated cap spend reaches the
-   budget. An overall pause stops every new agent turn; a cell pause stops only that
-   cell's request, master, and summary turns. Running turns finish. Raise or clear the
-   budget, turn the checkbox off, or wait for the next UTC month to resume.
+4. With pause enabled, new work stops and in-flight work is stopped when reported plus
+   estimated cap spend reaches the budget. An overall pause stops every agent turn; a cell
+   pause stops only that cell's request, master, and summary turns. A stopped turn saves its
+   partial transcript with a `⏸` line and keeps its harness session, so sending again after
+   the pause clears continues the conversation; nothing is replayed automatically. Raise or
+   clear the budget, turn the checkbox off, or wait for the next UTC month to resume.
 5. Active alerts appear above every page and can be dismissed with **×**; dismissing does
    not override a hard cap. A separate red pause notice stays until spending is under the
-   cap again. The Usage page shows paused scopes and cap spend.
+   cap again, and it says in-flight turns were stopped. The Usage page shows paused scopes
+   and cap spend.
 6. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
 7. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,

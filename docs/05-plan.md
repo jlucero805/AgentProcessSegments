@@ -235,3 +235,6 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **47. Strict unknown-cost hard caps** — overall and per-cell pause-on-unknown-cost
   policy, strict admission while any turn is unpriced, cap-reached precedence, reason-aware
   409/banner/status copy, additive cell column, tests and docs.
+- [x] **48. Time-boxed spend-cap overrides** — durable `spend_cap_overrides` table,
+  grant/extend/revoke API, overall-and-cell admission precedence, override expiry in the
+  banner/Config/Usage status rows, tests and docs.

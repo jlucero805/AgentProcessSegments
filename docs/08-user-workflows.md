@@ -164,8 +164,12 @@ last five.
 6. Active alerts appear above every page and can be dismissed with **×**; dismissing does
    not override a hard cap. A separate red pause notice stays until the pause clears and
    explains whether the cap was reached or the cost is unknown; when it applies, it says
-   in-flight turns were stopped. The Usage page shows paused scopes, cap spend, and the
-   reason.
+   in-flight turns were stopped. If you need to keep working, choose 15 minutes through
+   rest of month and press **Snooze**; an overall snooze admits every new turn, while a
+   cell snooze admits only that cell. The notice stays visible with the override expiry and
+   an **End override** action; ending it or letting it expire resumes the pause. A snooze
+   changes no budget and clears no alert. The Usage page shows paused scopes, cap spend,
+   the reason, and the same snooze controls.
 7. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
 8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,

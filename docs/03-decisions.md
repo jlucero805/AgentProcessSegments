@@ -977,8 +977,8 @@ limit. Estimated cost is only as good as the
 operator-maintained price table, and an unpriced turn leaves cap spend a lower bound. The
 pause flag adds an additive cell column and one optional budget field. This also fixes
 `SettingsStore.load()`, which previously dropped the saved budget block on restart, because
-the new overall flag must persist. External delivery, a manual one-turn override, and a
-strict unknown-cost policy remain separate; D67 later adds the strict option.
+the new overall flag must persist. External delivery remains separate; D67 adds the strict
+unknown-cost option and D68 adds a bounded operator snooze for a paused scope.
 ## D55. Budget alerts are delivered by a durable, signed webhook outbox
 
 **Context.** Advisory budget alerts were in-app only (D47). Operators need them to reach a
@@ -1364,3 +1364,39 @@ existing `pauses` array and banner surface the pause.
 scope for the rest of the month over one unpriced turn, so operators must maintain prices.
 The ledger-error fail-open is a deliberate availability tradeoff; a future fail-closed
 ledger policy is separate work.
+
+## D68. Hard-cap pauses can be snoozed for a bounded window
+
+**Context.** D54, D65, and D67 made hard caps admission checks plus in-flight stops that
+resume only when the budget, prices, or flags change, or the UTC month rolls over. That is
+safe but rigid: an operator who needs a release review or a one-off maintenance run has to
+raise or clear the budget, add prices, and remember to restore the policy. Acknowledgement
+deliberately does not override a pause.
+
+**Decision.** Add a durable `spend_cap_overrides` table. An override has a scope
+(`overall|cell`), a UTC period, an expiry, an optional note, and a soft `revoked_at`. One
+non-revoked row per scope and period is enforced by a partial unique index; re-granting
+extends the same row. Grants require the scope to be a configured hard cap but not to be
+currently paused, so an operator can pre-authorize a window. An overall override admits
+every new turn and suppresses the in-flight stop for every scope; a cell override does the
+same for only that cell and can never release an overall pause. The window is clamped
+before the next UTC period, so a snooze never outlives the budget month it was meant for.
+
+The override suppresses admission and the in-flight stop only. `status.paused`,
+`pauseReason`, the `pauses` list, alerts, thresholds, delivery, and the budget itself are
+unchanged; statuses gain `overrideId` and `overrideExpiresAt`, and `GET /api/budgets`
+returns active `overrides` so the UI can keep the cap visible while new work is allowed.
+`POST /api/budgets/overrides` creates or extends; `DELETE /api/budgets/overrides/:id`
+revokes idempotently. Admission checks the overall override before the overall pause and
+then the cell override, and `SpendCapEnforcer` therefore leaves covered live turns running
+on its next check. A failed override read still fails open and is reported to
+`usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching delivery
+history. Policy edits and cell deletion do not rewrite or revoke override rows; an inert
+row simply expires.
+
+**Cost.** One additive table and two routes, plus one shared SPA control. Turns already
+stopped by a cap stay stopped, and a live turn keeps running while the override is active;
+there are still no spend reservations or automatic replay. There is no operator identity or
+approval workflow; the optional note is the only context recorded. A history/audit view,
+notification when an override is granted or expires, and per-request overrides remain
+separate work.

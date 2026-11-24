@@ -19,6 +19,7 @@ import type {
   UsageResponse,
   UsageTotals,
 } from './types';
+import { SpendOverrideControl } from './SpendOverrideControl';
 import type { BudgetFeed } from './useBudgets';
 import { USAGE_BUCKET_MS } from './types';
 
@@ -201,11 +202,25 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
               {status.paused ? (
                 <p className="text-[11px] text-red-300">
                   {status.pauseReason === 'unknown_cost' ? (
+                    status.overrideId ? (
+                      <>
+                        Cost is unknown: {status.unpricedTurns} unpriced turn
+                        {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified;
+                        an override is admitting new work.
+                      </>
+                    ) : (
+                      <>
+                        Paused: {status.unpricedTurns} unpriced turn
+                        {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified.
+                        New work is refused and in-flight turns were stopped. Add a matching
+                        price, clear the budget, or turn off strict pause.
+                      </>
+                    )
+                  ) : status.overrideId ? (
                     <>
-                      Paused: {status.unpricedTurns} unpriced turn
-                      {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified.
-                      New work is refused and in-flight turns were stopped. Add a matching
-                      price, clear the budget, or turn off strict pause.
+                      Cap reached; an override is admitting new work at{' '}
+                      {moneyLabel(status.capSpendUsd)} cap spend
+                      {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
                     </>
                   ) : (
                     <>
@@ -215,6 +230,27 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
                     </>
                   )}
                 </p>
+              ) : null}
+              {status.paused ? (
+                <SpendOverrideControl
+                  label={
+                    status.scope === 'overall'
+                      ? 'overall spend'
+                      : `${status.cellName ?? 'cell'} spend`
+                  }
+                  paused
+                  overrideId={status.overrideId}
+                  overrideExpiresAt={status.overrideExpiresAt}
+                  periodEnd={status.periodEnd}
+                  onSnooze={(minutes) =>
+                    feed.snooze({
+                      scope: status.scope,
+                      ...(status.cellId === null ? {} : { cellId: status.cellId }),
+                      minutes,
+                    })
+                  }
+                  onRevoke={feed.revokeOverride}
+                />
               ) : null}
             </div>
           ))}

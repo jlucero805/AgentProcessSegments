@@ -63,6 +63,7 @@ export type {
   EventNotificationSettings,
   NotificationsSettings,
   NotificationsView,
+  SpendCapOverride,
   SpendPause,
   SpendPauseReason,
   WebhookFormat,

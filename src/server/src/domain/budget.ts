@@ -73,6 +73,10 @@ export interface BudgetStatus {
   paused: boolean;
   /** Why this scope is paused, or null when it is not. */
   pauseReason: SpendPauseReason | null;
+  /** Active override exempting this scope (its own or an overall one), or null. */
+  overrideId: string | null;
+  /** Expiry of that override, or null. */
+  overrideExpiresAt: number | null;
 }
 
 /** A scope that is currently refusing new work because of a hard cap. */
@@ -90,6 +94,20 @@ export interface SpendPause {
   spendIsLowerBound: boolean;
   unpricedTurns: number;
   percentUsed: number;
+}
+
+/** A time-boxed operator release of a hard-cap pause. */
+export interface SpendCapOverride {
+  id: string;
+  scope: BudgetScope;
+  cellId: string | null;
+  cellName: string | null;
+  periodStart: number;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  note: string | null;
+  revokedAt: number | null;
 }
 
 export interface BudgetAlert {
@@ -115,8 +133,10 @@ export interface BudgetsResponse {
   statuses: BudgetStatus[];
   /** Unacknowledged alerts for the current period only. */
   alerts: BudgetAlert[];
-  /** Overall first, then cells by name. Only paused scopes appear. */
+  /** Scopes at their hard cap; an active override may be admitting them. */
   pauses: SpendPause[];
+  /** Active overrides for the current period. Overall first, then cells by name. */
+  overrides: SpendCapOverride[];
 }
 
 export const WEBHOOK_FORMATS = ['json', 'slack', 'discord'] as const;
@@ -770,6 +790,8 @@ export function budgetStatus(input: BudgetStatusInput): BudgetStatus {
     unpricedTurns: totals.unpricedTurns,
     paused,
     pauseReason,
+    overrideId: null,
+    overrideExpiresAt: null,
   };
 }
 

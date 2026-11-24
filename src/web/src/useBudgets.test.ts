@@ -33,6 +33,7 @@ function payload(overrides: Partial<BudgetsResponse> = {}): BudgetsResponse {
     statuses: [],
     alerts: [],
     pauses: [],
+    overrides: [],
     ...overrides,
   };
 }
@@ -61,6 +62,7 @@ describe('useBudgets', () => {
     await waitFor(() => expect(result.current.budgets).not.toBeNull());
     expect(result.current.budgets?.alerts).toEqual([]);
     expect(result.current.budgets?.pauses).toEqual([]);
+    expect(result.current.budgets?.overrides).toEqual([]);
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -169,6 +171,56 @@ describe('useBudgets', () => {
 
     expect(onError).toHaveBeenCalledWith('ack failed');
     expect(result.current.budgets?.alerts).toHaveLength(1);
+  });
+
+  it('posts an override and reloads the snapshot', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/budgets/overrides' && init?.method === 'POST') {
+        return jsonResponse({ override: { id: 'o1' }, created: true }, 201);
+      }
+      return jsonResponse(payload());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useBudgets(vi.fn()));
+
+    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await act(async () => {
+      await result.current.snooze({ scope: 'overall', minutes: 60 });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/budgets/overrides',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === '/api/budgets'),
+    ).toHaveLength(2);
+  });
+
+  it('revokes an override and reloads the snapshot', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/budgets/overrides/o1' && init?.method === 'DELETE') {
+        return jsonResponse({ override: { id: 'o1', revokedAt: 5 } });
+      }
+      return jsonResponse(payload());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useBudgets(vi.fn()));
+
+    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await act(async () => {
+      await result.current.revokeOverride('o1');
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/budgets/overrides/o1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === '/api/budgets'),
+    ).toHaveLength(2);
   });
 
   it('clears its polling interval on unmount', () => {

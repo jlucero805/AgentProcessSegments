@@ -20,11 +20,12 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
   interactive acknowledgement from chat, pause-transition delivery, summary-failure
   events, bot event routes, and configurable event coalescing windows. Keep every
   destination deduped by its delivery row and credentials redacted.
-- **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65), and
-  strict unknown-cost enforcement is built (D67). An operator one-turn override/snooze,
-  automatic replay of a cap-stopped prompt, a broad partial-usage rule for user
-  stop/timeout, and a fail-closed policy for an unreadable usage ledger are deferred; caps
-  still fail open when the ledger is unreadable.
+- **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65), strict
+  unknown-cost enforcement is built (D67), and bounded per-scope snoozes are built (D68).
+  Override history/audit and grant-or-expiry notifications, automatic replay of a
+  cap-stopped prompt, a broad partial-usage rule for user stop/timeout, and a fail-closed
+  policy for an unreadable usage ledger are deferred; caps still fail open when the ledger
+  is unreadable.
 - **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
   context-length tiers, currencies other than USD, and a per-turn applied-price audit
   view. The current table is exact-model, flat, USD-only, and operator-maintained.

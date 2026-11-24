@@ -44,7 +44,7 @@ import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
 import type { NotificationService } from '../notifications/service.js';
 import type { BudgetService } from '../usage/budgets.js';
-import { SpendCapError } from '../usage/spend-cap.js';
+import { SpendCapError, SpendCapOverrideError } from '../usage/spend-cap.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
 import type { UsageRepository } from '../usage/repository.js';
 import { USAGE_BUCKETS, USAGE_BUCKET_MS } from '../usage/types.js';
@@ -214,6 +214,30 @@ const cellPatchSchema = z
         'name, masterEnabled, masterIntervalMinutes, maxConcurrent, harness, model, effort, monthlyBudgetUsd, pauseOnExceeded, pauseOnUnknownCost, autocompactPercent, or process is required',
     },
   );
+const spendCapOverrideSchema = z
+  .object({
+    scope: z.enum(['overall', 'cell']),
+    cellId: z.string().trim().min(1).max(64).nullish(),
+    minutes: z.number().int().min(1).max(44_640),
+    note: z.string().trim().min(1).max(280).nullish(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.scope === 'overall' && value.cellId != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cellId'],
+        message: 'cellId is only allowed for a cell override',
+      });
+    }
+    if (value.scope === 'cell' && value.cellId == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cellId'],
+        message: 'cellId is required for a cell override',
+      });
+    }
+  });
+
 const masterEventsQuerySchema = z.object({
   cellId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -479,6 +503,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     }
     if (error instanceof TerminalError) {
       return reply.code(400).send({ error: 'terminal', message: error.message });
+    }
+    if (error instanceof SpendCapOverrideError) {
+      return reply.code(409).send({ error: error.code, message: error.message });
     }
     if (error instanceof SpendCapError) {
       return reply.code(409).send({
@@ -1101,6 +1128,26 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       return reply.code(404).send({ error: 'not_found', message: `budget alert ${id} not found` });
     }
     return alert;
+  });
+  app.post('/api/budgets/overrides', async (request, reply) => {
+    const body = spendCapOverrideSchema.parse(request.body);
+    const result = budgets.grantOverride({
+      scope: body.scope,
+      cellId: body.scope === 'cell' ? body.cellId ?? null : null,
+      minutes: body.minutes,
+      note: body.note ?? null,
+    });
+    return reply.code(result.created ? 201 : 200).send(result);
+  });
+  app.delete('/api/budgets/overrides/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const override = budgets.revokeOverride(id);
+    if (!override) {
+      return reply
+        .code(404)
+        .send({ error: 'not_found', message: `spend cap override ${id} not found` });
+    }
+    return { override };
   });
 
   app.get('/api/process', async () => ({ ...processStore.get(), path: processStore.path }));

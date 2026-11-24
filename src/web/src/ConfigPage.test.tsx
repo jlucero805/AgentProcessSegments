@@ -193,10 +193,13 @@ const budgetView: BudgetsResponse = {
       unpricedTurns: 0,
       paused: false,
       pauseReason: null,
+      overrideId: null,
+      overrideExpiresAt: null,
     },
   ],
   alerts: [],
   pauses: [],
+  overrides: [],
 };
 
 const deliveryRow: DeliveryHistoryItem = {
@@ -298,6 +301,8 @@ interface Captured {
   deletedPriceId?: string;
   deliveryQuery?: string;
   resendId?: string;
+  override?: { scope: string; cellId?: string; minutes: number; note?: string };
+  revokedOverrideId?: string;
 }
 
 function installFetch(
@@ -471,6 +476,33 @@ function installFetch(
     }
     if (url === '/api/notifications/discord/test' && init?.method === 'POST') {
       return jsonResponse(discordTest, discordTest.ok ? 200 : 502);
+    }
+    if (url === '/api/budgets/overrides' && init?.method === 'POST') {
+      captured.override = JSON.parse(String(init.body)) as Captured['override'];
+      return jsonResponse(
+        {
+          override: {
+            id: 'o1',
+            scope: captured.override?.scope,
+            cellId: captured.override?.cellId ?? null,
+            cellName: null,
+            periodStart: view.periodStart,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+            note: captured.override?.note ?? null,
+            revokedAt: null,
+          },
+          created: true,
+        },
+        201,
+      );
+    }
+    if (url.startsWith('/api/budgets/overrides/') && init?.method === 'DELETE') {
+      captured.revokedOverrideId = decodeURIComponent(
+        url.slice('/api/budgets/overrides/'.length),
+      );
+      return jsonResponse({ override: { id: captured.revokedOverrideId } });
     }
     if (url === '/api/budgets') return jsonResponse(view);
     if (url === '/api/process' && init?.method === 'PATCH') {
@@ -702,6 +734,68 @@ describe('ConfigPage', () => {
     expect(
       screen.getByText(/Paused: 2 unpriced turns, so cost cannot be verified/i),
     ).toBeInTheDocument();
+  });
+
+  it('snoozes a paused budget and ends an active override', async () => {
+    const pausedView: BudgetsResponse = {
+      ...budgetView,
+      statuses: [
+        {
+          ...budgetView.statuses[0]!,
+          spendUsd: 100,
+          remainingUsd: 0,
+          percentUsed: 100,
+          state: 'exceeded',
+          capSpendUsd: 100,
+          paused: true,
+        },
+      ],
+    };
+    const captured = installFetch(pausedView);
+    const { unmount } = render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('paused')).toBeInTheDocument();
+    expect(
+      screen.getByText(/New work is paused and in-flight turns were stopped at/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+    await waitFor(() =>
+      expect(captured.override).toEqual({ scope: 'overall', minutes: 60 }),
+    );
+    unmount();
+
+    const overrideView: BudgetsResponse = {
+      ...pausedView,
+      statuses: [
+        {
+          ...pausedView.statuses[0]!,
+          overrideId: 'o1',
+          overrideExpiresAt: Date.UTC(2026, 10, 15, 13),
+        },
+      ],
+      overrides: [
+        {
+          id: 'o1',
+          scope: 'overall',
+          cellId: null,
+          cellName: null,
+          periodStart: Date.UTC(2026, 10, 1),
+          createdAt: Date.UTC(2026, 10, 15, 12),
+          updatedAt: Date.UTC(2026, 10, 15, 12),
+          expiresAt: Date.UTC(2026, 10, 15, 13),
+          note: null,
+          revokedAt: null,
+        },
+      ],
+    };
+    const second = installFetch(overrideView);
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'End override for overall spend' }),
+    );
+    await waitFor(() => expect(second.revokedOverrideId).toBe('o1'));
   });
 
   it('configures and saves webhook delivery', async () => {

@@ -415,6 +415,14 @@ export function App() {
         <BudgetBanner
           budgets={budgetFeed.budgets}
           onAck={(alert) => void budgetFeed.acknowledge(alert)}
+          onSnooze={(pause, minutes) =>
+            void budgetFeed.snooze({
+              scope: pause.scope,
+              ...(pause.cellId === null ? {} : { cellId: pause.cellId }),
+              minutes,
+            })
+          }
+          onRevoke={(id) => void budgetFeed.revokeOverride(id)}
         />
 
         <div className="min-h-0 flex-1 overflow-hidden">

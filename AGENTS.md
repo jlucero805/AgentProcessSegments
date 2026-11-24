@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 793 vitest cases: 602 server across 42 files and 191 web across 24 files, all green.
+- 811 vitest cases: 614 server across 43 files and 197 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -59,8 +59,9 @@ digests.
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight
-  turns in the paused scope including a strict unknown-cost mode, an in-app alert/pause
-  banner, opt-in signed webhook, SMTP email, and native
+  turns in the paused scope including a strict unknown-cost mode, time-boxed operator
+  overrides that release a pause without changing the cap, an in-app alert/pause banner,
+  opt-in signed webhook, SMTP email, and native
   Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
@@ -92,7 +93,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 602 server + 191 web, plus the e2e env guard
+npm test                       # 614 server + 197 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -382,7 +383,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     none. Master/summary schedulers skip paused cells without failure backoff and never
     advance or write a scorecard from a stopped turn. Refuse with `SpendCapError` / HTTP
     `409 spend_cap` carrying the reason; never log an expected refusal or cap stop as an
-    error.
+    error. A time-boxed override (`spend_cap_overrides`) releases the admission refusal
+    and suppresses the in-flight stop for its scope: an overall override admits and keeps
+    every scope, a cell override admits only its cell, and neither changes `paused`,
+    `pauseReason`, alerts, or the budget. Overrides are clamped before the next UTC
+    period, are revocable, and must fail open if the override store cannot be read.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

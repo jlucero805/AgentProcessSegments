@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, describeError } from './api';
+import { api, describeError, type SpendCapOverrideRequest } from './api';
 import type { BudgetAlert, BudgetsResponse } from './types';
 
 export const BUDGET_POLL_MS = 60_000;
@@ -15,6 +15,10 @@ export interface BudgetFeed {
   refresh: () => Promise<void>;
   /** Acknowledge an alert and remove it from this feed. */
   acknowledge: (alert: BudgetAlert) => Promise<void>;
+  /** Grant or extend a time-boxed override, then reload the snapshot. */
+  snooze: (input: SpendCapOverrideRequest) => Promise<void>;
+  /** End an override early, then reload the snapshot. */
+  revokeOverride: (id: string) => Promise<void>;
 }
 
 /**
@@ -30,6 +34,7 @@ function normalize(response: BudgetsResponse): BudgetsResponse {
     ...response,
     alerts: Array.isArray(response.alerts) ? response.alerts : [],
     pauses: Array.isArray(response.pauses) ? response.pauses : [],
+    overrides: Array.isArray(response.overrides) ? response.overrides : [],
   };
 }
 
@@ -49,24 +54,29 @@ export function useBudgets(
   const inFlight = useRef<Promise<void> | null>(null);
   // A poll that started before an ack can resolve after it with the old alert.
   const acknowledged = useRef(new Set<string>());
+  // A poll that started before an override change must not overwrite the result.
+  const generation = useRef(0);
 
-  const refresh = useCallback((): Promise<void> => {
-    if (inFlight.current) return inFlight.current;
+  const refresh = useCallback((force = false): Promise<void> => {
+    if (!force && inFlight.current) return inFlight.current;
 
+    const startedAt = generation.current;
     const run = (async () => {
       if (alive.current) setLoading(true);
       try {
         const response = normalize(await api.getBudgets());
-        if (!alive.current) return;
+        if (!alive.current || startedAt !== generation.current) return;
         setBudgets({
           ...response,
           alerts: response.alerts.filter((alert) => !acknowledged.current.has(alert.id)),
         });
         setError(null);
       } catch (caught) {
-        if (alive.current) setError(describeError(caught));
+        if (alive.current && startedAt === generation.current) {
+          setError(describeError(caught));
+        }
       } finally {
-        if (alive.current) setLoading(false);
+        if (alive.current && startedAt === generation.current) setLoading(false);
       }
     })();
 
@@ -105,5 +115,31 @@ export function useBudgets(
     [onError],
   );
 
-  return { budgets, error, loading, refresh, acknowledge };
+  const snooze = useCallback(
+    async (input: SpendCapOverrideRequest): Promise<void> => {
+      try {
+        await api.grantBudgetOverride(input);
+        generation.current += 1;
+        await refresh(true);
+      } catch (caught) {
+        onError(describeError(caught));
+      }
+    },
+    [onError, refresh],
+  );
+
+  const revokeOverride = useCallback(
+    async (id: string): Promise<void> => {
+      try {
+        await api.revokeBudgetOverride(id);
+        generation.current += 1;
+        await refresh(true);
+      } catch (caught) {
+        onError(describeError(caught));
+      }
+    },
+    [onError, refresh],
+  );
+
+  return { budgets, error, loading, refresh, acknowledge, snooze, revokeOverride };
 }

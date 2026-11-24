@@ -230,17 +230,23 @@ built and vended by the brain; real-CLI verification is still pending.
   a pricing/clear/disable remedy; a reached cap reports `reason: "cap_reached"`.
   `budget_alerts` stores durable warning/exceeded rows keyed
   by scope, month, threshold, budget, and warning percentage; `GET /api/budgets` exposes
-  status, unacknowledged alerts, and active `pauses`; `POST
-  /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. The Config
+  status, unacknowledged alerts, active `pauses`, and active `overrides`; `POST
+  /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. A paused scope
+  can be snoozed for 15 minutes through the rest of the UTC month with `POST
+  /api/budgets/overrides`; `DELETE /api/budgets/overrides/:id` ends it early. Overrides
+  live in `spend_cap_overrides`, an overall override admits every scope, a cell override
+  admits only its cell, and neither changes `paused`, alerts, or the budget. The Config
   page edits the overall policy, the cell editor edits a cell policy, the Usage page shows
-  the same monthly progress, and an app-wide banner surfaces alerts and pauses. The Usage
-  card and banner share one poll; the card keeps its last good status when a refresh fails
-  and offers Retry when budget status cannot be loaded. Unpriced turns are reported as
-  unknown or a lower bound, never guessed. Overall pauses block all new agent turns and
-  stop every live one; cell pauses are cell-scoped for both. A cap stop saves the partial
-  transcript with a `⏸` line, emits `paused` before `done`, keeps the harness session for
-  a later resume, and records harness-reported usage. Master/summary schedulers skip
-  paused cells without backoff; a stopped summary is not a failure.
+  the same monthly progress, and an app-wide banner surfaces alerts, pauses, and override
+  controls. The Usage card and banner share one poll; the card keeps its last good status
+  when a refresh fails and offers Retry when budget status cannot be loaded. Unpriced turns
+  are reported as unknown or a lower bound, never guessed. Overall pauses block all new
+  agent turns and stop every live one; cell pauses are cell-scoped for both. A cap stop
+  saves the partial transcript with a `⏸` line, emits `paused` before `done`, keeps the
+  harness session for a later resume, and records harness-reported usage. A snooze
+  suppresses admission and the in-flight stop for its scope without changing the budget,
+  pause reason, or alerts. Master/summary schedulers skip paused cells without backoff; a
+  stopped summary is not a failure.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
   Discord text format. An independent SMTP channel in `notifications.email` sends the
@@ -327,7 +333,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 793 vitest cases, all passing: 602 server across 42 files and 191 web across 24 files,
+- 811 vitest cases, all passing: 614 server across 43 files and 197 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -462,8 +468,10 @@ GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
 PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?,slack?,discord?,events?}}
-GET    /api/budgets                       statuses + unacknowledged alerts + active pauses
+GET    /api/budgets                       statuses + unacknowledged alerts + active pauses + active overrides
 POST   /api/budgets/alerts/:id/ack
+POST   /api/budgets/overrides             {scope, cellId?, minutes, note?}
+DELETE /api/budgets/overrides/:id
 GET    /api/notifications/status          per-channel/per-destination and per-event-kind queue/last-delivery state
 GET    /api/notifications/deliveries      read-only audit, filters + limit/offset, canResend
 POST   /api/notifications/deliveries/:id/resend  guarded resend for failed/skipped rows

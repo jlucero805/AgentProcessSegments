@@ -19,6 +19,7 @@ import { SummaryRepository } from '../src/summary/repository.js';
 import { SummaryScheduler } from '../src/summary/scheduler.js';
 import { SummaryService } from '../src/summary/service.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
+import { SpendCapOverrideRepository } from '../src/usage/spend-cap-overrides.js';
 import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
 import { NotificationEventDeliveryRepository } from '../src/notifications/event-deliveries.js';
 import { NotificationService, type FetchLike } from '../src/notifications/service.js';
@@ -35,6 +36,7 @@ interface Open {
   app: FastifyInstance;
   base: string;
   notifications: NotificationService;
+  admission: (cellId: string | null) => SpendPause | null;
 }
 
 let open: Open | null = null;
@@ -104,6 +106,7 @@ async function makeApp(
     settings,
     alerts: budgetAlerts,
     onEvaluated: () => enforcement?.check(),
+    overrides: new SpendCapOverrideRepository(h.db),
   });
   admission = (cellId) => budgets.admission(cellId);
   enforcement = new SpendCapEnforcer({
@@ -139,7 +142,13 @@ async function makeApp(
   await app.listen({ host: '127.0.0.1', port: 0 });
   const address = app.server.address();
   const port = typeof address === 'object' && address !== null ? address.port : 0;
-  open = { h, app, base: `http://127.0.0.1:${port}`, notifications };
+  open = {
+    h,
+    app,
+    base: `http://127.0.0.1:${port}`,
+    notifications,
+    admission: (cellId) => budgets.admission(cellId),
+  };
   return open;
 }
 
@@ -807,6 +816,116 @@ describe('http api', () => {
     expect(config.json()).toMatchObject({
       budget: { pauseOnUnknownCost: true },
     });
+  });
+
+  it('grants, extends, and revokes a spend cap override through HTTP', async () => {
+    const { h } = (await makeApp())!;
+    const cell = await call('POST', '/api/cells', {
+      name: 'Capped',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    const request = await call('POST', '/api/requests', { title: 'Capped work', cellId });
+    const requestId = (request.json() as { id: string }).id;
+    h.usage.record({
+      turnId: 'cap-override-turn',
+      sessionId: 'cap-override-session',
+      scope: 'request',
+      cellId,
+      requestId,
+      model: null,
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 2,
+      createdAt: Date.now(),
+    });
+
+    const refused = await call('POST', `/api/requests/${requestId}/clarify/start`);
+    expect(refused.status).toBe(409);
+    expect(open!.admission(cellId)).toMatchObject({ scope: 'cell' });
+
+    for (const body of [
+      { scope: 'cell', cellId, minutes: 0 },
+      { scope: 'overall', cellId, minutes: 60 },
+      { scope: 'cell', minutes: 60 },
+      { scope: 'cell', cellId, minutes: 60, note: 'x'.repeat(281) },
+    ]) {
+      const bad = await call('POST', '/api/budgets/overrides', body);
+      expect(bad.status).toBe(400);
+    }
+
+    const unconfigured = await call('POST', '/api/budgets/overrides', {
+      scope: 'overall',
+      minutes: 60,
+    });
+    expect(unconfigured.status).toBe(409);
+    expect(unconfigured.json()).toMatchObject({ error: 'cap_not_configured' });
+
+    const granted = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 60,
+      note: 'release review',
+    });
+    expect(granted.status).toBe(201);
+    const override = granted.json().override as {
+      id: string;
+      expiresAt: number;
+    };
+    expect(granted.json()).toMatchObject({
+      created: true,
+      override: {
+        scope: 'cell',
+        cellId,
+        cellName: 'Capped',
+        note: 'release review',
+      },
+    });
+    expect(open!.admission(cellId)).toBeNull();
+
+    const extended = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 120,
+    });
+    expect(extended.status).toBe(200);
+    expect(extended.json()).toMatchObject({
+      created: false,
+      override: { id: override.id },
+    });
+    expect(extended.json().override.expiresAt as number).toBeGreaterThan(
+      override.expiresAt,
+    );
+
+    const budgets = await call('GET', '/api/budgets');
+    expect(budgets.json()).toMatchObject({
+      overrides: [expect.objectContaining({ id: override.id })],
+    });
+    expect(budgets.json().statuses[0]).toMatchObject({
+      scope: 'cell',
+      cellId,
+      paused: true,
+      overrideId: override.id,
+    });
+
+    const revoked = await call('DELETE', `/api/budgets/overrides/${override.id}`);
+    expect(revoked.status).toBe(200);
+    expect(revoked.json().override.revokedAt).toEqual(expect.any(Number));
+    expect(open!.admission(cellId)).toMatchObject({ scope: 'cell' });
+
+    expect((await call('DELETE', `/api/budgets/overrides/${override.id}`)).status).toBe(200);
+    expect((await call('DELETE', '/api/budgets/overrides/ghost')).status).toBe(404);
+
+    const after = await call('POST', `/api/requests/${requestId}/clarify/start`);
+    expect(after.status).toBe(409);
+    const state = h.repo.require(requestId);
+    expect(state.clarifyStarted).toBe(false);
+    expect(state.agentStatus).toBe('none');
   });
 
   it('patches, redacts, and reloads webhook settings', async () => {

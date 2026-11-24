@@ -48,10 +48,13 @@ const BUDGETS: BudgetsResponse = {
       unpricedTurns: 0,
       paused: false,
       pauseReason: null,
+      overrideId: null,
+      overrideExpiresAt: null,
     },
   ],
   alerts: [],
   pauses: [],
+  overrides: [],
 };
 
 const ALERT: BudgetAlert = {
@@ -76,6 +79,8 @@ function makeFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
     loading: false,
     refresh: vi.fn(async () => {}),
     acknowledge: vi.fn(async () => {}),
+    snooze: vi.fn(async () => {}),
+    revokeOverride: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -153,7 +158,7 @@ describe('UsagePage', () => {
 
   it('marks a paused scope and explains the cap spend', async () => {
     installFetch();
-    renderUsage({
+    const { budgetFeed } = renderUsage({
       budgets: {
         ...BUDGETS,
         statuses: [
@@ -186,6 +191,51 @@ describe('UsagePage', () => {
     expect(await screen.findByText('paused')).toBeInTheDocument();
     expect(screen.getByText(/in-flight turns were stopped at \$100\.00 cap spend/)).toBeInTheDocument();
     expect(screen.queryByText(/budgets never stop work/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+    expect(budgetFeed.snooze).toHaveBeenCalledWith({ scope: 'overall', minutes: 60 });
+  });
+
+  it('shows an active override and can end it from the budget card', async () => {
+    installFetch();
+    const overrideExpiresAt = Date.UTC(2026, 10, 15, 13);
+    const { budgetFeed } = renderUsage({
+      budgets: {
+        ...BUDGETS,
+        statuses: [
+          {
+            ...BUDGETS.statuses[0]!,
+            paused: true,
+            capSpendUsd: 100,
+            overrideId: 'o1',
+            overrideExpiresAt,
+          },
+        ],
+        overrides: [
+          {
+            id: 'o1',
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            periodStart: Date.UTC(2026, 10, 1),
+            createdAt: Date.UTC(2026, 10, 15, 12),
+            updatedAt: Date.UTC(2026, 10, 15, 12),
+            expiresAt: overrideExpiresAt,
+            note: null,
+            revokedAt: null,
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Cap reached; an override is admitting new work/),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'End override for overall spend' }),
+    );
+    expect(budgetFeed.revokeOverride).toHaveBeenCalledWith('o1');
   });
 
   it('explains a strict unknown-cost pause in the unknown state', async () => {

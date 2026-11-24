@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { legacyEnvNames, legacyEnvWarning, readEnv } from '../src/env.js';
+import {
+  legacyEnvNames,
+  legacyEnvWarning,
+  readEnv,
+  readNonEmptyEnv,
+} from '../src/env.js';
 
 describe('readEnv', () => {
   it('prefers APS_* over SBOX_*', () => {
@@ -17,6 +22,38 @@ describe('readEnv', () => {
 
   it('returns undefined when neither prefix is set', () => {
     expect(readEnv({}, 'PORT')).toBeUndefined();
+  });
+});
+
+describe('readNonEmptyEnv', () => {
+  it('prefers a non-empty APS_* value over SBOX_*', () => {
+    expect(
+      readNonEmptyEnv({ APS_DATA_DIR: '/aps', SBOX_DATA_DIR: '/legacy' }, 'DATA_DIR'),
+    ).toBe('/aps');
+  });
+
+  it('falls through to SBOX_* when the APS_* value is blank', () => {
+    expect(
+      readNonEmptyEnv({ APS_DATA_DIR: '', SBOX_DATA_DIR: '/legacy' }, 'DATA_DIR'),
+    ).toBe('/legacy');
+  });
+
+  it('returns undefined when both prefixes are blank or absent', () => {
+    expect(
+      readNonEmptyEnv({ APS_DATA_DIR: '', SBOX_DATA_DIR: '' }, 'DATA_DIR'),
+    ).toBeUndefined();
+    expect(readNonEmptyEnv({}, 'DATA_DIR')).toBeUndefined();
+  });
+
+  it('skips whitespace-only values and returns non-blank values verbatim', () => {
+    expect(
+      readNonEmptyEnv({ APS_DATA_DIR: '   ', SBOX_DATA_DIR: ' /legacy ' }, 'DATA_DIR'),
+    ).toBe(' /legacy ');
+    expect(readNonEmptyEnv({ APS_WEB_DIR: '/srv/My Web' }, 'WEB_DIR')).toBe(
+      '/srv/My Web',
+    );
+    expect(readNonEmptyEnv({ APS_DATA_DIR: 'data' }, 'DATA_DIR')).toBe('data');
+    expect(readNonEmptyEnv({ APS_DB: ':memory:' }, 'DB')).toBe(':memory:');
   });
 });
 

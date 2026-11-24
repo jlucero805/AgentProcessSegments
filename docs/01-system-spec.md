@@ -102,6 +102,10 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
     are set. Path defaults prefer an existing `agent-process-segments` location, then
     an existing `sandbox-harness` one, then the new location. `app.ts` warns when a
     legacy default is still in use and points at `npm run migrate:paths`.
+    A path-valued override that is blank or whitespace-only is ignored rather than used:
+    resolution continues with a non-blank `SBOX_*` alias and then the default, and
+    `app.ts` warns once at startup naming the blank variables. `APS_DB=':memory:'` and
+    non-blank relative or spaced paths are used verbatim.
 - **Run:** `node src/server/dist/app.js` with `APS_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
 

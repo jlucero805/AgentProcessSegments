@@ -12,6 +12,22 @@ export function readEnv(env: NodeJS.ProcessEnv, name: string): string | undefine
   return env[`SBOX_${name}`];
 }
 
+/**
+ * Like `readEnv`, but skips blank values. Only for path settings, where an empty
+ * string can only be a mistake: a blank APS value must not shadow a usable SBOX
+ * alias. Values are returned verbatim, never trimmed.
+ */
+export function readNonEmptyEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string | undefined {
+  const current = env[`APS_${name}`];
+  if (current !== undefined && current.trim() !== '') return current;
+  const legacy = env[`SBOX_${name}`];
+  if (legacy !== undefined && legacy.trim() !== '') return legacy;
+  return undefined;
+}
+
 const LEGACY_ENV_PREFIX = 'SBOX_';
 
 /**

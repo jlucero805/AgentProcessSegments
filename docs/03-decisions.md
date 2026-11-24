@@ -1400,3 +1400,28 @@ there are still no spend reservations or automatic replay. There is no operator 
 approval workflow; the optional note is the only context recorded. A history/audit view,
 notification when an override is granted or expires, and per-request overrides remain
 separate work.
+
+## D69. Blank path overrides are ignored, with a startup warning
+
+**Context.** `readEnv` treats an empty string as a defined value, which is right for
+`APS_DEFAULT_MODEL=''` ("use the CLI default") and MCP's intentional empty request id.
+Applied to a filesystem path it is not: `APS_DATA_DIR=''` made `resolvePath` return an
+empty path, `pluginsDir` and request workdirs became relative, and `APS_DB=''`,
+`APS_WEB_DIR=''`, and the other path variables were passed to SQLite, static serving,
+and the harness spawn exactly as written. Whitespace-only values behaved the same way.
+
+**Decision.** `loadConfig` reads its path settings through `readNonEmptyEnv` instead of
+`readEnv`. A blank or whitespace-only value is ignored: the lookup continues with a
+non-blank `SBOX_*` alias and then the existing default/legacy-location chain. The guard
+covers `DATA_DIR`, `CONFIG`, `PROCESS`, `ERROR_LOG`, `DB`, `WEB_DIR`, `DOCS_DIR`,
+`PLUGINS_DIR`, `TERMINAL_CWD`, `HARNESS_BIN`, `CLAUDE_BIN`, and `OPENCODE_BIN`. Startup
+warns once through `console.warn`, names only, and never a value. `readEnv` and every
+non-path setting keep their existing semantics, and `APS_DB=':memory:'` remains valid.
+Non-blank paths are returned verbatim: no trimming, `~` expansion, or `path.resolve`, so
+spaces and deliberate relative paths still work.
+
+**Cost.** A blank override no longer fails fast; the brain runs on the default or the
+legacy alias and the only signal is the one startup warning. A blank APS value therefore
+can fall back to a still-set `SBOX_*` alias instead of blocking it. D46's rule that an
+empty APS value wins still applies to every non-path setting; this is a deliberate
+path-only exception.

@@ -170,6 +170,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   any `SBOX_*` name is still set; `legacyEnvNames` and `legacyEnvWarning` in `env.ts` build
   that line. Operators move data with `npm run migrate:paths` and rename variables to
   `APS_*` to clear the warning.
+  Path-valued settings (`DATA_DIR`, `CONFIG`, `PROCESS`, `ERROR_LOG`, `DB`, `WEB_DIR`,
+  `DOCS_DIR`, `PLUGINS_DIR`, `TERMINAL_CWD`, and the harness binaries) are read through
+  `readNonEmptyEnv()`: a blank or whitespace-only value is ignored, the lookup continues
+  with a non-blank `SBOX_*` alias and then the default/legacy location, and startup warns
+  once with the blank names only. Non-blank paths are used verbatim; `APS_DB=':memory:'`
+  stays valid. Do not apply this to settings where `''` is meaningful
+  (`APS_DEFAULT_MODEL`), which keep using `readEnv()`.
 - **Errors are the only persisted logs.** `$XDG_STATE_HOME/agent-process-segments/errors.log`
   (`APS_ERROR_LOG`, `APS_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.

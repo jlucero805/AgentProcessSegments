@@ -225,6 +225,11 @@ A brain started with any `SBOX_*` variable still set logs one warning naming tho
 variables (names only, never values). Rename them to `APS_*` to clear it;
 `npm run migrate:paths` moves only the filesystem defaults, not the variable names.
 
+A blank path value such as `APS_DB=` is ignored rather than used: the brain falls back to
+a non-blank `SBOX_*` alias and then the built-in default, and startup names the variable
+in a warning. Values are not trimmed or expanded, so `APS_DB=:memory:` and paths with
+spaces keep working.
+
 The migration refuses to run while `agent-process-segments.service` or the legacy
 `sandbox-harness.service` is active (user or system scope). Stop the unit first;
 `--allow-running` bypasses the guard and can corrupt an open SQLite database. A

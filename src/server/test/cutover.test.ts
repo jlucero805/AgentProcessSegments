@@ -11,12 +11,14 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpDir } from './tmp.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
+import { tmpDir } from './tmp.js';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const script = path.join(repoRoot, 'deploy/cutover-vps.sh');
+const TEST_TIMEOUT = 30_000;
+const SCRIPT_TIMEOUT = 25_000;
 
 interface Fixture {
   root: string;
@@ -24,12 +26,26 @@ interface Fixture {
   oldClone: string;
   newClone: string;
   bin: string;
+  state: string;
   env: NodeJS.ProcessEnv;
+}
+
+interface FixtureOptions {
+  oldActive?: boolean;
+  newActive?: boolean;
+  workingRequests?: boolean;
+  failBuild?: boolean;
+  failMv?: boolean;
+  failNewEnable?: boolean;
 }
 
 function writeExecutable(file: string, body: string): void {
   writeFileSync(file, body);
   chmodSync(file, 0o755);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function createEnv(home: string, bin: string): NodeJS.ProcessEnv {
@@ -39,39 +55,157 @@ function createEnv(home: string, bin: string): NodeJS.ProcessEnv {
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     NODE_PATH: path.join(repoRoot, 'node_modules'),
   };
-  for (const key of [
-    'XDG_CONFIG_HOME',
-    'XDG_STATE_HOME',
-    'SBOX_DB',
-    'SBOX_DATA_DIR',
-    'SBOX_CONFIG',
-    'SBOX_PROCESS',
-    'SBOX_ERROR_LOG',
-    'APS_DB',
-    'APS_DATA_DIR',
-    'APS_CONFIG',
-    'APS_PROCESS',
-    'APS_ERROR_LOG',
-  ]) {
-    delete env[key];
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('APS_') || key.startsWith('SBOX_')) delete env[key];
+    if (key === 'XDG_CONFIG_HOME' || key === 'XDG_STATE_HOME') delete env[key];
   }
   return env;
 }
 
-function writeSystemctlMock(bin: string, activeUnits: string[] = []): void {
-  const activeCases = activeUnits.map((unit) => `  *is-active*${unit}*) echo active; exit 0 ;;`);
+function markUnits(state: string, units: Array<'old' | 'new'>): void {
+  for (const unit of units) {
+    writeFileSync(path.join(state, `${unit}.active`), '');
+    writeFileSync(path.join(state, `${unit}.enabled`), '');
+  }
+}
+
+function writeSystemctlMock(bin: string, state: string): void {
+  const statePath = shellQuote(state);
   writeExecutable(
     path.join(bin, 'systemctl'),
     [
       '#!/usr/bin/env bash',
+      `state=${statePath}`,
+      'printf \'%s\\n\' "$*" >> "$state/systemctl.log"',
+      'unit=""',
+      'for arg in "$@"; do',
+      '  case "$arg" in',
+      '    sandbox-harness|sandbox-harness.service) unit=old ;;',
+      '    agent-process-segments|agent-process-segments.service) unit=new ;;',
+      '  esac',
+      'done',
       'case "$*" in',
       '  *show-environment*) exit 0 ;;',
-      ...activeCases,
-      '  *is-active*) exit 3 ;;',
-      '  *is-enabled*) exit 1 ;;',
-      '  *show*) echo inactive; exit 0 ;;',
+      '  *" stop "*)',
+      '    case "$unit" in old) rm -f "$state/old.active" ;; new) rm -f "$state/new.active" ;; esac',
+      '    exit 0 ;;',
+      '  *"disable "*)',
+      '    case "$unit" in old) rm -f "$state/old.enabled" ;; new) rm -f "$state/new.enabled" ;; esac',
+      '    exit 0 ;;',
+      '  *" enable --now "*)',
+      '    if [ "$unit" = new ] && [ -f "$state/fail-new-enable" ]; then exit 1; fi',
+      '    touch "$state/$unit.active" "$state/$unit.enabled"',
+      '    exit 0 ;;',
+      '  *daemon-reload*) exit 0 ;;',
+      '  *is-active*)',
+      '    quiet=0',
+      '    [[ "$*" == *--quiet* ]] && quiet=1',
+      '    if [ "$unit" = old ] && [ -f "$state/old.active" ]; then',
+      '      [ "$quiet" -eq 1 ] || echo active',
+      '      exit 0',
+      '    fi',
+      '    if [ "$unit" = new ] && [ -f "$state/new.active" ]; then',
+      '      [ "$quiet" -eq 1 ] || echo active',
+      '      exit 0',
+      '    fi',
+      '    exit 3 ;;',
+      '  *is-enabled*)',
+      '    if [ "$unit" = old ] && [ -f "$state/old.enabled" ]; then exit 0; fi',
+      '    if [ "$unit" = new ] && [ -f "$state/new.enabled" ]; then exit 0; fi',
+      '    exit 1 ;;',
+      '  *show*)',
+      '    if [[ "$*" == *LoadState* ]]; then echo loaded; exit 0; fi',
+      '    if [[ "$*" == *MainPID* ]]; then echo 0; exit 0; fi',
+      '    exit 0 ;;',
       '  *) exit 0 ;;',
       'esac',
+      '',
+    ].join('\n'),
+  );
+}
+
+function writeCurlMock(bin: string, state: string): void {
+  const statePath = shellQuote(state);
+  writeExecutable(
+    path.join(bin, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      `state=${statePath}`,
+      'method=GET',
+      'url=""',
+      'body=""',
+      'while [ $# -gt 0 ]; do',
+      '  case "$1" in',
+      '    -X) method="$2"; shift 2 ;;',
+      '    -d|--data|--data-raw) body="$2"; shift 2 ;;',
+      '    -H|--max-time|-o|--output) shift 2 ;;',
+      '    -*) shift ;;',
+      '    *) url="$1"; shift ;;',
+      '  esac',
+      'done',
+      'printf \'%s %s %s\\n\' "$method" "$url" "$body" >> "$state/curl.log"',
+      'case "$url" in',
+      '  */api/config)',
+      '    if [ "$method" = PATCH ]; then',
+      '      printf \'%s\\n\' "$body" >> "$state/config-patches.log"',
+      '      exit 0',
+      '    fi',
+      '    printf \'%s\' \'{"master":{"enabled":true},"path":"mock"}\'',
+      '    exit 0',
+      '    ;;',
+      '  */api/requests)',
+      '    if [ -f "$state/requests-working" ]; then',
+      '      printf \'%s\' \'[{"agentStatus":"working"}]\'',
+      '    else',
+      '      printf \'%s\' \'[]\'',
+      '    fi',
+      '    exit 0',
+      '    ;;',
+      '  */api/requests/*) printf \'%s\' \'{}\'; exit 0 ;;',
+      '  */health)',
+      '    if [ -f "$state/old.active" ] || [ -f "$state/new.active" ]; then',
+      '      printf \'%s\' \'{"ok":true}\'',
+      '      exit 0',
+      '    fi',
+      '    exit 7',
+      '    ;;',
+      '  *) exit 22 ;;',
+      'esac',
+      '',
+    ].join('\n'),
+  );
+}
+
+function writeNpmMock(bin: string, state: string): void {
+  const statePath = shellQuote(state);
+  writeExecutable(
+    path.join(bin, 'npm'),
+    [
+      '#!/usr/bin/env bash',
+      `state=${statePath}`,
+      'if [ -f "$state/fail-build" ]; then',
+      '  printf \'%s\\n\' failed-build > src/server/dist/marker.txt',
+      '  printf \'%s\\n\' failed-build > src/web/dist/marker.txt',
+      '  exit 1',
+      'fi',
+      'exit 0',
+      '',
+    ].join('\n'),
+  );
+}
+
+function writeMvMock(bin: string, state: string): void {
+  const statePath = shellQuote(state);
+  writeExecutable(
+    path.join(bin, 'mv'),
+    [
+      '#!/usr/bin/env bash',
+      `state=${statePath}`,
+      'if [ -f "$state/fail-mv" ]; then',
+      '  echo "simulated mv failure" >&2',
+      '  exit 1',
+      'fi',
+      'exec /bin/mv "$@"',
       '',
     ].join('\n'),
   );
@@ -87,19 +221,29 @@ function initCommit(dir: string): void {
   );
 }
 
-function createFixture(): Fixture {
+function gitHead(dir: string): string {
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+}
+
+function createFixture(options: FixtureOptions = {}): Fixture {
   const root = tmpDir('cutover-test');
   const home = path.join(root, 'home');
   const oldClone = path.join(root, 'oldclone');
   const newClone = path.join(root, 'newclone');
   const bin = path.join(root, 'bin');
+  const state = path.join(root, 'mock-state');
 
-  mkdirSync(path.join(home, '.sandbox-harness', 'requests'), { recursive: true });
+  mkdirSync(path.join(home, '.sandbox-harness', 'requests', 'req-1'), { recursive: true });
   mkdirSync(path.join(home, '.config', 'sandbox-harness'), { recursive: true });
   mkdirSync(path.join(home, '.local', 'state', 'sandbox-harness'), { recursive: true });
   mkdirSync(bin, { recursive: true });
   mkdirSync(oldClone, { recursive: true });
+  mkdirSync(state, { recursive: true });
 
+  writeFileSync(
+    path.join(home, '.sandbox-harness', 'requests', 'req-1', 'transcript.json'),
+    '{"fixture":"request"}\n',
+  );
   writeFileSync(
     path.join(home, '.config', 'sandbox-harness', 'config.json'),
     JSON.stringify({ master: { enabled: true } }),
@@ -112,6 +256,7 @@ function createFixture(): Fixture {
 
   const db = new Database(path.join(oldClone, 'sandbox-harness.sqlite'));
   db.exec('CREATE TABLE requests (id TEXT PRIMARY KEY)');
+  db.prepare('INSERT INTO requests (id) VALUES (?)').run('req-1');
   db.close();
 
   mkdirSync(path.join(oldClone, 'deploy'), { recursive: true });
@@ -124,10 +269,24 @@ function createFixture(): Fixture {
     path.join(repoRoot, 'scripts/migrate-paths.mjs'),
     path.join(oldClone, 'scripts/migrate-paths.mjs'),
   );
-  writeFileSync(path.join(oldClone, '.gitignore'), 'node_modules/\n');
+  writeFileSync(
+    path.join(oldClone, '.gitignore'),
+    'node_modules/\nsrc/server/dist/\nsrc/web/dist/\n*.sqlite*\n',
+  );
   symlinkSync(path.join(repoRoot, 'node_modules'), path.join(oldClone, 'node_modules'), 'dir');
 
   initCommit(oldClone);
+  execFileSync('git', ['init', '--bare', path.join(root, 'origin.git')], { stdio: 'ignore' });
+  execFileSync('git', ['remote', 'add', 'origin', path.join(root, 'origin.git')], {
+    cwd: oldClone,
+  });
+  execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: oldClone, stdio: 'ignore' });
+
+  mkdirSync(path.join(oldClone, 'src', 'server', 'dist'), { recursive: true });
+  mkdirSync(path.join(oldClone, 'src', 'web', 'dist'), { recursive: true });
+  writeFileSync(path.join(oldClone, 'src', 'server', 'dist', 'marker.txt'), 'prebuild-server\n');
+  writeFileSync(path.join(oldClone, 'src', 'web', 'dist', 'marker.txt'), 'prebuild-web\n');
+
   const unitDir = path.join(home, '.config', 'systemd', 'user');
   mkdirSync(path.join(unitDir, 'sandbox-harness.service.d'), { recursive: true });
   writeFileSync(
@@ -152,8 +311,17 @@ function createFixture(): Fixture {
   );
 
   writeExecutable(path.join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
-  writeSystemctlMock(bin);
-  writeExecutable(path.join(bin, 'curl'), '#!/bin/sh\nexit 22\n');
+  writeSystemctlMock(bin, state);
+  writeCurlMock(bin, state);
+  writeNpmMock(bin, state);
+  writeMvMock(bin, state);
+
+  if (options.oldActive) markUnits(state, ['old']);
+  if (options.newActive) markUnits(state, ['new']);
+  if (options.workingRequests) writeFileSync(path.join(state, 'requests-working'), '');
+  if (options.failBuild) writeFileSync(path.join(state, 'fail-build'), '');
+  if (options.failMv) writeFileSync(path.join(state, 'fail-mv'), '');
+  if (options.failNewEnable) writeFileSync(path.join(state, 'fail-new-enable'), '');
 
   return {
     root,
@@ -161,6 +329,7 @@ function createFixture(): Fixture {
     oldClone,
     newClone,
     bin,
+    state,
     env: createEnv(home, bin),
   };
 }
@@ -171,13 +340,19 @@ function createMigratedFixture(): Fixture {
   const oldClone = path.join(root, 'oldclone');
   const newClone = path.join(root, 'newclone');
   const bin = path.join(root, 'bin');
+  const state = path.join(root, 'mock-state');
 
-  mkdirSync(path.join(home, '.agent-process-segments', 'requests'), { recursive: true });
+  mkdirSync(path.join(home, '.agent-process-segments', 'requests', 'req-1'), { recursive: true });
   mkdirSync(path.join(home, '.config', 'agent-process-segments'), { recursive: true });
   mkdirSync(path.join(home, '.local', 'state', 'agent-process-segments'), { recursive: true });
   mkdirSync(bin, { recursive: true });
   mkdirSync(newClone, { recursive: true });
+  mkdirSync(state, { recursive: true });
 
+  writeFileSync(
+    path.join(home, '.agent-process-segments', 'requests', 'req-1', 'transcript.json'),
+    '{"fixture":"request"}\n',
+  );
   writeFileSync(
     path.join(home, '.config', 'agent-process-segments', 'config.json'),
     JSON.stringify({ master: { enabled: true } }),
@@ -190,6 +365,7 @@ function createMigratedFixture(): Fixture {
 
   const db = new Database(path.join(newClone, 'agent-process-segments.sqlite'));
   db.exec('CREATE TABLE requests (id TEXT PRIMARY KEY)');
+  db.prepare('INSERT INTO requests (id) VALUES (?)').run('req-1');
   db.close();
 
   mkdirSync(path.join(newClone, 'deploy'), { recursive: true });
@@ -202,13 +378,17 @@ function createMigratedFixture(): Fixture {
     path.join(repoRoot, 'scripts/migrate-paths.mjs'),
     path.join(newClone, 'scripts/migrate-paths.mjs'),
   );
-  writeFileSync(path.join(newClone, '.gitignore'), 'node_modules/\n');
+  writeFileSync(
+    path.join(newClone, '.gitignore'),
+    'node_modules/\nsrc/server/dist/\nsrc/web/dist/\n*.sqlite*\n',
+  );
   symlinkSync(path.join(repoRoot, 'node_modules'), path.join(newClone, 'node_modules'), 'dir');
   initCommit(newClone);
 
   writeExecutable(path.join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
-  writeSystemctlMock(bin, ['agent-process-segments']);
-  writeExecutable(path.join(bin, 'curl'), '#!/bin/sh\nexit 22\n');
+  writeSystemctlMock(bin, state);
+  writeCurlMock(bin, state);
+  markUnits(state, ['new']);
 
   return {
     root,
@@ -216,8 +396,52 @@ function createMigratedFixture(): Fixture {
     oldClone,
     newClone,
     bin,
+    state,
     env: createEnv(home, bin),
   };
+}
+
+function runCutover(fixture: Fixture, args: string[]) {
+  return spawnSync('bash', [script, ...args], {
+    encoding: 'utf8',
+    env: fixture.env,
+    timeout: SCRIPT_TIMEOUT,
+  });
+}
+
+function liveArgs(fixture: Fixture, runDir: string, extra: string[] = []): string[] {
+  return [
+    '--run',
+    '--run-dir',
+    runDir,
+    '--home',
+    fixture.home,
+    '--old-clone',
+    fixture.oldClone,
+    '--new-clone',
+    fixture.newClone,
+    ...extra,
+  ];
+}
+
+function readState(runDir: string): string {
+  return readFileSync(path.join(runDir, 'state'), 'utf8').trim();
+}
+
+function readRunLog(runDir: string): string {
+  return readFileSync(path.join(runDir, 'cutover.log'), 'utf8');
+}
+
+function readLines(file: string): string[] {
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+}
+
+function systemctlCalls(fixture: Fixture): string {
+  return readLines(path.join(fixture.state, 'systemctl.log')).join('\n');
 }
 
 describe('deploy/cutover-vps.sh', () => {
@@ -279,10 +503,7 @@ describe('deploy/cutover-vps.sh', () => {
     const fixture = createMigratedFixture();
     const config = path.join(fixture.home, '.config', 'agent-process-segments', 'config.json');
     const configBefore = readFileSync(config, 'utf8');
-    const headBefore = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: fixture.newClone,
-      encoding: 'utf8',
-    }).trim();
+    const headBefore = gitHead(fixture.newClone);
 
     const result = spawnSync(
       'bash',
@@ -304,17 +525,12 @@ describe('deploy/cutover-vps.sh', () => {
     expect(existsSync(fixture.oldClone)).toBe(false);
     expect(existsSync(path.join(fixture.home, '.sandbox-harness'))).toBe(false);
     expect(readFileSync(config, 'utf8')).toBe(configBefore);
-    expect(
-      execFileSync('git', ['rev-parse', 'HEAD'], {
-        cwd: fixture.newClone,
-        encoding: 'utf8',
-      }).trim(),
-    ).toBe(headBefore);
+    expect(gitHead(fixture.newClone)).toBe(headBefore);
   });
 
   it('refuses when the new unit is active but legacy paths remain', () => {
     const fixture = createFixture();
-    writeSystemctlMock(fixture.bin, ['agent-process-segments']);
+    markUnits(fixture.state, ['new']);
     const result = spawnSync(
       'bash',
       [
@@ -342,4 +558,209 @@ describe('deploy/cutover-vps.sh', () => {
     expect(result.stdout).toContain('--detach');
     expect(result.stdout).toContain('--allow-busy');
   });
+
+  it(
+    'restores the master and reports failed when the drain times out',
+    () => {
+      const fixture = createFixture({ oldActive: true, workingRequests: true });
+      const runDir = path.join(fixture.root, 'run');
+      const config = path.join(fixture.home, '.config', 'sandbox-harness', 'config.json');
+      const configBefore = readFileSync(config, 'utf8');
+      const headBefore = gitHead(fixture.oldClone);
+
+      const result = runCutover(fixture, liveArgs(fixture, runDir, ['--wait-seconds', '1']));
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).not.toBe(0);
+      expect(output).toContain('timed out waiting for 1 working turn(s) to drain');
+      expect(readState(runDir)).toBe('failed');
+      expect(readRunLog(runDir)).toContain('rolling back');
+      expect(readRunLog(runDir)).toContain('rollback finished');
+      expect(readLines(path.join(fixture.state, 'config-patches.log'))).toEqual([
+        '{"master":{"enabled":false}}',
+        '{"master":{"enabled":true}}',
+      ]);
+
+      const calls = systemctlCalls(fixture);
+      expect(calls).not.toContain(' stop ');
+      expect(calls).not.toContain(' disable ');
+      expect(readFileSync(config, 'utf8')).toBe(configBefore);
+      expect(gitHead(fixture.oldClone)).toBe(headBefore);
+      expect(existsSync(path.join(fixture.home, '.sandbox-harness'))).toBe(true);
+      expect(existsSync(fixture.newClone)).toBe(false);
+      expect(existsSync(path.join(fixture.home, '.agent-process-segments'))).toBe(false);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'restores the pre-build dist directories when the build fails before stopping',
+    () => {
+      const fixture = createFixture({ failBuild: true });
+      const runDir = path.join(fixture.root, 'run');
+      const headBefore = gitHead(fixture.oldClone);
+      const serverMarker = path.join(fixture.oldClone, 'src', 'server', 'dist', 'marker.txt');
+      const webMarker = path.join(fixture.oldClone, 'src', 'web', 'dist', 'marker.txt');
+      const serverBefore = readFileSync(serverMarker, 'utf8');
+      const webBefore = readFileSync(webMarker, 'utf8');
+
+      const result = runCutover(fixture, liveArgs(fixture, runDir));
+
+      expect(result.status).not.toBe(0);
+      expect(readState(runDir)).toBe('failed');
+      expect(readRunLog(runDir)).toContain('rolling back');
+      expect(readRunLog(runDir)).toContain('restored the pre-build dist directories');
+      expect(readFileSync(serverMarker, 'utf8')).toBe(serverBefore);
+      expect(readFileSync(webMarker, 'utf8')).toBe(webBefore);
+      expect(systemctlCalls(fixture)).not.toContain(' stop ');
+      expect(existsSync(path.join(fixture.home, '.sandbox-harness'))).toBe(true);
+      expect(existsSync(fixture.newClone)).toBe(false);
+      expect(existsSync(path.join(fixture.home, '.agent-process-segments'))).toBe(false);
+      expect(gitHead(fixture.oldClone)).toBe(headBefore);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'restores the old unit when the clone move fails after the stop',
+    () => {
+      const fixture = createFixture({ failMv: true });
+      const runDir = path.join(fixture.root, 'run');
+      const config = path.join(fixture.home, '.config', 'sandbox-harness', 'config.json');
+      const configBefore = readFileSync(config, 'utf8');
+      const headBefore = gitHead(fixture.oldClone);
+      const oldData = path.join(fixture.home, '.sandbox-harness');
+      const oldConfig = path.join(fixture.home, '.config', 'sandbox-harness');
+      const oldState = path.join(fixture.home, '.local', 'state', 'sandbox-harness');
+      const oldDb = path.join(fixture.oldClone, 'sandbox-harness.sqlite');
+      const requestMarker = path.join(oldData, 'requests', 'req-1', 'transcript.json');
+      const rollbackConf = path.join(
+        fixture.home,
+        '.config',
+        'systemd',
+        'user',
+        'sandbox-harness.service.d',
+        'zz-rollback.conf',
+      );
+
+      const result = runCutover(fixture, liveArgs(fixture, runDir));
+      const log = readRunLog(runDir);
+
+      expect(result.status).not.toBe(0);
+      expect(readState(runDir)).toBe('rolled-back');
+      expect(log).toContain('failed at line');
+      expect(log).toContain('rolling back');
+      expect(log).toContain('rollback finished');
+
+      const calls = systemctlCalls(fixture);
+      expect(calls).toContain('stop sandbox-harness');
+      expect(calls).toContain('enable --now sandbox-harness');
+      expect(calls).not.toContain('enable --now agent-process-segments');
+
+      expect(existsSync(fixture.oldClone)).toBe(true);
+      expect(existsSync(fixture.newClone)).toBe(false);
+      expect(existsSync(oldData)).toBe(true);
+      expect(existsSync(oldConfig)).toBe(true);
+      expect(existsSync(oldState)).toBe(true);
+      expect(existsSync(oldDb)).toBe(true);
+      expect(existsSync(requestMarker)).toBe(true);
+      expect(existsSync(path.join(fixture.home, '.agent-process-segments'))).toBe(false);
+      expect(existsSync(path.join(fixture.home, '.config', 'agent-process-segments'))).toBe(false);
+      expect(existsSync(path.join(fixture.home, '.local', 'state', 'agent-process-segments'))).toBe(
+        false,
+      );
+      expect(existsSync(rollbackConf)).toBe(false);
+      expect(readFileSync(config, 'utf8')).toBe(configBefore);
+      expect(gitHead(fixture.oldClone)).toBe(headBefore);
+      expect(existsSync(path.join(fixture.state, 'old.active'))).toBe(true);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'keeps migrated data in place and restores the old unit when the new unit fails to start',
+    () => {
+      const fixture = createFixture({ failNewEnable: true });
+      const runDir = path.join(fixture.root, 'run');
+      const oldConfig = path.join(fixture.home, '.config', 'sandbox-harness', 'config.json');
+      const oldProcess = path.join(fixture.home, '.config', 'sandbox-harness', 'process.json');
+      const configBefore = readFileSync(oldConfig, 'utf8');
+      const processBefore = readFileSync(oldProcess, 'utf8');
+      const requestBefore = readFileSync(
+        path.join(fixture.home, '.sandbox-harness', 'requests', 'req-1', 'transcript.json'),
+        'utf8',
+      );
+
+      const result = runCutover(fixture, liveArgs(fixture, runDir));
+      const log = readRunLog(runDir);
+
+      expect(result.status).not.toBe(0);
+      expect(readState(runDir)).toBe('rolled-back');
+      expect(log).toContain('failed at line');
+      expect(log).toContain('rolling back');
+      expect(log).toContain('rollback finished');
+
+      const calls = systemctlCalls(fixture);
+      expect(calls).toContain('stop sandbox-harness');
+      expect(calls).toContain('enable --now agent-process-segments');
+      expect(calls).toContain('stop agent-process-segments');
+      expect(calls).toContain('disable agent-process-segments');
+      expect(calls).toContain('enable --now sandbox-harness');
+
+      expect(existsSync(fixture.oldClone)).toBe(false);
+      expect(existsSync(fixture.newClone)).toBe(true);
+      expect(existsSync(path.join(fixture.home, '.sandbox-harness'))).toBe(false);
+      expect(existsSync(path.join(fixture.home, '.config', 'sandbox-harness'))).toBe(false);
+      expect(existsSync(path.join(fixture.home, '.local', 'state', 'sandbox-harness'))).toBe(false);
+
+      const newData = path.join(fixture.home, '.agent-process-segments');
+      const newConfig = path.join(fixture.home, '.config', 'agent-process-segments');
+      const newState = path.join(fixture.home, '.local', 'state', 'agent-process-segments');
+      const newDb = path.join(fixture.newClone, 'agent-process-segments.sqlite');
+      const newConfigFile = path.join(newConfig, 'config.json');
+      const newProcessFile = path.join(newConfig, 'process.json');
+      const newErrorLog = path.join(newState, 'errors.log');
+      const newRequest = path.join(newData, 'requests', 'req-1', 'transcript.json');
+
+      expect(existsSync(newData)).toBe(true);
+      expect(existsSync(newConfig)).toBe(true);
+      expect(existsSync(newState)).toBe(true);
+      expect(existsSync(newDb)).toBe(true);
+      expect(readFileSync(newConfigFile, 'utf8')).toBe(configBefore);
+      expect(readFileSync(newProcessFile, 'utf8')).toBe(processBefore);
+      expect(readFileSync(newRequest, 'utf8')).toBe(requestBefore);
+
+      const db = new Database(newDb, { readonly: true });
+      expect(db.prepare('SELECT count(*) AS count FROM requests').get()).toEqual({ count: 1 });
+      db.close();
+
+      const rollbackConf = path.join(
+        fixture.home,
+        '.config',
+        'systemd',
+        'user',
+        'sandbox-harness.service.d',
+        'zz-rollback.conf',
+      );
+      const conf = readFileSync(rollbackConf, 'utf8');
+      expect(conf).toContain(`WorkingDirectory=${fixture.newClone}`);
+      expect(conf).toContain(`Environment=SBOX_DB=${newDb}`);
+      expect(conf).toContain(`Environment=SBOX_DATA_DIR=${newData}`);
+      expect(conf).toContain(`Environment=SBOX_CONFIG=${newConfigFile}`);
+      expect(conf).toContain(`Environment=SBOX_PROCESS=${newProcessFile}`);
+      expect(conf).toContain(`Environment=SBOX_ERROR_LOG=${newErrorLog}`);
+
+      expect(
+        existsSync(path.join(runDir, 'backup', 'systemd', 'sandbox-harness.service')),
+      ).toBe(true);
+      expect(
+        existsSync(
+          path.join(runDir, 'backup', 'systemd', 'sandbox-harness.service.d', 'harness.conf'),
+        ),
+      ).toBe(true);
+      expect(existsSync(path.join(fixture.state, 'old.active'))).toBe(true);
+      expect(existsSync(path.join(fixture.state, 'new.active'))).toBe(false);
+    },
+    TEST_TIMEOUT,
+  );
 });

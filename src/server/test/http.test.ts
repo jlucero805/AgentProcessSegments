@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellDraftStore } from '../src/cells/drafts.js';
 import { HarnessModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
@@ -2607,7 +2607,7 @@ describe('http api', () => {
   });
 
   it('vends SPA assets added after boot and keeps missing assets as 404s', async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-web-'));
+    const dir = tmpDir('web');
     mkdirSync(path.join(dir, 'assets'));
     writeFileSync(path.join(dir, 'index.html'), '<!doctype html><body>spa-index</body>');
     writeFileSync(path.join(dir, 'assets', 'app.js'), 'console.log("asset")');

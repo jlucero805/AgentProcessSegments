@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import { branchName, legacyBranchName } from '../src/clarify/worktree.js';
 import { openDb } from '../src/db.js';
@@ -16,7 +16,7 @@ import {
 import { RequestRepository } from '../src/requests/repository.js';
 
 function tempDir(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'aps-legacy-'));
+  return tmpDir('legacy');
 }
 
 function git(cwd: string, args: string[]): string {

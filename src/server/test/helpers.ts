@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { CellRepository } from '../src/cells/repository.js';
 import { Engine } from '../src/clarify/engine.js';
 import type {
@@ -26,7 +25,7 @@ import { RequestRepository } from '../src/requests/repository.js';
 import { UsageRepository } from '../src/usage/repository.js';
 
 export function testConfig(): Config {
-  const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-test-'));
+  const base = tmpDir('test');
   return {
     ...loadConfig({}, base, path.join(base, 'home')),
     dbPath: path.join(base, 'harness.sqlite'),

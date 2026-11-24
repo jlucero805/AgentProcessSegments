@@ -475,7 +475,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 829 vitest cases: 630 server cases (state machine, migrations including
+`npm test` runs 849 vitest cases: 650 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -499,6 +499,12 @@ drawer and chat mounted under jsdom).
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
 proof scripts hand to their children; it is not counted in the vitest totals.
+
+Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
+directory and that root is removed when the file finishes, including after a failing
+assertion. A crashed or killed run can still leave a root behind; run
+`node scripts/clean-test-tmp.mjs` to preview stale `sbox-*`/`aps-*` temp dirs older than
+an hour, and add `--apply` to delete them.
 
 `npm run lint` runs ESLint 10 over `src/**/*.{ts,tsx}` from one flat config
 (`eslint.config.mjs`) in both workspaces, with the classic React hook rules for the SPA,

@@ -339,7 +339,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 846 vitest cases, all passing: 647 server across 43 files and 199 web across 24 files,
+- 849 vitest cases, all passing: 650 server across 44 files and 199 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

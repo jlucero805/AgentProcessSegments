@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import {
   blankPathEnvNames,
@@ -11,7 +11,7 @@ import {
 } from '../src/config.js';
 
 function workspace() {
-  const base = mkdtempSync(path.join(os.tmpdir(), 'aps-config-'));
+  const base = tmpDir('config');
   const home = path.join(base, 'home');
   mkdirSync(home, { recursive: true });
   return { base, home };

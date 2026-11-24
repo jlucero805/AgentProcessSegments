@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
@@ -473,7 +472,7 @@ describe('usage repository', () => {
     const beforeRequest = h.usage.query({ requestId: request.id });
     expect(before.coverage.rolledThrough).toBeNull();
 
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-usage-rollup-'));
+    const dir = tmpDir('usage-rollup');
     const store = new SettingsStore(path.join(dir, 'config.json'));
     store.patch({ usage: { retentionDays: 1 } });
     const retention = new UsageRetention({

@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
@@ -72,7 +71,7 @@ function setup(
   generateImpl?: (cellId: string) => Promise<Summary>,
   spendCap?: (cellId: string) => SpendPause | null,
 ): Fixture {
-  const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-summary-scan-'));
+  const base = tmpDir('summary-scan');
   const db = openDb(path.join(base, 'db.sqlite'));
   const cells = new CellRepository(db);
   const summaries = new SummaryRepository(db);

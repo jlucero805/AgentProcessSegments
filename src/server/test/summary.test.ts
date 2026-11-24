@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { MasterEventRepository } from '../src/master/events.js';
@@ -271,7 +270,7 @@ describe('summary stats', () => {
 
 describe('SummaryService', () => {
   function setup(script: (text: string) => string[]) {
-    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-summary-'));
+    const base = tmpDir('summary');
     const harness = createHarness(script, () => ({ model: 'cell-model', effort: 'high' }));
     open = harness;
     const events = new MasterEventRepository(harness.db);

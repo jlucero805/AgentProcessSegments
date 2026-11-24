@@ -1,6 +1,6 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import { ClaudeHarness } from '../src/clarify/harnesses/claude.js';
@@ -18,7 +18,7 @@ import {
 import { loadConfig } from '../src/config.js';
 
 function workspace() {
-  const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-harness-'));
+  const base = tmpDir('harness');
   const home = path.join(base, 'home');
   const cwd = path.join(base, 'repo');
   const dir = path.join(base, 'request');

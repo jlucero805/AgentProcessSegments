@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../src/db.js';
 import { SettingsStore } from '../src/settings.js';
@@ -12,7 +11,7 @@ const NOW = Date.UTC(2026, 0, 31, 12);
 const CUTOFF = Date.UTC(2025, 10, 2);
 
 function makeStore(days = 90): SettingsStore {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-usage-retention-'));
+  const dir = tmpDir('usage-retention');
   const store = new SettingsStore(path.join(dir, 'config.json'));
   store.patch({ usage: { retentionDays: days } });
   return store;

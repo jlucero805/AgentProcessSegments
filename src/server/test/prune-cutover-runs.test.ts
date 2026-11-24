@@ -3,15 +3,14 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 
 const script = fileURLToPath(new URL('../../../scripts/prune-cutover-runs.mjs', import.meta.url));
@@ -22,7 +21,7 @@ interface Workspace {
 }
 
 function workspace(): Workspace {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-prune-cutover-'));
+  const root = tmpDir('prune-cutover');
   const runs = path.join(root, 'runs');
   mkdirSync(runs, { recursive: true });
   return { root, runs };
@@ -202,7 +201,7 @@ describe('prune-cutover-runs script', () => {
       expect(result.stderr).toContain('Usage: node scripts/prune-cutover-runs.mjs');
     }
 
-    const missing = path.join(os.tmpdir(), `aps-prune-missing-${process.pid}-${Date.now()}`);
+    const missing = path.join(tmpDir('prune-missing'), 'absent');
     const result = spawnSync(process.execPath, [script, '--root', missing], { encoding: 'utf8' });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('nothing to prune');

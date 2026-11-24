@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, SettingsStore } from '../src/settings.js';
 
 function tempFile(name = 'config.json'): string {
-  return path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-settings-')), name);
+  return path.join(tmpDir('settings'), name);
 }
 
 /** Distinct, valid, non-default values for every settings unit. */

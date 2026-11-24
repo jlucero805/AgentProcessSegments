@@ -3,13 +3,12 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpDir } from './tmp.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { legacyPathWarning, loadConfig } from '../src/config.js';
@@ -22,7 +21,7 @@ interface RunOptions {
 }
 
 function workspace() {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-migrate-'));
+  const root = tmpDir('migrate');
   const home = path.join(root, 'home');
   const cwd = path.join(root, 'repo');
   const configHome = path.join(root, 'config');

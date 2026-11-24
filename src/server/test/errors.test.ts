@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import { ErrorLogger } from '../src/logging/errors.js';
 
 function tempPath(name = 'errors.log'): string {
-  return path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-errors-')), name);
+  return path.join(tmpDir('errors'), name);
 }
 
 function records(file: string): Array<Record<string, unknown>> {

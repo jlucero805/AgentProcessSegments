@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import { isAllowedSource, PluginError, PluginManager, toSlug } from '../src/plugins/manager.js';
 
@@ -14,7 +14,7 @@ function tree(dir: string, files: Record<string, string>): void {
 }
 
 function makeRepo(files: Record<string, string>): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-plugin-'));
+  const dir = tmpDir('plugin');
   tree(dir, files);
   execFileSync('git', ['init', '-q'], { cwd: dir });
   execFileSync('git', ['add', '-A'], { cwd: dir });
@@ -46,7 +46,7 @@ function pluginFixture(): Record<string, string> {
 }
 
 function manager(): PluginManager {
-  return new PluginManager(path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-plugins-')), 'plugins'));
+  return new PluginManager(path.join(tmpDir('plugins'), 'plugins'));
 }
 
 describe('plugin manager', () => {

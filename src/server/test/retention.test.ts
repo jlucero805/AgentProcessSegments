@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../src/db.js';
 import { DataRetention } from '../src/retention/service.js';
@@ -10,7 +9,7 @@ const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 0, 31, 12);
 
 function makeStore(days = 90, summaryDays = 90): SettingsStore {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-activity-retention-'));
+  const dir = tmpDir('activity-retention');
   const store = new SettingsStore(path.join(dir, 'config.json'));
   store.patch({
     retention: { masterEventsDays: days, cellSummariesDays: summaryDays },

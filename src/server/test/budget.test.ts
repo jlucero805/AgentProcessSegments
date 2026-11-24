@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb } from '../src/db.js';
@@ -65,7 +64,7 @@ class FakeUsageSource {
 }
 
 function makeStore(): SettingsStore {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-budget-'));
+  const dir = tmpDir('budget');
   return new SettingsStore(path.join(dir, 'config.json'));
 }
 

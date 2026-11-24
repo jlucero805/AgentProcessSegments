@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import type { Engine, LiveTurn } from '../src/clarify/engine.js';
@@ -41,7 +40,7 @@ function setup(
   spendCap?: (cellId: string) => SpendPause | null,
   errors?: ErrorSink,
 ): Fixture {
-  const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-master-'));
+  const base = tmpDir('master');
   const db = openDb(path.join(base, 'db.sqlite'));
   const repo = new RequestRepository(db);
   const cells = new CellRepository(db);
@@ -814,7 +813,7 @@ describe('MasterScheduler', () => {
   it('runs a cell on its own interval and stops when disabled', async () => {
     vi.useFakeTimers();
     try {
-      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const base = tmpDir('sched');
       const settings = new SettingsStore(path.join(base, 'config.json'));
       settings.patch({ master: { enabled: true } });
       const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
@@ -855,7 +854,7 @@ describe('MasterScheduler', () => {
   it('reports a scheduler cycle rejection', async () => {
     vi.useFakeTimers();
     try {
-      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-error-'));
+      const base = tmpDir('sched-error');
       const settings = new SettingsStore(path.join(base, 'config.json'));
       settings.patch({ master: { enabled: true } });
       const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
@@ -891,7 +890,7 @@ describe('MasterScheduler', () => {
   it('skips a tick while a cell run is still in flight', async () => {
     vi.useFakeTimers();
     try {
-      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+      const base = tmpDir('sched');
       const settings = new SettingsStore(path.join(base, 'config.json'));
       const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
       const cell = cells.create('Alpha', null, 2);
@@ -946,7 +945,7 @@ describe('MasterScheduler', () => {
     vi.useFakeTimers();
     try {
       const settings = new SettingsStore(
-        path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-')), 'config.json'),
+        path.join(tmpDir('sched'), 'config.json'),
       );
       const runCell = vi.fn(async () => emptyResult());
       const scheduler = new MasterScheduler(
@@ -1103,7 +1102,7 @@ describe('MasterScheduler', () => {
   });
 
   it('coalesces concurrent run-now calls for one cell', async () => {
-    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-'));
+    const base = tmpDir('sched');
     const settings = new SettingsStore(path.join(base, 'config.json'));
     const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
     const cell = cells.create('Alpha');

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import {
   createHarness,
   defaultScript,
@@ -72,7 +72,7 @@ function freshWithTurnFailures(
 
 /** A real repo, since the engine only creates worktrees for a real checkout. */
 function gitRepo(): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'aps-engine-git-'));
+  const dir = tmpDir('engine-git');
   execFileSync('git', ['init', '-q'], { cwd: dir });
   execFileSync(
     'git',

@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import { SkillCatalog } from '../src/skills/catalog.js';
 
@@ -11,7 +11,7 @@ function writeSkill(file: string, description: string): void {
 
 describe('SkillCatalog', () => {
   it('discovers global, compatibility, and project skills with project precedence', () => {
-    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-skills-'));
+    const base = tmpDir('skills');
     const home = path.join(base, 'home');
     const cwd = path.join(base, 'project');
     writeSkill(
@@ -43,7 +43,7 @@ describe('SkillCatalog', () => {
   });
 
   it('returns an empty list when no skill roots exist', () => {
-    const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-skills-empty-'));
+    const base = tmpDir('skills-empty');
     const catalog = new SkillCatalog({ home: base, cwd: base, env: {} });
     expect(catalog.list()).toEqual([]);
   });

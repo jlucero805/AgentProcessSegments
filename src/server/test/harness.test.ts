@@ -4,7 +4,7 @@ import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import type { HarnessSession } from '../src/clarify/harness.js';
-import { ClaudeHarness } from '../src/clarify/harnesses/claude.js';
+import { ClaudeHarness, claudeUserMcpServers } from '../src/clarify/harnesses/claude.js';
 import {
   OpencodeHarness,
   OpencodeProcess,
@@ -180,6 +180,79 @@ describe('ClaudeHarness', () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain(projectFile);
+  });
+
+  it('prefers local scope over project scope for a same-named server', () => {
+    const { home, cwd } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    writeFileSync(
+      userFile,
+      JSON.stringify({
+        mcpServers: {
+          shared: { command: 'user-shared' },
+          'user-only': { command: 'user-only' },
+        },
+        projects: {
+          [cwd]: { mcpServers: { shared: { command: 'local-shared' } } },
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(cwd, '.mcp.json'),
+      JSON.stringify({ mcpServers: { shared: { command: 'project-shared' } } }),
+    );
+
+    const loaded = claudeUserMcpServers(home, cwd);
+
+    expect(loaded.servers['shared']).toEqual({ command: 'local-shared' });
+    expect(loaded.sources.get('shared')).toBe(userFile);
+    expect(loaded.servers['user-only']).toEqual({ command: 'user-only' });
+  });
+
+  it('prefers project scope over user scope for a same-named server', () => {
+    const { home, cwd } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    writeFileSync(
+      userFile,
+      JSON.stringify({ mcpServers: { shared: { command: 'user-shared' } } }),
+    );
+    const projectFile = path.join(cwd, '.mcp.json');
+    writeFileSync(
+      projectFile,
+      JSON.stringify({ mcpServers: { shared: { command: 'project-shared' } } }),
+    );
+
+    const loaded = claudeUserMcpServers(home, cwd);
+
+    expect(loaded.servers['shared']).toEqual({ command: 'project-shared' });
+    expect(loaded.sources.get('shared')).toBe(projectFile);
+  });
+
+  it('names the winning local file when a local aps entry beats the project one', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    writeFileSync(
+      userFile,
+      JSON.stringify({
+        projects: { [cwd]: { mcpServers: { aps: { command: 'local-aps' } } } },
+      }),
+    );
+    const projectFile = path.join(cwd, '.mcp.json');
+    writeFileSync(
+      projectFile,
+      JSON.stringify({ mcpServers: { aps: { command: 'project-aps' } } }),
+    );
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home);
+
+    await harness.prepare(requestSession(dir, cwd));
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    expect(config.mcpServers.aps.command).toBe(process.execPath);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('aps');
+    expect(warn.mock.calls[0]?.[0]).toContain(userFile);
+    expect(warn.mock.calls[0]?.[0]).not.toContain(projectFile);
   });
 
   it('warns only once per config file across turns', async () => {

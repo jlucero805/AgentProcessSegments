@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 783 vitest cases: 595 server across 41 files and 188 web across 24 files, all green.
+- 784 vitest cases: 596 server across 42 files and 188 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -91,7 +91,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 595 server + 188 web, plus the e2e env guard
+npm test                       # 596 server + 188 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -119,7 +119,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   React's production build and fail every render with `act(...) is not supported in
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
-  `NODE_ENV=production npm test --workspace src/web`.
+  `NODE_ENV=production npm test --workspace src/web`, which `deploy/ci-workflow.yml`
+  runs as its own step.
 - **Every JavaScript proof script's child env is hermetic.** `scripts/e2e/env.mjs` is the shared
   builder: `scrubEnv` drops every inherited `APS_*`, `SBOX_*`, `ANTHROPIC_*`, `CLAUDE_*`,
   and `OPENAI_*` variable, then `buildPinnedEnv` applies validated pins so a pin always
@@ -466,7 +467,8 @@ by mutating the global file.
 ## Next units, in order
 
 1. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
-   it with a token that has the `workflow` scope.
+   it with a token that has the `workflow` scope. Keep the production-env web-test leg
+   when publishing.
 2. **Optional chaining.** A segment can advance a request but the next segment waits for
    its idle window; add a `chain` flag only if operators want same-cycle handoff.
 3. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic

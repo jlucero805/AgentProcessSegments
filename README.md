@@ -455,7 +455,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 783 vitest cases: 595 server cases (state machine, migrations including
+`npm test` runs 784 vitest cases: 596 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -526,6 +526,7 @@ is absent.
 It needs `npm run build` first and skips when Puppeteer is absent.
 
 CI (`deploy/ci-workflow.yml`) runs lint, typecheck, the full test suite, the build, the
-E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. Copy it to
-`.github/workflows/ci.yml` with a credential that has the `workflow` scope to activate
-it.
+E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also
+re-runs the web suite with `NODE_ENV=production`, exercising the inherited-production
+React-resolution path. Copy it to `.github/workflows/ci.yml` with a credential that has
+the `workflow` scope to activate it.

@@ -1387,19 +1387,23 @@ The override suppresses admission and the in-flight stop only. `status.paused`,
 unchanged; statuses gain `overrideId` and `overrideExpiresAt`, and `GET /api/budgets`
 returns active `overrides` so the UI can keep the cap visible while new work is allowed.
 `POST /api/budgets/overrides` creates or extends; `DELETE /api/budgets/overrides/:id`
-revokes idempotently. Admission checks the overall override before the overall pause and
-then the cell override, and `SpendCapEnforcer` therefore leaves covered live turns running
-on its next check. A failed override read still fails open and is reported to
+revokes idempotently. Revoking re-runs evaluation immediately, so the enforcer stops live
+turns in a scope that is still over its cap; expiry is observed at the next evaluation
+(within 60 seconds) because there is no per-override timer. Admission checks the overall
+override before the overall pause and then the cell override, and `SpendCapEnforcer`
+therefore leaves covered live turns running on its next check. A failed override read
+still fails open and is reported to
 `usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching delivery
 history. Policy edits and cell deletion do not rewrite or revoke override rows; an inert
 row simply expires.
 
 **Cost.** One additive table and two routes, plus one shared SPA control. Turns already
 stopped by a cap stay stopped, and a live turn keeps running while the override is active;
-there are still no spend reservations or automatic replay. There is no operator identity or
-approval workflow; the optional note is the only context recorded. A history/audit view,
-notification when an override is granted or expires, and per-request overrides remain
-separate work.
+ending the override stops covered live turns at once, while an expiry is noticed by the
+next evaluation. There are still no spend reservations or automatic replay. There is no
+operator identity or approval workflow; the optional note is the only context recorded. A
+history/audit view, notification when an override is granted or expires, and per-request
+overrides remain separate work.
 
 ## D69. Blank path overrides are ignored, with a startup warning
 

@@ -319,10 +319,16 @@ export class BudgetService {
     return { override: this.toOverride(record), created };
   }
 
-  /** Revoke an override early; an already-revoked row is returned unchanged. */
+  /**
+   * Revoke an override early; an already-revoked row is returned unchanged.
+   * A revoke is a policy edit: re-evaluate immediately so the enforcer stops
+   * live turns in a scope that is still over its cap (D65/D68).
+   */
   revokeOverride(id: string, now = this.clock()): SpendCapOverride | null {
     const record = this.overrides.revoke(id, now);
-    return record ? this.toOverride(record) : null;
+    if (!record) return null;
+    this.evaluate(now);
+    return this.toOverride(record);
   }
 
   private withOverride(

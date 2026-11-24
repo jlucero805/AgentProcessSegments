@@ -245,7 +245,9 @@ built and vended by the brain; real-CLI verification is still pending.
   saves the partial transcript with a `⏸` line, emits `paused` before `done`, keeps the
   harness session for a later resume, and records harness-reported usage. A snooze
   suppresses admission and the in-flight stop for its scope without changing the budget,
-  pause reason, or alerts. Master/summary schedulers skip paused cells without backoff; a
+  pause reason, or alerts. Revoking a snooze re-evaluates immediately, so the cap refuses
+  new turns and stops live turns at once; an expiry is enforced by the next evaluation
+  (within 60 seconds). Master/summary schedulers skip paused cells without backoff; a
   stopped summary is not a failure.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
@@ -333,7 +335,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 811 vitest cases, all passing: 614 server across 43 files and 197 web across 24 files,
+- 829 vitest cases, all passing: 630 server across 43 files and 199 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -417,8 +419,8 @@ built and vended by the brain; real-CLI verification is still pending.
 - Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
   per-turn applied-price audit). Advisory budget alerts, webhook/email/chat delivery,
   effective-dated estimates, daily usage rollups, and hard-cap cancellation are built.
-- A hard-cap operator override/snooze and automatic replay of a cap-stopped prompt.
-  Admission, in-flight cancellation, and strict unknown-cost enforcement are built.
+- Automatic replay of a cap-stopped prompt. Admission, in-flight cancellation, strict
+  unknown-cost enforcement, and time-boxed operator snoozes are built.
 - Fan-out to multiple Slack/Discord destinations per scope, per-scope routing for the
   webhook/email channels, interactive acknowledgement, summary-failure events, and
   configurable event coalescing windows. Webhook, email, and native Slack/Discord bot

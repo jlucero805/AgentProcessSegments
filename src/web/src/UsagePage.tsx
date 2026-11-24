@@ -19,7 +19,7 @@ import type {
   UsageResponse,
   UsageTotals,
 } from './types';
-import { SpendOverrideControl } from './SpendOverrideControl';
+import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideControl';
 import type { BudgetFeed } from './useBudgets';
 import { USAGE_BUCKET_MS } from './types';
 
@@ -164,7 +164,11 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-xs text-zinc-300">{status.label}</span>
                 <div className="flex items-center gap-2">
-                  {status.paused ? <Badge tone="red">paused</Badge> : null}
+                  {status.paused ? (
+                    <Badge tone={status.overrideId ? 'amber' : 'red'}>
+                      {status.overrideId ? 'snoozed' : 'paused'}
+                    </Badge>
+                  ) : null}
                   <Badge tone={budgetTone(status)}>{status.state}</Badge>
                 </div>
               </div>
@@ -200,13 +204,18 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
                 </>
               )}
               {status.paused ? (
-                <p className="text-[11px] text-red-300">
+                <p
+                  className={
+                    status.overrideId ? 'text-[11px] text-amber-300' : 'text-[11px] text-red-300'
+                  }
+                >
                   {status.pauseReason === 'unknown_cost' ? (
                     status.overrideId ? (
                       <>
                         Cost is unknown: {status.unpricedTurns} unpriced turn
                         {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified;
-                        an override is admitting new work.
+                        an override is admitting new work until{' '}
+                        {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
                       </>
                     ) : (
                       <>
@@ -218,7 +227,8 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
                     )
                   ) : status.overrideId ? (
                     <>
-                      Cap reached; an override is admitting new work at{' '}
+                      Cap reached; an override is admitting new work until{' '}
+                      {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)} at{' '}
                       {moneyLabel(status.capSpendUsd)} cap spend
                       {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
                     </>

@@ -238,3 +238,6 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **48. Time-boxed spend-cap overrides** — durable `spend_cap_overrides` table,
   grant/extend/revoke API, overall-and-cell admission precedence, override expiry in the
   banner/Config/Usage status rows, tests and docs.
+- [x] **49. Spend-cap override enforcement parity** — revoking a snooze re-runs budget
+  evaluation so covered live turns stop immediately, override-aware Config/Usage copy and
+  `snoozed` badges, stale “not built” doc fixes, tests and docs.

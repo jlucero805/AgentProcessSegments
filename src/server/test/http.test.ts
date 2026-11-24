@@ -680,6 +680,58 @@ describe('http api', () => {
     );
   });
 
+  it('stops a live turn when its spend-cap override is revoked', async () => {
+    await makeApp({}, () => []);
+    const cell = await call('POST', '/api/cells', {
+      name: 'Snoozed',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    const request = await call('POST', '/api/requests', { title: 'Live', cellId });
+    const requestId = (request.json() as { id: string }).id;
+    open?.h.usage.record({
+      turnId: 'snooze-spend',
+      sessionId: 'snooze-session',
+      scope: 'request',
+      cellId,
+      requestId,
+      model: null,
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 2,
+      createdAt: Date.now(),
+    });
+
+    const granted = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 60,
+    });
+    expect(granted.status).toBe(201);
+    const overrideId = (granted.json() as { override: { id: string } }).override.id;
+
+    const turn = await open!.h.engine.send(requestId, 'work');
+    await settle();
+    const proc = open!.h.harness.process;
+
+    const revoked = await call('DELETE', `/api/budgets/overrides/${overrideId}`);
+    expect(revoked.status).toBe(200);
+    await turn.promise;
+    await settle();
+
+    expect(turn.stoppedBy).toMatchObject({ scope: 'cell', cellId });
+    expect(proc?.killed).toBe(true);
+    expect(open!.h.repo.require(requestId).agentStatus).toBe('idle');
+    expect(open!.h.engine.transcript(requestId).some((message) => message.text.startsWith('⏸'))).toBe(
+      true,
+    );
+  });
+
   it('refuses a new turn with an unknown-cost reason when the cap is strict', async () => {
     await makeApp();
     const cell = await call('POST', '/api/cells', {

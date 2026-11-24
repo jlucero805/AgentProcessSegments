@@ -537,7 +537,11 @@ SQLite, and fails if any round trip or persisted value does not match.
 `node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
 probed model catalog. It runs with a hermetic child env and pins the legacy `SBOX_*`
-aliases on purpose. It skips when no `claude` binary is available.
+aliases on purpose. It resolves the binary from `--claude-bin`, `APS_CLAUDE_BIN`,
+`SBOX_CLAUDE_BIN`, then `PATH`; a candidate must be an executable file whose `--version`
+says "Claude Code". An invalid `--claude-bin` fails the run, while an invalid inherited
+value is reported and skipped, as is a host with no qualifying binary. Point it at a
+cached binary with `node scripts/claude-mock-smoke.mjs --claude-bin /path/to/claude`.
 
 `npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →

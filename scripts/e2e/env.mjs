@@ -131,8 +131,7 @@ export function buildClaudeSmokePins({
 }) {
   const builder = 'buildClaudeSmokePins';
   requireAbsolutePath('root', root, builder);
-  // A bare `claude` is allowed: findBinary() may resolve one from PATH.
-  requireString('claude', claude, builder);
+  requireAbsolutePath('claude', claude, builder);
   requireAbsolutePath('home', home, builder);
   requireAbsolutePath('temp', temp, builder);
   requireAbsolutePath('dbPath', dbPath, builder);

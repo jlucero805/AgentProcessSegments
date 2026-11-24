@@ -425,7 +425,7 @@ test('buildScreenshotPins keeps the staged paths and pins XDG/HOME', () => {
 
 test('proof pin builders reject missing, empty, and relative paths', () => {
   const cases = [
-    ['buildClaudeSmokePins', claudePinsArgs, ['root', 'home', 'temp', 'dbPath', 'dataDir']],
+    ['buildClaudeSmokePins', claudePinsArgs, ['root', 'claude', 'home', 'temp', 'dbPath', 'dataDir']],
     ['buildMcpSmokePins', mcpPinsArgs, ['root', 'work', 'home']],
     ['buildMcpSmokeClientPins', mcpClientPinsArgs, ['home']],
     [

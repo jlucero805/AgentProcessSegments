@@ -1481,3 +1481,30 @@ non-path setting keep their semantics.
 **Cost.** A blank XDG base now runs on the default or legacy location instead of failing
 fast, and the only signal is the startup warning. `HOME` has no such guard; a blank
 `HOME` still makes the fallback bases relative and is separate work.
+
+## D72. The Claude mock smoke validates its binary instead of trusting env
+
+**Context.** `scripts/claude-mock-smoke.mjs` starts its brain through the shared
+scrub-then-pin builder (D56), so inherited `APS_*`/`SBOX_*` settings cannot change the
+brain. Its own binary selection was still unchecked: `findBinary()` returned an inherited
+`APS_CLAUDE_BIN`/`SBOX_CLAUDE_BIN` verbatim and accepted any PATH entry that `existsSync`
+found. A host sentinel such as `/bin/false` therefore turned the documented skip into a
+misleading turn failure, and a stale path or another CLI would run the Claude proof with
+the wrong program. `AGENTS.md` documents `APS_CLAUDE_BIN` as the way to supply a cached
+binary, so dropping it was not an option.
+
+**Decision.** Resolution order is `--claude-bin`, `APS_CLAUDE_BIN`, `SBOX_CLAUDE_BIN`,
+then `PATH`. Every candidate is resolved to an absolute path and must be a regular
+executable file whose `--version` output mentions "Claude Code" within a 5 s probe. The
+first present source wins: an invalid `--claude-bin` fails the run (exit 1), while an
+invalid inherited value prints one line naming the variable and path and skips (exit 0),
+which is the existing no-binary behavior. A failing PATH candidate is skipped and the scan
+continues. `buildClaudeSmokePins` now requires an absolute binary path. The resolver lives
+in `scripts/e2e/claude-bin.mjs` with injected filesystem and probe functions, so its tests
+never spawn a CLI.
+
+**Cost.** A future Claude Code release whose `--version` stops mentioning "Claude Code"
+would be skipped instead of run; the matcher is isolated in `probeClaudeVersion` so
+widening it is a one-line change plus a test. An operator who exports a stale
+`APS_CLAUDE_BIN` now gets a skip with a named warning instead of a confusing failure,
+which is louder in the log but still exit 0.

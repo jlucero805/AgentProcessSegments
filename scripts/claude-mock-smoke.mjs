@@ -2,40 +2,87 @@
 // Real-Claude verification without an Anthropic account.
 //
 // Starts a mock Anthropic Messages API that streams a tool_use for
-// `mcp__aps__get_request`, then a text result. The built brain runs with
-// APS_HARNESS=claude (and the legacy SBOX_HARNESS alias) and the real `claude`
-// binary, so this exercises the CLI's stream-json contract, merged MCP
-// config/allow rules, tool execution through the bundled `aps` MCP server, and
-// `--resume` across a brain restart.
+// `mcp__aps__get_request`, then a text result. The built brain is started with
+// the legacy `SBOX_HARNESS=claude` / `SBOX_CLAUDE_BIN` pins (deliberately
+// proving the alias path) and the real `claude` binary, so this exercises the
+// CLI's stream-json contract, merged MCP config/allow rules, tool execution
+// through the bundled `aps` MCP server, and `--resume` across a brain restart.
 //
-// Skips (exit 0) when no `claude` binary is available. Set APS_CLAUDE_BIN (or the
-// legacy SBOX_CLAUDE_BIN) to point at one; otherwise `claude` must be on PATH.
+// The binary comes from `--claude-bin`, then APS_CLAUDE_BIN, then
+// SBOX_CLAUDE_BIN, then PATH. A candidate must be an executable file whose
+// `--version` says "Claude Code": an invalid `--claude-bin` fails the run, an
+// inherited value that does not qualify is skipped with a note (exit 0), and no
+// candidate at all is the ordinary skip.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveClaudeBinary } from './e2e/claude-bin.mjs';
 import { buildClaudeSmokePins, buildPinnedEnv } from './e2e/env.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 
-function findBinary() {
-  const configured = process.env.APS_CLAUDE_BIN ?? process.env.SBOX_CLAUDE_BIN;
-  if (configured) return configured;
-  for (const dir of (process.env.PATH ?? '').split(':')) {
-    const candidate = path.join(dir, 'claude');
-    if (dir && existsSync(candidate)) return candidate;
-  }
-  return null;
+function usage() {
+  console.log(`Usage: node scripts/claude-mock-smoke.mjs [--claude-bin <path>] [--help]
+
+Verifies the real Claude Code binary against a local mock Anthropic API.
+Resolves the binary from --claude-bin, APS_CLAUDE_BIN, SBOX_CLAUDE_BIN, then PATH.
+A candidate must be an executable file whose --version mentions "Claude Code".
+An invalid --claude-bin fails the run; an invalid inherited value is skipped.`);
 }
 
-const claude = findBinary();
-if (!claude) {
-  console.log('claude not found (set APS_CLAUDE_BIN); skipping Claude mock smoke');
+function parseArgs(argv) {
+  let claudeBin;
+  let help = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--help' || arg === '-h') {
+      help = true;
+    } else if (arg === '--claude-bin') {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        console.error('claude-mock-smoke: --claude-bin needs a value');
+        process.exit(2);
+      }
+      claudeBin = value;
+      index += 1;
+    } else if (arg.startsWith('--claude-bin=')) {
+      claudeBin = arg.slice('--claude-bin='.length);
+    } else {
+      console.error(`claude-mock-smoke: unknown argument: ${arg}`);
+      process.exit(2);
+    }
+  }
+  return { claudeBin, help };
+}
+
+const { claudeBin, help } = parseArgs(process.argv.slice(2));
+if (help) {
+  usage();
   process.exit(0);
 }
+
+const resolved = resolveClaudeBinary({
+  flag: claudeBin,
+  env: process.env,
+  cwd: process.cwd(),
+  pathDirs: (process.env.PATH ?? '').split(path.delimiter),
+});
+if (resolved.status === 'skip') {
+  const line = `${resolved.reason}; skipping Claude mock smoke`;
+  // A rejected inherited setting is a warning; having no binary at all is normal.
+  if (resolved.source === 'none') console.log(line);
+  else console.error(line);
+  process.exit(0);
+}
+if (resolved.status === 'error') {
+  console.error(`claude mock smoke: ${resolved.reason}`);
+  process.exit(1);
+}
+const claude = resolved.bin;
 
 function freePort() {
   return new Promise((resolve, reject) => {

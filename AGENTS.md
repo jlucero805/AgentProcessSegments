@@ -159,7 +159,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **App settings are not env config.** Scheduler policy lives in
   `$XDG_CONFIG_HOME/agent-process-segments/config.json` (`APS_CONFIG`), and process segments
   live in `process.json` (`APS_PROCESS`). Both are zod-validated and written atomically.
-  Invalid files fall back to defaults until saved; env still owns paths, ports, and the
+  Each settings block and notification channel validates on its own: one invalid unit
+  falls back to that unit's defaults, is reported as `settings.invalid` with its `block`
+  name, and leaves every other block intact; only an unreadable or non-JSON file falls
+  back to all defaults. Loading never writes. Env still owns paths, ports, and the
   harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty

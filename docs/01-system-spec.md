@@ -108,6 +108,11 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
     non-blank relative or spaced paths are used verbatim.
 - **Run:** `node src/server/dist/app.js` with `APS_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
+- **App settings file** (`config.json`): each settings block and notification channel
+  validates independently. One invalid unit falls back to that unit's defaults and is
+  reported as `settings.invalid` with its `block` name, while every other block loads
+  intact; an unreadable or non-JSON file falls back to all defaults. Loading never
+  writes the file; only a successful patch persists.
 
 ---
 

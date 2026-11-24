@@ -286,3 +286,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 
 All of this is single-operator: there is no auth, and the brain binds loopback. Put a
 tunnel or SSO proxy in front for remote access (see `deploy/vps.md`).
+
+A single invalid block in `config.json` does not reset the rest: that block (or, under
+`notifications`, that channel) falls back to its defaults and is reported in the error
+log with the block name, while other blocks — including webhook URLs and secrets — load
+unchanged. An unreadable or non-JSON file falls back to all defaults.

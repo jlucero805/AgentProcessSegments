@@ -227,3 +227,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   reported-plus-estimated cap spend, engine admission before turn side effects,
   scheduler skips, `409 spend_cap`, pause banner/status, persisted budget reload fix,
   tests and docs.
+- [x] **46. Time-boxed spend-cap overrides** — durable `spend_cap_overrides` table,
+  grant/extend/revoke API, overall-and-cell admission precedence, override expiry in the
+  banner/Config/Usage status rows, tests and docs.

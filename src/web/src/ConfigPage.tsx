@@ -3,6 +3,7 @@ import { api, describeError } from './api';
 import { ACTION_TONES, eventDetail } from './masterView';
 import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
+import { SpendOverrideControl } from './SpendOverrideControl';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_NOTIFICATIONS,
@@ -527,6 +528,33 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setRequestArtifactsSaving(false);
+    }
+  }
+
+  const reloadBudgetView = useCallback(async () => {
+    const next = await api.getBudgets().catch(() => null);
+    setBudgetView(next && Array.isArray(next.statuses) ? next : null);
+  }, []);
+
+  async function snoozeBudget(status: BudgetStatus, minutes: number) {
+    try {
+      await api.grantBudgetOverride({
+        scope: status.scope,
+        ...(status.cellId === null ? {} : { cellId: status.cellId }),
+        minutes,
+      });
+      await reloadBudgetView();
+    } catch (error) {
+      onError(describeError(error));
+    }
+  }
+
+  async function endBudgetOverride(id: string) {
+    try {
+      await api.revokeBudgetOverride(id);
+      await reloadBudgetView();
+    } catch (error) {
+      onError(describeError(error));
     }
   }
 
@@ -1170,6 +1198,21 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                     ) : null}
                   </>
                 )}
+                {status.paused ? (
+                  <SpendOverrideControl
+                    label={
+                      status.scope === 'overall'
+                        ? 'overall spend'
+                        : `${status.cellName ?? 'cell'} spend`
+                    }
+                    paused
+                    overrideId={status.overrideId}
+                    overrideExpiresAt={status.overrideExpiresAt}
+                    periodEnd={status.periodEnd}
+                    onSnooze={(minutes) => snoozeBudget(status, minutes)}
+                    onRevoke={endBudgetOverride}
+                  />
+                ) : null}
               </div>
             ))}
           </div>

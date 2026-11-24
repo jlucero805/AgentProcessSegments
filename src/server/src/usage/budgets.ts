@@ -8,19 +8,36 @@ import {
   spendPause,
   type BudgetAlert,
   type BudgetStatus,
+  type BudgetScope,
   type BudgetsResponse,
+  type SpendCapOverride,
   type SpendPause,
 } from '../domain/budget.js';
 import { BudgetAlertRepository, type BudgetAlertRecord } from './budget-alerts.js';
 import type { UsageRepository } from './repository.js';
+import { SpendCapOverrideError } from './spend-cap.js';
+import {
+  SpendCapOverrideRepository,
+  type SpendCapOverrideRecord,
+} from './spend-cap-overrides.js';
 
 const DEFAULT_INTERVAL_MS = 60_000;
+const OVERRIDE_RETENTION_MS = 400 * 86_400_000;
+
+export interface SpendCapOverrideGrantInput {
+  scope: BudgetScope;
+  cellId: string | null;
+  /** Positive whole minutes; clamped before the end of the UTC period. */
+  minutes: number;
+  note: string | null;
+}
 
 export interface BudgetServiceDeps {
   usage: Pick<UsageRepository, 'totals'>;
   cells: Pick<CellRepository, 'list' | 'get'>;
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
   alerts: BudgetAlertRepository;
+  overrides: SpendCapOverrideRepository;
   errors?: ErrorSink;
   /** Receives the current unacknowledged alerts after reconciliation. */
   onAlerts?: (alerts: BudgetAlert[]) => void;
@@ -38,6 +55,7 @@ export class BudgetService {
   private readonly cells: Pick<CellRepository, 'list' | 'get'>;
   private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
   private readonly alerts: BudgetAlertRepository;
+  private readonly overrides: SpendCapOverrideRepository;
   private readonly errors?: ErrorSink;
   private readonly onAlerts?: (alerts: BudgetAlert[]) => void;
   private readonly clock: () => number;
@@ -51,6 +69,7 @@ export class BudgetService {
     this.cells = options.cells;
     this.settings = options.settings;
     this.alerts = options.alerts;
+    this.overrides = options.overrides;
     this.errors = options.errors;
     this.onAlerts = options.onAlerts;
     this.clock = options.now ?? (() => Date.now());
@@ -82,39 +101,56 @@ export class BudgetService {
     const settings = this.settings.get();
     const cells = this.cells.list();
     const statuses: BudgetStatus[] = [];
+    const active = this.overrides.listActive(period.start, now);
+    const overallOverride =
+      settings.budget.monthlyUsd !== null && settings.budget.pauseOnExceeded
+        ? active.find((record) => record.scope === 'overall') ?? null
+        : null;
 
     if (settings.budget.monthlyUsd !== null) {
       statuses.push(
-        budgetStatus({
-          scope: 'overall',
-          cellId: null,
-          cellName: null,
-          budgetUsd: settings.budget.monthlyUsd,
-          alertAtPercent: settings.budget.alertAtPercent,
-          period,
-          totals: this.usage.totals({ from: period.start, to: period.end }),
-          pauseOnExceeded: settings.budget.pauseOnExceeded,
-        }),
+        this.withOverride(
+          budgetStatus({
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            budgetUsd: settings.budget.monthlyUsd,
+            alertAtPercent: settings.budget.alertAtPercent,
+            period,
+            totals: this.usage.totals({ from: period.start, to: period.end }),
+            pauseOnExceeded: settings.budget.pauseOnExceeded,
+          }),
+          overallOverride,
+          null,
+        ),
       );
     }
 
     for (const cell of cells) {
       if (cell.monthlyBudgetUsd === null) continue;
+      const cellOverride =
+        active.find(
+          (record) => record.scope === 'cell' && record.scopeId === cell.id,
+        ) ?? null;
       statuses.push(
-        budgetStatus({
-          scope: 'cell',
-          cellId: cell.id,
-          cellName: cell.name,
-          budgetUsd: cell.monthlyBudgetUsd,
-          alertAtPercent: settings.budget.alertAtPercent,
-          period,
-          totals: this.usage.totals({
-            from: period.start,
-            to: period.end,
+        this.withOverride(
+          budgetStatus({
+            scope: 'cell',
             cellId: cell.id,
+            cellName: cell.name,
+            budgetUsd: cell.monthlyBudgetUsd,
+            alertAtPercent: settings.budget.alertAtPercent,
+            period,
+            totals: this.usage.totals({
+              from: period.start,
+              to: period.end,
+              cellId: cell.id,
+            }),
+            pauseOnExceeded: cell.pauseOnExceeded,
           }),
-          pauseOnExceeded: cell.pauseOnExceeded,
-        }),
+          overallOverride,
+          cellOverride,
+        ),
       );
     }
 
@@ -135,6 +171,12 @@ export class BudgetService {
         .filter((record) => configured.has(`${record.scope}:${record.scopeId}`))
         .map((record) => this.toAlert(record, cells)),
       pauses: statuses.filter((status) => status.paused).map(spendPause),
+      overrides: active
+        .map((record) => this.toOverride(record))
+        .sort((left, right) => {
+          if (left.scope !== right.scope) return left.scope === 'overall' ? -1 : 1;
+          return (left.cellName ?? '').localeCompare(right.cellName ?? '');
+        }),
     };
   }
 
@@ -148,7 +190,13 @@ export class BudgetService {
 
     try {
       const settings = this.settings.get();
-      if (settings.budget.monthlyUsd !== null && settings.budget.pauseOnExceeded) {
+      const overallHardCap =
+        settings.budget.monthlyUsd !== null && settings.budget.pauseOnExceeded;
+      const overallOverride = overallHardCap
+        ? this.overrides.activeFor('overall', '', period.start, now)
+        : null;
+
+      if (overallHardCap && settings.budget.monthlyUsd !== null) {
         const status = budgetStatus({
           scope: 'overall',
           cellId: null,
@@ -159,7 +207,7 @@ export class BudgetService {
           totals: this.usage.totals({ from: period.start, to: period.end }),
           pauseOnExceeded: true,
         });
-        if (status.paused) return spendPause(status);
+        if (status.paused && !overallOverride) return spendPause(status);
       }
 
       if (cellId !== null) {
@@ -183,7 +231,15 @@ export class BudgetService {
             }),
             pauseOnExceeded: true,
           });
-          if (status.paused) return spendPause(status);
+          if (status.paused) {
+            const cellOverride = this.overrides.activeFor(
+              'cell',
+              cell.id,
+              period.start,
+              now,
+            );
+            if (!overallOverride && !cellOverride) return spendPause(status);
+          }
         }
       }
     } catch (error) {
@@ -196,9 +252,116 @@ export class BudgetService {
     return null;
   }
 
+  /**
+   * Grant or extend a bounded override for one scope. An override only suppresses
+   * admission; it never changes budget status or alerts.
+   */
+  grantOverride(
+    input: SpendCapOverrideGrantInput,
+    now = this.clock(),
+  ): { override: SpendCapOverride; created: boolean } {
+    const period = budgetPeriod(now);
+    const settings = this.settings.get();
+    let scopeId = '';
+
+    if (input.scope === 'overall') {
+      if (
+        settings.budget.monthlyUsd === null ||
+        !settings.budget.pauseOnExceeded
+      ) {
+        throw new SpendCapOverrideError(
+          'cap_not_configured',
+          'the overall budget is not a configured hard cap',
+        );
+      }
+    } else {
+      const cell = input.cellId === null ? null : this.cells.get(input.cellId);
+      const cellLabel = cell?.name ?? input.cellId ?? 'cell';
+      if (
+        !cell ||
+        cell.monthlyBudgetUsd === null ||
+        !cell.pauseOnExceeded
+      ) {
+        throw new SpendCapOverrideError(
+          'cap_not_configured',
+          `${cellLabel} does not have a configured hard cap`,
+        );
+      }
+      scopeId = cell.id;
+    }
+
+    const expiresAt = Math.min(now + input.minutes * 60_000, period.end - 1);
+    if (expiresAt <= now) {
+      throw new SpendCapOverrideError(
+        'period_ending',
+        'the current budget period is ending; the override would expire immediately',
+      );
+    }
+
+    const { record, created } = this.overrides.grant(
+      {
+        scope: input.scope,
+        scopeId,
+        periodStart: period.start,
+        expiresAt,
+        note: input.note,
+      },
+      now,
+    );
+    return { override: this.toOverride(record), created };
+  }
+
+  /** Revoke an override early; an already-revoked row is returned unchanged. */
+  revokeOverride(id: string, now = this.clock()): SpendCapOverride | null {
+    const record = this.overrides.revoke(id, now);
+    return record ? this.toOverride(record) : null;
+  }
+
+  private withOverride(
+    status: BudgetStatus,
+    overall: SpendCapOverrideRecord | null,
+    cell: SpendCapOverrideRecord | null,
+  ): BudgetStatus {
+    const own = status.scope === 'overall' ? overall : cell;
+    const covering =
+      own === null
+        ? overall
+        : overall === null
+          ? own
+          : overall.expiresAt >= own.expiresAt
+            ? overall
+            : own;
+    return {
+      ...status,
+      overrideId: covering?.id ?? null,
+      overrideExpiresAt: covering?.expiresAt ?? null,
+    };
+  }
+
+  private toOverride(record: SpendCapOverrideRecord): SpendCapOverride {
+    const cellId = record.scope === 'cell' ? record.scopeId : null;
+    return {
+      id: record.id,
+      scope: record.scope,
+      cellId,
+      cellName: cellId ? this.cells.get(cellId)?.name ?? 'Deleted cell' : null,
+      periodStart: record.periodStart,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      expiresAt: record.expiresAt,
+      note: record.note,
+      revokedAt: record.revokedAt,
+    };
+  }
+
   /** Refresh alert rows for the current month. Never throws. */
   evaluate(now = this.clock()): void {
     let periodStart = budgetPeriod(now).start;
+    try {
+      this.overrides.pruneBefore(budgetPeriod(now - OVERRIDE_RETENTION_MS).start);
+    } catch (error) {
+      this.errors?.error('usage.budgets', error, { phase: 'override-prune' });
+    }
     try {
       const response = this.statuses(now);
       periodStart = response.periodStart;

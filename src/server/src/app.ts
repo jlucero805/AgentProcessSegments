@@ -30,6 +30,7 @@ import { BudgetAlertRepository } from './usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from './usage/budget-deliveries.js';
 import { BudgetNotifier } from './usage/budget-notifier.js';
 import { BudgetService } from './usage/budgets.js';
+import { SpendCapOverrideRepository } from './usage/spend-cap-overrides.js';
 import { UsageRepository } from './usage/repository.js';
 import { UsageRetention } from './usage/retention.js';
 
@@ -71,6 +72,7 @@ export async function main(): Promise<void> {
       cells,
       settings,
       alerts: budgetAlerts,
+      overrides: new SpendCapOverrideRepository(db),
       errors,
       onAlerts: (alerts) => notifications.observe(alerts),
     });

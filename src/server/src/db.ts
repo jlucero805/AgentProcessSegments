@@ -150,6 +150,18 @@ CREATE TABLE IF NOT EXISTS budget_alerts (
 
 ${BUDGET_DELIVERIES_DDL};
 
+CREATE TABLE IF NOT EXISTS spend_cap_overrides (
+  id           TEXT PRIMARY KEY,
+  scope        TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+  scope_id     TEXT NOT NULL,
+  period_start INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  note         TEXT,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  revoked_at   INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS model_pricing (
   id                       TEXT PRIMARY KEY,
   model                    TEXT NOT NULL,
@@ -275,6 +287,15 @@ export function migrate(db: Db): void {
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_budget_alert_deliveries_due
        ON budget_alert_deliveries(status, next_attempt_at)`,
+  );
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_spend_cap_overrides_active
+       ON spend_cap_overrides(scope, scope_id, period_start)
+       WHERE revoked_at IS NULL`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_spend_cap_overrides_period
+       ON spend_cap_overrides(period_start, expires_at)`,
   );
   db.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_model_effective ON model_pricing(model, effective_from)',

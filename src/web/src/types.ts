@@ -61,6 +61,7 @@ export type {
   EmailView,
   NotificationsSettings,
   NotificationsView,
+  SpendCapOverride,
   SpendPause,
   WebhookFormat,
   WebhookPatch,

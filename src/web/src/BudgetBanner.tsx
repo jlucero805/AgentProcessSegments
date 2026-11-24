@@ -1,4 +1,10 @@
-import { budgetAlertText, type BudgetAlert, type BudgetsResponse } from './types';
+import { SpendOverrideControl } from './SpendOverrideControl';
+import {
+  budgetAlertText,
+  type BudgetAlert,
+  type BudgetsResponse,
+  type SpendPause,
+} from './types';
 import { cn } from './ui';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -11,9 +17,13 @@ function moneyLabel(value: number): string {
 export function BudgetBanner({
   budgets,
   onAck,
+  onSnooze,
+  onRevoke,
 }: {
   budgets: BudgetsResponse | null;
   onAck: (alert: BudgetAlert) => void;
+  onSnooze: (pause: SpendPause, minutes: number) => void;
+  onRevoke: (id: string) => void;
 }) {
   const alerts = budgets?.alerts ?? [];
   const pauses = budgets?.pauses ?? [];
@@ -32,17 +42,31 @@ export function BudgetBanner({
     >
       {pauses.map((pause) => {
         const label = pause.scope === 'overall' ? 'Overall spend' : pause.cellName ?? 'Cell spend';
+        const controlLabel =
+          pause.scope === 'overall' ? 'overall spend' : `${pause.cellName ?? 'cell'} spend`;
         const spend = `${pause.spendIsLowerBound ? 'at least ' : ''}${moneyLabel(pause.spendUsd)}`;
+        const status = budgets?.statuses.find(
+          (candidate) =>
+            candidate.scope === pause.scope && candidate.cellId === pause.cellId,
+        );
+        const overridden = Boolean(status?.overrideId && status.overrideExpiresAt);
         return (
           <div
             key={`pause:${pause.scope}:${pause.cellId ?? ''}`}
             role="alert"
-            className="rounded-lg border border-red-900 bg-red-950/60 px-3 py-2 text-xs text-red-200"
+            className={cn(
+              'rounded-lg border px-3 py-2 text-xs',
+              overridden
+                ? 'border-amber-900 bg-amber-950/40 text-amber-200'
+                : 'border-red-900 bg-red-950/60 text-red-200',
+            )}
           >
             <p className="break-words">
               {label} hard cap reached: {spend} of {moneyLabel(pause.budgetUsd)} for the current
-              UTC month. New work is paused; raise or clear the budget, or turn off the pause
-              option, to resume.
+              UTC month.{' '}
+              {overridden
+                ? 'New work is allowed while the override is active.'
+                : 'New work is paused; raise or clear the budget, turn off the pause option, or snooze it to resume.'}
             </p>
             {pause.spendIsLowerBound ? (
               <p className="mt-0.5 text-[11px] opacity-80">
@@ -50,6 +74,17 @@ export function BudgetBanner({
                 spend is a lower bound.
               </p>
             ) : null}
+            <div className="mt-1.5">
+              <SpendOverrideControl
+                label={controlLabel}
+                paused
+                overrideId={status?.overrideId ?? null}
+                overrideExpiresAt={status?.overrideExpiresAt ?? null}
+                periodEnd={pause.periodEnd}
+                onSnooze={(minutes) => onSnooze(pause, minutes)}
+                onRevoke={onRevoke}
+              />
+            </div>
           </div>
         );
       })}

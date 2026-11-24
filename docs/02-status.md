@@ -227,14 +227,18 @@ built and vended by the brain; real-CLI verification is still pending.
   harness-reported cost; hard caps use reported plus estimated cost and return `409
   spend_cap` before a new turn. `budget_alerts` stores durable warning/exceeded rows keyed
   by scope, month, threshold, budget, and warning percentage; `GET /api/budgets` exposes
-  status, unacknowledged alerts, and active `pauses`; `POST
-  /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. The Config
+  status, unacknowledged alerts, active `pauses`, and active `overrides`; `POST
+  /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. A paused scope
+  can be snoozed for 15 minutes through the rest of the UTC month with `POST
+  /api/budgets/overrides`; `DELETE /api/budgets/overrides/:id` ends it early. Overrides
+  live in `spend_cap_overrides`, an overall override admits every scope, a cell override
+  admits only its cell, and neither changes `paused`, alerts, or the budget. The Config
   page edits the overall policy, the cell editor edits a cell policy, the Usage page shows
-  the same monthly progress, and an app-wide banner surfaces alerts and pauses. The Usage
-  card and banner share one poll; the card keeps its last good status when a refresh fails
-  and offers Retry when budget status cannot be loaded. Unpriced turns are reported as
-  unknown or a lower bound, never guessed. Overall pauses block all new agent turns; cell
-  pauses are cell-scoped; in-flight turns finish.
+  the same monthly progress, and an app-wide banner surfaces alerts, pauses, and override
+  controls. The Usage card and banner share one poll; the card keeps its last good status
+  when a refresh fails and offers Retry when budget status cannot be loaded. Unpriced turns
+  are reported as unknown or a lower bound, never guessed. Overall pauses block all new
+  agent turns; cell pauses are cell-scoped; in-flight turns finish.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
   Discord text format. An independent SMTP channel in `notifications.email` sends the
@@ -315,7 +319,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 741 vitest cases, all passing: 555 server across 39 files and 186 web across 24 files,
+- 758 vitest cases, all passing: 566 server across 40 files and 192 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -445,8 +449,10 @@ GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
 PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?,slack?,discord?}}
-GET    /api/budgets                       statuses + unacknowledged alerts + active pauses
+GET    /api/budgets                       statuses + unacknowledged alerts + active pauses + active overrides
 POST   /api/budgets/alerts/:id/ack
+POST   /api/budgets/overrides             {scope, cellId?, minutes, note?}
+DELETE /api/budgets/overrides/:id
 GET    /api/notifications/status          per-channel and per-destination queue/last-delivery state
 GET    /api/notifications/deliveries      read-only audit, filters + limit/offset, canResend
 POST   /api/notifications/deliveries/:id/resend  guarded resend for failed/skipped rows

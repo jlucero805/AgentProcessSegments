@@ -28,3 +28,16 @@ export class SpendCapError extends Error {
     this.name = 'SpendCapError';
   }
 }
+
+export type SpendCapOverrideErrorCode = 'cap_not_configured' | 'period_ending';
+
+/** A refused override grant; HTTP maps it to 409 without error-logging it. */
+export class SpendCapOverrideError extends Error {
+  constructor(
+    readonly code: SpendCapOverrideErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'SpendCapOverrideError';
+  }
+}

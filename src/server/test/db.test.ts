@@ -36,6 +36,7 @@ describe('db migrations', () => {
     expect(tables).toContain('usage_rollup_state');
     expect(tables).toContain('budget_alerts');
     expect(tables).toContain('budget_alert_deliveries');
+    expect(tables).toContain('spend_cap_overrides');
     expect(tables).toContain('model_pricing');
     expect(
       db.prepare('SELECT rolled_through FROM usage_rollup_state WHERE id = 1').get(),
@@ -113,6 +114,8 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_usage_events_turn');
     expect(indexes).toContain('idx_budget_alerts_identity');
     expect(indexes).toContain('idx_budget_alert_deliveries_due');
+    expect(indexes).toContain('idx_spend_cap_overrides_active');
+    expect(indexes).toContain('idx_spend_cap_overrides_period');
     expect(indexes).toContain('idx_model_pricing_model_effective');
     const legacyTables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
@@ -122,6 +125,27 @@ describe('db migrations', () => {
     expect(legacyTables).toContain('model_pricing');
     expect(legacyTables).toContain('usage_daily');
     expect(legacyTables).toContain('usage_rollup_state');
+    expect(legacyTables).toContain('spend_cap_overrides');
+    db.close();
+  });
+
+  it('allows one non-revoked spend cap override per scope and period', () => {
+    const db = openDb(':memory:');
+    const insert = db.prepare(
+      `INSERT INTO spend_cap_overrides
+         (id, scope, scope_id, period_start, expires_at, note, created_at, updated_at, revoked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    insert.run('a', 'overall', '', 1, 10, null, 1, 1, null);
+    expect(() =>
+      insert.run('b', 'overall', '', 1, 20, null, 1, 1, null),
+    ).toThrow();
+    insert.run('c', 'overall', '', 1, 20, null, 1, 1, 5);
+    insert.run('d', 'cell', 'cell-1', 1, 20, null, 1, 1, null);
+    expect(
+      db.prepare('SELECT COUNT(*) AS count FROM spend_cap_overrides').get(),
+    ).toEqual({ count: 3 });
     db.close();
   });
 

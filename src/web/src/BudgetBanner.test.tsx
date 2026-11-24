@@ -1,7 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BudgetBanner } from './BudgetBanner';
-import type { BudgetAlert, BudgetsResponse, SpendPause } from './types';
+import type {
+  BudgetAlert,
+  BudgetStatus,
+  BudgetsResponse,
+  SpendCapOverride,
+  SpendPause,
+} from './types';
 
 const periodStart = Date.UTC(2026, 10, 1);
 const periodEnd = Date.UTC(2026, 11, 1);
@@ -24,21 +30,96 @@ function alert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
   };
 }
 
-function response(alerts: BudgetAlert[], pauses: SpendPause[] = []): BudgetsResponse {
+function pause(overrides: Partial<SpendPause> = {}): SpendPause {
+  return {
+    scope: 'overall',
+    cellId: null,
+    cellName: null,
+    label: 'Overall',
+    periodStart,
+    periodEnd,
+    budgetUsd: 100,
+    spendUsd: 100,
+    spendIsLowerBound: false,
+    unpricedTurns: 0,
+    percentUsed: 100,
+    ...overrides,
+  };
+}
+
+function status(overrides: Partial<BudgetStatus> = {}): BudgetStatus {
+  return {
+    scope: 'overall',
+    cellId: null,
+    cellName: null,
+    label: 'Overall',
+    periodStart,
+    periodEnd,
+    budgetUsd: 100,
+    spendUsd: 100,
+    remainingUsd: 0,
+    percentUsed: 100,
+    pricedTurns: 3,
+    unknownCostTurns: 0,
+    spendIsLowerBound: false,
+    state: 'exceeded',
+    pauseOnExceeded: true,
+    capSpendUsd: 100,
+    capSpendIsLowerBound: false,
+    unpricedTurns: 0,
+    paused: true,
+    overrideId: null,
+    overrideExpiresAt: null,
+    ...overrides,
+  };
+}
+
+function override(overrides: Partial<SpendCapOverride> = {}): SpendCapOverride {
+  return {
+    id: 'o1',
+    scope: 'overall',
+    cellId: null,
+    cellName: null,
+    periodStart,
+    createdAt: 1,
+    updatedAt: 1,
+    expiresAt: periodEnd - 1,
+    note: null,
+    revokedAt: null,
+    ...overrides,
+  };
+}
+
+function response(
+  alerts: BudgetAlert[],
+  pauses: SpendPause[] = [],
+  statuses: BudgetStatus[] = [],
+  overrides: SpendCapOverride[] = [],
+): BudgetsResponse {
   return {
     periodStart,
     periodEnd,
     alertAtPercent: 80,
-    statuses: [],
+    statuses,
     alerts,
     pauses,
+    overrides,
   };
 }
 
 function renderBanner(budgets: BudgetsResponse | null) {
   const onAck = vi.fn();
-  const view = render(<BudgetBanner budgets={budgets} onAck={onAck} />);
-  return { ...view, onAck };
+  const onSnooze = vi.fn();
+  const onRevoke = vi.fn();
+  const view = render(
+    <BudgetBanner
+      budgets={budgets}
+      onAck={onAck}
+      onSnooze={onSnooze}
+      onRevoke={onRevoke}
+    />,
+  );
+  return { ...view, onAck, onSnooze, onRevoke };
 }
 
 afterEach(() => {
@@ -81,31 +162,46 @@ describe('BudgetBanner', () => {
   });
 
   it('shows a non-dismissible pause even when no alert is unacknowledged', () => {
-    renderBanner(
+    renderBanner(response([], [pause()], [status()]));
+
+    const notice = screen.getByRole('alert');
+    expect(notice).toHaveTextContent('hard cap reached');
+    expect(notice).toHaveTextContent('New work is paused');
+    expect(
+      screen.queryByRole('button', { name: /Dismiss budget alert/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Snooze overall spend' }),
+    ).toBeInTheDocument();
+  });
+
+  it('snoozes a pause through the shared control', () => {
+    const { onSnooze } = renderBanner(response([], [pause()], [status()]));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+
+    expect(onSnooze).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'overall' }),
+      60,
+    );
+  });
+
+  it('shows an active override and ends it early', () => {
+    const { onRevoke } = renderBanner(
       response(
         [],
-        [
-          {
-            scope: 'overall',
-            cellId: null,
-            cellName: null,
-            label: 'Overall',
-            periodStart,
-            periodEnd,
-            budgetUsd: 100,
-            spendUsd: 100,
-            spendIsLowerBound: false,
-            unpricedTurns: 0,
-            percentUsed: 100,
-          },
-        ],
+        [pause()],
+        [status({ overrideId: 'o1', overrideExpiresAt: periodEnd - 1 })],
+        [override()],
       ),
     );
 
-    const pause = screen.getByRole('alert');
-    expect(pause).toHaveTextContent('hard cap reached');
-    expect(pause).toHaveTextContent('New work is paused');
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    const notice = screen.getByRole('alert');
+    expect(notice).toHaveTextContent('New work is allowed');
+    expect(notice).toHaveTextContent('Override active until');
+
+    fireEvent.click(screen.getByRole('button', { name: 'End override for overall spend' }));
+    expect(onRevoke).toHaveBeenCalledWith('o1');
   });
 
   it('dismisses through the shared feed without fetching', () => {

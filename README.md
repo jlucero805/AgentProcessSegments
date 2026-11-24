@@ -293,6 +293,12 @@ and pause state are shown on the Config and Usage pages and in the app banner. T
 card and banner share one budget poll; the card keeps its last good status when a refresh
 fails and offers Retry when budget status cannot be loaded.
 
+A paused scope can also be **snoozed** for 15 minutes up to the rest of the UTC month. An
+overall snooze admits every new turn; a cell snooze admits only that cell. Snoozing never
+raises the budget or clears an alert: the banner and status rows keep showing the cap and
+the override expiry until it is ended early or expires, when the pause resumes. In-flight
+turns still finish, so spend can overshoot during the window.
+
 ## Alert delivery
 
 The Config page's **Alert delivery** card sends each unacknowledged current-month alert
@@ -438,7 +444,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 741 vitest cases: 555 server cases (state machine, migrations including
+`npm test` runs 758 vitest cases: 566 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -448,16 +454,17 @@ git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts/hard caps, webhook/email/Slack/Discord
-delivery dedupe/retry/signing with an injected sender, delivery history and resend,
-docs manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal
-session lifecycle, and the HTTP API over a real socket) and 186 web cases (shared contract
+stats/generation/scheduling, budget status/alerts/hard caps including time-boxed
+overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an injected
+sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
+format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
+socket) and 192 web cases (shared contract
 re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
 docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
 cell creation, config/process and pricing editor, budget and alert-delivery cards
-including chat bot routing and delivery history, budget banner, master detail and
-scorecard, the usage page and formatters, and the app shell with the drawer and chat
-mounted under jsdom).
+including chat bot routing, delivery history, and spend-cap overrides, budget banner,
+master detail and scorecard, the usage page and formatters, and the app shell with the
+drawer and chat mounted under jsdom).
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
 proof scripts hand to their children; it is not counted in the vitest totals.

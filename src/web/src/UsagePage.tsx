@@ -19,6 +19,7 @@ import type {
   UsageResponse,
   UsageTotals,
 } from './types';
+import { SpendOverrideControl } from './SpendOverrideControl';
 import type { BudgetFeed } from './useBudgets';
 import { USAGE_BUCKET_MS } from './types';
 
@@ -198,12 +199,35 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
                   </p>
                   {status.paused ? (
                     <p className="text-[11px] text-red-300">
-                      Paused at {moneyLabel(status.capSpendUsd)} cap spend
+                      {status.overrideId
+                        ? 'Cap reached; an override is admitting new work.'
+                        : 'Paused'} at {moneyLabel(status.capSpendUsd)} cap spend
                       {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
                     </p>
                   ) : null}
                 </>
               )}
+              {status.paused ? (
+                <SpendOverrideControl
+                  label={
+                    status.scope === 'overall'
+                      ? 'overall spend'
+                      : `${status.cellName ?? 'cell'} spend`
+                  }
+                  paused
+                  overrideId={status.overrideId}
+                  overrideExpiresAt={status.overrideExpiresAt}
+                  periodEnd={status.periodEnd}
+                  onSnooze={(minutes) =>
+                    feed.snooze({
+                      scope: status.scope,
+                      ...(status.cellId === null ? {} : { cellId: status.cellId }),
+                      minutes,
+                    })
+                  }
+                  onRevoke={feed.revokeOverride}
+                />
+              ) : null}
             </div>
           ))}
         </div>

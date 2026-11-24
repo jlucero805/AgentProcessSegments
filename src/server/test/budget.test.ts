@@ -32,6 +32,8 @@ import type { ErrorSink } from '../src/logging/errors.js';
 import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetService } from '../src/usage/budgets.js';
+import { SpendCapOverrideError } from '../src/usage/spend-cap.js';
+import { SpendCapOverrideRepository } from '../src/usage/spend-cap-overrides.js';
 import { UsageRepository } from '../src/usage/repository.js';
 import { UsageRollups } from '../src/usage/rollups.js';
 
@@ -71,6 +73,7 @@ function makeService(
 ): {
   service: BudgetService;
   alerts: BudgetAlertRepository;
+  overrides: SpendCapOverrideRepository;
   cells: CellRepository;
   db: ReturnType<typeof openDb>;
   settings: SettingsStore;
@@ -78,15 +81,17 @@ function makeService(
   const db = openDb(':memory:');
   const cells = new CellRepository(db);
   const alerts = new BudgetAlertRepository(db);
+  const overrides = new SpendCapOverrideRepository(db);
   const service = new BudgetService({
     usage,
     cells,
     settings,
     alerts,
+    overrides,
     ...(errors ? { errors } : {}),
     now: () => NOW,
   });
-  return { service, alerts, cells, db, settings };
+  return { service, alerts, overrides, cells, db, settings };
 }
 
 describe('budgets', () => {
@@ -435,6 +440,228 @@ describe('budgets', () => {
     };
     expect(service.admission(alpha.id, NOW)).toMatchObject({ scope: 'overall' });
     expect(service.admission(beta.id, NOW)).toMatchObject({ scope: 'overall' });
+  });
+
+  it('grants, extends, and revokes an overall override', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings } = makeService(usage);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    expect(service.admission(null, NOW)).not.toBeNull();
+
+    const first = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: 'release review' },
+      NOW,
+    );
+    expect(first.created).toBe(true);
+    expect(first.override.expiresAt).toBe(NOW + 60 * 60_000);
+    expect(service.admission(null, NOW)).toBeNull();
+
+    const status = service.statuses(NOW).statuses[0]!;
+    expect(status.paused).toBe(true);
+    expect(status.overrideId).toBe(first.override.id);
+    expect(status.overrideExpiresAt).toBe(first.override.expiresAt);
+    expect(service.statuses(NOW).pauses).toHaveLength(1);
+    expect(service.statuses(NOW).overrides).toEqual([
+      expect.objectContaining({ id: first.override.id, note: 'release review' }),
+    ]);
+
+    const extended = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 120, note: null },
+      NOW + 1000,
+    );
+    expect(extended.created).toBe(false);
+    expect(extended.override.id).toBe(first.override.id);
+    expect(extended.override.expiresAt).toBe(NOW + 1000 + 120 * 60_000);
+    expect(extended.override.note).toBe('release review');
+    expect(service.admission(null, NOW + 1000)).toBeNull();
+
+    const revoked = service.revokeOverride(first.override.id, NOW + 2000);
+    expect(revoked?.revokedAt).toBe(NOW + 2000);
+    expect(service.admission(null, NOW + 2000)).not.toBeNull();
+    expect(service.revokeOverride('missing', NOW)).toBeNull();
+  });
+
+  it('expires an override and clamps it before the next UTC period', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings } = makeService(usage);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    const nearEnd = Date.UTC(2026, 10, 30, 23, 50);
+    const granted = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: null },
+      nearEnd,
+    );
+    expect(granted.override.expiresAt).toBe(Date.UTC(2026, 11, 1) - 1);
+    expect(service.admission(null, nearEnd)).toBeNull();
+    expect(service.admission(null, granted.override.expiresAt)).not.toBeNull();
+
+    const nextMonth = Date.UTC(2026, 11, 2, 12);
+    expect(service.statuses(nextMonth).overrides).toEqual([]);
+    usage.overall = emptyTotals();
+    expect(service.admission(null, nextMonth)).toBeNull();
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    expect(service.admission(null, nextMonth)).not.toBeNull();
+  });
+
+  it('scopes a cell override and never lets it release an overall pause', () => {
+    const usage = new FakeUsageSource();
+    const { service, cells, settings } = makeService(usage);
+    const alpha = cells.create('Alpha');
+    const beta = cells.create('Beta');
+    cells.setMonthlyBudget(alpha.id, 50);
+    cells.setMonthlyBudget(beta.id, 50);
+    cells.setPauseOnExceeded(alpha.id, true);
+    usage.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 50,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+
+    service.grantOverride(
+      { scope: 'cell', cellId: alpha.id, minutes: 60, note: null },
+      NOW,
+    );
+    expect(service.admission(alpha.id, NOW)).toMatchObject({ scope: 'overall' });
+    expect(service.admission(beta.id, NOW)).toMatchObject({ scope: 'overall' });
+
+    const overall = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 120, note: null },
+      NOW + 1000,
+    );
+    expect(service.admission(alpha.id, NOW + 1000)).toBeNull();
+    expect(service.admission(beta.id, NOW + 1000)).toBeNull();
+    const alphaStatus = service
+      .statuses(NOW + 1000)
+      .statuses.find((status) => status.cellId === alpha.id)!;
+    expect(alphaStatus.paused).toBe(true);
+    expect(alphaStatus.overrideId).toBe(overall.override.id);
+  });
+
+  it('releases only a cell pause with a cell override', () => {
+    const usage = new FakeUsageSource();
+    const { service, cells, settings } = makeService(usage);
+    const alpha = cells.create('Alpha');
+    const beta = cells.create('Beta');
+    cells.setMonthlyBudget(alpha.id, 50);
+    cells.setMonthlyBudget(beta.id, 50);
+    cells.setPauseOnExceeded(alpha.id, true);
+    usage.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 50,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+    settings.patch({ budget: { monthlyUsd: null } });
+
+    expect(service.admission(alpha.id, NOW)).toMatchObject({ scope: 'cell' });
+    service.grantOverride(
+      { scope: 'cell', cellId: alpha.id, minutes: 60, note: null },
+      NOW,
+    );
+    expect(service.admission(alpha.id, NOW)).toBeNull();
+    expect(service.admission(beta.id, NOW)).toBeNull();
+  });
+
+  it('ignores an overall override once the overall scope is no longer a hard cap', () => {
+    const usage = new FakeUsageSource();
+    const { service, cells, settings } = makeService(usage);
+    const alpha = cells.create('Alpha');
+    cells.setMonthlyBudget(alpha.id, 50);
+    cells.setPauseOnExceeded(alpha.id, true);
+    usage.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 50,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+
+    service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: null },
+      NOW,
+    );
+    expect(service.admission(alpha.id, NOW)).toBeNull();
+
+    settings.patch({ budget: { pauseOnExceeded: false } });
+    expect(service.admission(alpha.id, NOW)).toMatchObject({ scope: 'cell' });
+    const alphaStatus = service
+      .statuses(NOW)
+      .statuses.find((status) => status.cellId === alpha.id)!;
+    expect(alphaStatus.overrideId).toBeNull();
+    expect(service.statuses(NOW).overrides).toHaveLength(1);
+  });
+
+  it('refuses an override for a scope that is not a hard cap', () => {
+    const usage = new FakeUsageSource();
+    const { service, cells } = makeService(usage);
+    const alpha = cells.create('Alpha');
+    cells.setMonthlyBudget(alpha.id, 50);
+
+    expect(() =>
+      service.grantOverride(
+        { scope: 'overall', cellId: null, minutes: 60, note: null },
+        NOW,
+      ),
+    ).toThrow(SpendCapOverrideError);
+    expect(() =>
+      service.grantOverride(
+        { scope: 'cell', cellId: alpha.id, minutes: 60, note: null },
+        NOW,
+      ),
+    ).toThrow(SpendCapOverrideError);
+    expect(() =>
+      service.grantOverride(
+        { scope: 'cell', cellId: 'missing', minutes: 60, note: null },
+        NOW,
+      ),
+    ).toThrow(SpendCapOverrideError);
+    expect(service.statuses(NOW).overrides).toEqual([]);
   });
 
   it('does not let acknowledgement clear a pause and resumes in a new month', () => {

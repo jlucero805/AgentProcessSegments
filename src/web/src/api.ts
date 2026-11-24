@@ -34,6 +34,7 @@ import type {
   RetentionSettings,
   SegmentConfig,
   SkillInfo,
+  SpendCapOverride,
   State,
   Summary,
   SummaryConfig,
@@ -48,6 +49,18 @@ import type {
   EmailPatch,
   EmailTestResult,
 } from './types';
+
+export interface SpendCapOverrideRequest {
+  scope: 'overall' | 'cell';
+  cellId?: string;
+  minutes: number;
+  note?: string;
+}
+
+export interface SpendCapOverrideResponse {
+  override: SpendCapOverride;
+  created: boolean;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -356,6 +369,15 @@ export const api = {
   },
   ackBudgetAlert(id: string): Promise<BudgetAlert> {
     return request(`/api/budgets/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' });
+  },
+  grantBudgetOverride(input: SpendCapOverrideRequest): Promise<SpendCapOverrideResponse> {
+    return request('/api/budgets/overrides', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  revokeBudgetOverride(id: string): Promise<{ override: SpendCapOverride }> {
+    return request(`/api/budgets/overrides/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   getNotificationStatus(): Promise<NotificationStatusResponse> {
     return request('/api/notifications/status');

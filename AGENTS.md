@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 741 vitest cases: 555 server across 39 files and 186 web across 24 files, all green.
+- 758 vitest cases: 566 server across 40 files and 192 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -59,7 +59,8 @@ digests.
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
-  an in-app alert/pause banner, opt-in signed webhook, SMTP email, and native
+  time-boxed operator overrides that release a pause without changing the cap, an
+  in-app alert/pause banner, opt-in signed webhook, SMTP email, and native
   Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
@@ -91,7 +92,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 555 server + 186 web, plus the e2e env guard
+npm test                       # 566 server + 192 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -367,7 +368,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     paused cells without failure backoff. Check admission before `clarifyStarted`, state
     transitions, `agentStatus`, session writes, or spawning; in-flight turns finish.
     Refuse with `SpendCapError` / HTTP `409 spend_cap`; never log an expected refusal as an
-    error.
+    error. A time-boxed override (`spend_cap_overrides`) releases the admission refusal
+    only: an overall override admits every scope, a cell override admits only its cell,
+    and neither changes `paused`, alerts, or the budget. Overrides are clamped before the
+    next UTC period, are revocable, and must fail open if the override store cannot be
+    read.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

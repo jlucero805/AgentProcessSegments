@@ -451,7 +451,7 @@ export class MasterService {
       return result;
     }
     if (this.paused.delete(bucket.cellId)) {
-      this.note(bucket.cellId, 'Resumed new work: spending is under its cap.');
+      this.note(bucket.cellId, 'Resumed new work: the cap is no longer blocking turns.');
     }
 
     const selection = this.selectCandidates(process, bucket, now);

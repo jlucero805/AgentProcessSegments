@@ -166,6 +166,18 @@ history** card reads this table through a read-only join; a manual resend resets
 `failed`/`skipped` row under the current destination when the destination still matches
 and never creates a second row for that destination.
 
+### `spend_cap_overrides`
+
+`id` (uuid PK), `scope` (`overall|cell`), `scope_id` (empty for overall), `period_start`
+(UTC month start), `expires_at`, `note` (optional, max 280), `created_at`, `updated_at`,
+`revoked_at`. One non-revoked row per `(scope, scope_id, period_start)` is enforced by the
+partial unique index `idx_spend_cap_overrides_active`; re-granting extends `expires_at`
+and refreshes `updated_at` instead of inserting. `idx_spend_cap_overrides_period` covers
+`(period_start, expires_at)`. An override is active while `revoked_at IS NULL`,
+`expires_at > now`, and its period is current. Rows older than 400 days are pruned during
+budget evaluation. There is no cell FK, so deleting a cell leaves an inert row that
+expires naturally.
+
 ### Spend budgets
 
 `src/server/src/domain/budget.ts` is pure and re-exported by the SPA. `config.json` carries
@@ -212,14 +224,30 @@ does not clear a pause. Raising or clearing the budget, disabling the option, or
 UTC month resumes. Admission is checked before any turn side effect; in-flight turns
 finish and there are no spend reservations.
 
+A configured hard cap can also be **snoozed** for 1–44,640 minutes (clamped before the
+next UTC period). An active `overall` override admits every new turn; an active `cell`
+override admits only that cell and can never release an overall pause. Granting requires
+the scope to be configured as a hard cap but not to be currently paused. The override only
+suppresses admission: `paused`, `pauses`, alerts, thresholds, and budgets do not change,
+and the response exposes the covering override so the UI keeps showing the cap. A grant is
+`created` the first time and extends the same active row afterward; `DELETE` sets
+`revoked_at` and is idempotent. Policy edits and cell deletion do not revoke overrides, and
+month rollover makes them inert.
+
 `GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
-`capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, and `paused`), unacknowledged
-current-month alerts, and a `pauses` array for active hard caps. A manual turn start or
-`POST /api/master/run` / `POST /api/summaries/run` while paused returns `409` with
-`error: "spend_cap"` and the scope, spend, budget, and period. `POST
+`capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, `paused`, `overrideId`, and
+`overrideExpiresAt`), unacknowledged current-month alerts, a `pauses` array for scopes at
+their hard cap, and an `overrides` array of active overrides (overall first, then cells by
+name). A manual turn start or `POST /api/master/run` / `POST /api/summaries/run` while
+paused and not covered by an override returns `409` with `error: "spend_cap"` and the
+scope, spend, budget, and period. `POST /api/budgets/overrides` accepts
+`{ scope, cellId?, minutes, note? }` and returns `201 { override, created: true }` or `200
+{ override, created: false }`; it returns `409 cap_not_configured` for a scope that is not
+a hard cap and `409 period_ending` when the window would expire immediately. `DELETE
+/api/budgets/overrides/:id` returns `200 { override }` or `404`. `POST
 /api/budgets/alerts/:id/ack` is idempotent. Global budget writes use `PATCH /api/config`;
 cell budget and pause writes use `PATCH /api/cells/:id`. The Config page, Usage page, and
-app banner show the same current-month status.
+app banner show the same current-month status and offer snooze/end actions.
 
 ### `master_events`
 

@@ -154,8 +154,13 @@ last five.
    cell's request, master, and summary turns. Running turns finish. Raise or clear the
    budget, turn the checkbox off, or wait for the next UTC month to resume.
 5. Active alerts appear above every page and can be dismissed with **×**; dismissing does
-   not override a hard cap. A separate red pause notice stays until spending is under the
-   cap again. The Usage page shows paused scopes and cap spend.
+   not override a hard cap. A red pause notice stays until the budget changes, the checkbox
+   is turned off, the UTC month rolls over, or the scope is snoozed. Choose 15 minutes
+   through rest of month; an overall snooze admits every new turn, while a cell snooze
+   admits only that cell. The notice stays visible with the override expiry and an **End
+   override** action; ending it or letting it expire resumes the pause. A snooze changes no
+   budget and clears no alert, and running turns still finish. The Usage page shows paused
+   scopes, cap spend, and the same snooze controls.
 6. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
 7. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,

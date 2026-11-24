@@ -289,24 +289,34 @@ fails and offers Retry when budget status cannot be loaded.
 The Config page's **Alert delivery** card sends each unacknowledged current-month alert
 once to an opt-in HTTPS webhook. Formats are `json` (the full event, signed with
 HMAC-SHA256), `slack` (`{ "text": … }`), and `discord` (`{ "content": … }`). Delivery is
-durable: `budget_alert_deliveries` stores one row per alert and channel, retries transient
-failures at 60 s, 5 min, 30 min, and 2 h up to five attempts, honors `Retry-After`, and
-never blocks budgets, turns, or the in-app banner. Acknowledging an alert, changing the
-budget or threshold, or changing the destination skips pending deliveries. JSON requests
-carry `X-APS-Signature: sha256=<hex>` (HMAC over the raw body) plus an
-`X-APS-Timestamp`; Slack and Discord ignore both headers.
+durable: `budget_alert_deliveries` stores one row per alert and destination, retries
+transient failures at 60 s, 5 min, 30 min, and 2 h up to five attempts, honors
+`Retry-After`, and never blocks budgets, turns, or the in-app banner. Acknowledging an
+alert, changing the budget or threshold, or changing the destination skips pending
+deliveries. JSON requests carry `X-APS-Signature: sha256=<hex>` (HMAC over the raw body)
+plus an `X-APS-Timestamp`; Slack and Discord ignore both headers.
 
-The independent **Email delivery** card adds SMTP as a second channel. Set a host, port,
-optional username and password, `From` address, and up to ten recipients. Port 465 uses
-implicit TLS; other ports require STARTTLS for any non-loopback host. Email and webhook
-rows share the same outbox and retry schedule but dedupe per channel, so disabling or
-re-pointing one channel never cancels the other. A saved password is redacted from the API
-and only cleared when the operator asks.
+The **Slack alerts** and **Discord alerts** cards add authenticated bot delivery. Paste a
+bot token, add one or more channel IDs, choose a default destination, and optionally route
+specific cells to specific channels. Overall alerts go to the default; a cell with a route
+uses it and otherwise falls back to the default. The bot must already be invited to the
+channel (Slack needs `chat:write`; Discord needs View Channel and Send Messages). Chat
+messages include the alert sentence, threshold, UTC month, unpriced-turn count, and a
+Usage link when `APS_BRAIN_URL` is a non-loopback URL. Slack and Discord tokens are
+redacted from the API and never logged.
 
-`GET /api/notifications/status` shows per-channel queue, failure, and last-delivery state.
-`POST /api/notifications/webhook/test` and `POST /api/notifications/email/test` send
-synthetic test events without writing alert or delivery rows. Native chat bots, per-cell
-routing, and delivery history remain separate backlog items.
+The independent **Email delivery** card adds SMTP as a channel. Set a host, port, optional
+username and password, `From` address, and up to ten recipients. Port 465 uses implicit
+TLS; other ports require STARTTLS for any non-loopback host. Webhook, email, and chat rows
+share the same outbox and retry schedule but dedupe per destination, so disabling or
+re-pointing one channel never cancels the others. A saved password or bot token is
+redacted from the API and only cleared when the operator asks.
+
+`GET /api/notifications/status` shows per-channel and per-destination queue, failure, and
+last-delivery state. `POST /api/notifications/{webhook,email,slack,discord}/test` sends a
+synthetic test event without writing alert or delivery rows; chat tests accept an optional
+`channelId` and otherwise use the default destination. Delivery history, fan-out to several
+destinations per scope, and interactive acknowledgement remain separate backlog items.
 
 ## Docs
 
@@ -340,7 +350,7 @@ src/server/src
   cells/              CellRepository + in-memory cell wizard drafts; per-cell policy,
                       interval, concurrency cap, model/effort defaults, auto-compaction
                       threshold, and budget
-  usage/              ledger queries, budget status/alerts, and durable webhook/email delivery
+  usage/              ledger queries, budget status/alerts, and durable webhook/email/chat delivery
   kb/                 KbRepository: one entry per request, ranked literal search
   http/server.ts      Fastify routes, zod validation, NDJSON streaming, SPA vend
   clarify/engine.ts   one persistent agent session per request, buffered live turns
@@ -388,7 +398,7 @@ src/web
   src/Thread.tsx      assistant-ui primitives, markdown, tool cards
   src/runtime.ts      useExternalStoreRuntime over React-owned messages
   src/Composer.tsx    custom input with slash-command autocomplete
-  src/ConfigPage.tsx  scheduler, budgets/alert delivery, process editor, pricing, policy
+  src/ConfigPage.tsx  scheduler, budgets, webhook/email/chat delivery, process editor, pricing, policy
   src/BudgetBanner.tsx dismissible warning/exceeded spend alerts
   src/ProcessEditor.tsx structured per-segment controls
   src/CellModal.tsx   cell creation/edit flow with a process snapshot and budget
@@ -408,7 +418,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 676 vitest cases: 499 server cases (state machine, migrations including
+`npm test` runs 703 vitest cases: 524 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, request-artifact and worktree retention, cutover run retention, engine
@@ -417,14 +427,15 @@ git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
-dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
-format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 177 web cases (shared contract re-exports, NDJSON client, chat folding,
-slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
-link, board, create modal, composer, cell bar, cell creation, config/process and pricing
-editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the
-usage page and formatters, and the app shell with the drawer and chat mounted under jsdom).
+stats/generation/scheduling, budget status/alerts/hard caps, webhook/email/Slack/Discord
+delivery dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP,
+error-log format/rotation, skill discovery, terminal session lifecycle, and the HTTP API
+over a real socket) and 179 web cases (shared contract re-exports, NDJSON client, chat
+folding, slash/skill resolution, request-form mapping, docs helpers and Help overlay, the
+source link, board, create modal, composer, cell bar, cell creation, config/process and
+pricing editor, budget and alert-delivery cards including chat bot routing, budget
+banner, master detail and scorecard, the usage page and formatters, and the app shell with
+the drawer and chat mounted under jsdom).
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
 proof scripts hand to their children; it is not counted in the vitest totals.

@@ -8,6 +8,7 @@ import { openDb, type Db } from '../src/db.js';
 import {
   budgetPeriod,
   type BudgetAlert,
+  type ChatSettings,
   type EmailSettings,
   type WebhookSettings,
 } from '../src/domain/budget.js';
@@ -24,6 +25,7 @@ import {
   destinationHash,
   type FetchLike,
 } from '../src/usage/budget-notifier.js';
+import { chatDestinationHash } from '../src/usage/budget-chat.js';
 import {
   EmailSendError,
   emailDestinationHash,
@@ -84,6 +86,25 @@ const EMAIL: Partial<EmailSettings> = {
   to: ['ops@example.test'],
 };
 
+const SLACK: ChatSettings = {
+  enabled: true,
+  botToken: 'xoxb-0123456789abcdef',
+  destinations: [
+    { channelId: 'C0123456789', label: 'Ops' },
+    { channelId: 'C9876543210', label: 'Cell' },
+  ],
+  defaultChannelId: 'C0123456789',
+  routes: [],
+};
+
+const DISCORD: ChatSettings = {
+  enabled: true,
+  botToken: 'discord-0123456789abcdef',
+  destinations: [{ channelId: '123456789012345678', label: 'Ops' }],
+  defaultChannelId: '123456789012345678',
+  routes: [],
+};
+
 function makeClock(start = NOW): { now: () => number; advance: (ms: number) => void; set: (value: number) => void } {
   let value = start;
   return {
@@ -101,6 +122,9 @@ interface SetupOptions {
   send: FetchLike;
   webhook?: Partial<WebhookSettings>;
   email?: Partial<EmailSettings>;
+  slack?: Partial<ChatSettings>;
+  discord?: Partial<ChatSettings>;
+  brainUrl?: string;
   sendEmail?: EmailSendLike;
   maxAttempts?: number;
   timeoutMs?: number;
@@ -125,6 +149,8 @@ function setup(options: SetupOptions) {
         ...options.webhook,
       },
       ...(options.email ? { email: { ...EMAIL, ...options.email } } : {}),
+      ...(options.slack ? { slack: { ...SLACK, ...options.slack } } : {}),
+      ...(options.discord ? { discord: { ...DISCORD, ...options.discord } } : {}),
     },
   });
   const clock = options.clock ?? makeClock();
@@ -135,6 +161,7 @@ function setup(options: SetupOptions) {
     settings,
     send: options.send,
     ...(options.sendEmail ? { sendEmail: options.sendEmail } : {}),
+    ...(options.brainUrl ? { brainUrl: options.brainUrl } : {}),
     now: clock.now,
     ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
@@ -833,3 +860,221 @@ describe('BudgetNotifier email channel', () => {
     expect(logged).not.toContain('ops@example.test');
   });
 });
+
+  it('delivers Slack and Discord alerts once per destination', async () => {
+    const fake = sender((sent) =>
+      sent.url.includes('slack.com')
+        ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+        : new Response(null, { status: 204 }),
+    );
+    const context = setup({ send: fake.send, webhook: { enabled: false }, slack: {}, discord: {} });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(2);
+    const slack = fake.calls.find((call) => call.url.includes('slack.com'))!;
+    const slackBody = parseBody(slack);
+    expect(slackBody).toMatchObject({
+      channel: 'C0123456789',
+      mrkdwn: false,
+      unfurl_links: false,
+      unfurl_media: false,
+      link_names: false,
+    });
+    expect(String(slackBody.text)).toContain('Overall spend reached 80%');
+    expect(new Headers(slack.init.headers).get('authorization')).toBe(
+      'Bearer xoxb-0123456789abcdef',
+    );
+
+    const discord = fake.calls.find((call) => call.url.includes('discord.com'))!;
+    const discordBody = parseBody(discord);
+    expect(discordBody).toMatchObject({
+      content: expect.stringContaining('Overall spend reached 80%'),
+      allowed_mentions: { parse: [] },
+    });
+    expect(new Headers(discord.init.headers).get('authorization')).toBe(
+      'Bot discord-0123456789abcdef',
+    );
+    expect(context.deliveries.getForAlert(record.id, 'slack:C0123456789')).toMatchObject({
+      status: 'delivered',
+      destinationId: 'slack:C0123456789',
+    });
+    expect(
+      context.deliveries.getForAlert(record.id, 'discord:123456789012345678').status,
+    ).toBe('delivered');
+
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(2);
+
+    const status = context.notifier.status();
+    expect(status.slack).toMatchObject({ enabled: true, configured: true, pending: 0 });
+    expect(status.slack.destinations[0]).toMatchObject({
+      channelId: 'C0123456789',
+      label: 'Ops',
+      pending: 0,
+      failed: 0,
+    });
+    expect(status.discord.destinations[0]?.lastDeliveryStatus).toBe('delivered');
+  });
+
+  it('routes cell alerts and falls back to the default destination', async () => {
+    const fake = sender(
+      () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const context = setup({
+      send: fake.send,
+      webhook: { enabled: false },
+      slack: { routes: [{ cellId: 'cell-a', channelId: 'C9876543210' }] },
+    });
+    const routed = addAlert(context.alerts, { scope: 'cell', scopeId: 'cell-a' });
+    context.notifier.observe([asAlert(routed, 'Cell A')]);
+    await context.notifier.flush();
+    expect(parseBody(fake.calls[0]!).channel).toBe('C9876543210');
+
+    const fallback = addAlert(context.alerts, { scope: 'cell', scopeId: 'cell-b' });
+    context.notifier.observe([asAlert(fallback, 'Cell B')]);
+    await context.notifier.flush();
+    expect(parseBody(fake.calls[1]!).channel).toBe('C0123456789');
+  });
+
+  it('classifies Slack errors and Discord rate limits', async () => {
+    const permanent = sender(
+      () =>
+        new Response(JSON.stringify({ ok: false, error: 'not_in_channel' }), {
+          status: 200,
+        }),
+    );
+    const slack = setup({ send: permanent.send, webhook: { enabled: false }, slack: {} });
+    const failed = addAlert(slack.alerts);
+    slack.notifier.observe([asAlert(failed)]);
+    await slack.notifier.flush();
+    expect(slack.deliveries.getForAlert(failed.id, 'slack:C0123456789')).toMatchObject({
+      status: 'failed',
+      lastError: 'slack_not_in_channel',
+    });
+
+    const transient = sender(
+      () =>
+        new Response(JSON.stringify({ ok: false, error: 'ratelimited' }), {
+          status: 200,
+        }),
+    );
+    const retry = setup({ send: transient.send, webhook: { enabled: false }, slack: {} });
+    const throttled = addAlert(retry.alerts);
+    retry.notifier.observe([asAlert(throttled)]);
+    await retry.notifier.flush();
+    expect(retry.deliveries.getForAlert(throttled.id, 'slack:C0123456789')).toMatchObject({
+      status: 'pending',
+      lastError: 'slack_ratelimited',
+      nextAttemptAt: NOW + 60_000,
+    });
+
+    const discord = sender(
+      () => new Response(JSON.stringify({ retry_after: 1.5 }), { status: 429 }),
+    );
+    const limited = setup({ send: discord.send, webhook: { enabled: false }, discord: {} });
+    const record = addAlert(limited.alerts);
+    limited.notifier.observe([asAlert(record)]);
+    await limited.notifier.flush();
+    expect(
+      limited.deliveries.getForAlert(record.id, 'discord:123456789012345678'),
+    ).toMatchObject({
+      status: 'pending',
+      lastError: 'HTTP 429',
+      nextAttemptAt: NOW + 1_500,
+    });
+  });
+
+  it('skips chat rows when the provider is disabled or the destination changes', async () => {
+    const fake = sender(
+      () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const context = setup({ send: fake.send, webhook: { enabled: false }, slack: {} });
+    const record = addAlert(context.alerts);
+    context.deliveries.enqueue({
+      alertId: record.id,
+      channel: 'slack',
+      destinationId: 'slack:C0123456789',
+      format: 'chat',
+      destinationHash: chatDestinationHash(
+        'slack',
+        context.settings.get().notifications.slack,
+        'C0123456789',
+      ),
+      now: NOW,
+    });
+
+    context.settings.patch({
+      notifications: { slack: { defaultChannelId: 'C9876543210' } },
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(0);
+    expect(context.deliveries.getForAlert(record.id, 'slack:C0123456789').status).toBe(
+      'skipped',
+    );
+
+    const disabled = setup({ send: fake.send, webhook: { enabled: false }, slack: {} });
+    const second = addAlert(disabled.alerts);
+    disabled.deliveries.enqueue({
+      alertId: second.id,
+      channel: 'slack',
+      destinationId: 'slack:C0123456789',
+      format: 'chat',
+      destinationHash: chatDestinationHash(
+        'slack',
+        disabled.settings.get().notifications.slack,
+        'C0123456789',
+      ),
+      now: NOW,
+    });
+    disabled.settings.patch({ notifications: { slack: { enabled: false } } });
+    await disabled.notifier.flush();
+    expect(fake.calls).toHaveLength(0);
+    expect(
+      disabled.deliveries.getForAlert(second.id, 'slack:C0123456789').status,
+    ).toBe('skipped');
+  });
+
+  it('sends chat test messages without writing durable rows', async () => {
+    const fake = sender((sent) =>
+      sent.url.includes('slack.com')
+        ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+        : new Response(null, { status: 204 }),
+    );
+    const context = setup({ send: fake.send, webhook: { enabled: false }, slack: {}, discord: {} });
+
+    const slack = await context.notifier.testSlack();
+    const discord = await context.notifier.testDiscord();
+    expect(slack).toMatchObject({ ok: true, status: 200, durationMs: 0 });
+    expect(discord).toMatchObject({ ok: true, status: 204, durationMs: 0 });
+    expect(String(parseBody(fake.calls[0]!).text)).toMatch(/^Test budget alert/);
+    expect(String(parseBody(fake.calls[1]!).content)).toMatch(/^Test budget alert/);
+    expect(
+      (context.db.prepare('SELECT COUNT(*) AS count FROM budget_alerts').get() as {
+        count: number;
+      }).count,
+    ).toBe(0);
+    expect(
+      (context.db.prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries').get() as {
+        count: number;
+      }).count,
+    ).toBe(0);
+  });
+
+  it('omits the usage link for a loopback brain URL', async () => {
+    const fake = sender(
+      () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const context = setup({
+      send: fake.send,
+      webhook: { enabled: false },
+      slack: {},
+      brainUrl: 'http://127.0.0.1:7391',
+    });
+    const record = addAlert(context.alerts);
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+    expect(String(parseBody(fake.calls[0]!).text)).not.toContain('Usage:');
+  });

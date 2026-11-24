@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
 import { ACTION_TONES, eventDetail } from './masterView';
+import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
 import {
   DEFAULT_BUDGET_SETTINGS,
@@ -19,6 +20,7 @@ import {
   type BudgetStatus,
   type BudgetsResponse,
   type CellDetail,
+  type ChatView,
   type EmailPatch,
   type MasterConfig,
   type MasterEvent,
@@ -187,6 +189,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [emailSaved, setEmailSaved] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [slack, setSlack] = useState<ChatView>(emptyChatView);
+  const [discord, setDiscord] = useState<ChatView>(emptyChatView);
   const [notificationStatus, setNotificationStatus] =
     useState<NotificationStatusResponse | null>(null);
   const [prices, setPrices] = useState<ModelPrice[]>([]);
@@ -219,6 +223,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         password: null,
         passwordSet: false,
       };
+      const loadedSlack = config.notifications?.slack ?? emptyChatView();
+      const loadedDiscord = config.notifications?.discord ?? emptyChatView();
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
@@ -253,6 +259,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setEmailClearPassword(false);
       setEmailFrom(loadedEmail.from ?? '');
       setEmailTo(loadedEmail.to.join(', '));
+      setSlack(loadedSlack);
+      setDiscord(loadedDiscord);
       setNotificationStatus(statusResponse ?? null);
     } catch (error) {
       onError(describeError(error));
@@ -1396,6 +1404,26 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           </div>
         </div>
       </Card>
+
+      <ChatDeliveryCard
+        provider="slack"
+        settings={slack}
+        cells={cells}
+        status={notificationStatus?.slack ?? null}
+        onError={onError}
+        onSaved={setSlack}
+        onStatus={setNotificationStatus}
+      />
+
+      <ChatDeliveryCard
+        provider="discord"
+        settings={discord}
+        cells={cells}
+        status={notificationStatus?.discord ?? null}
+        onError={onError}
+        onSaved={setDiscord}
+        onStatus={setNotificationStatus}
+      />
 
       <ProcessEditor
         process={process}

@@ -43,6 +43,12 @@ export type {
   BudgetStatus,
   BudgetThreshold,
   BudgetsResponse,
+  ChatDestination,
+  ChatPatch,
+  ChatProvider,
+  ChatRoute,
+  ChatSettings,
+  ChatView,
   DeliveryFormat,
   DeliveryStatus,
   EmailPatch,
@@ -57,11 +63,19 @@ export type {
   WebhookView,
 } from '../../server/src/domain/budget';
 export {
+  CHAT_PROVIDERS,
   DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_CHAT_SETTINGS,
   DEFAULT_NOTIFICATIONS,
   MAX_BUDGET_USD,
+  MAX_CHAT_DESTINATIONS,
+  MAX_CHAT_LABEL_LENGTH,
+  MAX_CHAT_ROUTES,
   WEBHOOK_FORMATS,
   budgetAlertText,
+  chatBotTokenError,
+  chatChannelIdError,
+  chatDeliveryConfigured,
   emailAddressError,
   emailRecipientsError,
   smtpHostError,
@@ -164,9 +178,32 @@ export interface WebhookStatus {
   lastError: string | null;
 }
 
+export interface ChatDestinationStatus {
+  channelId: string;
+  label: string | null;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+}
+
+export interface ChatStatus {
+  enabled: boolean;
+  configured: boolean;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+  destinations: ChatDestinationStatus[];
+}
+
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
   email: EmailStatus;
+  slack: ChatStatus;
+  discord: ChatStatus;
 }
 
 export interface EmailStatus {
@@ -187,6 +224,7 @@ export interface WebhookTestResult {
 }
 
 export type EmailTestResult = WebhookTestResult;
+export type ChatTestResult = WebhookTestResult;
 
 export interface ConfigResponse extends AppConfig {
   path: string;

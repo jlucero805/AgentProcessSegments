@@ -164,11 +164,20 @@ last five.
    address, and up to ten recipients. Save, then **Send test email**. A blank password
    keeps the saved one; **Clear password** removes it, and the username must be cleared at
    the same time. Remote hosts require STARTTLS when implicit TLS is off.
-9. Each alert is sent once per enabled channel. Acknowledging it, clearing a budget, or
-   changing a channel's destination cancels that channel's pending notification without
-   touching the other. Transient failures retry for about three hours; permanent ones are
-   marked failed in the Config card. Delivery problems never stop work or hide the in-app
-   banner.
+9. For native chat, create a Slack app with the `chat:write` scope (or a Discord
+   application with View Channel and Send Messages), install it, and copy the bot token.
+   Invite the bot to each target channel. In **Config → Slack alerts** or **Discord
+   alerts**, paste the token, add each channel ID and an optional label, choose a default
+   destination, and add per-cell routes. Save, then **Send test** on a destination. A
+   blank token keeps the saved one; **Clear token** disables the provider and removes it.
+   Use channel IDs, not `#channel` names.
+10. The overall budget goes to the default destination. A cell uses its route when one is
+    set and otherwise the default; a cell with neither is not delivered to that provider.
+    Each alert is sent once per destination. Acknowledging it, clearing a budget, changing
+    a route/default, or rotating a token/channel cancels that destination's pending
+    notification without touching other channels. Transient failures retry for about
+    three hours; permanent ones are marked failed in the Config card. Delivery problems
+    never stop work or hide the in-app banner.
 
 ## 4d. Read spend and maintain model prices
 

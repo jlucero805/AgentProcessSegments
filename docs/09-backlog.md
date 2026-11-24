@@ -8,15 +8,16 @@ can be picked up without re-deciding the shape.
 Token/cost tracking is built: `usage_events`, parser normalization, engine capture,
 `GET /api/usage`, the **Usage** page, the request Usage card, daily rollups that survive
 raw pruning, advisory monthly overall/per-cell budgets with durable alerts and signed
-webhook and SMTP email delivery, and opt-in hard caps that pause new work at turn
-boundaries. Estimated pricing is built too: `model_pricing`, `/api/pricing`, the Config
+webhook, SMTP email, and native Slack/Discord bot delivery with per-cell routing, and
+opt-in hard caps that pause new work at turn boundaries. Estimated pricing is built too: `model_pricing`, `/api/pricing`, the Config
 page editor, and estimates that never overwrite a harness-reported cost. Deferred work:
 
-- **More alert delivery channels.** Signed webhook and SMTP email delivery are built.
-  Add native Slack/Discord bot delivery with per-cell routing, delivery history with
-  manual resend, pause-transition delivery, and reuse of the outbox for non-budget events
-  (failed turns, master errors). Keep every channel deduped by the existing delivery row
-  and credentials redacted.
+- **Alert delivery refinements.** Signed webhook, SMTP email, and native Slack/Discord
+  bot delivery with per-cell routing are built. Add delivery history with manual resend,
+  fan-out to multiple chat destinations per scope, per-scope routing for the webhook and
+  email channels, interactive acknowledgement from chat, pause-transition delivery, and
+  reuse of the outbox for non-budget events (failed turns, master errors). Keep every
+  destination deduped by the existing delivery row and credentials redacted.
 - **Hard-cap refinements.** Cancelling in-flight work on a crossing, an operator one-turn
   override/snooze, and a strict unknown-cost policy are deferred; current caps are
   admission-only and fail open when spend is unknowable.

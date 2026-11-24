@@ -12,6 +12,7 @@ export interface DeliveryRecord {
   id: string;
   alertId: string;
   channel: DeliveryChannel;
+  destinationId: string;
   format: DeliveryFormat;
   destinationHash: string;
   status: DeliveryStatus;
@@ -27,6 +28,8 @@ export interface DeliveryInput {
   alertId: string;
   /** Defaults to the webhook channel so older callers keep their shape. */
   channel?: DeliveryChannel;
+  /** Defaults to the channel, which is the identity webhook and email rows use. */
+  destinationId?: string;
   format: DeliveryFormat;
   destinationHash: string;
   now: number;
@@ -44,6 +47,7 @@ interface DeliveryRow {
   id: string;
   alert_id: string;
   channel: string;
+  destination_id: string;
   format: DeliveryFormat;
   destination_hash: string;
   status: DeliveryStatus;
@@ -60,6 +64,7 @@ function toRecord(row: DeliveryRow): DeliveryRecord {
     id: row.id,
     alertId: row.alert_id,
     channel: row.channel as DeliveryChannel,
+    destinationId: row.destination_id,
     format: row.format,
     destinationHash: row.destination_hash,
     status: row.status,
@@ -73,33 +78,35 @@ function toRecord(row: DeliveryRow): DeliveryRecord {
 }
 
 /**
- * Durable webhook deliveries. A row is the idempotency record for one alert and
- * channel, and its destination hash keeps a config change from sending an old
- * alert with new credentials.
+ * Durable alert deliveries. A row is the idempotency record for one alert and
+ * destination, and its destination hash keeps a config change from sending an
+ * old alert with new credentials.
  */
 export class BudgetAlertDeliveryRepository {
   constructor(private readonly db: Db) {}
 
   enqueue(input: DeliveryInput): DeliveryRecord {
     const channel = input.channel ?? WEBHOOK_CHANNEL;
+    const destinationId = input.destinationId ?? channel;
     this.db
       .prepare(
         `INSERT OR IGNORE INTO budget_alert_deliveries
-           (id, alert_id, channel, format, destination_hash, status, attempts,
+           (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
             next_attempt_at, last_error, created_at, updated_at, delivered_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, NULL)`,
       )
       .run(
         randomUUID(),
         input.alertId,
         channel,
+        destinationId,
         input.format,
         input.destinationHash,
         input.now,
         input.now,
         input.now,
       );
-    return this.getForAlert(input.alertId, channel);
+    return this.getForAlert(input.alertId, destinationId);
   }
 
   get(id: string): DeliveryRecord | null {
@@ -109,14 +116,17 @@ export class BudgetAlertDeliveryRepository {
     return row ? toRecord(row) : null;
   }
 
-  getForAlert(alertId: string, channel: DeliveryChannel = WEBHOOK_CHANNEL): DeliveryRecord {
+  getForAlert(
+    alertId: string,
+    destinationId: string = WEBHOOK_CHANNEL,
+  ): DeliveryRecord {
     const row = this.db
       .prepare(
         `SELECT * FROM budget_alert_deliveries
-          WHERE alert_id = ? AND channel = ?
+          WHERE alert_id = ? AND destination_id = ?
           LIMIT 1`,
       )
-      .get(alertId, channel) as DeliveryRow;
+      .get(alertId, destinationId) as DeliveryRow;
     return toRecord(row);
   }
 
@@ -141,6 +151,29 @@ export class BudgetAlertDeliveryRepository {
           LIMIT ?`,
       )
       .all(channel, now, destinationHash, periodStart, limit) as DeliveryRow[];
+    return rows.map(toRecord);
+  }
+
+  /** Due rows for a provider that routes per destination, without a hash filter. */
+  listDueForChannel(
+    channel: DeliveryChannel,
+    periodStart: number,
+    now: number,
+    limit: number,
+  ): DeliveryRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT d.* FROM budget_alert_deliveries d
+           JOIN budget_alerts a ON a.id = d.alert_id
+          WHERE d.status = 'pending'
+            AND d.channel = ?
+            AND d.next_attempt_at <= ?
+            AND a.acknowledged_at IS NULL
+            AND a.period_start = ?
+          ORDER BY d.next_attempt_at ASC, d.created_at ASC
+          LIMIT ?`,
+      )
+      .all(channel, now, periodStart, limit) as DeliveryRow[];
     return rows.map(toRecord);
   }
 
@@ -239,6 +272,42 @@ export class BudgetAlertDeliveryRepository {
       .run(now, channel, destinationHash).changes;
   }
 
+  skipStaleDestinationFor(
+    channel: DeliveryChannel,
+    destinationId: string,
+    destinationHash: string,
+    now: number,
+  ): number {
+    return this.db
+      .prepare(
+        `UPDATE budget_alert_deliveries
+            SET status = 'skipped', updated_at = ?
+          WHERE status = 'pending'
+            AND channel = ?
+            AND destination_id = ?
+            AND destination_hash <> ?`,
+      )
+      .run(now, channel, destinationId, destinationHash).changes;
+  }
+
+  skipDestinationsNotIn(
+    channel: DeliveryChannel,
+    destinationIds: string[],
+    now: number,
+  ): number {
+    if (destinationIds.length === 0) return this.skipPending(channel, now);
+    const placeholders = destinationIds.map(() => '?').join(', ');
+    return this.db
+      .prepare(
+        `UPDATE budget_alert_deliveries
+            SET status = 'skipped', updated_at = ?
+          WHERE status = 'pending'
+            AND channel = ?
+            AND destination_id NOT IN (${placeholders})`,
+      )
+      .run(now, channel, ...destinationIds).changes;
+  }
+
   skipBeforePeriod(periodStart: number, now: number): number {
     return this.db
       .prepare(
@@ -269,10 +338,19 @@ export class BudgetAlertDeliveryRepository {
       .run(cutoff).changes;
   }
 
-  /** Summary for one channel, or for every channel when omitted. */
-  status(channel?: DeliveryChannel): DeliveryStatusSummary {
-    const where = channel === undefined ? '' : ' WHERE channel = ?';
-    const params = channel === undefined ? [] : [channel];
+  /** Summary for one channel, one destination, or every channel when omitted. */
+  status(channel?: DeliveryChannel, destinationId?: string): DeliveryStatusSummary {
+    const clauses: string[] = [];
+    const params: string[] = [];
+    if (channel !== undefined) {
+      clauses.push('channel = ?');
+      params.push(channel);
+    }
+    if (destinationId !== undefined) {
+      clauses.push('destination_id = ?');
+      params.push(destinationId);
+    }
+    const where = clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`;
     const counts = this.db
       .prepare(
         `SELECT

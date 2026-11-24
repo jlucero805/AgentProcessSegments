@@ -149,14 +149,17 @@ history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
 ### `budget_alert_deliveries`
 
 `id` (uuid PK), `alert_id` (FK to `budget_alerts`, `ON DELETE CASCADE`), `channel`
-(`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`, `status`
-(`pending|delivering|delivered|failed|skipped`), `attempts`, `next_attempt_at`,
-`last_error`, `created_at`, `updated_at`, `delivered_at`. `UNIQUE(alert_id, channel)` is
-the delivery idempotency key; `idx_budget_alert_deliveries_due` covers
-`(status, next_attempt_at)`. `destination_hash` is a SHA-256 of the channel route
-(URL/format/secret, or host/port/TLS/from/recipients/credentials), never logged or
-returned, so a configuration change cannot send an old alert with new credentials.
-Deliveries older than 400 days are pruned on notifier start.
+(`webhook|email|slack|discord`), `destination_id`, `format` (`json|slack|discord|email|chat`),
+`destination_hash`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
+`next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
+`UNIQUE(alert_id, destination_id)` is the delivery idempotency key. Webhook and email
+rows use their channel as `destination_id`; chat rows use `<provider>:<channelId>`.
+`idx_budget_alert_deliveries_due` covers `(status, next_attempt_at)`. `destination_hash`
+is a SHA-256 of the destination route (URL/format/secret, host/port/TLS/from/recipients/
+credentials, or provider/channel/token), never logged or returned, so a configuration
+change cannot send an old alert with new credentials. Deliveries older than 400 days are
+pruned on notifier start. An older table with `UNIQUE(alert_id, channel)` is rebuilt on
+migration and existing rows keep `destination_id = channel`.
 
 ### Spend budgets
 
@@ -172,8 +175,19 @@ from: null, to: [] }`; enabling it requires a host, a `from` address (plain or
 `Display Name <addr>`), and 1–10 unique plain recipients. `secure: true` uses implicit TLS
 (usually 465); otherwise STARTTLS is required for every non-loopback host. Username and
 password are either both set or both null. `to` is replaced whole on patch, and an omitted
-password keeps the saved one while `null` clears it. The API returns the webhook with
-`secret: null`/`secretSet` and email with `password: null`/`passwordSet`.
+password keeps the saved one while `null` clears it.
+
+`notifications.slack` and `notifications.discord` default to
+`{ enabled: false, botToken: null, destinations: [], defaultChannelId: null, routes: [] }`.
+Each destination is `{ channelId, label }`; each route is `{ cellId, channelId }`.
+Enabling a provider requires a 16–512 character token, at least one destination, and
+either a default destination or a route. Slack channel IDs are uppercase alphanumerics;
+Discord channel IDs are numeric snowflakes. Destinations, routes, and the default are
+validated against each other, and arrays replace whole on patch. The overall budget uses
+`defaultChannelId`; a cell uses its route when present and otherwise the default. Omitted
+`botToken` keeps the saved one and `null` clears it. The API returns the webhook with
+`secret: null`/`secretSet`, email with `password: null`/`passwordSet`, and chat providers
+with `botToken: null`/`botTokenSet`.
 
 `BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
 budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
@@ -236,27 +250,39 @@ terminal workdir also drops its chat history and adapter session id.
 
 `BudgetService` hands each evaluation's unacknowledged alerts to `BudgetNotifier`.
 `BudgetNotifier` owns a 60-second `unref()`'d timer and enqueues one delivery row per
-enabled alert/channel, deduped by `(alert_id, channel)`. Webhook attempts post JSON as the
-v1 event (alert fields plus `periodEnd` and `text`), or the text-only Slack/Discord bodies.
-Email attempts send a plain-text message whose subject names the scope and threshold and
-whose body carries the alert sentence, UTC period, and alert id, with alert/delivery
-headers and a stable `Message-ID`; one nodemailer transport is opened per send, TLS
-verification stays on, and it is closed on success, failure, or abort. Each attempt has a
-10-second timeout and uses at most five attempts at 0 s, 60 s, 5 min, 30 min, and 2 h.
-Webhook `2xx` delivers, `4xx` except `408`/`429` fails permanently, and
+enabled alert/destination, deduped by `(alert_id, destination_id)`. Webhook attempts post
+JSON as the v1 event (alert fields plus `periodEnd` and `text`), or the text-only
+Slack/Discord bodies. Email attempts send a plain-text message whose subject names the
+scope and threshold and whose body carries the alert sentence, UTC period, and alert id,
+with alert/delivery headers and a stable `Message-ID`; one nodemailer transport is opened
+per send, TLS verification stays on, and it is closed on success, failure, or abort. Slack
+and Discord attempts post a text-only body to `chat.postMessage` and the channel message
+endpoint with the bot token; Slack sets `mrkdwn: false` and disables unfurls, and Discord
+disables mention parsing. Chat bodies include the alert sentence, threshold, UTC period,
+unpriced-turn count, and a Usage link only for a non-loopback `APS_BRAIN_URL`.
+
+Each attempt has a 10-second timeout and uses at most five attempts at 0 s, 60 s, 5 min,
+30 min, and 2 h. Webhook `2xx` delivers, `4xx` except `408`/`429` fails permanently, and
 `5xx`/`408`/`429`/network/timeout retries with `Retry-After` honored up to one hour. Email
 maps auth/envelope/message/protocol codes to permanent failures and connection, socket,
-DNS-temporary, timeout, and unknown errors to retries. Acknowledged alerts, prior months,
-and stale destinations are marked `skipped` per channel; disabling one channel never skips
-the other. Failures go to the error sink as `budget.notify` with ids, channel, attempt, and
-a short reason only. A disabled or unreachable destination never affects budgets, turns,
-or the banner.
+DNS-temporary, timeout, and unknown errors to retries. Slack HTTP 200 `{ok:true}` delivers;
+HTTP 200 `{ok:false,error}` is failure, with rate-limit/internal/transient codes retried and
+auth/permission/channel/format codes permanent. Discord `2xx` delivers, `429` retries with
+`retry_after` (body or header), `408`/`5xx` retry, and other `4xx`/`3xx` fail. Redirects are
+never followed. Acknowledged alerts, prior months, removed/rotated destinations, and rows
+for another route are marked `skipped` per destination; disabling one channel never skips
+another. Failures go to the error sink as `budget.notify` with ids, channel, attempt, and a
+short reason only. A disabled or unreachable destination never affects budgets, turns, or
+the banner.
 
 `GET /api/notifications/status` reports per-channel enabled/configured, pending, failed,
-and the latest delivery (webhook also reports format). `POST
-/api/notifications/webhook/test` and `POST /api/notifications/email/test` send synthetic
-`budget.test` events through the same timeout and transport paths; they require a
-configured destination, write no alert or delivery rows, and return `200` or `502`.
+and the latest delivery (webhook also reports format). Slack and Discord add a
+`destinations` array with each configured channel/label and its own counts and latest
+status. `POST /api/notifications/webhook/test`, `/email/test`, `/slack/test`, and
+`/discord/test` send synthetic `budget.test` events through the same timeout and
+transport paths; chat tests accept an optional `channelId` and otherwise use the default.
+They require a configured destination, write no alert or delivery rows, and return `200`
+or `502`.
 
 ### `kb_entries`
 
@@ -678,10 +704,13 @@ carried in the `done` event:
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
   monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
   shows the current UTC-month status for the overall and per-cell budgets. Its **Alert
-  delivery** card edits the webhook URL, format, and signing secret, and its **Email
+  delivery** card edits the webhook URL, format, and signing secret, its **Email
   delivery** card edits the SMTP host, port, TLS mode, optional credentials, From address,
-  and recipients. Both cards show queue/failure/last-delivery state, can send a test, and
-  save independently; a saved password is never rendered back. `CellModal` carries the
+  and recipients, and the **Slack alerts**/**Discord alerts** cards edit bot tokens,
+  channel destinations, a default destination, and per-cell routes. Every card shows
+  queue/failure/last-delivery state, can send a test, and saves independently; chat cards
+  test a single destination and never render a saved token or password back. `CellModal`
+  carries the
   optional per-cell budget and pause option. `BudgetBanner` polls `GET /api/budgets` every 60
   seconds, shows dismissible warning/exceeded alerts above the page, and shows
   non-dismissible hard-cap pause notices, with lower-bound copy for unpriced turns.

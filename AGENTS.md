@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 676 vitest cases: 499 server across 37 files and 177 web across 24 files, all green.
+- 703 vitest cases: 524 server across 38 files and 179 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -59,8 +59,9 @@ digests.
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
-  an in-app alert/pause banner, opt-in signed webhook and SMTP email delivery, an
-  optional single-worker Merge step with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
+  an in-app alert/pause banner, opt-in signed webhook, SMTP email, and native
+  Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
+  with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
   a systemd user unit for a VPS, a reviewed live-VPS cutover script
   (`deploy/cutover-vps.sh`, `npm run cutover:vps`) that detaches, drains, moves, verifies,
@@ -74,10 +75,11 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, hard-cap cancellation/override, native-chat alert delivery,
-  per-cell routing, delivery history/resend, and pricing maintenance at scale such as bulk
-  import, tiers, or non-USD currencies (scoped in `docs/09-backlog.md`). Usage retention
-  with daily rollups is built.
+- Not built: KB embeddings, hard-cap cancellation/override, delivery history/resend,
+  fan-out to multiple chat destinations per scope, webhook/email per-scope routing,
+  interactive acknowledgement, and pricing maintenance at scale such as bulk import,
+  tiers, or non-USD currencies (scoped in `docs/09-backlog.md`). Usage retention with
+  daily rollups is built.
   Review/finalize automation is configurable per cell but finalize remains human-gated;
   the CI workflow is not published yet and needs the
   `workflow` token scope.
@@ -88,7 +90,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 499 server + 177 web, plus the e2e env guard
+npm test                       # 524 server + 179 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -359,13 +361,17 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     transitions, `agentStatus`, session writes, or spawning; in-flight turns finish.
     Refuse with `SpendCapError` / HTTP `409 spend_cap`; never log an expected refusal as an
     error.
-35. **Webhook alert delivery is advisory, idempotent, and signed.** One
-    `budget_alert_deliveries` row per `(alert_id, channel)` is the dedupe record; never
-    send a delivered alert twice. Rows carry the `destination_hash` they were enqueued
-    under so a URL/format/secret change skips pending rows instead of sending them with
-    new credentials. Delivery retries are bounded, failures go to `budget.notify` with
-    ids only, and a notifier failure must never throw into budget evaluation, an HTTP
-    handler, or a turn. Tests inject the sender; no external network traffic.
+35. **Alert delivery is advisory, idempotent, and authenticated.** One
+    `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
+    never send a delivered alert twice. Webhook/email destination ids are their channel
+    names; chat ids are `<provider>:<channelId>`. Rows carry the `destination_hash` they
+    were enqueued under so a URL/format/secret or bot-token/channel change skips pending
+    rows instead of sending them with new credentials. Slack returns HTTP 200 with
+    `{ok:false}` for failures, and Discord rate limits put `retry_after` in the body; both
+    are classified explicitly. Delivery retries are bounded, failures go to
+    `budget.notify` with ids only, and a notifier failure must never throw into budget
+    evaluation, an HTTP handler, or a turn. Tests inject the sender; no external network
+    traffic.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
@@ -403,9 +409,10 @@ where it broke before.
 **Add a notification channel.** Reuse `budget_alert_deliveries` rather than a second
 outbox: add the channel value, a destination identity, and a sender with the same
 timeout/retry/error classification. Redact every credential from `redactSettings` (the
-webhook secret and the SMTP password are redacted today), never log a URL, recipient list,
-or secret, and inject the transport in tests. Webhook and email are the current channels;
-see `usage/budget-email.ts` for the nodemailer seam.
+webhook secret, SMTP password, and Slack/Discord bot tokens are redacted today), never log
+a URL, recipient list, channel ID, or secret, and inject the transport in tests. Webhook,
+SMTP email, and Slack/Discord bots are the current channels; see `usage/budget-chat.ts`
+for the chat payload/classification seam and `usage/budget-email.ts` for nodemailer.
 
 **Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
 `collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points

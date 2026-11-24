@@ -121,10 +121,43 @@ export interface WebhookSettings {
 /** A webhook patch may omit any field; omitted fields keep their stored value. */
 export type WebhookPatch = Partial<WebhookSettings>;
 
-export const DELIVERY_CHANNELS = ['webhook', 'email'] as const;
+export const CHAT_PROVIDERS = ['slack', 'discord'] as const;
+export type ChatProvider = (typeof CHAT_PROVIDERS)[number];
+
+export const MAX_CHAT_DESTINATIONS = 50;
+export const MAX_CHAT_ROUTES = 200;
+export const MAX_CHAT_LABEL_LENGTH = 80;
+export const MIN_BOT_TOKEN_LENGTH = 16;
+export const MAX_BOT_TOKEN_LENGTH = 512;
+
+export interface ChatDestination {
+  channelId: string;
+  label: string | null;
+}
+
+export interface ChatRoute {
+  cellId: string;
+  channelId: string;
+}
+
+/** Outbound budget-alert chat policy. The bot token is never returned by the API. */
+export interface ChatSettings {
+  enabled: boolean;
+  botToken: string | null;
+  destinations: ChatDestination[];
+  defaultChannelId: string | null;
+  routes: ChatRoute[];
+}
+
+/** A chat patch may omit any field; omitted fields keep their stored value. */
+export type ChatPatch = Partial<ChatSettings>;
+export type SlackSettings = ChatSettings;
+export type DiscordSettings = ChatSettings;
+
+export const DELIVERY_CHANNELS = ['webhook', 'email', 'slack', 'discord'] as const;
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
-/** The stored delivery format. Email rows store `email`; webhook rows keep their format. */
-export type DeliveryFormat = WebhookFormat | 'email';
+/** The stored delivery format. Email rows store `email`, chat rows `chat`, webhooks keep theirs. */
+export type DeliveryFormat = WebhookFormat | 'email' | 'chat';
 
 export const DEFAULT_SMTP_PORT = 587;
 export const MAX_EMAIL_RECIPIENTS = 10;
@@ -161,6 +194,8 @@ export interface EmailView {
 export interface NotificationsSettings {
   webhook: WebhookSettings;
   email: EmailSettings;
+  slack: ChatSettings;
+  discord: ChatSettings;
 }
 
 /** The API view: secrets are always redacted and `*Set` reports their presence. */
@@ -172,10 +207,29 @@ export interface WebhookView {
   secretSet: boolean;
 }
 
+export interface ChatView {
+  enabled: boolean;
+  botToken: null;
+  botTokenSet: boolean;
+  destinations: ChatDestination[];
+  defaultChannelId: string | null;
+  routes: ChatRoute[];
+}
+
 export interface NotificationsView {
   webhook: WebhookView;
   email: EmailView;
+  slack: ChatView;
+  discord: ChatView;
 }
+
+export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+  enabled: false,
+  botToken: null,
+  destinations: [],
+  defaultChannelId: null,
+  routes: [],
+};
 
 export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
   webhook: { enabled: false, url: null, format: 'json', secret: null },
@@ -189,11 +243,75 @@ export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
     from: null,
     to: [],
   },
+  slack: { ...DEFAULT_CHAT_SETTINGS, destinations: [], routes: [] },
+  discord: { ...DEFAULT_CHAT_SETTINGS, destinations: [], routes: [] },
 };
 
 /** True when email has enough settings to attempt a send. */
 export function emailDeliveryConfigured(email: EmailSettings): boolean {
   return email.host !== null && email.from !== null && email.to.length > 0;
+}
+
+/** True when a chat provider has the token and route needed to attempt a send. */
+export function chatDeliveryConfigured(settings: ChatSettings): boolean {
+  const channels = new Set(
+    settings.destinations.map((destination) => destination.channelId),
+  );
+  const hasDefault =
+    settings.defaultChannelId !== null && channels.has(settings.defaultChannelId);
+  const hasRoute = settings.routes.some((route) => channels.has(route.channelId));
+  return settings.botToken !== null && channels.size > 0 && (hasDefault || hasRoute);
+}
+
+const SLACK_CHANNEL_RE = /^[A-Z0-9]{6,32}$/;
+const DISCORD_CHANNEL_RE = /^\d{17,20}$/;
+
+/** Validate a provider channel ID without resolving it against the provider. */
+export function chatChannelIdError(provider: ChatProvider, value: string): string | null {
+  if (value === '') return 'is required';
+  if (/\s/.test(value)) return 'must not contain whitespace';
+  if (provider === 'slack') {
+    return SLACK_CHANNEL_RE.test(value)
+      ? null
+      : 'must be a Slack channel ID (uppercase letters and digits)';
+  }
+  return DISCORD_CHANNEL_RE.test(value)
+    ? null
+    : 'must be a Discord channel ID (numeric snowflake)';
+}
+
+/** Validate a pasted bot token without assuming a provider prefix. */
+export function chatBotTokenError(value: string): string | null {
+  if (value.length < MIN_BOT_TOKEN_LENGTH || value.length > MAX_BOT_TOKEN_LENGTH) {
+    return `must be ${MIN_BOT_TOKEN_LENGTH} to ${MAX_BOT_TOKEN_LENGTH} characters`;
+  }
+  if (/\s/.test(value)) return 'must not contain whitespace';
+  return null;
+}
+
+/** Stable outbox identity for one provider channel. */
+export function chatDestinationId(provider: ChatProvider, channelId: string): string {
+  return `${provider}:${channelId}`;
+}
+
+/**
+ * Resolve one alert to the provider's default or cell route. Returns null when
+ * the scope is unrouted or the route points at an unconfigured destination.
+ */
+export function resolveChatChannel(
+  settings: ChatSettings,
+  scope: BudgetScope,
+  cellId: string | null,
+): string | null {
+  const configured = new Set(settings.destinations.map((destination) => destination.channelId));
+  if (scope === 'cell' && cellId !== null) {
+    const route = settings.routes.find((candidate) => candidate.cellId === cellId);
+    if (route) return configured.has(route.channelId) ? route.channelId : null;
+  }
+  if (settings.defaultChannelId !== null && configured.has(settings.defaultChannelId)) {
+    return settings.defaultChannelId;
+  }
+  return null;
 }
 
 export const DELIVERY_STATUSES = [
@@ -310,6 +428,61 @@ export function budgetAlertText(alert: BudgetAlert): string {
     return `${label} is over its ${alertMoney.format(alert.budgetUsd)} monthly budget (${spend}).`;
   }
   return `${label} reached ${alert.alertAtPercent.toFixed(0)}% of its ${alertMoney.format(alert.budgetUsd)} monthly budget (${spend}).`;
+}
+
+const alertMonth = new Intl.DateTimeFormat('en-US', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+const CHAT_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+/** A browser-usable Usage link, omitted for the default loopback brain URL. */
+export function chatUsageUrl(brainUrl: string | null | undefined): string | null {
+  if (brainUrl === null || brainUrl === undefined || brainUrl.trim() === '') return null;
+  let url: URL;
+  try {
+    url = new URL(brainUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (CHAT_LOOPBACK_HOSTS.has(host)) return null;
+  return new URL('?page=usage', url).toString();
+}
+
+/** Keep provider message bodies under their documented hard limits. */
+export function truncateChatText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+export interface BudgetChatTextOptions {
+  event?: BudgetAlertEvent['event'];
+  brainUrl?: string | null;
+}
+
+/** Multi-line chat body shared by Slack and Discord. */
+export function budgetChatText(
+  alert: BudgetAlert,
+  options: BudgetChatTextOptions = {},
+): string {
+  const lines = [
+    budgetAlertText(alert).replace(/[<>]/g, ''),
+    '',
+    `Threshold: ${alert.threshold} (${alert.alertAtPercent.toFixed(0)}%)`,
+    `Period: ${alertMonth.format(new Date(alert.periodStart))} (UTC)`,
+    `Unpriced turns: ${alert.unknownCostTurns}`,
+    `Alert: ${alert.id}`,
+  ];
+  const usage = chatUsageUrl(options.brainUrl);
+  if (usage !== null) lines.push(`Usage: ${usage}`);
+  if (options.event === 'budget.test') {
+    lines.unshift('Test budget alert from Agent Process Segments.', '');
+  }
+  return lines.join('\n');
 }
 
 export interface BudgetAlertEvent {

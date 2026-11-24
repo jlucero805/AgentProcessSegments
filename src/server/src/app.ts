@@ -64,6 +64,7 @@ export async function main(): Promise<void> {
       cells,
       settings,
       errors,
+      brainUrl: config.brainUrl,
     });
     const budgets = new BudgetService({
       usage,

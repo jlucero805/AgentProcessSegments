@@ -21,6 +21,8 @@ import type {
   ModelPriceInput,
   ModelPricesResponse,
   ModelsResult,
+  ChatPatch,
+  ChatTestResult,
   NotificationStatusResponse,
   PluginInfo,
   ProcessConfig,
@@ -337,7 +339,12 @@ export const api = {
     usage?: Partial<UsageSettings>;
     retention?: Partial<RetentionSettings>;
     budget?: Partial<BudgetSettings>;
-    notifications?: { webhook?: WebhookPatch; email?: EmailPatch };
+    notifications?: {
+      webhook?: WebhookPatch;
+      email?: EmailPatch;
+      slack?: ChatPatch;
+      discord?: ChatPatch;
+    };
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });
   },
@@ -366,6 +373,32 @@ export const api = {
     try {
       return await request<EmailTestResult>('/api/notifications/email/test', {
         method: 'POST',
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false, durationMs: 0, error: describe(error) };
+      }
+      throw error;
+    }
+  },
+  async testSlack(channelId?: string): Promise<ChatTestResult> {
+    try {
+      return await request<ChatTestResult>('/api/notifications/slack/test', {
+        method: 'POST',
+        body: JSON.stringify(channelId ? { channelId } : {}),
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false, durationMs: 0, error: describe(error) };
+      }
+      throw error;
+    }
+  },
+  async testDiscord(channelId?: string): Promise<ChatTestResult> {
+    try {
+      return await request<ChatTestResult>('/api/notifications/discord/test', {
+        method: 'POST',
+        body: JSON.stringify(channelId ? { channelId } : {}),
       });
     } catch (error) {
       if (error instanceof ApiError) {

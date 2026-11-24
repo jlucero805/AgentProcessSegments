@@ -51,7 +51,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
 | `summary.generate` | A scorecard turn fails, times out without text, or returns no text (cell id only) |
 | `usage.budgets` | A budget status/alerts evaluation fails; includes `periodStart` and scope/cell ids only |
-| `budget.notify` | A webhook or email enqueue/send/delivery update fails; includes the channel, alert/delivery ids, attempt, and a short HTTP/network/SMTP code only—never the URL, secret, SMTP password, recipients, headers, or body |
+| `budget.notify` | A webhook, email, Slack, or Discord enqueue/send/delivery update fails; includes the channel, alert/delivery ids, attempt, and a short HTTP/network/SMTP/provider code only—never the URL, secret, SMTP password, bot token, recipients, channel IDs, headers, or body |
 | `usage.rollup` | A rollup chunk fails before pruning; includes the day-aligned cutoff and committed watermark only |
 | `usage.prune` | Raw usage deletion fails after the rollup watermark commits; includes the cutoff and deleted count only |
 | `retention.prune` | Master activity pruning fails; includes the table name, cutoff, and deleted count only |

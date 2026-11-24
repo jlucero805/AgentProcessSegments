@@ -620,3 +620,115 @@ describe('email notification settings', () => {
     expect(() => readFileSync(file)).toThrow();
   });
 });
+
+describe('chat notification settings', () => {
+  const slack = {
+    enabled: true,
+    botToken: 'xoxb-0123456789abcdef',
+    destinations: [
+      { channelId: 'C0123456789', label: 'Ops' },
+      { channelId: 'C9876543210', label: null },
+    ],
+    defaultChannelId: 'C0123456789',
+    routes: [{ cellId: 'cell-a', channelId: 'C9876543210' }],
+  };
+  const discord = {
+    enabled: true,
+    botToken: 'discord-0123456789abcdef',
+    destinations: [{ channelId: '123456789012345678', label: 'Ops' }],
+    defaultChannelId: '123456789012345678',
+    routes: [],
+  };
+
+  it('defaults both providers and keeps saved values across reloads', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    expect(store.get().notifications.slack).toEqual({
+      enabled: false,
+      botToken: null,
+      destinations: [],
+      defaultChannelId: null,
+      routes: [],
+    });
+    expect(store.get().notifications.discord).toEqual({
+      enabled: false,
+      botToken: null,
+      destinations: [],
+      defaultChannelId: null,
+      routes: [],
+    });
+
+    store.patch({ notifications: { slack, discord } });
+    const reloaded = new SettingsStore(file).get();
+    expect(reloaded.notifications.slack).toEqual(slack);
+    expect(reloaded.notifications.discord).toEqual(discord);
+  });
+
+  it('merges provider patches and replaces arrays wholesale', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({ notifications: { slack } });
+
+    const tokenOnly = store.patch({
+      notifications: { slack: { botToken: 'xoxb-rotated-0123456789' } },
+    });
+    expect(tokenOnly.notifications.slack).toEqual({
+      ...slack,
+      botToken: 'xoxb-rotated-0123456789',
+    });
+
+    const replaced = store.patch({
+      notifications: {
+        slack: {
+          destinations: [{ channelId: 'C1111111111', label: 'New' }],
+          defaultChannelId: 'C1111111111',
+          routes: [],
+        },
+      },
+    });
+    expect(replaced.notifications.slack.destinations).toEqual([
+      { channelId: 'C1111111111', label: 'New' },
+    ]);
+    expect(replaced.notifications.slack.routes).toEqual([]);
+
+    const cleared = store.patch({
+      notifications: { slack: { enabled: false, botToken: null } },
+    });
+    expect(cleared.notifications.slack.botToken).toBeNull();
+    expect(cleared.notifications.slack.destinations).toHaveLength(1);
+  });
+
+  it('rejects invalid chat settings without writing', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const invalidSlack = [
+      { enabled: true, botToken: null },
+      { enabled: true, destinations: [], defaultChannelId: null, routes: [] },
+      { enabled: true, destinations: [{ channelId: 'C0123456789', label: null }], defaultChannelId: null, routes: [] },
+      { botToken: 'short' },
+      { botToken: 'has a space 0123456789' },
+      { destinations: [{ channelId: 'ops', label: null }] },
+      { destinations: [{ channelId: 'C0123456789', label: null }, { channelId: 'C0123456789', label: 'Dup' }] },
+      { destinations: [{ channelId: 'C0123456789', label: null }], defaultChannelId: 'C1111111111' },
+      { destinations: [{ channelId: 'C0123456789', label: null }], routes: [{ cellId: 'cell-a', channelId: 'C1111111111' }] },
+      { destinations: [{ channelId: 'C0123456789', label: null }], routes: [{ cellId: 'cell-a', channelId: 'C0123456789' }, { cellId: 'cell-a', channelId: 'C0123456789' }] },
+    ];
+    for (const patch of invalidSlack) {
+      expect(() => store.patch({ notifications: { slack: patch } })).toThrow();
+    }
+    expect(() =>
+      store.patch({
+        notifications: {
+          discord: {
+            enabled: true,
+            botToken: 'discord-0123456789abcdef',
+            destinations: [{ channelId: 'C0123456789', label: null }],
+            defaultChannelId: 'C0123456789',
+            routes: [],
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() => readFileSync(file)).toThrow();
+  });
+});

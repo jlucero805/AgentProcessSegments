@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import {
   branchName,
@@ -11,7 +11,7 @@ import {
 } from '../src/clarify/worktree.js';
 
 function tempDir(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'sbox-wt-'));
+  return tmpDir('wt');
 }
 
 function makeRepo(): string {

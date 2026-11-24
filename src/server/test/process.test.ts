@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/settings.js';
 import {
@@ -13,7 +13,7 @@ import { parseFollowUps } from '../src/process/follow-ups.js';
 import { ProcessStore } from '../src/process/store.js';
 
 function tempFile(name = 'process.json'): string {
-  return path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-process-')), name);
+  return path.join(tmpDir('process'), name);
 }
 
 function segmentBy(config: ProcessConfig, id: string) {

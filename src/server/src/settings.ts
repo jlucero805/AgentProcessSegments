@@ -504,6 +504,109 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** A block or notification channel that recovers to its own defaults when invalid. */
+type SettingsUnitName =
+  | 'master'
+  | 'summary'
+  | 'usage'
+  | 'retention'
+  | 'budget'
+  | `notifications.${keyof NotificationsSettings}`;
+
+interface SettingsUnit {
+  /** Stable name reported with `settings.invalid`, such as `notifications.webhook`. */
+  readonly name: SettingsUnitName;
+  /** Where the value lives in the merged settings object. */
+  readonly section: 'top' | 'notifications';
+  readonly key: string;
+  readonly schema: z.ZodTypeAny;
+  /** The whole unit is replaced with this default when it fails validation. */
+  readonly fallback: unknown;
+}
+
+/**
+ * Validation units, ordered as the settings object. Each notification channel is
+ * its own unit so a bad SMTP port cannot reset a saved webhook URL or secret.
+ */
+const settingsUnits: readonly SettingsUnit[] = [
+  {
+    name: 'master',
+    section: 'top',
+    key: 'master',
+    schema: masterSchema,
+    fallback: DEFAULT_SETTINGS.master,
+  },
+  {
+    name: 'summary',
+    section: 'top',
+    key: 'summary',
+    schema: summarySchema,
+    fallback: DEFAULT_SETTINGS.summary,
+  },
+  {
+    name: 'usage',
+    section: 'top',
+    key: 'usage',
+    schema: usageSchema,
+    fallback: DEFAULT_SETTINGS.usage,
+  },
+  {
+    name: 'retention',
+    section: 'top',
+    key: 'retention',
+    schema: retentionSchema,
+    fallback: DEFAULT_SETTINGS.retention,
+  },
+  {
+    name: 'budget',
+    section: 'top',
+    key: 'budget',
+    schema: budgetSchema,
+    fallback: DEFAULT_SETTINGS.budget,
+  },
+  {
+    name: 'notifications.webhook',
+    section: 'notifications',
+    key: 'webhook',
+    schema: webhookSchema,
+    fallback: DEFAULT_SETTINGS.notifications.webhook,
+  },
+  {
+    name: 'notifications.email',
+    section: 'notifications',
+    key: 'email',
+    schema: emailSchema,
+    fallback: DEFAULT_SETTINGS.notifications.email,
+  },
+  {
+    name: 'notifications.slack',
+    section: 'notifications',
+    key: 'slack',
+    schema: chatProviderSchema('slack'),
+    fallback: DEFAULT_SETTINGS.notifications.slack,
+  },
+  {
+    name: 'notifications.discord',
+    section: 'notifications',
+    key: 'discord',
+    schema: chatProviderSchema('discord'),
+    fallback: DEFAULT_SETTINGS.notifications.discord,
+  },
+  {
+    name: 'notifications.events',
+    section: 'notifications',
+    key: 'events',
+    schema: eventsSchema,
+    fallback: DEFAULT_SETTINGS.notifications.events,
+  },
+];
+
+/** Read one unit's merged value; a non-object parent makes every child invalid. */
+function settingsUnitValue(candidate: Record<string, unknown>, unit: SettingsUnit): unknown {
+  const container = unit.section === 'top' ? candidate : candidate.notifications;
+  return isPlainObject(container) ? container[unit.key] : undefined;
+}
+
 /**
  * Merge a saved settings value over its default. Present objects merge field by
  * field; arrays and scalars replace the default. A `null` whole block means
@@ -526,8 +629,11 @@ function mergeSettings<T>(defaults: T, saved: unknown): T {
 
 /**
  * Persistent app settings, separate from the brain's environment/path config.
- * Unknown keys are stripped; an invalid file falls back to defaults until the
- * operator saves a valid one.
+ * Unknown keys are stripped. Every block and notification channel validates on
+ * its own: one invalid unit falls back to its defaults while the rest of the
+ * file loads intact. An unreadable or unparseable file falls back to all
+ * defaults. Loading never writes, so the operator's file is untouched until a
+ * patch saves a valid value.
  */
 export class SettingsStore {
   private cached: AppSettings | null = null;
@@ -597,33 +703,82 @@ export class SettingsStore {
     let raw: string;
     try {
       raw = readFileSync(this.path, 'utf8');
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.errors?.error('settings.unreadable', error, { path: this.path });
+        console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
+      }
       return structuredClone(DEFAULT_SETTINGS);
     }
 
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(raw);
-      const source = isPlainObject(parsed) ? parsed : null;
-      // Merge every present block over its default so an upgrade or a partial
-      // hand-edited file keeps the saved values (budget included) and gains new
-      // defaults. A `null` inside a nullable field is preserved; a `null` whole
-      // block means "use the default block". Only an invalid value below falls
-      // back to the full defaults.
-      const candidate = mergeSettings(DEFAULT_SETTINGS, source);
-      const result = settingsSchema.safeParse(candidate);
-      if (!result.success) {
-        this.errors?.error('settings.invalid', new Error(result.error.message), {
-          path: this.path,
-        });
-        console.warn(`ignoring invalid settings at ${this.path}: ${result.error.message}`);
-        return structuredClone(DEFAULT_SETTINGS);
-      }
-      return result.data;
+      parsed = JSON.parse(raw);
     } catch (error) {
       this.errors?.error('settings.unreadable', error, { path: this.path });
       console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
       return structuredClone(DEFAULT_SETTINGS);
     }
+
+    if (!isPlainObject(parsed)) {
+      const error = new Error('settings must be a JSON object');
+      this.errors?.error('settings.invalid', error, {
+        path: this.path,
+        reason: 'not-an-object',
+      });
+      console.warn(`ignoring invalid settings at ${this.path}: ${error.message}`);
+      return structuredClone(DEFAULT_SETTINGS);
+    }
+
+    // Merge every present block over its default so an upgrade or a partial
+    // hand-edited file keeps the saved values (budget included) and gains new
+    // defaults. A `null` inside a nullable field is preserved; a `null` whole
+    // block means "use the default block".
+    const candidate = mergeSettings(DEFAULT_SETTINGS, parsed);
+    return this.recover(candidate);
+  }
+
+  /**
+   * Validate each unit independently and replace only the ones that fail, so a
+   * typo in one block cannot silently discard the rest of the file. Unrelated
+   * blocks keep their saved values; an invalid unit loads as its default and is
+   * reported once. Nothing is written.
+   */
+  private recover(candidate: Record<string, unknown>): AppSettings {
+    const recovered: Record<string, unknown> = {};
+    const notifications: Record<string, unknown> = {};
+
+    for (const unit of settingsUnits) {
+      const result = unit.schema.safeParse(settingsUnitValue(candidate, unit));
+      let value: unknown;
+      if (result.success) {
+        value = result.data;
+      } else {
+        value = structuredClone(unit.fallback);
+        this.errors?.error('settings.invalid', new Error(result.error.message), {
+          path: this.path,
+          block: unit.name,
+        });
+        console.warn(
+          `ignoring invalid settings block ${unit.name} at ${this.path}: ${result.error.message}`,
+        );
+      }
+      if (unit.section === 'top') recovered[unit.key] = value;
+      else notifications[unit.key] = value;
+    }
+    recovered.notifications = notifications;
+
+    // Safety net: a new block or cross-block rule that slips past the units
+    // above still loads as all defaults instead of a partial object.
+    const result = settingsSchema.safeParse(recovered);
+    if (!result.success) {
+      this.errors?.error('settings.invalid', new Error(result.error.message), {
+        path: this.path,
+      });
+      console.warn(`ignoring invalid settings at ${this.path}: ${result.error.message}`);
+      return structuredClone(DEFAULT_SETTINGS);
+    }
+    return result.data;
   }
 
   private write(settings: AppSettings): void {

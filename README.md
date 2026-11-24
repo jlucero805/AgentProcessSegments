@@ -147,6 +147,12 @@ npm run build
 APS_DB=$PWD/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
+The brain's systemd unit exports `NODE_ENV=production`, and agent shells inherit it. npm
+then installs production dependencies only: a plain `npm install` or `npm ci` omits
+`typescript`, `vitest`, and ESLint, so `npm run typecheck` fails with `tsc: not found`. In
+such a shell run `npm ci --include=dev` (or `NODE_ENV=development npm ci`) before the
+commands above.
+
 The brain binds `127.0.0.1:7391` unless `APS_HOST` / `APS_PORT` say otherwise. Do not
 widen the bind. A tunnel is the audience gate, not the process.
 
@@ -224,6 +230,11 @@ harnesses. Filesystem defaults are also backward-compatible: if only `~/.sandbox
 A brain started with any `SBOX_*` variable still set logs one warning naming those
 variables (names only, never values). Rename them to `APS_*` to clear it;
 `npm run migrate:paths` moves only the filesystem defaults, not the variable names.
+
+A blank path value such as `APS_DB=` is ignored rather than used: the brain falls back to
+a non-blank `SBOX_*` alias and then the built-in default, and startup names the variable
+in a warning. Values are not trimmed or expanded, so `APS_DB=:memory:` and paths with
+spaces keep working.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
 `sandbox-harness.service` is active (user or system scope). Stop the unit first;
@@ -309,8 +320,11 @@ status when a refresh fails and offers Retry when budget status cannot be loaded
 A paused scope can also be **snoozed** for 15 minutes up to the rest of the UTC month. An
 overall snooze admits every new turn; a cell snooze admits only that cell. Snoozing never
 raises the budget or clears an alert: the banner and status rows keep showing the cap and
-the override expiry until it is ended early or expires, when the pause resumes. In-flight
-turns still finish, so spend can overshoot during the window.
+the override expiry until it is ended early or expires, when the pause resumes. Granting a
+snooze does not stop or resume anything: turns already stopped stay stopped, and a live
+turn keeps running while the override is active, so spend can overshoot during the window.
+Ending a snooze immediately re-pauses the scope and stops its live turns; an expiry is
+enforced by the next budget check (within 60 seconds).
 
 ## Alert delivery
 
@@ -467,7 +481,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 816 vitest cases: 619 server cases across 44 files (state machine,
+`npm test` runs 854 vitest cases: 655 server cases across 45 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -481,7 +495,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 197 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 199 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot
@@ -491,6 +505,12 @@ mounted under jsdom).
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the environments the
 proof scripts hand to their children; it is not counted in the vitest totals.
+
+Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
+directory and that root is removed when the file finishes, including after a failing
+assertion. A crashed or killed run can still leave a root behind; run
+`node scripts/clean-test-tmp.mjs` to preview stale `sbox-*`/`aps-*` temp dirs older than
+an hour, and add `--apply` to delete them.
 
 `npm run lint` runs ESLint 10 over `src/**/*.{ts,tsx}` from one flat config
 (`eslint.config.mjs`) in both workspaces, with the classic React hook rules for the SPA,

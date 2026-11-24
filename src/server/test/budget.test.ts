@@ -1,6 +1,5 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb } from '../src/db.js';
@@ -27,11 +26,13 @@ import {
   type BudgetUsageTotals,
   type ChatSettings,
   type EmailSettings,
+  type SpendPause,
 } from '../src/domain/budget.js';
 import type { ErrorSink } from '../src/logging/errors.js';
 import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetService } from '../src/usage/budgets.js';
+import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
 import { SpendCapOverrideError } from '../src/usage/spend-cap.js';
 import { SpendCapOverrideRepository } from '../src/usage/spend-cap-overrides.js';
 import { UsageRepository } from '../src/usage/repository.js';
@@ -63,7 +64,7 @@ class FakeUsageSource {
 }
 
 function makeStore(): SettingsStore {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-budget-'));
+  const dir = tmpDir('budget');
   return new SettingsStore(path.join(dir, 'config.json'));
 }
 
@@ -93,6 +94,53 @@ function makeService(
     now: () => NOW,
   });
   return { service, alerts, overrides, cells, db, settings };
+}
+
+/**
+ * A service whose evaluation callback drives a real `SpendCapEnforcer`, so a
+ * test can prove that revoking an override actually stops live turns.
+ */
+function makeEnforcedService(
+  usage: FakeUsageSource,
+  settings = makeStore(),
+): {
+  service: BudgetService;
+  cells: CellRepository;
+  db: ReturnType<typeof openDb>;
+  live: Map<string, string | null>;
+  cancelled: Array<{ id: string; pause: SpendPause }>;
+  enforcer: SpendCapEnforcer;
+  settings: SettingsStore;
+} {
+  const db = openDb(':memory:');
+  const cells = new CellRepository(db);
+  const alerts = new BudgetAlertRepository(db);
+  const live = new Map<string, string | null>();
+  const cancelled: Array<{ id: string; pause: SpendPause }> = [];
+  const engine = {
+    liveTurns: () => [...live.entries()].map(([id, cellId]) => ({ id, cellId })),
+    cancelForSpendCap: (id: string, pause: SpendPause) => {
+      if (!live.has(id)) return false;
+      live.delete(id);
+      cancelled.push({ id, pause });
+      return true;
+    },
+  };
+  let enforcer: SpendCapEnforcer | null = null;
+  const service = new BudgetService({
+    usage,
+    cells,
+    settings,
+    alerts,
+    overrides: new SpendCapOverrideRepository(db),
+    onEvaluated: () => enforcer?.check(),
+    now: () => NOW,
+  });
+  enforcer = new SpendCapEnforcer({
+    engine,
+    admission: (cellId) => service.admission(cellId),
+  });
+  return { service, cells, db, live, cancelled, enforcer, settings };
 }
 
 describe('budgets', () => {
@@ -644,6 +692,114 @@ describe('budgets', () => {
     expect(revoked?.revokedAt).toBe(NOW + 2000);
     expect(service.admission(null, NOW + 2000)).not.toBeNull();
     expect(service.revokeOverride('missing', NOW)).toBeNull();
+  });
+
+  it('re-evaluates when an override is revoked but not when it is granted', () => {
+    const db = openDb(':memory:');
+    const cells = new CellRepository(db);
+    const settings = makeStore();
+    const alerts = new BudgetAlertRepository(db);
+    const usage = new FakeUsageSource();
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    const onEvaluated = vi.fn();
+    const service = new BudgetService({
+      usage,
+      cells,
+      settings,
+      alerts,
+      overrides: new SpendCapOverrideRepository(db),
+      onEvaluated,
+      now: () => NOW,
+    });
+
+    const granted = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: null },
+      NOW,
+    );
+    expect(onEvaluated).not.toHaveBeenCalled();
+
+    expect(service.revokeOverride(granted.override.id, NOW)).not.toBeNull();
+    expect(onEvaluated).toHaveBeenCalledTimes(1);
+
+    expect(service.revokeOverride('missing', NOW)).toBeNull();
+    expect(onEvaluated).toHaveBeenCalledTimes(1);
+    db.close();
+  });
+
+  it('stops every live turn when an overall override is revoked', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings, live, cancelled, enforcer, db } = makeEnforcedService(usage);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    live.set('request', null);
+    live.set('a-request', 'cell-a');
+    live.set('b-master', 'cell-b');
+
+    const granted = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: null },
+      NOW,
+    );
+    enforcer.check();
+    expect(cancelled).toHaveLength(0);
+
+    service.revokeOverride(granted.override.id, NOW);
+    expect(cancelled.map((entry) => entry.id).sort()).toEqual([
+      'a-request',
+      'b-master',
+      'request',
+    ]);
+    expect(cancelled.every((entry) => entry.pause.scope === 'overall')).toBe(true);
+    db.close();
+  });
+
+  it('stops only the revoked cell scope', () => {
+    const usage = new FakeUsageSource();
+    const { service, cells, live, cancelled, enforcer, db } = makeEnforcedService(usage);
+    const alpha = cells.create('Alpha');
+    const beta = cells.create('Beta');
+    cells.setMonthlyBudget(alpha.id, 50);
+    cells.setPauseOnExceeded(alpha.id, true);
+    usage.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 50,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+    live.set('a-request', alpha.id);
+    live.set('b-request', beta.id);
+
+    const granted = service.grantOverride(
+      { scope: 'cell', cellId: alpha.id, minutes: 60, note: null },
+      NOW,
+    );
+    enforcer.check();
+    expect(cancelled).toHaveLength(0);
+
+    service.revokeOverride(granted.override.id, NOW);
+    expect(cancelled.map((entry) => entry.id)).toEqual(['a-request']);
+    expect(cancelled[0]!.pause).toMatchObject({
+      scope: 'cell',
+      cellId: alpha.id,
+    });
+    db.close();
   });
 
   it('expires an override and clamps it before the next UTC period', () => {

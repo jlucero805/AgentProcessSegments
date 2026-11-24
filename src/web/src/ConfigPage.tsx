@@ -3,7 +3,7 @@ import { api, describeError } from './api';
 import { ACTION_TONES, eventDetail } from './masterView';
 import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
-import { SpendOverrideControl } from './SpendOverrideControl';
+import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideControl';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_NOTIFICATIONS,
@@ -1206,7 +1206,11 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm text-zinc-300">{status.label}</span>
                   <div className="flex items-center gap-2">
-                    {status.paused ? <Badge tone="red">paused</Badge> : null}
+                    {status.paused ? (
+                      <Badge tone={status.overrideId ? 'amber' : 'red'}>
+                        {status.overrideId ? 'snoozed' : 'paused'}
+                      </Badge>
+                    ) : null}
                     <Badge tone={budgetTone(status)}>{status.state}</Badge>
                   </div>
                 </div>
@@ -1245,8 +1249,31 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                 )}
                 {status.paused ? (
                   <>
-                    <p className="text-[11px] text-red-300">
-                      {status.pauseReason === 'unknown_cost' ? (
+                    <p
+                      className={
+                        status.overrideId
+                          ? 'text-[11px] text-amber-300'
+                          : 'text-[11px] text-red-300'
+                      }
+                    >
+                      {status.overrideId ? (
+                        status.pauseReason === 'unknown_cost' ? (
+                          <>
+                            Cost is unknown: {status.unpricedTurns} unpriced turn
+                            {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be
+                            verified; an override is admitting new work until{' '}
+                            {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
+                          </>
+                        ) : (
+                          <>
+                            Cap reached at {moneyLabel(status.capSpendUsd)} of{' '}
+                            {moneyLabel(status.budgetUsd)} cap spend
+                            {status.capSpendIsLowerBound ? ' (lower bound)' : ''}; an
+                            override is admitting new work until{' '}
+                            {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
+                          </>
+                        )
+                      ) : status.pauseReason === 'unknown_cost' ? (
                         <>
                           Paused: {status.unpricedTurns} unpriced turn
                           {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified.

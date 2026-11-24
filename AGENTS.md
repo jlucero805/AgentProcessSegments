@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 816 vitest cases: 619 server across 44 files and 197 web across 24 files, all green.
+- 854 vitest cases: 655 server across 45 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -79,10 +79,9 @@ digests.
   `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
-- Not built: KB embeddings, a hard-cap snooze and automatic replay of a cap-stopped
-  prompt, fan-out to multiple chat destinations per scope, webhook/email per-scope
-  routing, interactive acknowledgement, and pricing maintenance at scale such as bulk
-  import, tiers, or non-USD currencies
+- Not built: KB embeddings, fan-out to multiple chat
+  destinations per scope, webhook/email per-scope routing, interactive acknowledgement,
+  and pricing maintenance at scale such as bulk import, tiers, or non-USD currencies
   (scoped in `docs/09-backlog.md`). Usage retention with daily rollups is built.
   Review/finalize automation is configurable per cell but finalize remains human-gated;
   the CI workflow is not published yet and needs the
@@ -94,7 +93,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 619 server + 197 web, plus the e2e env guard
+npm test                       # 655 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -107,6 +106,7 @@ node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
                                # and optional Puppeteer
+node scripts/clean-test-tmp.mjs  # dry-run: stale test temp dirs; --apply to delete
 npm run migrate:paths           # move legacy paths; refuses while a brain unit is active
 npm run migrate:branches        # migrate finished sbox/* worktree branches (dry run first)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
@@ -160,7 +160,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **App settings are not env config.** Scheduler policy lives in
   `$XDG_CONFIG_HOME/agent-process-segments/config.json` (`APS_CONFIG`), and process segments
   live in `process.json` (`APS_PROCESS`). Both are zod-validated and written atomically.
-  Invalid files fall back to defaults until saved; env still owns paths, ports, and the
+  Each settings block and notification channel validates on its own: one invalid unit
+  falls back to that unit's defaults, is reported as `settings.invalid` with its `block`
+  name, and leaves every other block intact; only an unreadable or non-JSON file falls
+  back to all defaults. Loading never writes. Env still owns paths, ports, and the
   harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
@@ -171,6 +174,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   any `SBOX_*` name is still set; `legacyEnvNames` and `legacyEnvWarning` in `env.ts` build
   that line. Operators move data with `npm run migrate:paths` and rename variables to
   `APS_*` to clear the warning.
+  Path-valued settings (`DATA_DIR`, `CONFIG`, `PROCESS`, `ERROR_LOG`, `DB`, `WEB_DIR`,
+  `DOCS_DIR`, `PLUGINS_DIR`, `TERMINAL_CWD`, and the harness binaries) are read through
+  `readNonEmptyEnv()`: a blank or whitespace-only value is ignored, the lookup continues
+  with a non-blank `SBOX_*` alias and then the default/legacy location, and startup warns
+  once with the blank names only. Non-blank paths are used verbatim; `APS_DB=':memory:'`
+  stays valid. Do not apply this to settings where `''` is meaningful
+  (`APS_DEFAULT_MODEL`), which keep using `readEnv()`.
 - **Errors are the only persisted logs.** `$XDG_STATE_HOME/agent-process-segments/errors.log`
   (`APS_ERROR_LOG`, `APS_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.
@@ -389,6 +399,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     every scope, a cell override admits only its cell, and neither changes `paused`,
     `pauseReason`, alerts, or the budget. Overrides are clamped before the next UTC
     period, are revocable, and must fail open if the override store cannot be read.
+    Revoking an override re-runs evaluation so the enforcer stops live turns in a scope
+    that is still over its cap; an expiry refuses new turns at once and is observed by the
+    next evaluation (within 60 seconds).
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

@@ -102,8 +102,17 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
     are set. Path defaults prefer an existing `agent-process-segments` location, then
     an existing `sandbox-harness` one, then the new location. `app.ts` warns when a
     legacy default is still in use and points at `npm run migrate:paths`.
+    A path-valued override that is blank or whitespace-only is ignored rather than used:
+    resolution continues with a non-blank `SBOX_*` alias and then the default, and
+    `app.ts` warns once at startup naming the blank variables. `APS_DB=':memory:'` and
+    non-blank relative or spaced paths are used verbatim.
 - **Run:** `node src/server/dist/app.js` with `APS_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
+- **App settings file** (`config.json`): each settings block and notification channel
+  validates independently. One invalid unit falls back to that unit's defaults and is
+  reported as `settings.invalid` with its `block` name, while every other block loads
+  intact; an unreadable or non-JSON file falls back to all defaults. Loading never
+  writes the file; only a successful patch persists.
 
 ---
 
@@ -272,8 +281,10 @@ hard cap but not to be currently paused. The override only suppresses admission 
 in-flight stop: `paused`, `pauseReason`, `pauses`, alerts, thresholds, and budgets do not
 change, and the response exposes the covering override so the UI keeps showing the cap. A
 grant is `created` the first time and extends the same active row afterward; `DELETE` sets
-`revoked_at` and is idempotent. Policy edits and cell deletion do not revoke overrides, and
-month rollover makes them inert.
+`revoked_at` and is idempotent. A revoke re-runs budget evaluation immediately, so the
+scope resumes refusing new turns and its live turns are stopped; an expiry refuses new
+turns at `expiresAt` and is enforced by the next evaluation (within 60 seconds). Policy
+edits and cell deletion do not revoke overrides, and month rollover makes them inert.
 
 `GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
 `pauseOnUnknownCost`, `capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, `paused`,
@@ -867,6 +878,11 @@ npm test                    # vitest: server + web, plus the e2e env guard
 npm run lint                # eslint over src, zero warnings
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
+
+If the shell inherits `NODE_ENV=production` (the brain unit exports it), a plain
+`npm install` omits devDependencies and `npm run typecheck` fails with `tsc: not found`;
+install with `npm ci --include=dev`, or unset `NODE_ENV`. See the `AGENTS.md`
+environment-facts bullet.
 
 The original test suite covered the request repo and state machine, the cells repo,
 the KB repo, models, MCP grants parsing, worktree isolation, and an HTTP server test.

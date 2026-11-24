@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HARNESS_IDS, isHarnessId, type HarnessId } from './domain/harness.js';
-import { readEnv } from './env.js';
+import { readEnv, readNonEmptyEnv } from './env.js';
 
 export type { HarnessId };
 
@@ -69,9 +69,51 @@ function resolvePath(
   canonical: string,
   legacy: string,
 ): PathChoice {
-  const explicit = readEnv(env, name);
+  const explicit = readNonEmptyEnv(env, name);
   if (explicit !== undefined) return { path: explicit, legacy: false };
   return preferExisting(canonical, legacy);
+}
+
+/** Env names that are filesystem paths in `Config`; a blank value is a mistake. */
+const PATH_ENV_NAMES = [
+  'DATA_DIR',
+  'CONFIG',
+  'PROCESS',
+  'ERROR_LOG',
+  'DB',
+  'WEB_DIR',
+  'DOCS_DIR',
+  'PLUGINS_DIR',
+  'TERMINAL_CWD',
+  'HARNESS_BIN',
+  'CLAUDE_BIN',
+  'OPENCODE_BIN',
+] as const;
+
+/**
+ * Names of blank path overrides, sorted for a stable startup message. Both
+ * prefixes are reported because either is the variable the operator meant to
+ * set. Only the blank check reads the value; it never reaches a log.
+ */
+export function blankPathEnvNames(env: NodeJS.ProcessEnv): string[] {
+  const names: string[] = [];
+  for (const name of PATH_ENV_NAMES) {
+    for (const prefix of ['APS_', 'SBOX_']) {
+      const key = `${prefix}${name}`;
+      const value = env[key];
+      if (value !== undefined && value.trim() === '') names.push(key);
+    }
+  }
+  return names.sort();
+}
+
+/** One startup warning for blank path overrides, or `null` when there is nothing to report. */
+export function blankPathWarning(names: string[]): string | null {
+  if (names.length === 0) return null;
+  return (
+    `ignoring blank path environment variables: ${names.join(', ')}. ` +
+    'Set a non-empty APS_* value or unset them; the built-in default is in use.'
+  );
 }
 
 export function loadConfig(
@@ -121,14 +163,14 @@ export function loadConfig(
   const harness = parseHarness(readEnv(env, 'HARNESS'));
   // Adapter-specific binaries win. APS_HARNESS_BIN (and its SBOX_* alias) is the
   // legacy fallback for the default adapter only, never for the other adapter.
-  const legacyBin = readEnv(env, 'HARNESS_BIN');
+  const legacyBin = readNonEmptyEnv(env, 'HARNESS_BIN');
   const harnessBins: Record<HarnessId, string> = {
     claude:
-      readEnv(env, 'CLAUDE_BIN') ??
+      readNonEmptyEnv(env, 'CLAUDE_BIN') ??
       (harness === 'claude' ? legacyBin : undefined) ??
       'claude',
     opencode:
-      readEnv(env, 'OPENCODE_BIN') ??
+      readNonEmptyEnv(env, 'OPENCODE_BIN') ??
       (harness === 'opencode' ? legacyBin : undefined) ??
       'opencode',
   };
@@ -157,11 +199,12 @@ export function loadConfig(
     host: readEnv(env, 'HOST') ?? '127.0.0.1',
     port,
     dbPath: db.path,
-    webDir: readEnv(env, 'WEB_DIR') ?? path.join(cwd, 'src', 'web', 'dist'),
+    webDir: readNonEmptyEnv(env, 'WEB_DIR') ?? path.join(cwd, 'src', 'web', 'dist'),
     // The in-app Help surface reads the repo's Markdown and screenshots.
-    docsDir: readEnv(env, 'DOCS_DIR') ?? path.join(cwd, 'docs'),
+    docsDir: readNonEmptyEnv(env, 'DOCS_DIR') ?? path.join(cwd, 'docs'),
     dataDir: data.path,
-    pluginsDir: readEnv(env, 'PLUGINS_DIR') ?? path.join(data.path, 'plugins'),
+    pluginsDir:
+      readNonEmptyEnv(env, 'PLUGINS_DIR') ?? path.join(data.path, 'plugins'),
     brainUrl: readEnv(env, 'BRAIN_URL') ?? `http://127.0.0.1:${port}`,
     harness,
     harnessBin: harnessBins[harness],
@@ -184,7 +227,7 @@ export function loadConfig(
     // The browser terminal is a direct shell, separate from agent sessions.
     // Disable with APS_TERMINAL=0 when the brain is exposed beyond loopback.
     terminalEnabled: readEnv(env, 'TERMINAL') !== '0',
-    terminalCwd: readEnv(env, 'TERMINAL_CWD') ?? cwd,
+    terminalCwd: readNonEmptyEnv(env, 'TERMINAL_CWD') ?? cwd,
     legacyPaths,
   };
 }

@@ -4,15 +4,14 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpDir } from './tmp.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
@@ -89,7 +88,7 @@ function initCommit(dir: string): void {
 }
 
 function createFixture(): Fixture {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-cutover-test-'));
+  const root = tmpDir('cutover-test');
   const home = path.join(root, 'home');
   const oldClone = path.join(root, 'oldclone');
   const newClone = path.join(root, 'newclone');
@@ -167,7 +166,7 @@ function createFixture(): Fixture {
 }
 
 function createMigratedFixture(): Fixture {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-cutover-test-'));
+  const root = tmpDir('cutover-test');
   const home = path.join(root, 'home');
   const oldClone = path.join(root, 'oldclone');
   const newClone = path.join(root, 'newclone');

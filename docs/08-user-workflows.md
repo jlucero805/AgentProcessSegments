@@ -167,9 +167,10 @@ last five.
    in-flight turns were stopped. If you need to keep working, choose 15 minutes through
    rest of month and press **Snooze**; an overall snooze admits every new turn, while a
    cell snooze admits only that cell. The notice stays visible with the override expiry and
-   an **End override** action; ending it or letting it expire resumes the pause. A snooze
-   changes no budget and clears no alert. The Usage page shows paused scopes, cap spend,
-   the reason, and the same snooze controls.
+   an **End override** action; ending it immediately re-pauses the scope and stops its live
+   turns, while letting it expire re-pauses new work and is enforced by the next budget
+   check. A snooze changes no budget and clears no alert. The Usage page shows paused
+   scopes, cap spend, the reason, and the same snooze controls.
 7. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
 8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
@@ -285,3 +286,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 
 All of this is single-operator: there is no auth, and the brain binds loopback. Put a
 tunnel or SSO proxy in front for remote access (see `deploy/vps.md`).
+
+A single invalid block in `config.json` does not reset the rest: that block (or, under
+`notifications`, that channel) falls back to its defaults and is reported in the error
+log with the block name, while other blocks — including webhook URLs and secrets — load
+unchanged. An unreadable or non-JSON file falls back to all defaults.

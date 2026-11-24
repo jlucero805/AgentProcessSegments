@@ -1,20 +1,18 @@
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import { TerminalError, TerminalService } from '../src/terminal/service.js';
 import type { TerminalEvent } from '../src/terminal/types.js';
 
 describe('TerminalService', () => {
   it('reports availability, lists sessions, and refuses to create when disabled', () => {
-    const service = new TerminalService(false, os.tmpdir());
+    const service = new TerminalService(false, tmpDir('terminal'));
     expect(service.status().available).toBe(false);
     expect(service.list()).toEqual([]);
     expect(() => service.create()).toThrowError(TerminalError);
   });
 
   it('keeps a shell alive across detach/attach and replays scrollback', async () => {
-    const cwd = mkdtempSync(path.join(os.tmpdir(), 'sbox-terminal-'));
+    const cwd = tmpDir('terminal');
     const service = new TerminalService(true, cwd);
     const created = service.create({ cols: 80, rows: 24 });
     expect(service.list()).toHaveLength(1);
@@ -44,7 +42,7 @@ describe('TerminalService', () => {
   });
 
   it('caps the number of visible sessions', () => {
-    const service = new TerminalService(true, os.tmpdir());
+    const service = new TerminalService(true, tmpDir('terminal'));
     for (let index = 0; index < 4; index += 1) service.create();
     expect(() => service.create()).toThrowError(/too many terminals/);
     service.closeAll();

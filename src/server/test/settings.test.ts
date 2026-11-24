@@ -1,11 +1,74 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, SettingsStore } from '../src/settings.js';
 
 function tempFile(name = 'config.json'): string {
-  return path.join(mkdtempSync(path.join(os.tmpdir(), 'sbox-settings-')), name);
+  return path.join(tmpDir('settings'), name);
+}
+
+/** Distinct, valid, non-default values for every settings unit. */
+function sentinelSettings(): typeof DEFAULT_SETTINGS {
+  const saved = structuredClone(DEFAULT_SETTINGS);
+  saved.master = { ...saved.master, intervalMinutes: 17 };
+  saved.summary = { ...saved.summary, windowMinutes: 90 };
+  saved.usage = { retentionDays: 30 };
+  saved.retention = { masterEventsDays: 45, cellSummariesDays: 60, requestArtifactsDays: 7 };
+  saved.budget = { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true, pauseOnUnknownCost: true };
+  saved.notifications.webhook = {
+    enabled: true,
+    url: 'https://hooks.example.test/sentinel',
+    format: 'slack',
+    secret: '0123456789abcdef',
+  };
+  saved.notifications.email = {
+    enabled: true,
+    host: 'smtp.example.test',
+    port: 2525,
+    secure: true,
+    username: 'aps',
+    password: 'smtp-password',
+    from: 'APS Alerts <alerts@example.test>',
+    to: ['ops@example.test'],
+  };
+  saved.notifications.slack = {
+    enabled: true,
+    botToken: 'xoxb-sentinel-0123456789',
+    destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+    defaultChannelId: 'C0123456789',
+    routes: [],
+  };
+  saved.notifications.discord = {
+    enabled: true,
+    botToken: 'discord-sentinel-0123456789',
+    destinations: [{ channelId: '123456789012345678', label: 'Ops' }],
+    defaultChannelId: '123456789012345678',
+    routes: [],
+  };
+  saved.notifications.events = {
+    failedTurns: { webhook: true, email: false },
+    masterErrors: { webhook: false, email: true },
+  };
+  return saved;
+}
+
+/** One realistic invalid value per unit, used by the recovery coverage test. */
+const INVALID_UNIT_VALUES: Record<string, unknown> = {
+  master: { intervalMinutes: 0 },
+  summary: { windowMinutes: 0 },
+  usage: { retentionDays: -1 },
+  retention: { masterEventsDays: -1 },
+  budget: { alertAtPercent: 0 },
+  'notifications.webhook': { url: 'not a url' },
+  'notifications.email': { port: 0 },
+  'notifications.slack': { botToken: 'short' },
+  'notifications.discord': { botToken: 'short' },
+  'notifications.events': { failedTurns: { webhook: 'yes' } },
+};
+
+function asMutable(settings: typeof DEFAULT_SETTINGS): Record<string, unknown> {
+  return settings as unknown as Record<string, unknown>;
 }
 
 describe('SettingsStore', () => {
@@ -23,15 +86,33 @@ describe('SettingsStore', () => {
     expect(store.get().budget).toEqual({ monthlyUsd: null, alertAtPercent: 80, pauseOnExceeded: false, pauseOnUnknownCost: false });
   });
 
-  it('falls back to defaults for invalid or unreadable files', () => {
+  it('falls back to all defaults for unreadable or malformed files', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = tempFile();
+
     writeFileSync(file, '{not json');
-    expect(new SettingsStore(file).get()).toEqual(DEFAULT_SETTINGS);
+    const errors = { error: vi.fn() };
+    expect(new SettingsStore(file, errors).get()).toEqual(DEFAULT_SETTINGS);
+    expect(errors.error).toHaveBeenCalledWith('settings.unreadable', expect.any(Error), {
+      path: file,
+    });
 
     writeFileSync(file, JSON.stringify({ master: { intervalMinutes: 0 } }));
-    expect(new SettingsStore(file).get()).toEqual(DEFAULT_SETTINGS);
+    const invalid = { error: vi.fn() };
+    expect(new SettingsStore(file, invalid).get()).toEqual(DEFAULT_SETTINGS);
+    expect(invalid.error).toHaveBeenCalledTimes(1);
+    expect(invalid.error).toHaveBeenCalledWith('settings.invalid', expect.any(Error), {
+      path: file,
+      block: 'master',
+    });
     expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('loads defaults for a missing file without reporting an error', () => {
+    const errors = { error: vi.fn() };
+    expect(new SettingsStore(tempFile(), errors).get()).toEqual(DEFAULT_SETTINGS);
+    expect(errors.error).not.toHaveBeenCalled();
   });
 
   it('defaults usage retention and loads a legacy master-only file', () => {
@@ -352,12 +433,20 @@ describe('SettingsStore', () => {
     });
   });
 
-  it('loads non-object JSON as defaults', () => {
+  it('loads non-object JSON as defaults and reports it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = tempFile();
     for (const raw of ['[]', '"x"', 'null']) {
       writeFileSync(file, raw);
-      expect(new SettingsStore(file).get()).toEqual(DEFAULT_SETTINGS);
+      const errors = { error: vi.fn() };
+      expect(new SettingsStore(file, errors).get()).toEqual(DEFAULT_SETTINGS);
+      expect(errors.error).toHaveBeenCalledWith('settings.invalid', expect.any(Error), {
+        path: file,
+        reason: 'not-an-object',
+      });
     }
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('does not mutate the shared defaults when loading', () => {
@@ -373,6 +462,29 @@ describe('SettingsStore', () => {
     expect(first.budget.monthlyUsd).toBe(99);
     expect(second.budget.monthlyUsd).toBe(99);
     expect(first.notifications.email.to).not.toBe(second.notifications.email.to);
+  });
+
+  it('does not mutate the shared defaults when recovering an invalid block', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const first = new SettingsStore(file).get();
+    const second = new SettingsStore(file).get();
+    expect(DEFAULT_SETTINGS.budget).toEqual({
+      monthlyUsd: null,
+      alertAtPercent: 80,
+      pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
+    });
+    expect(DEFAULT_SETTINGS.notifications.webhook.url).toBeNull();
+    expect(first.budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(first.budget).not.toBe(second.budget);
+    expect(first.notifications.webhook).toEqual(sentinelSettings().notifications.webhook);
+    expect(first.notifications.webhook).not.toBe(second.notifications.webhook);
+    warn.mockRestore();
   });
 
   it('rejects invalid budget patches without writing', () => {
@@ -622,6 +734,165 @@ describe('SettingsStore', () => {
       secret: null,
     });
     expect(() => readFileSync(file)).toThrow();
+  });
+});
+
+describe('settings recovery', () => {
+  const topUnits = Object.keys(DEFAULT_SETTINGS).filter((block) => block !== 'notifications');
+  const channelUnits = Object.keys(DEFAULT_SETTINGS.notifications).map(
+    (channel) => `notifications.${channel}`,
+  );
+
+  it('has an invalid value for every top-level block and notification channel', () => {
+    expect(topUnits.length).toBeGreaterThan(0);
+    expect(channelUnits.length).toBeGreaterThan(0);
+    for (const unit of [...topUnits, ...channelUnits]) {
+      expect(INVALID_UNIT_VALUES).toHaveProperty(unit);
+    }
+  });
+
+  for (const block of topUnits) {
+    it(`recovers an invalid \`${block}\` block without disturbing the rest`, () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const saved = asMutable(sentinelSettings());
+      saved[block] = INVALID_UNIT_VALUES[block];
+      const file = tempFile();
+      writeFileSync(file, JSON.stringify(saved));
+
+      const errors = { error: vi.fn() };
+      const loaded = new SettingsStore(file, errors).get();
+      const expected = sentinelSettings();
+      asMutable(expected)[block] = DEFAULT_SETTINGS[block as keyof typeof DEFAULT_SETTINGS];
+
+      expect(loaded).toEqual(expected);
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      expect(errors.error).toHaveBeenCalledWith('settings.invalid', expect.any(Error), {
+        path: file,
+        block,
+      });
+      warn.mockRestore();
+    });
+  }
+
+  for (const channel of Object.keys(DEFAULT_SETTINGS.notifications)) {
+    const unit = `notifications.${channel}`;
+    it(`recovers an invalid \`${unit}\` channel without disturbing the rest`, () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const saved = sentinelSettings();
+      asMutable(saved.notifications)[channel] = INVALID_UNIT_VALUES[unit];
+      const file = tempFile();
+      writeFileSync(file, JSON.stringify(saved));
+
+      const errors = { error: vi.fn() };
+      const loaded = new SettingsStore(file, errors).get();
+      const expected = sentinelSettings();
+      asMutable(expected.notifications)[channel] =
+        DEFAULT_SETTINGS.notifications[channel as keyof typeof DEFAULT_SETTINGS.notifications];
+
+      expect(loaded).toEqual(expected);
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      expect(errors.error).toHaveBeenCalledWith('settings.invalid', expect.any(Error), {
+        path: file,
+        block: unit,
+      });
+      warn.mockRestore();
+    });
+  }
+
+  it('keeps a saved webhook URL and secret when another block is malformed', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = 'not-an-object';
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const loaded = new SettingsStore(file).get();
+    const sentinel = sentinelSettings();
+    expect(loaded.budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(loaded.master).toEqual(sentinel.master);
+    expect(loaded.summary).toEqual(sentinel.summary);
+    expect(loaded.usage).toEqual(sentinel.usage);
+    expect(loaded.retention).toEqual(sentinel.retention);
+    expect(loaded.notifications).toEqual(sentinel.notifications);
+
+    const warned = warn.mock.calls.flat().join(' ');
+    expect(warned).toContain('budget');
+    expect(warned).not.toContain(sentinel.notifications.webhook.url);
+    expect(warned).not.toContain(sentinel.notifications.webhook.secret);
+    expect(warned).not.toContain(sentinel.notifications.email.password);
+    expect(warned).not.toContain(sentinel.notifications.slack.botToken);
+    warn.mockRestore();
+  });
+
+  it('reports every invalid unit when several fail', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    asMutable(saved.notifications).webhook = INVALID_UNIT_VALUES['notifications.webhook'];
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const errors = { error: vi.fn() };
+    const loaded = new SettingsStore(file, errors).get();
+    const sentinel = sentinelSettings();
+    expect(loaded.budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(loaded.notifications.webhook).toEqual(DEFAULT_SETTINGS.notifications.webhook);
+    expect(loaded.master).toEqual(sentinel.master);
+    expect(loaded.notifications.email).toEqual(sentinel.notifications.email);
+    expect(loaded.notifications.slack).toEqual(sentinel.notifications.slack);
+    expect(loaded.notifications.discord).toEqual(sentinel.notifications.discord);
+
+    expect(errors.error).toHaveBeenCalledTimes(2);
+    expect(errors.error).toHaveBeenCalledWith('settings.invalid', expect.any(Error), {
+      path: file,
+      block: 'budget',
+    });
+    expect(errors.error).toHaveBeenCalledWith('settings.invalid', expect.any(Error), {
+      path: file,
+      block: 'notifications.webhook',
+    });
+    warn.mockRestore();
+  });
+
+  it('leaves a partially invalid file untouched while loading', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    const before = `${JSON.stringify(saved)}\n`;
+    writeFileSync(file, before);
+
+    expect(new SettingsStore(file).get().notifications.webhook).toEqual(
+      sentinelSettings().notifications.webhook,
+    );
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    warn.mockRestore();
+  });
+
+  it('keeps surviving blocks when a patch saves after a partial load', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const store = new SettingsStore(file);
+    expect(store.get().budget).toEqual(DEFAULT_SETTINGS.budget);
+    store.patch({ master: { intervalMinutes: 2 } });
+
+    const sentinel = sentinelSettings();
+    const written = JSON.parse(readFileSync(file, 'utf8')) as Record<string, Record<string, unknown>>;
+    expect(written.master?.intervalMinutes).toBe(2);
+    expect(written.budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(written.notifications).toEqual(sentinel.notifications);
+
+    const reloaded = new SettingsStore(file).get();
+    expect(reloaded.master.intervalMinutes).toBe(2);
+    expect(reloaded.summary).toEqual(sentinel.summary);
+    expect(reloaded.usage).toEqual(sentinel.usage);
+    expect(reloaded.retention).toEqual(sentinel.retention);
+    expect(reloaded.notifications).toEqual(sentinel.notifications);
+    warn.mockRestore();
   });
 });
 

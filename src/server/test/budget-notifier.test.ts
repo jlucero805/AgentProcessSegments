@@ -1,7 +1,6 @@
 import { createHmac } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
@@ -139,7 +138,7 @@ function setup(options: SetupOptions) {
   const alerts = new BudgetAlertRepository(db);
   const deliveries = new BudgetAlertDeliveryRepository(db);
   const events = new NotificationEventDeliveryRepository(db);
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-notifier-'));
+  const dir = tmpDir('notifier');
   const settings = new SettingsStore(path.join(dir, 'config.json'));
   settings.patch({
     notifications: {

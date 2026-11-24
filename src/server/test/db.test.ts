@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 import { migrate, openDb, reconcile } from '../src/db.js';
 
@@ -58,7 +57,7 @@ describe('db migrations', () => {
   });
 
   it('adds cell_id and its index to a database created by an older build', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-legacy-'));
+    const dir = tmpDir('legacy');
     const file = path.join(dir, 'legacy.sqlite');
 
     const legacy = new Database(file);
@@ -244,7 +243,7 @@ describe('db migrations', () => {
   });
 
   it('rebuilds a legacy delivery table and backfills destination_id from channel', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-delivery-legacy-'));
+    const dir = tmpDir('delivery-legacy');
     const file = path.join(dir, 'legacy.sqlite');
     const legacy = new Database(file);
     legacy.exec(`CREATE TABLE budget_alerts (

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellDraftStore } from '../src/cells/drafts.js';
 import { HarnessModelCatalog, HARDCODED_MODELS } from '../src/clarify/models.js';
@@ -669,6 +669,58 @@ describe('http api', () => {
 
     const patched = await call('PATCH', `/api/cells/${cellId}`, { pauseOnExceeded: true });
     expect(patched.status).toBe(200);
+    await turn.promise;
+    await settle();
+
+    expect(turn.stoppedBy).toMatchObject({ scope: 'cell', cellId });
+    expect(proc?.killed).toBe(true);
+    expect(open!.h.repo.require(requestId).agentStatus).toBe('idle');
+    expect(open!.h.engine.transcript(requestId).some((message) => message.text.startsWith('⏸'))).toBe(
+      true,
+    );
+  });
+
+  it('stops a live turn when its spend-cap override is revoked', async () => {
+    await makeApp({}, () => []);
+    const cell = await call('POST', '/api/cells', {
+      name: 'Snoozed',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    const request = await call('POST', '/api/requests', { title: 'Live', cellId });
+    const requestId = (request.json() as { id: string }).id;
+    open?.h.usage.record({
+      turnId: 'snooze-spend',
+      sessionId: 'snooze-session',
+      scope: 'request',
+      cellId,
+      requestId,
+      model: null,
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: 2,
+      createdAt: Date.now(),
+    });
+
+    const granted = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 60,
+    });
+    expect(granted.status).toBe(201);
+    const overrideId = (granted.json() as { override: { id: string } }).override.id;
+
+    const turn = await open!.h.engine.send(requestId, 'work');
+    await settle();
+    const proc = open!.h.harness.process;
+
+    const revoked = await call('DELETE', `/api/budgets/overrides/${overrideId}`);
+    expect(revoked.status).toBe(200);
     await turn.promise;
     await settle();
 
@@ -2555,7 +2607,7 @@ describe('http api', () => {
   });
 
   it('vends SPA assets added after boot and keeps missing assets as 404s', async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-web-'));
+    const dir = tmpDir('web');
     mkdirSync(path.join(dir, 'assets'));
     writeFileSync(path.join(dir, 'index.html'), '<!doctype html><body>spa-index</body>');
     writeFileSync(path.join(dir, 'assets', 'app.js'), 'console.log("asset")');

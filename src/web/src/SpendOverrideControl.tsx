@@ -9,6 +9,11 @@ const until = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
+/** Shared expiry label so status copy and the control never drift. */
+export function overrideExpiryLabel(value: number): string {
+  return until.format(value);
+}
+
 function optionLabel(minutes: number): string {
   if (minutes === 15) return '15 minutes';
   if (minutes === 60) return '1 hour';
@@ -74,7 +79,7 @@ export function SpendOverrideControl({
     return (
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-amber-300">
-          Override active until {until.format(overrideExpiresAt)}
+          Override active until {overrideExpiryLabel(overrideExpiresAt)}
         </span>
         <Button
           size="sm"

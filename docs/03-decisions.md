@@ -1387,16 +1387,75 @@ The override suppresses admission and the in-flight stop only. `status.paused`,
 unchanged; statuses gain `overrideId` and `overrideExpiresAt`, and `GET /api/budgets`
 returns active `overrides` so the UI can keep the cap visible while new work is allowed.
 `POST /api/budgets/overrides` creates or extends; `DELETE /api/budgets/overrides/:id`
-revokes idempotently. Admission checks the overall override before the overall pause and
-then the cell override, and `SpendCapEnforcer` therefore leaves covered live turns running
-on its next check. A failed override read still fails open and is reported to
+revokes idempotently. Revoking re-runs evaluation immediately, so the enforcer stops live
+turns in a scope that is still over its cap; expiry is observed at the next evaluation
+(within 60 seconds) because there is no per-override timer. Admission checks the overall
+override before the overall pause and then the cell override, and `SpendCapEnforcer`
+therefore leaves covered live turns running on its next check. A failed override read
+still fails open and is reported to
 `usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching delivery
 history. Policy edits and cell deletion do not rewrite or revoke override rows; an inert
 row simply expires.
 
 **Cost.** One additive table and two routes, plus one shared SPA control. Turns already
 stopped by a cap stay stopped, and a live turn keeps running while the override is active;
-there are still no spend reservations or automatic replay. There is no operator identity or
-approval workflow; the optional note is the only context recorded. A history/audit view,
-notification when an override is granted or expires, and per-request overrides remain
-separate work.
+ending the override stops covered live turns at once, while an expiry is noticed by the
+next evaluation. There are still no spend reservations or automatic replay. There is no
+operator identity or approval workflow; the optional note is the only context recorded. A
+history/audit view, notification when an override is granted or expires, and per-request
+overrides remain separate work.
+
+## D69. Blank path overrides are ignored, with a startup warning
+
+**Context.** `readEnv` treats an empty string as a defined value, which is right for
+`APS_DEFAULT_MODEL=''` ("use the CLI default") and MCP's intentional empty request id.
+Applied to a filesystem path it is not: `APS_DATA_DIR=''` made `resolvePath` return an
+empty path, `pluginsDir` and request workdirs became relative, and `APS_DB=''`,
+`APS_WEB_DIR=''`, and the other path variables were passed to SQLite, static serving,
+and the harness spawn exactly as written. Whitespace-only values behaved the same way.
+
+**Decision.** `loadConfig` reads its path settings through `readNonEmptyEnv` instead of
+`readEnv`. A blank or whitespace-only value is ignored: the lookup continues with a
+non-blank `SBOX_*` alias and then the existing default/legacy-location chain. The guard
+covers `DATA_DIR`, `CONFIG`, `PROCESS`, `ERROR_LOG`, `DB`, `WEB_DIR`, `DOCS_DIR`,
+`PLUGINS_DIR`, `TERMINAL_CWD`, `HARNESS_BIN`, `CLAUDE_BIN`, and `OPENCODE_BIN`. Startup
+warns once through `console.warn`, names only, and never a value. `readEnv` and every
+non-path setting keep their existing semantics, and `APS_DB=':memory:'` remains valid.
+Non-blank paths are returned verbatim: no trimming, `~` expansion, or `path.resolve`, so
+spaces and deliberate relative paths still work.
+
+**Cost.** A blank override no longer fails fast; the brain runs on the default or the
+legacy alias and the only signal is the one startup warning. A blank APS value therefore
+can fall back to a still-set `SBOX_*` alias instead of blocking it. D46's rule that an
+empty APS value wins still applies to every non-path setting; this is a deliberate
+path-only exception.
+
+## D70. Invalid settings blocks recover on their own
+
+**Context.** `SettingsStore.load()` merged every block over its defaults and then
+validated the whole object with one zod schema. A single bad value — a hand-edited
+`budget.alertAtPercent`, a malformed SMTP port, an invalid bot token — failed the parse,
+so the store returned all defaults. The next `PATCH /api/config` wrote those defaults
+back, silently discarding unrelated blocks including a saved webhook URL and its signing
+secret; the loss only appeared after a restart.
+
+**Decision.** Validate ten units independently: `master`, `summary`, `usage`,
+`retention`, `budget`, and the five `notifications` channels (`webhook`, `email`,
+`slack`, `discord`, `events`). The field-level default merge still runs first, so
+partial and legacy files keep their saved values and gain new defaults. A unit that
+fails validation is replaced with that unit's `DEFAULT_SETTINGS` value, reported once as
+`settings.invalid` with the unit name in `context.block`, and every other unit loads
+unchanged. An unreadable, unparseable, or non-object file still falls back to all
+defaults (`settings.unreadable`, or `settings.invalid` with `reason: 'not-an-object'`),
+and a final whole-object parse keeps a future block from slipping through unnoticed.
+Loading never writes; the next successful patch persists the recovered default.
+Notification channels are separate units because they hold separate credentials: a bad
+email port must not reset a webhook secret.
+
+**Cost.** A bad field resets its whole unit, so an invalid `alertAtPercent` also drops a
+saved `monthlyUsd` from the loaded settings. There is no last-valid-value cache — the
+store loads once per process — and per-field salvage is unsound because the block
+`superRefine` rules are cross-field. Reports carry the block name, file path, and zod
+issue paths only, never the URL, secret, password, token, or channel id. The recovery
+table adds a modest amount of schema wiring and a coverage test that fails when a future
+block or channel is added without a recovery unit.

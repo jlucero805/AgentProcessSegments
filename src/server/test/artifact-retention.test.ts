@@ -2,13 +2,12 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   rmSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ensureWorktree, worktreePath } from '../src/clarify/worktree.js';
 import { openDb, type Db } from '../src/db.js';
@@ -25,7 +24,7 @@ afterEach(() => {
 });
 
 function tempRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'aps-artifact-retention-'));
+  return tmpDir('artifact-retention');
 }
 
 function makeStore(days = 30): SettingsStore {

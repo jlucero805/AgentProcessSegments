@@ -228,14 +228,60 @@ describe('UsagePage', () => {
       },
     });
 
+    expect(await screen.findByText('snoozed')).toBeInTheDocument();
     expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
     expect(
-      screen.getByText(/Cap reached; an override is admitting new work/),
+      screen.getByText(/Cap reached; an override is admitting new work until/),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/in-flight turns were stopped/)).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'End override for overall spend' }),
     );
     expect(budgetFeed.revokeOverride).toHaveBeenCalledWith('o1');
+  });
+
+  it('explains a strict unknown-cost pause that an override is admitting', async () => {
+    installFetch();
+    renderUsage({
+      budgets: {
+        ...BUDGETS,
+        statuses: [
+          {
+            ...BUDGETS.statuses[0]!,
+            state: 'unknown',
+            pauseOnUnknownCost: true,
+            paused: true,
+            pauseReason: 'unknown_cost',
+            unpricedTurns: 2,
+            unknownCostTurns: 2,
+            overrideId: 'o1',
+            overrideExpiresAt: Date.UTC(2026, 10, 15, 13),
+          },
+        ],
+        overrides: [
+          {
+            id: 'o1',
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            periodStart: Date.UTC(2026, 10, 1),
+            createdAt: Date.UTC(2026, 10, 15, 12),
+            updatedAt: Date.UTC(2026, 10, 15, 12),
+            expiresAt: Date.UTC(2026, 10, 15, 13),
+            note: null,
+            revokedAt: null,
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText('snoozed')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Cost is unknown: 2 unpriced turns, so cost cannot be verified; an override is admitting new work until/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/New work is refused and in-flight turns were stopped/)).not.toBeInTheDocument();
   });
 
   it('explains a strict unknown-cost pause in the unknown state', async () => {

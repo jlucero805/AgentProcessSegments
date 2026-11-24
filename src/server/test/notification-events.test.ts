@@ -1,7 +1,6 @@
 import { createHmac } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
@@ -99,7 +98,7 @@ function setup(options: SetupOptions) {
   const db: Db = openDb(':memory:');
   const cells = new CellRepository(db);
   const cell = cells.create('Acme');
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'aps-events-'));
+  const dir = tmpDir('events');
   const settings = new SettingsStore(path.join(dir, 'config.json'));
   settings.patch({
     notifications: {

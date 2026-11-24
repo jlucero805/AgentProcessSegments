@@ -40,7 +40,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | Source | When |
 | --- | --- |
 | `app.startup` | The brain fails to start |
-| `settings.invalid` / `settings.unreadable` | `config.json` is invalid or unreadable |
+| `settings.invalid` / `settings.unreadable` | `config.json` has an invalid block or notification channel (`context.block`; `reason: not-an-object` when the file is not a JSON object), or is unreadable/not JSON |
 | `process.invalid` / `process.unreadable` | `process.json` is invalid or unreadable |
 | `http.request` | An unexpected 5xx from the HTTP layer (includes request id/method/URL) |
 | `engine.turn` | An agent turn throws or fails |

@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { legacyPathWarning, loadConfig, requestDir } from '../src/config.js';
+import {
+  blankPathEnvNames,
+  blankPathWarning,
+  legacyPathWarning,
+  loadConfig,
+  requestDir,
+} from '../src/config.js';
 
 function workspace() {
   const base = mkdtempSync(path.join(os.tmpdir(), 'aps-config-'));
@@ -15,6 +21,21 @@ function writeFile(file: string): void {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, '{}');
 }
+
+const BLANK_PATH_ENV = {
+  APS_DATA_DIR: '',
+  APS_CONFIG: '',
+  APS_PROCESS: '',
+  APS_ERROR_LOG: '',
+  APS_DB: '',
+  APS_WEB_DIR: '',
+  APS_DOCS_DIR: '',
+  APS_PLUGINS_DIR: '',
+  APS_TERMINAL_CWD: '',
+  APS_HARNESS_BIN: '',
+  APS_CLAUDE_BIN: '',
+  APS_OPENCODE_BIN: '',
+};
 
 describe('harness config', () => {
   it('defaults to Claude and keeps the OpenCode fast model for later cells', () => {
@@ -210,6 +231,196 @@ describe('loadConfig paths', () => {
     expect(config.dbPath).toBe(':memory:');
     expect(config.configPath).toBe('/explicit/config.json');
     expect(config.legacyPaths).toEqual([]);
+  });
+});
+
+describe('blank path env overrides', () => {
+  const blankPathEnv = (value = '') =>
+    Object.fromEntries(Object.keys(BLANK_PATH_ENV).map((key) => [key, value]));
+
+  it('ignores every blank path override and falls back to the defaults', () => {
+    const { base, home } = workspace();
+    const expected = loadConfig({}, base, home);
+
+    const config = loadConfig(BLANK_PATH_ENV, base, home);
+
+    expect(config.dataDir).toBe(expected.dataDir);
+    expect(config.pluginsDir).toBe(expected.pluginsDir);
+    expect(config.dbPath).toBe(expected.dbPath);
+    expect(config.webDir).toBe(expected.webDir);
+    expect(config.docsDir).toBe(expected.docsDir);
+    expect(config.configPath).toBe(expected.configPath);
+    expect(config.processPath).toBe(expected.processPath);
+    expect(config.errorLogPath).toBe(expected.errorLogPath);
+    expect(config.terminalCwd).toBe(expected.terminalCwd);
+    expect(config.harnessBins).toEqual(expected.harnessBins);
+    expect(config.legacyPaths).toEqual([]);
+    expect(config.dataDir).not.toBe('');
+    expect(config.pluginsDir).toBe(path.join(config.dataDir, 'plugins'));
+    expect(requestDir(config, 'r1')).toBe(
+      path.join(config.dataDir, 'requests', 'r1'),
+    );
+    expect(blankPathEnvNames(BLANK_PATH_ENV)).toEqual([
+      'APS_CLAUDE_BIN',
+      'APS_CONFIG',
+      'APS_DATA_DIR',
+      'APS_DB',
+      'APS_DOCS_DIR',
+      'APS_ERROR_LOG',
+      'APS_HARNESS_BIN',
+      'APS_OPENCODE_BIN',
+      'APS_PLUGINS_DIR',
+      'APS_PROCESS',
+      'APS_TERMINAL_CWD',
+      'APS_WEB_DIR',
+    ]);
+  });
+
+  it('ignores whitespace-only path overrides', () => {
+    const { base, home } = workspace();
+    const expected = loadConfig({}, base, home);
+
+    const config = loadConfig(blankPathEnv('   '), base, home);
+
+    expect(config.dataDir).toBe(expected.dataDir);
+    expect(config.pluginsDir).toBe(expected.pluginsDir);
+    expect(config.dbPath).toBe(expected.dbPath);
+    expect(config.webDir).toBe(expected.webDir);
+    expect(config.docsDir).toBe(expected.docsDir);
+    expect(config.configPath).toBe(expected.configPath);
+    expect(config.processPath).toBe(expected.processPath);
+    expect(config.errorLogPath).toBe(expected.errorLogPath);
+    expect(config.terminalCwd).toBe(expected.terminalCwd);
+  });
+
+  it('does not let a blank APS_* value block an existing legacy data dir', () => {
+    const { base, home } = workspace();
+    const legacyData = path.join(home, '.sandbox-harness');
+    mkdirSync(legacyData, { recursive: true });
+
+    const config = loadConfig({ APS_DATA_DIR: '' }, base, home);
+
+    expect(config.dataDir).toBe(legacyData);
+    expect(config.pluginsDir).toBe(path.join(legacyData, 'plugins'));
+    expect(config.legacyPaths).toEqual([legacyData]);
+  });
+
+  it('falls through a blank APS_* value to a non-blank SBOX_* alias', () => {
+    const { base, home } = workspace();
+
+    const config = loadConfig(
+      {
+        APS_DATA_DIR: '',
+        SBOX_DATA_DIR: '/legacy/data',
+        APS_CONFIG: '',
+        SBOX_CONFIG: '/legacy/config.json',
+        APS_PROCESS: '',
+        SBOX_PROCESS: '/legacy/process.json',
+        APS_ERROR_LOG: '',
+        SBOX_ERROR_LOG: '/legacy/errors.log',
+        APS_DB: '',
+        SBOX_DB: '/legacy/db.sqlite',
+        APS_WEB_DIR: '',
+        SBOX_WEB_DIR: '/legacy/web',
+        APS_DOCS_DIR: '',
+        SBOX_DOCS_DIR: '/legacy/docs',
+        APS_PLUGINS_DIR: '',
+        SBOX_PLUGINS_DIR: '/legacy/plugins',
+        APS_TERMINAL_CWD: '',
+        SBOX_TERMINAL_CWD: '/legacy/terminal',
+        APS_CLAUDE_BIN: '',
+        SBOX_CLAUDE_BIN: '/legacy/claude',
+        APS_OPENCODE_BIN: '',
+        SBOX_OPENCODE_BIN: '/legacy/opencode',
+      },
+      base,
+      home,
+    );
+
+    expect(config.dataDir).toBe('/legacy/data');
+    expect(config.configPath).toBe('/legacy/config.json');
+    expect(config.processPath).toBe('/legacy/process.json');
+    expect(config.errorLogPath).toBe('/legacy/errors.log');
+    expect(config.dbPath).toBe('/legacy/db.sqlite');
+    expect(config.webDir).toBe('/legacy/web');
+    expect(config.docsDir).toBe('/legacy/docs');
+    expect(config.pluginsDir).toBe('/legacy/plugins');
+    expect(config.terminalCwd).toBe('/legacy/terminal');
+    expect(config.harnessBins).toEqual({
+      claude: '/legacy/claude',
+      opencode: '/legacy/opencode',
+    });
+  });
+
+  it('falls through a blank APS_HARNESS_BIN to the legacy alias', () => {
+    const { base, home } = workspace();
+
+    const config = loadConfig(
+      { APS_HARNESS_BIN: '', SBOX_HARNESS_BIN: '/legacy/default' },
+      base,
+      home,
+    );
+
+    expect(config.harnessBin).toBe('/legacy/default');
+    expect(config.harnessBins).toEqual({
+      claude: '/legacy/default',
+      opencode: 'opencode',
+    });
+  });
+
+  it('keeps non-blank values verbatim', () => {
+    const { base, home } = workspace();
+
+    const config = loadConfig(
+      {
+        APS_DATA_DIR: 'data',
+        APS_WEB_DIR: '/srv/My Web',
+        APS_DOCS_DIR: 'docs',
+        APS_DB: ':memory:',
+      },
+      base,
+      home,
+    );
+
+    expect(config.dataDir).toBe('data');
+    expect(config.pluginsDir).toBe(path.join('data', 'plugins'));
+    expect(config.webDir).toBe('/srv/My Web');
+    expect(config.docsDir).toBe('docs');
+    expect(config.dbPath).toBe(':memory:');
+    expect(
+      blankPathEnvNames({
+        APS_DATA_DIR: 'data',
+        APS_WEB_DIR: '/srv/My Web',
+        APS_DOCS_DIR: 'docs',
+        APS_DB: ':memory:',
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports only blank path names across both prefixes', () => {
+    expect(
+      blankPathEnvNames({
+        APS_DATA_DIR: '',
+        SBOX_DB: '   ',
+        APS_WEB_DIR: '/web',
+        APS_PORT: '',
+        APS_DEFAULT_MODEL: '',
+        APS_HARNESS: '',
+        aps_data_dir: '',
+        APS_CONFIG: undefined,
+        PATH: '/usr/bin',
+      }),
+    ).toEqual(['APS_DATA_DIR', 'SBOX_DB']);
+  });
+
+  it('returns one warning line with names only', () => {
+    expect(blankPathWarning([])).toBeNull();
+
+    const warning = blankPathWarning(['APS_DATA_DIR', 'SBOX_DB']);
+
+    expect(warning).toContain('APS_DATA_DIR, SBOX_DB');
+    expect(warning).toContain('APS_*');
+    expect(warning?.includes('\n')).toBe(false);
   });
 });
 

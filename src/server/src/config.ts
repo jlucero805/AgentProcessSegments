@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HARNESS_IDS, isHarnessId, type HarnessId } from './domain/harness.js';
-import { readEnv, readNonEmptyEnv } from './env.js';
+import { readEnv, readNonBlankEnv, readNonEmptyEnv } from './env.js';
 
 export type { HarnessId };
 
@@ -90,10 +90,14 @@ const PATH_ENV_NAMES = [
   'OPENCODE_BIN',
 ] as const;
 
+/** Path env names without an APS/SBOX alias. A blank value is a mistake too. */
+const BASE_PATH_ENV_NAMES = ['XDG_CONFIG_HOME', 'XDG_STATE_HOME'] as const;
+
 /**
  * Names of blank path overrides, sorted for a stable startup message. Both
- * prefixes are reported because either is the variable the operator meant to
- * set. Only the blank check reads the value; it never reaches a log.
+ * APS/SBOX prefixes are reported because either is the variable the operator
+ * meant to set, and the XDG base directories are reported by their exact names.
+ * Only the blank check reads the value; it never reaches a log.
  */
 export function blankPathEnvNames(env: NodeJS.ProcessEnv): string[] {
   const names: string[] = [];
@@ -104,6 +108,10 @@ export function blankPathEnvNames(env: NodeJS.ProcessEnv): string[] {
       if (value !== undefined && value.trim() === '') names.push(key);
     }
   }
+  for (const key of BASE_PATH_ENV_NAMES) {
+    const value = env[key];
+    if (value !== undefined && value.trim() === '') names.push(key);
+  }
   return names.sort();
 }
 
@@ -112,7 +120,7 @@ export function blankPathWarning(names: string[]): string | null {
   if (names.length === 0) return null;
   return (
     `ignoring blank path environment variables: ${names.join(', ')}. ` +
-    'Set a non-empty APS_* value or unset them; the built-in default is in use.'
+    'Set a non-empty value or unset them; the built-in default or legacy location is in use.'
   );
 }
 
@@ -121,8 +129,11 @@ export function loadConfig(
   cwd = process.cwd(),
   home = os.homedir(),
 ): Config {
-  const xdgConfig = env.XDG_CONFIG_HOME ?? path.join(home, '.config');
-  const xdgState = env.XDG_STATE_HOME ?? path.join(home, '.local', 'state');
+  const xdgConfig =
+    readNonBlankEnv(env, 'XDG_CONFIG_HOME') ?? path.join(home, '.config');
+  const xdgState =
+    readNonBlankEnv(env, 'XDG_STATE_HOME') ??
+    path.join(home, '.local', 'state');
 
   const data = resolvePath(
     env,

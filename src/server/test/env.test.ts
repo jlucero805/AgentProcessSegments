@@ -3,6 +3,7 @@ import {
   legacyEnvNames,
   legacyEnvWarning,
   readEnv,
+  readNonBlankEnv,
   readNonEmptyEnv,
 } from '../src/env.js';
 
@@ -22,6 +23,31 @@ describe('readEnv', () => {
 
   it('returns undefined when neither prefix is set', () => {
     expect(readEnv({}, 'PORT')).toBeUndefined();
+  });
+});
+
+describe('readNonBlankEnv', () => {
+  it('returns undefined for absent, empty, and whitespace-only names', () => {
+    expect(readNonBlankEnv({}, 'XDG_CONFIG_HOME')).toBeUndefined();
+    expect(readNonBlankEnv({ XDG_CONFIG_HOME: '' }, 'XDG_CONFIG_HOME')).toBeUndefined();
+    expect(
+      readNonBlankEnv({ XDG_CONFIG_HOME: '   ' }, 'XDG_CONFIG_HOME'),
+    ).toBeUndefined();
+  });
+
+  it('returns non-blank values verbatim and does not use APS/SBOX aliases', () => {
+    expect(
+      readNonBlankEnv({ XDG_CONFIG_HOME: '/srv/My Config' }, 'XDG_CONFIG_HOME'),
+    ).toBe('/srv/My Config');
+    expect(
+      readNonBlankEnv({ XDG_STATE_HOME: ' /state ' }, 'XDG_STATE_HOME'),
+    ).toBe(' /state ');
+    expect(
+      readNonBlankEnv({ XDG_CONFIG_HOME: 'relative/config' }, 'XDG_CONFIG_HOME'),
+    ).toBe('relative/config');
+    expect(
+      readNonBlankEnv({ APS_XDG_CONFIG_HOME: '/aps' }, 'XDG_CONFIG_HOME'),
+    ).toBeUndefined();
   });
 });
 

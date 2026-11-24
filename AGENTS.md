@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 868 vitest cases: 669 server across 46 files and 199 web across 24 files, all green.
+- 876 vitest cases: 677 server across 46 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -96,7 +96,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 669 server + 199 web, plus the e2e env guard
+npm test                       # 677 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -185,8 +185,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `readNonEmptyEnv()`: a blank or whitespace-only value is ignored, the lookup continues
   with a non-blank `SBOX_*` alias and then the default/legacy location, and startup warns
   once with the blank names only. Non-blank paths are used verbatim; `APS_DB=':memory:'`
-  stays valid. Do not apply this to settings where `''` is meaningful
-  (`APS_DEFAULT_MODEL`), which keep using `readEnv()`.
+  stays valid. `XDG_CONFIG_HOME` and `XDG_STATE_HOME` have no APS/SBOX alias; they are
+  read through `readNonBlankEnv()`, and a blank or whitespace-only base falls back to
+  `~/.config` / `~/.local/state` before the same default/legacy choice. The startup
+  warning names those exact variables too. Do not apply this to settings where `''` is
+  meaningful (`APS_DEFAULT_MODEL`), which keep using `readEnv()`.
 - **Errors are the only persisted logs.** `$XDG_STATE_HOME/agent-process-segments/errors.log`
   (`APS_ERROR_LOG`, `APS_ERROR_LOG_MAX_BYTES`) is NDJSON, size-rotated to `.1`, and
   written only by explicit error paths. Never add routine logging to it.

@@ -13,19 +13,29 @@ export function readEnv(env: NodeJS.ProcessEnv, name: string): string | undefine
 }
 
 /**
- * Like `readEnv`, but skips blank values. Only for path settings, where an empty
- * string can only be a mistake: a blank APS value must not shadow a usable SBOX
- * alias. Values are returned verbatim, never trimmed.
+ * Reads one exact env name, skipping blank values. For path settings an empty
+ * string can only be a mistake. Values are returned verbatim, never trimmed.
+ */
+export function readNonBlankEnv(
+  env: NodeJS.ProcessEnv,
+  key: string,
+): string | undefined {
+  const value = env[key];
+  return value !== undefined && value.trim() !== '' ? value : undefined;
+}
+
+/**
+ * Like `readEnv`, but skips blank values. Only for path settings: a blank APS
+ * value must not shadow a usable SBOX alias. Values are returned verbatim,
+ * never trimmed.
  */
 export function readNonEmptyEnv(
   env: NodeJS.ProcessEnv,
   name: string,
 ): string | undefined {
-  const current = env[`APS_${name}`];
-  if (current !== undefined && current.trim() !== '') return current;
-  const legacy = env[`SBOX_${name}`];
-  if (legacy !== undefined && legacy.trim() !== '') return legacy;
-  return undefined;
+  return (
+    readNonBlankEnv(env, `APS_${name}`) ?? readNonBlankEnv(env, `SBOX_${name}`)
+  );
 }
 
 const LEGACY_ENV_PREFIX = 'SBOX_';

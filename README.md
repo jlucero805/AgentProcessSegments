@@ -235,10 +235,11 @@ A brain started with any `SBOX_*` variable still set logs one warning naming tho
 variables (names only, never values). Rename them to `APS_*` to clear it;
 `npm run migrate:paths` moves only the filesystem defaults, not the variable names.
 
-A blank path value such as `APS_DB=` is ignored rather than used: the brain falls back to
-a non-blank `SBOX_*` alias and then the built-in default, and startup names the variable
-in a warning. Values are not trimmed or expanded, so `APS_DB=:memory:` and paths with
-spaces keep working.
+A blank path value such as `APS_DB=` or `XDG_CONFIG_HOME=` is ignored rather than used:
+APS/SBOX path overrides fall back to a non-blank `SBOX_*` alias, XDG bases fall back to
+the home defaults, and then the built-in default or legacy location is used; startup
+names the variable in a warning. Values are not trimmed or expanded, so `APS_DB=:memory:`
+and paths with spaces keep working.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
 `sandbox-harness.service` is active (user or system scope). Stop the unit first;
@@ -493,7 +494,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 868 vitest cases: 669 server cases across 46 files (state machine,
+`npm test` runs 876 vitest cases: 677 server cases across 46 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

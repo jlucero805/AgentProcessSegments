@@ -293,6 +293,89 @@ describe('blank path env overrides', () => {
     expect(config.terminalCwd).toBe(expected.terminalCwd);
   });
 
+  it('ignores blank XDG base dirs and falls back to home defaults', () => {
+    const { base, home } = workspace();
+    const expected = loadConfig({}, base, home);
+
+    const config = loadConfig(
+      { XDG_CONFIG_HOME: '', XDG_STATE_HOME: '' },
+      base,
+      home,
+    );
+
+    expect(config.configPath).toBe(expected.configPath);
+    expect(config.processPath).toBe(expected.processPath);
+    expect(config.errorLogPath).toBe(expected.errorLogPath);
+    expect(path.isAbsolute(config.configPath)).toBe(true);
+    expect(path.isAbsolute(config.processPath)).toBe(true);
+    expect(path.isAbsolute(config.errorLogPath)).toBe(true);
+  });
+
+  it('ignores whitespace-only XDG base dirs', () => {
+    const { base, home } = workspace();
+    const expected = loadConfig({}, base, home);
+
+    const config = loadConfig(
+      { XDG_CONFIG_HOME: '   ', XDG_STATE_HOME: '   ' },
+      base,
+      home,
+    );
+
+    expect(config.configPath).toBe(expected.configPath);
+    expect(config.processPath).toBe(expected.processPath);
+    expect(config.errorLogPath).toBe(expected.errorLogPath);
+  });
+
+  it('falls back to existing legacy config and state dirs when XDG is blank', () => {
+    const { base, home } = workspace();
+    const legacyConfig = path.join(home, '.config', 'sandbox-harness');
+    const legacyState = path.join(home, '.local', 'state', 'sandbox-harness');
+    writeFile(path.join(legacyConfig, 'config.json'));
+    writeFile(path.join(legacyConfig, 'process.json'));
+    writeFile(path.join(legacyState, 'errors.log'));
+
+    const config = loadConfig(
+      { XDG_CONFIG_HOME: '', XDG_STATE_HOME: '' },
+      base,
+      home,
+    );
+
+    expect(config.configPath).toBe(path.join(legacyConfig, 'config.json'));
+    expect(config.processPath).toBe(path.join(legacyConfig, 'process.json'));
+    expect(config.errorLogPath).toBe(path.join(legacyState, 'errors.log'));
+    expect(config.legacyPaths).toEqual([
+      path.join(legacyConfig, 'config.json'),
+      path.join(legacyConfig, 'process.json'),
+      path.join(legacyState, 'errors.log'),
+    ]);
+  });
+
+  it('keeps non-blank XDG base dirs verbatim', () => {
+    const { base, home } = workspace();
+
+    const config = loadConfig(
+      { XDG_CONFIG_HOME: '/srv/My Config', XDG_STATE_HOME: 'state dir' },
+      base,
+      home,
+    );
+
+    expect(config.configPath).toBe(
+      path.join('/srv/My Config', 'agent-process-segments', 'config.json'),
+    );
+    expect(config.processPath).toBe(
+      path.join('/srv/My Config', 'agent-process-segments', 'process.json'),
+    );
+    expect(config.errorLogPath).toBe(
+      path.join('state dir', 'agent-process-segments', 'errors.log'),
+    );
+    expect(
+      blankPathEnvNames({
+        XDG_CONFIG_HOME: '/srv/My Config',
+        XDG_STATE_HOME: 'state dir',
+      }),
+    ).toEqual([]);
+  });
+
   it('does not let a blank APS_* value block an existing legacy data dir', () => {
     const { base, home } = workspace();
     const legacyData = path.join(home, '.sandbox-harness');
@@ -413,14 +496,35 @@ describe('blank path env overrides', () => {
     ).toEqual(['APS_DATA_DIR', 'SBOX_DB']);
   });
 
+  it('reports blank XDG base dirs alongside blank path overrides', () => {
+    expect(
+      blankPathEnvNames({
+        XDG_CONFIG_HOME: '',
+        XDG_STATE_HOME: '   ',
+        APS_DATA_DIR: '',
+        APS_PORT: '',
+        XDG_CACHE_HOME: '',
+        PATH: '/usr/bin',
+      }),
+    ).toEqual(['APS_DATA_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME']);
+  });
+
   it('returns one warning line with names only', () => {
     expect(blankPathWarning([])).toBeNull();
 
     const warning = blankPathWarning(['APS_DATA_DIR', 'SBOX_DB']);
 
     expect(warning).toContain('APS_DATA_DIR, SBOX_DB');
-    expect(warning).toContain('APS_*');
+    expect(warning).toContain('non-empty value');
     expect(warning?.includes('\n')).toBe(false);
+  });
+
+  it('does not mention APS_* for an XDG-only warning', () => {
+    const warning = blankPathWarning(['XDG_CONFIG_HOME']);
+
+    expect(warning).toContain('XDG_CONFIG_HOME');
+    expect(warning).toContain('legacy location');
+    expect(warning).not.toContain('APS_*');
   });
 });
 

@@ -104,8 +104,11 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
     legacy default is still in use and points at `npm run migrate:paths`.
     A path-valued override that is blank or whitespace-only is ignored rather than used:
     resolution continues with a non-blank `SBOX_*` alias and then the default, and
-    `app.ts` warns once at startup naming the blank variables. `APS_DB=':memory:'` and
-    non-blank relative or spaced paths are used verbatim.
+    `app.ts` warns once at startup naming the blank variables. `XDG_CONFIG_HOME` and
+    `XDG_STATE_HOME` are guarded the same way; they have no APS/SBOX alias, so a blank
+    base falls back to `$HOME/.config` / `$HOME/.local/state` before the default/legacy
+    choice and is named in the same warning. `APS_DB=':memory:'` and non-blank relative
+    or spaced paths are used verbatim.
 - **Run:** `node src/server/dist/app.js` with `APS_DB` set. The original had no process
   supervisor; it ran as a backgrounded process and had to be restarted manually.
 - **App settings file** (`config.json`): each settings block and notification channel

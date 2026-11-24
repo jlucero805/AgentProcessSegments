@@ -1460,3 +1460,24 @@ store loads once per process — and per-field salvage is unsound because the bl
 issue paths only, never the URL, secret, password, token, or channel id. The recovery
 table adds a modest amount of schema wiring and a coverage test that fails when a future
 block or channel is added without a recovery unit.
+
+## D71. Blank XDG base directories are ignored too
+
+**Context.** D69 made blank APS/SBOX path overrides fall back to an alias or default, but
+`loadConfig` still read `XDG_CONFIG_HOME` and `XDG_STATE_HOME` with `??`. An empty or
+whitespace-only value therefore produced relative `config.json`, `process.json`, and
+`errors.log` paths, and built a relative legacy candidate that could hide an existing
+`sandbox-harness` location.
+
+**Decision.** Add `readNonBlankEnv(env, key)` for one exact env name and read both XDG
+base directories through it. A blank or whitespace-only base is ignored: resolution
+falls back to `<home>/.config` / `<home>/.local/state` and then the existing
+canonical/legacy choice, so a real legacy location can still be selected and reported in
+`legacyPaths`. The startup blank-path scan reports the two exact XDG names alongside the
+APS/SBOX path names, sorted and names-only. Non-blank values stay verbatim, with no
+trimming, `~` expansion, or `path.resolve`; `readEnv`, `readNonEmptyEnv`, and every
+non-path setting keep their semantics.
+
+**Cost.** A blank XDG base now runs on the default or legacy location instead of failing
+fast, and the only signal is the startup warning. `HOME` has no such guard; a blank
+`HOME` still makes the fallback bases relative and is separate work.

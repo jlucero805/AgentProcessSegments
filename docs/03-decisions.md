@@ -1017,18 +1017,21 @@ API credentials are dropped before the mock pins are applied. The other proof sc
 still spread `process.env` and pinned only legacy `SBOX_*` names. Because `readEnv()`
 prefers `APS_*`, a normally configured host overrode those pins, so `mcp-smoke` could call
 the live brain (and exited 0 when every call failed), `claude-mock-smoke` could launch the
-wrong adapter against the live port and database, and inherited `XDG_CONFIG_HOME` could
-still reach the host's config, process, and error-log files even after prefix scrubbing.
+wrong adapter against the live port and database, and inherited `XDG_CONFIG_HOME` or
+`OPENCODE_CONFIG_DIR` could still steer skills and adapter config resolution even after
+prefix scrubbing.
 
 **Decision.** `scripts/e2e/env.mjs` owns `scrubEnv(hostEnv)` and
 `buildPinnedEnv(hostEnv, pins)`; the E2E name `buildE2eEnv` is an alias. Every proof
 script — e2e, MCP smoke, Claude mock smoke, and screenshots — builds its child env through
 the helper with a validated pin builder. Scripts that deliberately prove the legacy
 aliases keep `SBOX_*` pins; scrubbing inherited `APS_*` names first is what makes those
-pins authoritative. The Claude smoke also pins `SBOX_CONFIG`/`SBOX_PROCESS`/
-`SBOX_ERROR_LOG` and the XDG dirs because `loadConfig()` reads XDG directly, outside
-`readEnv`. `mcp-smoke` now asserts its tool round trips, persisted request, and KB entry,
-so a broken proof exits non-zero instead of printing `MISSING ID`/`ERROR`.
+pins authoritative. The Claude smoke pins its legacy `SBOX_CONFIG`/`SBOX_PROCESS`/
+`SBOX_ERROR_LOG`; the MCP smoke pins the canonical `APS_*` equivalents and also
+`XDG_CONFIG_HOME`/`XDG_STATE_HOME`/`OPENCODE_CONFIG_DIR`, because `loadConfig()` and
+`SkillCatalog` read those directories directly, outside `readEnv`. `mcp-smoke` now asserts
+its tool round trips, persisted request, and KB entry, so a broken proof exits non-zero
+instead of printing `MISSING ID`/`ERROR`.
 
 **Cost.** The proof scripts import from an `e2e`-named module; renaming it to a neutral
 path would churn imports, tests, and docs for no behavioral gain. The pins stay explicit

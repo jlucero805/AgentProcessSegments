@@ -245,8 +245,8 @@ export function buildClaudeSmokePins({
 }
 
 /**
- * Pins for the MCP smoke's brain: a temp DB/data/config under `work`, no real
- * agent CLI, and the loopback host.
+ * Pins for the MCP smoke's brain: a temp DB/data/config plus temp XDG and
+ * opencode config dirs under `work`, no real agent CLI, and the loopback host.
  */
 export function buildMcpSmokePins({ root, work, home, port }) {
   const builder = 'buildMcpSmokePins';
@@ -273,6 +273,9 @@ export function buildMcpSmokePins({ root, work, home, port }) {
     APS_CLAUDE_BIN: '/bin/false',
     APS_OPENCODE_BIN: '/bin/false',
     APS_TERMINAL: '0',
+    XDG_CONFIG_HOME: path.join(work, 'xdg-config'),
+    XDG_STATE_HOME: path.join(work, 'xdg-state'),
+    OPENCODE_CONFIG_DIR: path.join(work, 'xdg-config', 'opencode'),
   };
 }
 

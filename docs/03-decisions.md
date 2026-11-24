@@ -1425,3 +1425,33 @@ legacy alias and the only signal is the one startup warning. A blank APS value t
 can fall back to a still-set `SBOX_*` alias instead of blocking it. D46's rule that an
 empty APS value wins still applies to every non-path setting; this is a deliberate
 path-only exception.
+
+## D69. Invalid settings blocks recover on their own
+
+**Context.** `SettingsStore.load()` merged every block over its defaults and then
+validated the whole object with one zod schema. A single bad value — a hand-edited
+`budget.alertAtPercent`, a malformed SMTP port, an invalid bot token — failed the parse,
+so the store returned all defaults. The next `PATCH /api/config` wrote those defaults
+back, silently discarding unrelated blocks including a saved webhook URL and its signing
+secret; the loss only appeared after a restart.
+
+**Decision.** Validate ten units independently: `master`, `summary`, `usage`,
+`retention`, `budget`, and the five `notifications` channels (`webhook`, `email`,
+`slack`, `discord`, `events`). The field-level default merge still runs first, so
+partial and legacy files keep their saved values and gain new defaults. A unit that
+fails validation is replaced with that unit's `DEFAULT_SETTINGS` value, reported once as
+`settings.invalid` with the unit name in `context.block`, and every other unit loads
+unchanged. An unreadable, unparseable, or non-object file still falls back to all
+defaults (`settings.unreadable`, or `settings.invalid` with `reason: 'not-an-object'`),
+and a final whole-object parse keeps a future block from slipping through unnoticed.
+Loading never writes; the next successful patch persists the recovered default.
+Notification channels are separate units because they hold separate credentials: a bad
+email port must not reset a webhook secret.
+
+**Cost.** A bad field resets its whole unit, so an invalid `alertAtPercent` also drops a
+saved `monthlyUsd` from the loaded settings. There is no last-valid-value cache — the
+store loads once per process — and per-field salvage is unsound because the block
+`superRefine` rules are cross-field. Reports carry the block name, file path, and zod
+issue paths only, never the URL, secret, password, token, or channel id. The recovery
+table adds a modest amount of schema wiring and a coverage test that fails when a future
+block or channel is added without a recovery unit.

@@ -278,7 +278,10 @@ built and vended by the brain; real-CLI verification is still pending.
   `defaultChannelId`, `routes`), and event routes (`failedTurns`/`masterErrors` with
   `webhook`/`email` booleans), validated with zod and written atomically. Each saved
   block is merged over defaults on load, including older files written before a block
-  existed. `GET/PATCH
+  existed. Each block and notification channel also validates on its own: one invalid
+  unit falls back to that unit's defaults, is reported as `settings.invalid` with its
+  `block` name, and leaves the rest of the file intact; only an unreadable or non-JSON
+  file falls back to all defaults. Loading never rewrites the file. `GET/PATCH
   /api/config` expose all blocks and redact the signing secret as `secret: null` with
   `secretSet`, the SMTP password as `password: null` with `passwordSet`, and bot tokens as
   `botToken: null` with `botTokenSet`.
@@ -322,8 +325,9 @@ built and vended by the brain; real-CLI verification is still pending.
   with counts and the cutoff only and joins overlapping runs.
 - Error log: explicit failure paths append NDJSON to
   `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
-  `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings/
-  process files, unexpected HTTP 5xx, engine turn/exit/timeout failures, master
+  `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings
+  blocks (per block) and process files, unexpected HTTP 5xx, engine turn/exit/timeout
+  failures, master
   turn/cycle failures, PTY open failures, and hard-cap enforcement bugs. Normal logs,
   expected 4xx responses, spend-cap refusals, and cap stops are not persisted. See
   `docs/10-error-log.md`.

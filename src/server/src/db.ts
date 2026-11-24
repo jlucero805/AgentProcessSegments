@@ -4,6 +4,23 @@ import path from 'node:path';
 
 export type Db = Database.Database;
 
+const BUDGET_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS budget_alert_deliveries (
+  id               TEXT PRIMARY KEY,
+  alert_id         TEXT NOT NULL REFERENCES budget_alerts(id) ON DELETE CASCADE,
+  channel          TEXT NOT NULL,
+  destination_id   TEXT NOT NULL,
+  format           TEXT NOT NULL,
+  destination_hash TEXT NOT NULL,
+  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at  INTEGER NOT NULL,
+  last_error       TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  delivered_at     INTEGER,
+  UNIQUE(alert_id, destination_id)
+)`;
+
 const BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cells (
   id                       TEXT PRIMARY KEY,
@@ -131,21 +148,7 @@ CREATE TABLE IF NOT EXISTS budget_alerts (
   acknowledged_at    INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS budget_alert_deliveries (
-  id               TEXT PRIMARY KEY,
-  alert_id         TEXT NOT NULL REFERENCES budget_alerts(id) ON DELETE CASCADE,
-  channel          TEXT NOT NULL,
-  format           TEXT NOT NULL,
-  destination_hash TEXT NOT NULL,
-  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
-  attempts         INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at  INTEGER NOT NULL,
-  last_error       TEXT,
-  created_at       INTEGER NOT NULL,
-  updated_at       INTEGER NOT NULL,
-  delivered_at     INTEGER,
-  UNIQUE(alert_id, channel)
-);
+${BUDGET_DELIVERIES_DDL};
 
 CREATE TABLE IF NOT EXISTS model_pricing (
   id                       TEXT PRIMARY KEY,
@@ -204,8 +207,37 @@ function addColumn(db: Db, table: string, column: string, ddl: string): void {
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 
+/**
+ * SQLite cannot drop the table-level `UNIQUE(alert_id, channel)` from an older
+ * budget_alert_deliveries table, so the identity change needs a table rebuild.
+ * Existing rows keep channel as their destination identity.
+ */
+function migrateBudgetDeliveries(db: Db): void {
+  const columns = db
+    .prepare('PRAGMA table_info(budget_alert_deliveries)')
+    .all() as Array<{ name: string }>;
+  if (columns.length === 0 || columns.some((column) => column.name === 'destination_id')) {
+    return;
+  }
+
+  db.transaction(() => {
+    db.exec('ALTER TABLE budget_alert_deliveries RENAME TO budget_alert_deliveries_legacy');
+    db.exec(BUDGET_DELIVERIES_DDL);
+    db.exec(
+      `INSERT INTO budget_alert_deliveries
+         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
+          next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       SELECT id, alert_id, channel, channel, format, destination_hash, status, attempts,
+              next_attempt_at, last_error, created_at, updated_at, delivered_at
+         FROM budget_alert_deliveries_legacy`,
+    );
+    db.exec('DROP TABLE budget_alert_deliveries_legacy');
+  })();
+}
+
 export function migrate(db: Db): void {
   db.exec(BASE_SCHEMA);
+  migrateBudgetDeliveries(db);
   for (const [table, column, ddl] of COLUMNS) addColumn(db, table, column, ddl);
   db.prepare(
     'INSERT OR IGNORE INTO usage_rollup_state (id, rolled_through) VALUES (1, 0)',

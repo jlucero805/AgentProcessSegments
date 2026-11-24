@@ -168,19 +168,29 @@ last five.
    address, and up to ten recipients. Save, then **Send test email**. A blank password
    keeps the saved one; **Clear password** removes it, and the username must be cleared at
    the same time. Remote hosts require STARTTLS when implicit TLS is off.
-9. Each alert is sent once per enabled channel. Acknowledging it, clearing a budget, or
-   changing a channel's destination cancels that channel's pending notification without
-   touching the other. Transient failures retry for about three hours; permanent ones are
-   marked failed in the Config card. Delivery problems never stop work or hide the in-app
-   banner.
-10. The **Delivery history** card below the channel settings lists recent attempts for
-    both channels. Filter by channel or status; use **Refresh** or the Newer/Older buttons
-    to page. A failed or skipped row that still belongs to an unacknowledged current-month
-    alert shows **Resend**. Pressing it re-queues the same outbox row under the channel's
-    current destination and format, resets its attempt count, and shows a queued message;
-    the next notifier flush sends it. Delivered rows never show Resend. History is pruned
-    after 400 days, and clearing a budget, changing its threshold, or deleting a cell
-    removes its unacknowledged rows.
+9. For native chat, create a Slack app with the `chat:write` scope (or a Discord
+   application with View Channel and Send Messages), install it, and copy the bot token.
+   Invite the bot to each target channel. In **Config → Slack alerts** or **Discord
+   alerts**, paste the token, add each channel ID and an optional label, choose a default
+   destination, and add per-cell routes. Save, then **Send test** on a destination. A
+   blank token keeps the saved one; **Clear token** disables the provider and removes it.
+   Use channel IDs, not `#channel` names.
+10. The overall budget goes to the default destination. A cell uses its route when one is
+    set and otherwise the default; a cell with neither is not delivered to that provider.
+    Each alert is sent once per destination. Acknowledging it, clearing a budget, changing
+    a route/default, or rotating a token/channel cancels that destination's pending
+    notification without touching other channels. Transient failures retry for about
+    three hours; permanent ones are marked failed in the Config card. Delivery problems
+    never stop work or hide the in-app banner.
+11. The **Delivery history** card below the channel settings lists recent attempts for
+    webhook, email, Slack, and Discord. Filter by channel or status; use **Refresh** or the
+    Newer/Older buttons to page. A failed or skipped row that still belongs to an
+    unacknowledged current-month alert shows **Resend** when its current destination still
+    matches. Pressing it re-queues the same outbox row under the current destination and
+    format, resets its attempt count, and shows a queued message; the next notifier flush
+    sends it. Delivered rows never show Resend. History is pruned after 400 days, and
+    clearing a budget, changing its threshold, or deleting a cell removes its
+    unacknowledged rows.
 
 ## 4d. Read spend and maintain model prices
 

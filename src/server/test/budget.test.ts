@@ -7,16 +7,25 @@ import { openDb } from '../src/db.js';
 import {
   budgetAlertSubject,
   budgetAlertText,
+  budgetChatText,
   budgetEmailText,
   budgetPeriod,
+  chatBotTokenError,
+  chatChannelIdError,
+  chatDeliveryConfigured,
+  chatDestinationId,
+  chatUsageUrl,
   emailAddressError,
   emailDeliveryConfigured,
   emailRecipientsError,
   isLoopbackSmtpHost,
   resendBlockReason,
+  resolveChatChannel,
   smtpHostError,
+  truncateChatText,
   type BudgetAlert,
   type BudgetUsageTotals,
+  type ChatSettings,
   type EmailSettings,
 } from '../src/domain/budget.js';
 import type { ErrorSink } from '../src/logging/errors.js';
@@ -673,5 +682,107 @@ describe('budget email helpers', () => {
     expect(resendBlockReason({ ...base, channelConfigured: false })).toBe(
       'channel_unconfigured',
     );
+  });
+});
+
+describe('budget chat helpers', () => {
+  function alert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
+    return {
+      id: 'alert-1',
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      threshold: 'warning',
+      alertAtPercent: 80,
+      budgetUsd: 100,
+      spendUsd: 85,
+      unknownCostTurns: 0,
+      periodStart: PERIOD.start,
+      createdAt: NOW,
+      acknowledgedAt: null,
+      ...overrides,
+    };
+  }
+
+  const settings: ChatSettings = {
+    enabled: true,
+    botToken: 'xoxb-0123456789abcdef',
+    destinations: [
+      { channelId: 'C0123456789', label: 'Ops' },
+      { channelId: 'C9876543210', label: 'Cell' },
+    ],
+    defaultChannelId: 'C0123456789',
+    routes: [{ cellId: 'cell-a', channelId: 'C9876543210' }],
+  };
+
+  it('resolves the default, cell route, and unrouted cases', () => {
+    expect(resolveChatChannel(settings, 'overall', null)).toBe('C0123456789');
+    expect(resolveChatChannel(settings, 'cell', 'cell-a')).toBe('C9876543210');
+    expect(resolveChatChannel(settings, 'cell', 'cell-b')).toBe('C0123456789');
+    expect(
+      resolveChatChannel({ ...settings, defaultChannelId: null }, 'cell', 'cell-b'),
+    ).toBeNull();
+    expect(
+      resolveChatChannel(
+        {
+          ...settings,
+          routes: [{ cellId: 'cell-b', channelId: 'C0000000000' }],
+        },
+        'cell',
+        'cell-b',
+      ),
+    ).toBeNull();
+    expect(chatDestinationId('slack', 'C0123456789')).toBe('slack:C0123456789');
+  });
+
+  it('describes chat configuration and validates tokens and channel IDs', () => {
+    expect(chatDeliveryConfigured(settings)).toBe(true);
+    expect(chatDeliveryConfigured({ ...settings, botToken: null })).toBe(false);
+    expect(chatDeliveryConfigured({ ...settings, destinations: [] })).toBe(false);
+    expect(chatDeliveryConfigured({ ...settings, routes: [], defaultChannelId: null })).toBe(
+      false,
+    );
+
+    expect(chatChannelIdError('slack', 'C0123456789')).toBeNull();
+    expect(chatChannelIdError('slack', 'ops')).toContain('Slack channel ID');
+    expect(chatChannelIdError('discord', '123456789012345678')).toBeNull();
+    expect(chatChannelIdError('discord', 'C0123456789')).toContain('Discord channel ID');
+    expect(chatBotTokenError('short')).toContain('16 to 512');
+    expect(chatBotTokenError('has a space 0123456789')).toBe(
+      'must not contain whitespace',
+    );
+  });
+
+  it('formats a readable body with threshold, period, unpriced turns, and a usage link', () => {
+    const body = budgetChatText(alert({ unknownCostTurns: 3 }), {
+      brainUrl: 'https://brain.example',
+    });
+    expect(body).toContain('Overall spend reached 80%');
+    expect(body).toContain('at least $85.00');
+    expect(body).toContain('Threshold: warning (80%)');
+    expect(body).toContain('Period: November 2026 (UTC)');
+    expect(body).toContain('Unpriced turns: 3');
+    expect(body).toContain('Usage: https://brain.example/?page=usage');
+    expect(body).toContain('Alert: alert-1');
+  });
+
+  it('omits loopback usage links and marks test events', () => {
+    expect(chatUsageUrl('http://127.0.0.1:7391')).toBeNull();
+    expect(chatUsageUrl('http://localhost:7391')).toBeNull();
+    expect(chatUsageUrl('not a url')).toBeNull();
+    expect(chatUsageUrl('https://brain.example/base')).toBe(
+      'https://brain.example/base?page=usage',
+    );
+    const test = budgetChatText(alert(), { event: 'budget.test' });
+    expect(test.startsWith('Test budget alert from Agent Process Segments.')).toBe(true);
+  });
+
+  it('strips dynamic angle brackets and truncates long bodies', () => {
+    const body = budgetChatText(
+      alert({ scope: 'cell', cellId: 'c1', cellName: '<!channel>' }),
+    );
+    expect(body).not.toContain('<!channel>');
+    expect(truncateChatText('abcdef', 4)).toBe('abc…');
+    expect(truncateChatText('abc', 4)).toBe('abc');
   });
 });

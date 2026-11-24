@@ -1001,7 +1001,8 @@ without SMTP or bot credentials. Email, native chat apps, delivery history/resen
 general event notifications remain separate requests. The outbox adds one small table and
 one `unref()`'d timer; delivery is advisory and never changes budgets, turns, or the HTTP
 response path. `destination_hash` is a one-way hash stored only in the local database and
-is never logged.
+is never logged. D64 later replaces the `(alert_id, channel)` identity with
+`(alert_id, destination_id)`; webhook rows keep `destination_id = "webhook"`.
 
 ## D56. Proof scripts share one scrub-then-pin env builder
 
@@ -1059,9 +1060,9 @@ status, and `POST /api/notifications/email/test` exercises the sender without wr
 **Cost.** Email is plain text with a fixed layout and no HTML, attachments, DKIM, bounce
 handling, provider APIs, or OAuth2; those are separate work. The password lives in
 `config.json` (mode `0600`) because the brain has no keyring. A recipient list is capped at
-ten, and per-cell routing, native bot delivery, delivery history/resend, and non-budget
-events remain separate requests. The dependency is one runtime package with its own types
-and no transitive dependencies.
+ten. D64 later broadens the outbox key; email rows keep `destination_id = "email"`.
+Delivery history/resend and non-budget events remain separate requests. The dependency is
+one runtime package with its own types and no transitive dependencies.
 
 ## D58. Request workdirs are owner-only
 
@@ -1195,7 +1196,7 @@ a cell still only detaches its requests.
 
 ## D63. Delivery history is a read-only audit and resend is guarded
 
-**Context.** The webhook and SMTP outboxes record every alert/channel attempt, but the
+**Context.** The alert outbox records every alert/destination attempt, but the
 Config page only exposed aggregate pending/failed counts and the latest row. Operators
 could not see why a specific alert failed or re-queue a notification that was skipped
 after a destination change, short of editing SQLite.
@@ -1207,10 +1208,11 @@ attempts, next attempt, a sanitized error, timestamps, and a computed `canResend
 never returns `destination_hash`, a URL, credentials, recipients, or a payload body.
 Add `POST /api/notifications/deliveries/:id/resend`, which re-queues only `failed` or
 `skipped` rows whose alert is unacknowledged in the current UTC month and whose channel is
-enabled and configured. Resend reuses the same row (the `(alert_id, channel)` unique key
-stays the dedupe record), resets `attempts`, clears `delivered_at`, re-stamps
+enabled and configured. Resend reuses the same row (the `(alert_id, destination_id)`
+unique key stays the dedupe record), resets `attempts`, clears `delivered_at`, re-stamps
 `format`/`destination_hash` to the current route, preserves `last_error`, and kicks a
-flush. `pending`/`delivering` is an idempotent no-op; delivered rows are immutable.
+flush. For chat, the current route must still resolve to the row's destination id.
+`pending`/`delivering` is an idempotent no-op; delivered rows are immutable.
 
 **Cost.** No schema change, migration, new dependency, or background job. The audit is an
 ops list bounded by monthly alerts, two channels, and the existing 400-day prune. History
@@ -1218,3 +1220,34 @@ rows still cascade with their alert, so clearing a budget, changing a threshold,
 a cell, or a month rollover removes unacknowledged history; snapshotting alert fields is a
 separate follow-up. Resends are not attributed to an operator because the app has no
 user identity.
+## D64. Budget alerts also deliver through native Slack and Discord bots
+
+**Context.** The webhook channel can post Slack/Discord-shaped text to an incoming
+webhook, but it cannot target a channel with a bot identity or route different cells to
+different channels. The outbox deduped on `(alert_id, channel)`, so one alert could not
+have more than one delivery row for the same provider. Operators with several cells need
+the overall budget in one channel and selected cell budgets in others.
+
+**Decision.** Add `notifications.slack` and `notifications.discord`, each with a bot token,
+a list of `{ channelId, label }` destinations, an optional default destination, and
+per-cell `{ cellId, channelId }` routes. The default receives the overall budget and is the
+fallback for unrouted cells. Change the outbox identity to
+`UNIQUE(alert_id, destination_id)`; webhook/email rows use their channel as the
+destination id, while chat rows use `<provider>:<channelId>`. The old table is rebuilt on
+migration and existing rows keep their behavior. Each row stores a destination hash over
+the provider, channel, and bot token, so a token or channel change skips pending rows
+instead of sending them with new credentials.
+
+Slack uses `chat.postMessage` with `Bearer` auth, `mrkdwn:false`, and unfurls disabled;
+Discord uses the channel message endpoint with `Bot` auth and mention parsing disabled.
+Bodies are text-only and include the alert sentence, threshold, UTC month, unpriced-turn
+count, and a Usage link only for a non-loopback `APS_BRAIN_URL`. Slack's HTTP 200
+`{ok:false}` is a failure; its rate-limit/internal codes retry and auth/permission/channel
+codes fail. Discord `429` retries with `retry_after` from the body or header. Both use the
+existing timeout, five-attempt schedule, no-redirect rule, and `budget.notify` error path.
+Tokens are redacted from config responses and never logged; tests inject the sender.
+
+**Cost.** One table rebuild plus one provider block per chat service, two test routes, and
+two Config cards. Fan-out to multiple destinations for one scope, per-scope routing for
+webhook/email, delivery history/resend, rich Block Kit/embeds, interactive
+acknowledgement, and token storage outside `config.json` remain separate work.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
 import { ACTION_TONES, eventDetail } from './masterView';
+import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
 import {
   DEFAULT_BUDGET_SETTINGS,
@@ -20,6 +21,7 @@ import {
   type BudgetStatus,
   type BudgetsResponse,
   type CellDetail,
+  type ChatView,
   type DeliveryChannel,
   type DeliveryHistoryItem,
   type DeliveryHistoryResponse,
@@ -213,6 +215,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [emailSaved, setEmailSaved] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [slack, setSlack] = useState<ChatView>(emptyChatView);
+  const [discord, setDiscord] = useState<ChatView>(emptyChatView);
   const [notificationStatus, setNotificationStatus] =
     useState<NotificationStatusResponse | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryHistoryResponse | null>(null);
@@ -260,6 +264,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         password: null,
         passwordSet: false,
       };
+      const loadedSlack = config.notifications?.slack ?? emptyChatView();
+      const loadedDiscord = config.notifications?.discord ?? emptyChatView();
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
@@ -294,6 +300,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setEmailClearPassword(false);
       setEmailFrom(loadedEmail.from ?? '');
       setEmailTo(loadedEmail.to.join(', '));
+      setSlack(loadedSlack);
+      setDiscord(loadedDiscord);
       setNotificationStatus(statusResponse ?? null);
       setDeliveries(
         deliveryResponse && Array.isArray(deliveryResponse.deliveries)
@@ -1554,13 +1562,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         <div>
           <SectionTitle>Delivery history</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
-            Recent webhook and email delivery attempts for budget alerts. Delivery is
-            advisory; history is read-only and bounded.
+            Recent webhook, email, and chat delivery attempts for budget alerts. Delivery
+            is advisory; history is read-only and bounded.
           </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Channel" hint="webhook or email">
+          <Field label="Channel" hint="webhook, email, Slack, or Discord">
             <Select
               value={deliveryChannel}
               onChange={(event) => {
@@ -1572,6 +1580,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               <option value="">All channels</option>
               <option value="webhook">Webhook</option>
               <option value="email">Email</option>
+              <option value="slack">Slack</option>
+              <option value="discord">Discord</option>
             </Select>
           </Field>
           <Field label="Status" hint="delivery outcome">
@@ -1697,6 +1707,26 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           or deleting a cell removes its unacknowledged alerts and their delivery rows.
         </p>
       </Card>
+
+      <ChatDeliveryCard
+        provider="slack"
+        settings={slack}
+        cells={cells}
+        status={notificationStatus?.slack ?? null}
+        onError={onError}
+        onSaved={setSlack}
+        onStatus={setNotificationStatus}
+      />
+
+      <ChatDeliveryCard
+        provider="discord"
+        settings={discord}
+        cells={cells}
+        status={notificationStatus?.discord ?? null}
+        onError={onError}
+        onSaved={setDiscord}
+        onStatus={setNotificationStatus}
+      />
 
       <ProcessEditor
         process={process}

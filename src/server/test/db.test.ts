@@ -135,12 +135,13 @@ describe('db migrations', () => {
     ).run();
     const insert = db.prepare(
       `INSERT INTO budget_alert_deliveries
-         (id, alert_id, channel, format, destination_hash, status, attempts,
+         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
           next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       VALUES (?, 'a1', 'webhook', 'json', 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+       VALUES (?, 'a1', 'webhook', ?, 'json', 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
     );
-    insert.run('d1');
-    expect(() => insert.run('d2')).toThrow();
+    insert.run('d1', 'webhook');
+    expect(() => insert.run('d2', 'webhook')).toThrow();
+    insert.run('d3', 'slack:C0123456789');
 
     db.prepare("DELETE FROM budget_alerts WHERE id = 'a1'").run();
     expect(
@@ -151,7 +152,7 @@ describe('db migrations', () => {
     db.close();
   });
 
-  it('stores an email delivery beside a webhook delivery without a migration', () => {
+  it('stores webhook, email, and multiple chat destinations for one alert', () => {
     const db = openDb(':memory:');
     db.prepare(
       `INSERT INTO budget_alerts
@@ -161,21 +162,102 @@ describe('db migrations', () => {
     ).run();
     const insert = db.prepare(
       `INSERT INTO budget_alert_deliveries
-         (id, alert_id, channel, format, destination_hash, status, attempts,
+         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
           next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       VALUES (?, 'a1', ?, ?, 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+       VALUES (?, 'a1', ?, ?, ?, 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
     );
-    insert.run('d-webhook', 'webhook', 'json');
-    insert.run('d-email', 'email', 'email');
+    insert.run('d-webhook', 'webhook', 'webhook', 'json');
+    insert.run('d-email', 'email', 'email', 'email');
+    insert.run('d-slack', 'slack', 'slack:C0123456789', 'chat');
+    insert.run('d-discord', 'discord', 'discord:123456789012345678', 'chat');
     const rows = db
       .prepare(
-        `SELECT channel, format FROM budget_alert_deliveries ORDER BY channel`,
+        `SELECT channel, destination_id, format FROM budget_alert_deliveries
+          ORDER BY channel`,
       )
-      .all() as Array<{ channel: string; format: string }>;
+      .all() as Array<{ channel: string; destination_id: string; format: string }>;
     expect(rows).toEqual([
-      { channel: 'email', format: 'email' },
-      { channel: 'webhook', format: 'json' },
+      { channel: 'discord', destination_id: 'discord:123456789012345678', format: 'chat' },
+      { channel: 'email', destination_id: 'email', format: 'email' },
+      { channel: 'slack', destination_id: 'slack:C0123456789', format: 'chat' },
+      { channel: 'webhook', destination_id: 'webhook', format: 'json' },
     ]);
+    db.close();
+  });
+
+  it('rebuilds a legacy delivery table and backfills destination_id from channel', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-delivery-legacy-'));
+    const file = path.join(dir, 'legacy.sqlite');
+    const legacy = new Database(file);
+    legacy.exec(`CREATE TABLE budget_alerts (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+      scope_id TEXT NOT NULL,
+      period_start INTEGER NOT NULL,
+      threshold TEXT NOT NULL CHECK (threshold IN ('warning', 'exceeded')),
+      alert_at_percent INTEGER NOT NULL,
+      budget_usd REAL NOT NULL,
+      spend_usd REAL NOT NULL,
+      unknown_cost_turns INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      acknowledged_at INTEGER
+    )`);
+    legacy.exec(`CREATE TABLE budget_alert_deliveries (
+      id TEXT PRIMARY KEY,
+      alert_id TEXT NOT NULL REFERENCES budget_alerts(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL,
+      format TEXT NOT NULL,
+      destination_hash TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      delivered_at INTEGER,
+      UNIQUE(alert_id, channel)
+    )`);
+    legacy.prepare(
+      `INSERT INTO budget_alerts
+         (id, scope, scope_id, period_start, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, created_at, acknowledged_at)
+       VALUES ('a1', 'overall', '', 100, 'warning', 80, 100, 85, 0, 10, NULL)`,
+    ).run();
+    legacy.prepare(
+      `INSERT INTO budget_alert_deliveries
+         (id, alert_id, channel, format, destination_hash, status, attempts,
+          next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES ('d1', 'a1', 'webhook', 'json', 'hash', 'delivered', 2, 10, NULL, 10, 20, 20)`,
+    ).run();
+    legacy.close();
+
+    const db = openDb(file);
+    expect(columns(db, 'budget_alert_deliveries')).toContain('destination_id');
+    expect(
+      db
+        .prepare('SELECT id, channel, destination_id, status, attempts FROM budget_alert_deliveries')
+        .get(),
+    ).toEqual({
+      id: 'd1',
+      channel: 'webhook',
+      destination_id: 'webhook',
+      status: 'delivered',
+      attempts: 2,
+    });
+    const insert = db.prepare(
+      `INSERT INTO budget_alert_deliveries
+         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
+          next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES ('d2', 'a1', 'webhook', 'slack:C0123456789', 'chat', 'hash2', 'pending', 0, 10,
+               NULL, 10, 10, NULL)`,
+    );
+    insert.run();
+    migrate(db);
+    expect(
+      (db.prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries').get() as {
+        count: number;
+      }).count,
+    ).toBe(2);
     db.close();
   });
 

@@ -5,6 +5,7 @@ import { jsonResponse, makePrice, makeProcessResponse } from './test/fixtures';
 import type {
   BudgetsResponse,
   Cell,
+  ChatView,
   DeliveryHistoryItem,
   DeliveryHistoryResponse,
   MasterConfig,
@@ -92,6 +93,15 @@ const email: {
   to: [],
 };
 
+const emptyChat: ChatView = {
+  enabled: false,
+  botToken: null,
+  botTokenSet: false,
+  destinations: [],
+  defaultChannelId: null,
+  routes: [],
+};
+
 const notificationStatus = {
   webhook: {
     enabled: false,
@@ -111,6 +121,26 @@ const notificationStatus = {
     lastDeliveryAt: null,
     lastDeliveryStatus: null,
     lastError: null,
+  },
+  slack: {
+    enabled: false,
+    configured: false,
+    pending: 0,
+    failed: 0,
+    lastDeliveryAt: null,
+    lastDeliveryStatus: null,
+    lastError: null,
+    destinations: [],
+  },
+  discord: {
+    enabled: false,
+    configured: false,
+    pending: 0,
+    failed: 0,
+    lastDeliveryAt: null,
+    lastDeliveryStatus: null,
+    lastError: null,
+    destinations: [],
   },
 };
 
@@ -217,6 +247,20 @@ interface Captured {
         from?: string | null;
         to?: string[];
       };
+      slack?: {
+        enabled?: boolean;
+        botToken?: string | null;
+        destinations?: Array<{ channelId: string; label: string | null }>;
+        defaultChannelId?: string | null;
+        routes?: Array<{ cellId: string; channelId: string }>;
+      };
+      discord?: {
+        enabled?: boolean;
+        botToken?: string | null;
+        destinations?: Array<{ channelId: string; label: string | null }>;
+        defaultChannelId?: string | null;
+        routes?: Array<{ cellId: string; channelId: string }>;
+      };
     };
   };
   process?: { segments?: SegmentConfig[] };
@@ -245,6 +289,18 @@ function installFetch(
   },
   deliveriesView: DeliveryHistoryResponse = deliveryHistory,
   resendStatus = 200,
+  slackView: typeof emptyChat = emptyChat,
+  discordView: typeof emptyChat = emptyChat,
+  slackTest: { ok: boolean; status?: number; durationMs?: number; error?: string } = {
+    ok: true,
+    status: 200,
+    durationMs: 10,
+  },
+  discordTest: { ok: boolean; status?: number; durationMs?: number; error?: string } = {
+    ok: true,
+    status: 204,
+    durationMs: 11,
+  },
 ): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
@@ -274,6 +330,42 @@ function installFetch(
           : emailPatch?.password !== undefined
             ? true
             : emailView.passwordSet;
+      const slackPatch = captured.config?.notifications?.slack;
+      const discordPatch = captured.config?.notifications?.discord;
+      const patchedSlack = {
+        ...slackView,
+        ...(slackPatch ?? {}),
+        botToken: null,
+        botTokenSet:
+          slackPatch?.botToken === null
+            ? false
+            : slackPatch?.botToken !== undefined
+              ? true
+              : slackView.botTokenSet,
+        destinations: slackPatch?.destinations ?? slackView.destinations,
+        routes: slackPatch?.routes ?? slackView.routes,
+        defaultChannelId:
+          slackPatch?.defaultChannelId !== undefined
+            ? slackPatch.defaultChannelId
+            : slackView.defaultChannelId,
+      };
+      const patchedDiscord = {
+        ...discordView,
+        ...(discordPatch ?? {}),
+        botToken: null,
+        botTokenSet:
+          discordPatch?.botToken === null
+            ? false
+            : discordPatch?.botToken !== undefined
+              ? true
+              : discordView.botTokenSet,
+        destinations: discordPatch?.destinations ?? discordView.destinations,
+        routes: discordPatch?.routes ?? discordView.routes,
+        defaultChannelId:
+          discordPatch?.defaultChannelId !== undefined
+            ? discordPatch.defaultChannelId
+            : discordView.defaultChannelId,
+      };
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
@@ -287,6 +379,8 @@ function installFetch(
             secretSet: patchedWebhook.secret !== null,
           },
           email: { ...patchedEmail, password: null, passwordSet },
+          slack: patchedSlack,
+          discord: patchedDiscord,
         },
         path: '/tmp/agent-process-segments/config.json',
       });
@@ -298,7 +392,12 @@ function installFetch(
         usage,
         retention,
         budget,
-        notifications: { webhook: webhookView, email: emailView },
+        notifications: {
+          webhook: webhookView,
+          email: emailView,
+          slack: slackView,
+          discord: discordView,
+        },
         path: '/tmp/agent-process-segments/config.json',
       });
     }
@@ -330,6 +429,12 @@ function installFetch(
     }
     if (url === '/api/notifications/email/test' && init?.method === 'POST') {
       return jsonResponse(emailTest, emailTest.ok ? 200 : 502);
+    }
+    if (url === '/api/notifications/slack/test' && init?.method === 'POST') {
+      return jsonResponse(slackTest, slackTest.ok ? 200 : 502);
+    }
+    if (url === '/api/notifications/discord/test' && init?.method === 'POST') {
+      return jsonResponse(discordTest, discordTest.ok ? 200 : 502);
     }
     if (url === '/api/budgets') return jsonResponse(view);
     if (url === '/api/process' && init?.method === 'PATCH') {
@@ -602,6 +707,98 @@ describe('ConfigPage', () => {
     render(<ConfigPage onError={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
     expect(await screen.findByText('HTTP 500')).toBeInTheDocument();
+  });
+
+  it('configures, routes, saves, and tests a Slack bot', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const toggle = await screen.findByRole('checkbox', {
+      name: /deliver budget alerts to a Slack bot/i,
+    });
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText(/Slack bot token/i), {
+      target: { value: 'xoxb-0123456789abcdef' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add destination' })[0]!);
+    fireEvent.change(screen.getByLabelText(/Slack destination 1 channel ID/i), {
+      target: { value: 'C0123456789' },
+    });
+    fireEvent.change(screen.getByLabelText(/Slack destination 1 label/i), {
+      target: { value: 'Ops' },
+    });
+    fireEvent.change(screen.getByLabelText(/Slack default destination/i), {
+      target: { value: 'C0123456789' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add route' })[0]!);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Slack delivery' }));
+
+    await waitFor(() =>
+      expect(captured.config?.notifications?.slack).toEqual({
+        enabled: true,
+        botToken: 'xoxb-0123456789abcdef',
+        destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+        defaultChannelId: 'C0123456789',
+        routes: [{ cellId: 'c1', channelId: 'C0123456789' }],
+      }),
+    );
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('xoxb-0123456789abcdef')).not.toBeInTheDocument();
+
+    const sendTest = screen.getAllByRole('button', { name: 'Send test' });
+    fireEvent.click(sendTest[sendTest.length - 1]!);
+    expect(await screen.findByText(/Test delivered \(HTTP 200\)/)).toBeInTheDocument();
+  });
+
+  it('validates a Slack channel before saving and clears a saved token', async () => {
+    const errors: string[] = [];
+    const captured = installFetch();
+    const first = render(<ConfigPage onError={(message) => errors.push(message)} />);
+
+    fireEvent.click(
+      await screen.findByRole('checkbox', {
+        name: /deliver budget alerts to a Slack bot/i,
+      }),
+    );
+    fireEvent.change(screen.getByLabelText(/Slack bot token/i), {
+      target: { value: 'xoxb-0123456789abcdef' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add destination' })[0]!);
+    fireEvent.change(screen.getByLabelText(/Slack destination 1 channel ID/i), {
+      target: { value: 'not-a-channel' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Slack delivery' }));
+    await waitFor(() => expect(errors.join(' ')).toMatch(/Slack channel ID/));
+    expect(captured.config?.notifications?.slack).toBeUndefined();
+    first.unmount();
+
+    const cleared = installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      email,
+      undefined,
+      deliveryHistory,
+      200,
+      {
+        ...emptyChat,
+        enabled: true,
+        botTokenSet: true,
+        destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+        defaultChannelId: 'C0123456789',
+      },
+    );
+    render(<ConfigPage onError={() => {}} />);
+    expect(await screen.findByText('A bot token is saved.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear token' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Slack delivery' }));
+    await waitFor(() =>
+      expect(cleared.config?.notifications?.slack).toMatchObject({ botToken: null }),
+    );
   });
 
   it('does not render an all-unpriced budget as measured zero', async () => {

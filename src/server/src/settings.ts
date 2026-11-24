@@ -3,17 +3,28 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_CHAT_SETTINGS,
   DEFAULT_NOTIFICATIONS,
   DEFAULT_SMTP_PORT,
+  MAX_BOT_TOKEN_LENGTH,
   MAX_BUDGET_USD,
+  MAX_CHAT_DESTINATIONS,
+  MAX_CHAT_LABEL_LENGTH,
+  MAX_CHAT_ROUTES,
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_EMAIL_RECIPIENTS,
+  MIN_BOT_TOKEN_LENGTH,
   WEBHOOK_FORMATS,
+  chatBotTokenError,
+  chatChannelIdError,
   emailAddressError,
   emailRecipientsError,
   smtpHostError,
   webhookUrlError,
   type BudgetSettings,
+  type ChatProvider,
+  type ChatSettings,
+  type ChatView,
   type EmailSettings,
   type NotificationsSettings,
   type NotificationsView,
@@ -173,9 +184,118 @@ const emailSchema: z.ZodType<EmailSettings, z.ZodTypeDef, unknown> = z
     }
   });
 
+const chatDestinationSchema = z.object({
+  channelId: z.string().max(64),
+  label: z.string().min(1).max(MAX_CHAT_LABEL_LENGTH).nullable().default(null),
+});
+
+const chatRouteSchema = z.object({
+  cellId: z.string().min(1).max(64),
+  channelId: z.string().max(64),
+});
+
+function chatProviderSchema(
+  provider: ChatProvider,
+): z.ZodType<ChatSettings, z.ZodTypeDef, unknown> {
+  return z
+    .object({
+      enabled: z.boolean().default(false),
+      botToken: z
+        .string()
+        .min(MIN_BOT_TOKEN_LENGTH)
+        .max(MAX_BOT_TOKEN_LENGTH)
+        .nullable()
+        .default(null),
+      destinations: z.array(chatDestinationSchema).max(MAX_CHAT_DESTINATIONS).default([]),
+      defaultChannelId: z.string().max(64).nullable().default(null),
+      routes: z.array(chatRouteSchema).max(MAX_CHAT_ROUTES).default([]),
+    })
+    .superRefine((value, ctx) => {
+      if (value.enabled && value.botToken === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['botToken'],
+          message: 'a bot token is required when delivery is enabled',
+        });
+      }
+      if (value.botToken !== null) {
+        const problem = chatBotTokenError(value.botToken);
+        if (problem) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['botToken'], message: problem });
+        }
+      }
+
+      const destinations = new Set<string>();
+      value.destinations.forEach((destination, index) => {
+        const problem = chatChannelIdError(provider, destination.channelId);
+        if (problem) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['destinations', index, 'channelId'],
+            message: problem,
+          });
+        }
+        if (destinations.has(destination.channelId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['destinations', index, 'channelId'],
+            message: 'destinations must be unique',
+          });
+        }
+        destinations.add(destination.channelId);
+      });
+
+      if (value.defaultChannelId !== null && !destinations.has(value.defaultChannelId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['defaultChannelId'],
+          message: 'must name a configured destination',
+        });
+      }
+
+      const routeCells = new Set<string>();
+      value.routes.forEach((route, index) => {
+        if (routeCells.has(route.cellId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['routes', index, 'cellId'],
+            message: 'each cell may have only one route',
+          });
+        }
+        routeCells.add(route.cellId);
+        if (!destinations.has(route.channelId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['routes', index, 'channelId'],
+            message: 'must name a configured destination',
+          });
+        }
+      });
+
+      if (value.enabled) {
+        if (value.destinations.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['destinations'],
+            message: 'at least one destination is required',
+          });
+        }
+        if (value.defaultChannelId === null && value.routes.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['defaultChannelId'],
+            message: 'a default destination or a cell route is required',
+          });
+        }
+      }
+    });
+}
+
 const notificationsSchema: z.ZodType<NotificationsSettings, z.ZodTypeDef, unknown> = z.object({
   webhook: webhookSchema.default(() => ({ ...DEFAULT_NOTIFICATIONS.webhook })),
   email: emailSchema,
+  slack: chatProviderSchema('slack').default(() => structuredClone(DEFAULT_CHAT_SETTINGS)),
+  discord: chatProviderSchema('discord').default(() => structuredClone(DEFAULT_CHAT_SETTINGS)),
 });
 
 const webhookPatchSchema = z.object({
@@ -196,6 +316,19 @@ const emailPatchSchema: z.ZodType<Partial<EmailSettings>, z.ZodTypeDef, unknown>
   to: z.array(z.string().max(MAX_EMAIL_ADDRESS_LENGTH)).max(MAX_EMAIL_RECIPIENTS).optional(),
 });
 
+const chatPatchSchema: z.ZodType<Partial<ChatSettings>, z.ZodTypeDef, unknown> = z.object({
+  enabled: z.boolean().optional(),
+  botToken: z
+    .string()
+    .min(MIN_BOT_TOKEN_LENGTH)
+    .max(MAX_BOT_TOKEN_LENGTH)
+    .nullable()
+    .optional(),
+  destinations: z.array(chatDestinationSchema).max(MAX_CHAT_DESTINATIONS).optional(),
+  defaultChannelId: z.string().max(64).nullable().optional(),
+  routes: z.array(chatRouteSchema).max(MAX_CHAT_ROUTES).optional(),
+});
+
 const settingsSchema = z.object({
   master: masterSchema,
   summary: summarySchema,
@@ -207,9 +340,7 @@ const settingsSchema = z.object({
   }),
   // A legacy config with only `master`/`summary` loads with the default budget.
   budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
-  notifications: notificationsSchema.default(() => ({
-    webhook: { ...DEFAULT_NOTIFICATIONS.webhook },
-  })),
+  notifications: notificationsSchema.default(() => structuredClone(DEFAULT_NOTIFICATIONS)),
 });
 
 export type MasterSettings = MasterConfig;
@@ -242,6 +373,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifications: {
     webhook: { ...DEFAULT_NOTIFICATIONS.webhook },
     email: { ...DEFAULT_NOTIFICATIONS.email, to: [] },
+    slack: structuredClone(DEFAULT_NOTIFICATIONS.slack),
+    discord: structuredClone(DEFAULT_NOTIFICATIONS.discord),
   },
 };
 
@@ -249,7 +382,18 @@ export type RedactedSettings = Omit<AppSettings, 'notifications'> & {
   notifications: NotificationsView;
 };
 
-/** The HTTP view of settings: never expose a stored webhook secret or SMTP password. */
+function redactChat(chat: ChatSettings): ChatView {
+  return {
+    enabled: chat.enabled,
+    botToken: null,
+    botTokenSet: chat.botToken !== null,
+    destinations: chat.destinations.map((destination) => ({ ...destination })),
+    defaultChannelId: chat.defaultChannelId,
+    routes: chat.routes.map((route) => ({ ...route })),
+  };
+}
+
+/** The HTTP view of settings: never expose a stored webhook secret, SMTP password, or bot token. */
 export function redactSettings(settings: AppSettings): RedactedSettings {
   const webhook = settings.notifications.webhook;
   const email = settings.notifications.email;
@@ -274,6 +418,8 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
         from: email.from,
         to: [...email.to],
       },
+      slack: redactChat(settings.notifications.slack),
+      discord: redactChat(settings.notifications.discord),
     },
   };
 }
@@ -286,7 +432,12 @@ export const settingsPatchSchema = z
     retention: retentionSchema.partial().optional(),
     budget: budgetSchema.partial().optional(),
     notifications: z
-      .object({ webhook: webhookPatchSchema.optional(), email: emailPatchSchema.optional() })
+      .object({
+        webhook: webhookPatchSchema.optional(),
+        email: emailPatchSchema.optional(),
+        slack: chatPatchSchema.optional(),
+        discord: chatPatchSchema.optional(),
+      })
       .partial()
       .optional(),
   })
@@ -364,6 +515,14 @@ export class SettingsStore {
         email: {
           ...current.notifications.email,
           ...(parsed.notifications?.email ?? {}),
+        },
+        slack: {
+          ...current.notifications.slack,
+          ...(parsed.notifications?.slack ?? {}),
+        },
+        discord: {
+          ...current.notifications.discord,
+          ...(parsed.notifications?.discord ?? {}),
         },
       },
     });

@@ -8,10 +8,15 @@ import {
   budgetAlertSubject,
   budgetEmailText,
   budgetPeriod,
+  CHAT_PROVIDERS,
+  chatDeliveryConfigured,
+  chatDestinationId,
   emailDeliveryConfigured,
   resendBlockReason,
   type BudgetAlert,
   type BudgetAlertEvent,
+  type ChatProvider,
+  type ChatSettings,
   type DeliveryChannel,
   type DeliveryFormat,
   type DeliveryHistoryItem,
@@ -38,6 +43,16 @@ import {
   type EmailMessage,
   type EmailSendLike,
 } from './budget-email.js';
+import {
+  chatDestinationHash,
+  chatRequest,
+  chatText,
+  classifyChatResponse,
+  readChatBody,
+  resolveChatTarget,
+  type ChatDecision,
+  type ChatTarget,
+} from './budget-chat.js';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -57,6 +72,7 @@ export interface BudgetNotifierDeps {
   errors?: ErrorSink;
   send?: FetchLike;
   sendEmail?: EmailSendLike;
+  brainUrl?: string | null;
   now?: () => number;
   intervalMs?: number;
   timeoutMs?: number;
@@ -85,9 +101,32 @@ export interface EmailStatus {
   lastError: string | null;
 }
 
+export interface ChatDestinationStatus {
+  channelId: string;
+  label: string | null;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+}
+
+export interface ChatStatus {
+  enabled: boolean;
+  configured: boolean;
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+  destinations: ChatDestinationStatus[];
+}
+
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
   email: EmailStatus;
+  slack: ChatStatus;
+  discord: ChatStatus;
 }
 
 export interface WebhookTestResult {
@@ -188,9 +227,10 @@ function headersFor(
 }
 
 /**
- * Delivers durable budget alerts to the configured webhook. Delivery is
- * advisory: every failure is recorded, retried within a bounded schedule, and
- * reported to the error sink without throwing into the caller.
+ * Delivers durable budget alerts to the configured webhook, email, Slack, and
+ * Discord destinations. Delivery is advisory: every failure is recorded,
+ * retried within a bounded schedule, and reported to the error sink without
+ * throwing into the caller.
  */
 export class BudgetNotifier {
   private readonly deliveries: BudgetAlertDeliveryRepository;
@@ -200,6 +240,7 @@ export class BudgetNotifier {
   private readonly errors?: ErrorSink;
   private readonly send: FetchLike;
   private readonly sendEmail: EmailSendLike;
+  private readonly brainUrl: string | null;
   private readonly clock: () => number;
   private readonly intervalMs: number;
   private readonly timeoutMs: number;
@@ -236,6 +277,7 @@ export class BudgetNotifier {
       options.batchSize && options.batchSize > 0 ? options.batchSize : DEFAULT_BATCH_SIZE;
     this.sendEmail =
       options.sendEmail ?? createEmailSender({ timeoutMs: this.timeoutMs });
+    this.brainUrl = options.brainUrl ?? null;
   }
 
   start(): void {
@@ -264,8 +306,10 @@ export class BudgetNotifier {
   /** Enqueue current unacknowledged alerts, then try to flush. Never throws. */
   observe(alerts: BudgetAlert[]): void {
     try {
+      const notifications = this.settings.get().notifications;
       const now = this.clock();
       for (const channel of DELIVERY_CHANNELS) {
+        if (channel === 'slack' || channel === 'discord') continue;
         const route = this.channelRoute(channel);
         if (!route.enabled || !route.configured) continue;
         for (const alert of alerts) {
@@ -279,14 +323,36 @@ export class BudgetNotifier {
           });
         }
       }
+
+      for (const provider of CHAT_PROVIDERS) {
+        const chat = notifications[provider];
+        if (!chat.enabled || !chatDeliveryConfigured(chat)) continue;
+        for (const alert of alerts) {
+          if (alert.acknowledgedAt !== null) continue;
+          const target = resolveChatTarget(provider, chat, alert);
+          if (!target) continue;
+          this.deliveries.enqueue({
+            alertId: alert.id,
+            channel: provider,
+            destinationId: target.destinationId,
+            format: 'chat',
+            destinationHash: target.destinationHash,
+            now,
+          });
+        }
+      }
       this.kick();
     } catch (error) {
       this.errors?.error('budget.notify', error, { phase: 'enqueue' });
     }
   }
 
-  private channelRoute(channel: DeliveryChannel): ChannelRoute {
-    const { webhook, email } = this.settings.get().notifications;
+  private channelRoute(
+    channel: DeliveryChannel,
+    scope?: Pick<BudgetAlert, 'scope' | 'cellId'>,
+    destinationId?: string,
+  ): ChannelRoute {
+    const { webhook, email, slack, discord } = this.settings.get().notifications;
     if (channel === 'webhook') {
       return {
         enabled: webhook.enabled,
@@ -295,11 +361,24 @@ export class BudgetNotifier {
         hash: destinationHash(webhook),
       };
     }
+    if (channel === 'email') {
+      return {
+        enabled: email.enabled,
+        configured: emailDeliveryConfigured(email),
+        format: 'email',
+        hash: emailDestinationHash(email),
+      };
+    }
+    const chat = channel === 'slack' ? slack : discord;
+    const target = scope ? resolveChatTarget(channel, chat, scope) : null;
     return {
-      enabled: email.enabled,
-      configured: emailDeliveryConfigured(email),
-      format: 'email',
-      hash: emailDestinationHash(email),
+      enabled: chat.enabled,
+      configured:
+        chatDeliveryConfigured(chat) &&
+        target !== null &&
+        (destinationId === undefined || target.destinationId === destinationId),
+      format: 'chat',
+      hash: target?.destinationHash ?? '',
     };
   }
 
@@ -333,6 +412,10 @@ export class BudgetNotifier {
         this.deliveries.skipPending('email', now);
       } else {
         await this.drainEmail(email, periodStart, generation);
+      }
+
+      for (const provider of CHAT_PROVIDERS) {
+        await this.drainChat(provider, periodStart, generation);
       }
     } catch (error) {
       this.errors?.error('budget.notify', error, { phase: 'flush' });
@@ -375,6 +458,104 @@ export class BudgetNotifier {
     }
   }
 
+  private async drainChat(
+    provider: ChatProvider,
+    periodStart: number,
+    generation: number,
+  ): Promise<void> {
+    const settings = this.settings.get().notifications[provider];
+    const now = this.clock();
+    if (!settings.enabled || !chatDeliveryConfigured(settings)) {
+      this.deliveries.skipPending(provider, now);
+      return;
+    }
+
+    const destinations = settings.destinations.map((destination) => ({
+      id: chatDestinationId(provider, destination.channelId),
+      hash: chatDestinationHash(provider, settings, destination.channelId),
+    }));
+    this.deliveries.skipDestinationsNotIn(
+      provider,
+      destinations.map((destination) => destination.id),
+      now,
+    );
+    for (const destination of destinations) {
+      this.deliveries.skipStaleDestinationFor(
+        provider,
+        destination.id,
+        destination.hash,
+        now,
+      );
+    }
+
+    const due = this.deliveries.listDueForChannel(
+      provider,
+      periodStart,
+      now,
+      this.batchSize,
+    );
+    for (const delivery of due) {
+      if (generation !== this.generation) return;
+      const record = this.alerts.get(delivery.alertId);
+      if (
+        !record ||
+        record.acknowledgedAt !== null ||
+        record.periodStart !== periodStart
+      ) {
+        this.deliveries.markSkipped(delivery.id, this.clock());
+        continue;
+      }
+      const alert = this.toAlert(record);
+      const target = resolveChatTarget(provider, settings, alert);
+      if (
+        !target ||
+        target.destinationId !== delivery.destinationId ||
+        target.destinationHash !== delivery.destinationHash
+      ) {
+        this.deliveries.markSkipped(delivery.id, this.clock());
+        continue;
+      }
+      const marked = this.deliveries.markDelivering(delivery.id, this.clock());
+      if (!marked) continue;
+      await this.deliverChat(marked, provider, settings, target, alert, generation);
+    }
+  }
+
+  private async deliverChat(
+    delivery: DeliveryRecord,
+    provider: ChatProvider,
+    settings: ChatSettings,
+    target: ChatTarget,
+    alert: BudgetAlert,
+    generation: number,
+  ): Promise<void> {
+    if (settings.botToken === null) {
+      this.deliveries.markSkipped(delivery.id, this.clock());
+      return;
+    }
+    const text = chatText(alert, provider, { brainUrl: this.brainUrl });
+    const request = chatRequest(provider, settings.botToken, target.channelId, text);
+    const decision = await this.sendChatOnce(
+      provider,
+      request.url,
+      request.headers,
+      request.body,
+    );
+    if (generation !== this.generation) return;
+    if (decision.ok) {
+      this.deliveries.markDelivered(delivery.id, this.clock());
+      return;
+    }
+    this.handleFailure(
+      delivery,
+      decision.reason ?? `HTTP ${decision.status ?? 'unknown'}`,
+      {
+        retryable: decision.retryable === true,
+        retryAfterMs: decision.retryAfterMs ?? null,
+      },
+    );
+  }
+
   status(): NotificationStatusResponse {
     const { webhook, email } = this.settings.get().notifications;
     const webhookSummary = this.deliveries.status('webhook');
@@ -399,6 +580,37 @@ export class BudgetNotifier {
         lastDeliveryStatus: emailSummary.lastDeliveryStatus,
         lastError: emailSummary.lastError,
       },
+      slack: this.chatStatus('slack'),
+      discord: this.chatStatus('discord'),
+    };
+  }
+
+  private chatStatus(provider: ChatProvider): ChatStatus {
+    const settings = this.settings.get().notifications[provider];
+    const summary = this.deliveries.status(provider);
+    return {
+      enabled: settings.enabled,
+      configured: chatDeliveryConfigured(settings),
+      pending: summary.pending,
+      failed: summary.failed,
+      lastDeliveryAt: summary.lastDeliveryAt,
+      lastDeliveryStatus: summary.lastDeliveryStatus,
+      lastError: summary.lastError,
+      destinations: settings.destinations.map((destination) => {
+        const destinationSummary = this.deliveries.status(
+          provider,
+          chatDestinationId(provider, destination.channelId),
+        );
+        return {
+          channelId: destination.channelId,
+          label: destination.label,
+          pending: destinationSummary.pending,
+          failed: destinationSummary.failed,
+          lastDeliveryAt: destinationSummary.lastDeliveryAt,
+          lastDeliveryStatus: destinationSummary.lastDeliveryStatus,
+          lastError: destinationSummary.lastError,
+        };
+      }),
     };
   }
 
@@ -454,7 +666,11 @@ export class BudgetNotifier {
           ? this.cells.list().find((cell) => cell.id === alert.scopeId)?.name ??
             'Deleted cell'
           : null;
-      const route = this.channelRoute(delivery.channel);
+      const route = this.channelRoute(
+        delivery.channel,
+        { scope: alert.scope, cellId: alert.scope === 'cell' ? alert.scopeId : null },
+        delivery.destinationId,
+      );
       const block = resendBlockReason({
         status: delivery.status,
         acknowledgedAt: alert.acknowledgedAt,
@@ -515,7 +731,11 @@ export class BudgetNotifier {
     cellName: string | null,
     currentPeriodStart: number,
   ): DeliveryHistoryItem {
-    const route = this.channelRoute(delivery.channel);
+    const route = this.channelRoute(
+      delivery.channel,
+      { scope: alert.scope, cellId: alert.scope === 'cell' ? alert.scopeId : null },
+      delivery.destinationId,
+    );
     const block = resendBlockReason({
       status: delivery.status,
       acknowledgedAt: alert.acknowledgedAt,
@@ -610,6 +830,60 @@ export class BudgetNotifier {
         error: emailErrorReason(error).reason,
       };
     }
+  }
+
+  /** Send a synthetic Slack message without touching durable state. */
+  async testSlack(channelId?: string): Promise<WebhookTestResult> {
+    return this.testChat('slack', channelId);
+  }
+
+  /** Send a synthetic Discord message without touching durable state. */
+  async testDiscord(channelId?: string): Promise<WebhookTestResult> {
+    return this.testChat('discord', channelId);
+  }
+
+  private async testChat(
+    provider: ChatProvider,
+    channelId?: string,
+  ): Promise<WebhookTestResult> {
+    const settings = this.settings.get().notifications[provider];
+    const started = this.clock();
+    if (settings.botToken === null) {
+      return { ok: false, durationMs: 0, error: 'no bot token configured' };
+    }
+    const channel = channelId ?? settings.defaultChannelId;
+    if (
+      channel === null ||
+      !settings.destinations.some((destination) => destination.channelId === channel)
+    ) {
+      return { ok: false, durationMs: 0, error: 'no chat destination configured' };
+    }
+    const alert = this.testAlert(this.clock());
+    const text = chatText(alert, provider, {
+      event: 'budget.test',
+      brainUrl: this.brainUrl,
+    });
+    const request = chatRequest(provider, settings.botToken, channel, text);
+    const decision = await this.sendChatOnce(
+      provider,
+      request.url,
+      request.headers,
+      request.body,
+    );
+    const durationMs = Math.max(0, this.clock() - started);
+    if (decision.ok) {
+      return {
+        ok: true,
+        ...(decision.status !== undefined ? { status: decision.status } : {}),
+        durationMs,
+      };
+    }
+    return {
+      ok: false,
+      ...(decision.status !== undefined ? { status: decision.status } : {}),
+      durationMs,
+      error: decision.reason ?? 'chat test failed',
+    };
   }
 
   private testAlert(now: number): BudgetAlert {
@@ -752,6 +1026,48 @@ export class BudgetNotifier {
       ...(delivery.format !== 'json' ? { format: delivery.format } : {}),
       reason,
     });
+  }
+
+  private async sendChatOnce(
+    provider: ChatProvider,
+    url: string,
+    headers: Record<string, string>,
+    body: string,
+  ): Promise<ChatDecision> {
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        const error = new Error('chat request timed out');
+        error.name = 'TimeoutError';
+        reject(error);
+      }, this.timeoutMs);
+      timer.unref?.();
+    });
+
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await this.send(url, {
+            method: 'POST',
+            headers,
+            body,
+            redirect: 'manual',
+            signal: controller.signal,
+          });
+          const text = await readChatBody(response);
+          return classifyChatResponse(provider, response, text, this.clock());
+        })(),
+        timeout,
+      ]);
+    } catch (error) {
+      return { ok: false, retryable: true, reason: deliveryErrorReason(error) };
+    } finally {
+      if (timer) clearTimeout(timer);
+      this.controllers.delete(controller);
+    }
   }
 
   private async sendOnce(

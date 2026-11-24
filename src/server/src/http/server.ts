@@ -281,6 +281,7 @@ const summariesQuerySchema = z.object({
 });
 const summaryCellQuerySchema = z.object({ cellId: z.string().min(1) });
 const summaryStatusQuerySchema = z.object({ cellId: z.string().min(1).optional() });
+const chatTestSchema = z.object({ channelId: z.string().min(1).optional() });
 const skillsQuerySchema = z.object({ requestId: z.string().optional() });
 const terminalCreateSchema = z.object({
   cols: z.number().int().min(20).max(500).optional(),
@@ -1027,6 +1028,62 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       error: result.error ?? 'email test failed',
     });
   });
+
+  async function chatTest(
+    provider: 'slack' | 'discord',
+    rawBody: unknown,
+    reply: FastifyReply,
+  ) {
+    const body = chatTestSchema.parse(rawBody ?? {});
+    const providerSettings = settings.get().notifications[provider];
+    const label = provider === 'slack' ? 'Slack' : 'Discord';
+    if (providerSettings.botToken === null) {
+      return reply.code(400).send({
+        error: 'invalid',
+        message: `configure a ${label} bot token before sending a test`,
+      });
+    }
+    const channelId = body.channelId ?? providerSettings.defaultChannelId;
+    if (channelId === null) {
+      return reply.code(400).send({
+        error: 'invalid',
+        message: `configure a ${label} destination before sending a test`,
+      });
+    }
+    if (
+      !providerSettings.destinations.some(
+        (destination) => destination.channelId === channelId,
+      )
+    ) {
+      return reply.code(400).send({
+        error: 'invalid',
+        message: `channel ${channelId} is not a configured ${label} destination`,
+      });
+    }
+    const result =
+      provider === 'slack'
+        ? await notifications.testSlack(channelId)
+        : await notifications.testDiscord(channelId);
+    if (result.ok) {
+      return {
+        ok: true,
+        ...(result.status !== undefined ? { status: result.status } : {}),
+        durationMs: result.durationMs,
+      };
+    }
+    return reply.code(502).send({
+      ok: false,
+      ...(result.status !== undefined ? { status: result.status } : {}),
+      error: result.error ?? `${label.toLowerCase()} test failed`,
+    });
+  }
+
+  app.post('/api/notifications/slack/test', async (request, reply) =>
+    chatTest('slack', request.body, reply),
+  );
+  app.post('/api/notifications/discord/test', async (request, reply) =>
+    chatTest('discord', request.body, reply),
+  );
 
   app.get('/api/budgets', async () => budgets.statuses());
   app.post('/api/budgets/alerts/:id/ack', async (request, reply) => {

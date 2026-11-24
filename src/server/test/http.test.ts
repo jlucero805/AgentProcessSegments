@@ -716,6 +716,26 @@ describe('http api', () => {
         lastDeliveryStatus: null,
         lastError: null,
       },
+      slack: {
+        enabled: false,
+        configured: false,
+        pending: 0,
+        failed: 0,
+        lastDeliveryAt: null,
+        lastDeliveryStatus: null,
+        lastError: null,
+        destinations: [],
+      },
+      discord: {
+        enabled: false,
+        configured: false,
+        pending: 0,
+        failed: 0,
+        lastDeliveryAt: null,
+        lastDeliveryStatus: null,
+        lastError: null,
+        destinations: [],
+      },
     });
   });
 
@@ -974,6 +994,182 @@ describe('http api', () => {
 
     expect(response.status).toBe(500);
     expect(response.json()).toEqual({ error: 'internal', message: 'resend failed' });
+  });
+
+  it('patches, redacts, and reloads chat bot settings', async () => {
+    const { h } = await makeApp();
+    const token = 'xoxb-0123456789abcdef';
+    const before = await call('GET', '/api/config');
+    expect(before.json().notifications.slack).toEqual({
+      enabled: false,
+      botToken: null,
+      botTokenSet: false,
+      destinations: [],
+      defaultChannelId: null,
+      routes: [],
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      notifications: {
+        slack: {
+          enabled: true,
+          botToken: token,
+          destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+          defaultChannelId: 'C0123456789',
+          routes: [],
+        },
+      },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().notifications.slack).toEqual({
+      enabled: true,
+      botToken: null,
+      botTokenSet: true,
+      destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+      defaultChannelId: 'C0123456789',
+      routes: [],
+    });
+    expect(patched.text).not.toContain(token);
+    expect(new SettingsStore(h.config.configPath).get().notifications.slack.botToken).toBe(
+      token,
+    );
+
+    const partial = await call('PATCH', '/api/config', {
+      notifications: { slack: { routes: [{ cellId: 'cell-a', channelId: 'C0123456789' }] } },
+    });
+    expect(partial.status).toBe(200);
+    expect(partial.json().notifications.slack.botTokenSet).toBe(true);
+    expect(partial.json().notifications.slack.routes).toHaveLength(1);
+
+    for (const slack of [
+      { botToken: 'short' },
+      { destinations: [{ channelId: 'ops', label: null }] },
+      {
+        destinations: [
+          { channelId: 'C0123456789', label: null },
+          { channelId: 'C0123456789', label: 'Dup' },
+        ],
+      },
+      { defaultChannelId: 'C1111111111' },
+      { routes: [{ cellId: 'cell-a', channelId: 'C1111111111' }] },
+    ]) {
+      const bad = await call('PATCH', '/api/config', { notifications: { slack } });
+      expect(bad.status).toBe(400);
+    }
+
+    const discordBad = await call('PATCH', '/api/config', {
+      notifications: {
+        discord: {
+          enabled: true,
+          botToken: 'discord-0123456789abcdef',
+          destinations: [{ channelId: 'C0123456789', label: null }],
+          defaultChannelId: 'C0123456789',
+          routes: [],
+        },
+      },
+    });
+    expect(discordBad.status).toBe(400);
+
+    const after = await call('GET', '/api/config');
+    expect(after.json().notifications.slack.botTokenSet).toBe(true);
+    expect(after.json().notifications.slack.destinations).toEqual([
+      { channelId: 'C0123456789', label: 'Ops' },
+    ]);
+  });
+
+  it('rejects enabling a chat provider without its required settings', async () => {
+    await makeApp();
+    const noToken = await call('PATCH', '/api/config', {
+      notifications: {
+        slack: {
+          enabled: true,
+          destinations: [{ channelId: 'C0123456789', label: null }],
+          defaultChannelId: 'C0123456789',
+          routes: [],
+        },
+      },
+    });
+    expect(noToken.status).toBe(400);
+
+    const noRoute = await call('PATCH', '/api/config', {
+      notifications: {
+        slack: {
+          enabled: true,
+          botToken: 'xoxb-0123456789abcdef',
+          destinations: [{ channelId: 'C0123456789', label: null }],
+          defaultChannelId: null,
+          routes: [],
+        },
+      },
+    });
+    expect(noRoute.status).toBe(400);
+  });
+
+  it('sends Slack and Discord test messages only to configured destinations', async () => {
+    const sent: string[] = [];
+    await makeApp({}, undefined, async (url) => {
+      sent.push(url);
+      return url.includes('slack.com')
+        ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+        : new Response(null, { status: 204 });
+    });
+    await call('PATCH', '/api/config', {
+      notifications: {
+        slack: {
+          enabled: false,
+          botToken: 'xoxb-0123456789abcdef',
+          destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+          defaultChannelId: 'C0123456789',
+          routes: [],
+        },
+        discord: {
+          enabled: false,
+          botToken: 'discord-0123456789abcdef',
+          destinations: [{ channelId: '123456789012345678', label: 'Ops' }],
+          defaultChannelId: '123456789012345678',
+          routes: [],
+        },
+      },
+    });
+
+    const slack = await call('POST', '/api/notifications/slack/test');
+    expect(slack.status).toBe(200);
+    expect(slack.json()).toMatchObject({ ok: true, status: 200 });
+    const discord = await call('POST', '/api/notifications/discord/test', {
+      channelId: '123456789012345678',
+    });
+    expect(discord.status).toBe(200);
+    expect(discord.json()).toMatchObject({ ok: true, status: 204 });
+    expect(sent.some((url) => url.includes('slack.com'))).toBe(true);
+    expect(sent.some((url) => url.includes('discord.com'))).toBe(true);
+
+    const unknown = await call('POST', '/api/notifications/slack/test', {
+      channelId: 'C1111111111',
+    });
+    expect(unknown.status).toBe(400);
+  });
+
+  it('returns 502 when a chat test is rejected and 400 without a token', async () => {
+    await makeApp({}, undefined, async () => new Response(null, { status: 500 }));
+    await call('PATCH', '/api/config', {
+      notifications: {
+        slack: {
+          enabled: false,
+          botToken: 'xoxb-0123456789abcdef',
+          destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+          defaultChannelId: 'C0123456789',
+          routes: [],
+        },
+      },
+    });
+    const rejected = await call('POST', '/api/notifications/slack/test');
+    expect(rejected.status).toBe(502);
+    expect(rejected.json()).toMatchObject({ ok: false, status: 500, error: 'HTTP 500' });
+
+    const missing = await makeApp();
+    const noToken = await call('POST', '/api/notifications/discord/test');
+    expect(noToken.status).toBe(400);
+    void missing;
   });
 
   it('acknowledges a budget alert over HTTP', async () => {

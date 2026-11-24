@@ -138,9 +138,11 @@ contract could be read.
 **Decision.** Merge definitions into every request session, never the read-only KB
 session. Claude reads user and local scopes from `~/.claude.json` plus project
 `<cwd>/.mcp.json`, adds them to `mcp-config.json`, and allows each server with
-`mcp__<server>__*` (the CLI's wildcard rule). OpenCode merges `mcp` entries from its
-config into the generated `OPENCODE_CONFIG_DIR/opencode.json`; `--auto` makes them
-callable.
+`mcp__<server>__*` (the CLI's wildcard rule). Scope precedence is local > project >
+user, as the CLI documents it: the highest-precedence entry replaces the others whole,
+and the reserved-key warning names the file that supplied the winning entry. OpenCode
+merges `mcp` entries from its config into the generated
+`OPENCODE_CONFIG_DIR/opencode.json`; `--auto` makes them callable.
 
 **Cost.** Claude's definition files are private storage, not a documented API, so a CLI
 change can break the read. The wildcard rules are verified from the CLI's own strings

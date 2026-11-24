@@ -663,7 +663,8 @@ defaults.
   and session id before the next turn.
 - **Allowed tools:** request sessions get `Write, Read, Edit, Bash, Skill, Glob, Grep`,
   the bundled `aps` MCP tools, and the user's own MCP servers (Claude reads
-  `~/.claude.json`/`.mcp.json`; OpenCode reads its config). The KB session (`__kb__`) is
+  `~/.claude.json`/`.mcp.json` in local > project > user precedence; OpenCode reads its
+  config). The KB session (`__kb__`) is
   read-only: `Read` plus the KB MCP tools, no plugins, no user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.
   `beginTurn` creates a `LiveTurn` with an event buffer, subscribers, a done flag, and a

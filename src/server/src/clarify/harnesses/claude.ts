@@ -122,7 +122,8 @@ function readJsonFile(file: string): JsonFile {
 /**
  * Servers Claude Code already knows about, read from the files the CLI writes:
  * user/local scope in `~/.claude.json`, project scope in `<cwd>/.mcp.json`.
- * Later scopes win, matching the CLI's local > project > user precedence.
+ * Merge order follows the CLI's local > project > user precedence, so a later
+ * merge replaces an earlier definition whole and `sources` names the winner.
  * Unreadable files are skipped and reported through `issues`.
  */
 export function claudeUserMcpServers(
@@ -166,13 +167,6 @@ export function claudeUserMcpServers(
   if (user) {
     const userServers = serversIn(user, 'mcpServers', userFile);
     if (userServers) merge(userServers, userFile);
-    if (isRecord(user['projects'])) {
-      const project = user['projects'][cwd];
-      if (isRecord(project)) {
-        const localServers = serversIn(project, 'mcpServers', userFile);
-        if (localServers) merge(localServers, userFile);
-      }
-    }
   }
 
   const projectFile = path.join(cwd, '.mcp.json');
@@ -180,6 +174,14 @@ export function claudeUserMcpServers(
   if (project) {
     const projectServers = serversIn(project, 'mcpServers', projectFile);
     if (projectServers) merge(projectServers, projectFile);
+  }
+
+  if (user && isRecord(user['projects'])) {
+    const localProject = user['projects'][cwd];
+    if (isRecord(localProject)) {
+      const localServers = serversIn(localProject, 'mcpServers', userFile);
+      if (localServers) merge(localServers, userFile);
+    }
   }
 
   return loaded;

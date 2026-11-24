@@ -94,7 +94,8 @@ npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
 npm test                       # 630 server + 199 web, plus the e2e env guard
-npm run test:e2e-env           # node:test guard for the proof-script spawn env
+npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
+                               # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -105,7 +106,8 @@ node scripts/claude-mock-smoke.mjs  # real claude binary + mock Anthropic API
 node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
-                               # and optional Puppeteer
+                               # and optional Puppeteer; fails without Puppeteer
+                               # (--allow-missing-puppeteer skips deliberately)
 npm run migrate:paths           # move legacy paths; refuses while a brain unit is active
 npm run migrate:branches        # migrate finished sbox/* worktree branches (dry run first)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
@@ -188,7 +190,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   in the UI; hiding the panel only detaches, closing a session tab kills it. It is
   desktop-only in the UI, but the session API is live. Never expose the brain beyond
   loopback without auth/proxy controls, because the terminal is a direct shell.
-- **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it.
+- **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it;
+  `scripts/screenshots.mjs` fails without it unless `--allow-missing-puppeteer` is passed.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only

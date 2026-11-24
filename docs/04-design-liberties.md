@@ -41,7 +41,9 @@ the upgrade path.
 **Chosen.** Claude reads user and local scopes from `~/.claude.json` plus project
 `<cwd>/.mcp.json`, merges them into the generated config, and adds `mcp__<server>__*`
 allow rules. OpenCode merges `mcp` entries from its config. KB sessions exclude user
-servers entirely.
+servers entirely. A missing file is silent; a file that exists but cannot be read or
+interpreted is skipped with a one-time stderr warning and a `harness.mcpConfig`
+error-log record naming the path and a short reason.
 
 **Alternatives.** Parse `claude mcp get` text or ask the CLI for definitions (private,
 unstable output); merge into global configs (shared state).

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
+import type { HarnessSession } from '../src/clarify/harness.js';
 import { ClaudeHarness } from '../src/clarify/harnesses/claude.js';
 import {
   OpencodeHarness,
@@ -25,6 +26,27 @@ function workspace() {
   mkdirSync(home, { recursive: true });
   mkdirSync(cwd, { recursive: true });
   return { base, home, cwd, dir };
+}
+
+function requestSession(dir: string, cwd: string): HarnessSession {
+  return {
+    scope: 'request',
+    requestId: 'req-1',
+    dir,
+    cwd,
+    sessionId: null,
+    model: null,
+    effort: null,
+    pluginDirs: [],
+  };
+}
+
+function errorSink() {
+  return { error: vi.fn() };
+}
+
+function opencodeConfigDir(home: string): string {
+  return path.join(home, '.config', 'opencode');
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -232,6 +254,178 @@ describe('ClaudeHarness', () => {
     }
 
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('reports an invalid user config and keeps the other MCP sources', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    writeFileSync(userFile, '{"mcpServers":');
+    writeFileSync(
+      path.join(cwd, '.mcp.json'),
+      JSON.stringify({ mcpServers: { project: { command: 'node', args: ['project.js'] } } }),
+    );
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain(userFile);
+    expect(warn.mock.calls[0]?.[0]).toContain('claude');
+    expect(warn.mock.calls[0]?.[0]).toContain('invalid JSON');
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'claude',
+      path: userFile,
+      reason: 'invalid JSON',
+    });
+    expect(String(errors.error.mock.calls[0]?.[1])).toBe('Error: invalid JSON');
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    expect(config.mcpServers.aps).toBeDefined();
+    expect(config.mcpServers.project).toBeDefined();
+  });
+
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')(
+    'reports a user config that cannot be read',
+    async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errors = errorSink();
+      const { home, cwd, dir } = workspace();
+      const userFile = path.join(home, '.claude.json');
+      writeFileSync(
+        userFile,
+        JSON.stringify({ mcpServers: { user: { command: 'node', args: ['user.js'] } } }),
+      );
+      chmodSync(userFile, 0o000);
+
+      const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+      await harness.prepare(requestSession(dir, cwd));
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain(userFile);
+      expect(warn.mock.calls[0]?.[0]).toContain('unreadable: EACCES');
+      expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+        harness: 'claude',
+        path: userFile,
+        reason: 'unreadable: EACCES',
+      });
+    },
+  );
+
+  it('reports a user config path that is not a regular file', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    mkdirSync(userFile);
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('unreadable: EISDIR');
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'claude',
+      path: userFile,
+      reason: 'unreadable: EISDIR',
+    });
+  });
+
+  it('reports a config file that is not a JSON object', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    writeFileSync(userFile, JSON.stringify(['not', 'an', 'object']));
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn.mock.calls[0]?.[0]).toContain('not a JSON object');
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'claude',
+      path: userFile,
+      reason: 'not a JSON object',
+    });
+  });
+
+  it('reports a wrong-typed MCP container without dropping other sources', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const userFile = path.join(home, '.claude.json');
+    writeFileSync(userFile, JSON.stringify({ mcpServers: 'not a map' }));
+    writeFileSync(
+      path.join(cwd, '.mcp.json'),
+      JSON.stringify({ mcpServers: { project: { command: 'node', args: ['project.js'] } } }),
+    );
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('mcpServers is not an object');
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'claude',
+      path: userFile,
+      reason: 'mcpServers is not an object',
+    });
+    const config = JSON.parse(readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    expect(config.mcpServers.project).toBeDefined();
+  });
+
+  it('stays quiet when the user config files are missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(errors.error).not.toHaveBeenCalled();
+  });
+
+  it('reports a broken user config once across turns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    writeFileSync(path.join(home, '.claude.json'), '{broken');
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    const session = requestSession(dir, cwd);
+    await harness.prepare(session);
+    await harness.prepare(session);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a broken user config outside the request scope', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    writeFileSync(path.join(home, '.claude.json'), '{broken');
+
+    const harness = new ClaudeHarness('claude', 'http://brain:7391', home, errors);
+    for (const scope of ['kb', 'master', 'setup'] as const) {
+      await harness.prepare({
+        scope,
+        requestId: '',
+        ...(scope === 'setup' ? { draftId: 'draft-1' } : {}),
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      });
+    }
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(errors.error).not.toHaveBeenCalled();
   });
 
   it('sets the request auto-compaction threshold and leaves other scopes alone', async () => {
@@ -474,6 +668,124 @@ describe('OpencodeHarness', () => {
     }
 
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('reports a broken config and still uses the next candidate', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    const jsonFile = path.join(configDir, 'opencode.json');
+    writeFileSync(jsonFile, '{broken');
+    writeFileSync(
+      path.join(configDir, 'opencode.jsonc'),
+      JSON.stringify({ mcp: { user: { type: 'local', command: ['node', 'user.js'] } } }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain(jsonFile);
+    expect(warn.mock.calls[0]?.[0]).toContain('opencode');
+    expect(warn.mock.calls[0]?.[0]).toContain('invalid JSON');
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'opencode',
+      path: jsonFile,
+      reason: 'invalid JSON',
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.user).toBeDefined();
+    expect(config.mcp.aps).toBeDefined();
+  });
+
+  it('reports every broken candidate and still writes the bundled server', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    const jsonFile = path.join(configDir, 'opencode.json');
+    const jsoncFile = path.join(configDir, 'opencode.jsonc');
+    writeFileSync(jsonFile, '{broken');
+    writeFileSync(jsoncFile, '{also broken');
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls.map((call) => call[0]).join('\n')).toContain(jsonFile);
+    expect(warn.mock.calls.map((call) => call[0]).join('\n')).toContain(jsoncFile);
+    expect(errors.error).toHaveBeenCalledTimes(2);
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.aps.type).toBe('local');
+  });
+
+  it('reports a wrong-typed mcp container and keeps the other user settings', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    const configFile = path.join(configDir, 'opencode.json');
+    writeFileSync(configFile, JSON.stringify({ mcp: 'not a map', permission: { bash: 'ask' } }));
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('mcp is not an object');
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'opencode',
+      path: configFile,
+      reason: 'mcp is not an object',
+    });
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.aps).toBeDefined();
+    expect(config.permission.bash).toBe('ask');
+  });
+
+  it('stays quiet when there is no user OpenCode config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(errors.error).not.toHaveBeenCalled();
+  });
+
+  it('does not report a broken config outside the request scope', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(path.join(configDir, 'opencode.json'), '{broken');
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    for (const scope of ['kb', 'master', 'setup'] as const) {
+      await harness.prepare({
+        scope,
+        requestId: '',
+        ...(scope === 'setup' ? { draftId: 'draft-1' } : {}),
+        dir,
+        cwd,
+        sessionId: null,
+        model: null,
+        effort: null,
+        pluginDirs: [],
+      });
+    }
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(errors.error).not.toHaveBeenCalled();
   });
 
   it('writes request compaction from the cell percentage', async () => {

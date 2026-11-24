@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { TranscriptMsg } from '../../domain/request.js';
+import type { ErrorSink } from '../../logging/errors.js';
 import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
 import { warnOnce } from '../../util/warn-once.js';
@@ -22,6 +23,7 @@ import {
 import { HARDCODED_MODELS, type ModelOption } from '../models.js';
 import { TurnParser } from '../stream.js';
 import type { AgentProcess } from '../transport.js';
+import { type McpConfigIssue, reportMcpConfigIssues } from './config-diagnostics.js';
 import { LineProcess } from './line-process.js';
 
 const exec = promisify(execFile);
@@ -90,26 +92,68 @@ export interface ClaudeUserMcpServers {
   servers: McpServerMap;
   /** The config file that defined each server, after scope precedence. */
   sources: Map<string, string>;
+  /** Files that exist but could not be read or interpreted. */
+  issues: McpConfigIssue[];
+}
+
+type JsonFile =
+  | { status: 'ok'; value: unknown }
+  | { status: 'missing' }
+  | { status: 'issue'; issue: McpConfigIssue };
+
+function readJsonFile(file: string): JsonFile {
+  let raw: string;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'missing' };
+    const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+    return { status: 'issue', issue: { path: file, reason: `unreadable: ${code}` } };
+  }
+
+  try {
+    return { status: 'ok', value: JSON.parse(raw) };
+  } catch {
+    // Never include the parser message: recent Node versions quote the input.
+    return { status: 'issue', issue: { path: file, reason: 'invalid JSON' } };
+  }
 }
 
 /**
  * Servers Claude Code already knows about, read from the files the CLI writes:
  * user/local scope in `~/.claude.json`, project scope in `<cwd>/.mcp.json`.
  * Later scopes win, matching the CLI's local > project > user precedence.
+ * Unreadable files are skipped and reported through `issues`.
  */
 export function claudeUserMcpServers(
   home = os.homedir(),
   cwd = process.cwd(),
 ): ClaudeUserMcpServers {
-  const readJson = (file: string): unknown => {
-    try {
-      return JSON.parse(readFileSync(file, 'utf8'));
-    } catch {
+  const loaded: ClaudeUserMcpServers = { servers: {}, sources: new Map(), issues: [] };
+
+  const read = (file: string): Record<string, unknown> | null => {
+    const result = readJsonFile(file);
+    if (result.status === 'issue') loaded.issues.push(result.issue);
+    if (result.status !== 'ok') return null;
+    if (!isRecord(result.value)) {
+      loaded.issues.push({ path: file, reason: 'not a JSON object' });
       return null;
     }
+    return result.value;
   };
 
-  const loaded: ClaudeUserMcpServers = { servers: {}, sources: new Map() };
+  const serversIn = (
+    record: Record<string, unknown>,
+    field: string,
+    file: string,
+  ): Record<string, unknown> | null => {
+    const value = record[field];
+    if (value === undefined) return null;
+    if (isRecord(value)) return value;
+    loaded.issues.push({ path: file, reason: `${field} is not an object` });
+    return null;
+  };
+
   const merge = (raw: Record<string, unknown>, file: string): void => {
     for (const [name, definition] of Object.entries(pickServers(raw))) {
       loaded.servers[name] = definition;
@@ -118,21 +162,24 @@ export function claudeUserMcpServers(
   };
 
   const userFile = path.join(home, '.claude.json');
-  const user = readJson(userFile);
-  if (isRecord(user)) {
-    if (isRecord(user['mcpServers'])) merge(user['mcpServers'], userFile);
+  const user = read(userFile);
+  if (user) {
+    const userServers = serversIn(user, 'mcpServers', userFile);
+    if (userServers) merge(userServers, userFile);
     if (isRecord(user['projects'])) {
       const project = user['projects'][cwd];
-      if (isRecord(project) && isRecord(project['mcpServers'])) {
-        merge(project['mcpServers'], userFile);
+      if (isRecord(project)) {
+        const localServers = serversIn(project, 'mcpServers', userFile);
+        if (localServers) merge(localServers, userFile);
       }
     }
   }
 
   const projectFile = path.join(cwd, '.mcp.json');
-  const project = readJson(projectFile);
-  if (isRecord(project) && isRecord(project['mcpServers'])) {
-    merge(project['mcpServers'], projectFile);
+  const project = read(projectFile);
+  if (project) {
+    const projectServers = serversIn(project, 'mcpServers', projectFile);
+    if (projectServers) merge(projectServers, projectFile);
   }
 
   return loaded;
@@ -155,6 +202,7 @@ export class ClaudeHarness implements AgentHarness {
     private readonly bin = 'claude',
     private readonly brainUrl = 'http://127.0.0.1:7391',
     private readonly home = os.homedir(),
+    private readonly errors?: ErrorSink,
   ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
@@ -163,6 +211,7 @@ export class ClaudeHarness implements AgentHarness {
     const loaded = requestScope ? claudeUserMcpServers(this.home, session.cwd) : null;
     const userServers = loaded?.servers ?? {};
     if (loaded) {
+      reportMcpConfigIssues('claude', loaded.issues, this.errors);
       const source = loaded.sources.get(MCP_SERVER_KEY);
       if (source) {
         warnOnce(

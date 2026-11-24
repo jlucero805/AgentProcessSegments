@@ -90,7 +90,7 @@ export async function main(): Promise<void> {
       onAlerts: (alerts) => notifications.observe(alerts),
       onEvaluated: () => enforcement?.check(),
     });
-    const harnesses = createHarnessRegistry(config);
+    const harnesses = createHarnessRegistry(config, errors);
     const engine = new Engine({
       repo,
       harnesses,

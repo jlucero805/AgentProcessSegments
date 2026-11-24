@@ -318,7 +318,7 @@ routing, and delivery history remain separate backlog items.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (email/chat channels, hard-cap refinements, pricing maintenance)
+- `docs/09-backlog.md` scoped follow-ups (native chat bots, per-cell routing, delivery history, hard-cap refinements, pricing maintenance)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close

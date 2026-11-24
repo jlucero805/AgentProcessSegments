@@ -188,6 +188,13 @@ up: the UI reads only the latest events, and scorecard history stays in `cell_su
 Rows that record a created follow-up (`action = 'followup'`) are never pruned, because
 they are the deduplication key for repeated `FOLLOW-UP:` titles.
 
+Scorecard retention lives in `config.json` as `retention.cellSummariesDays`, also
+editable from the Config page. The default is 90 days; `0` keeps scorecard history
+forever. The same startup/hourly job deletes old `cell_summaries` report rows in batches,
+but always keeps the newest report per cell so the drawer keeps a last-known scorecard
+and the scheduler does not treat a dormant cell as never summarized. Scorecard history is
+not rolled up.
+
 Request artifact retention lives in `config.json` as `retention.requestArtifactsDays`,
 also editable from the Config page. The default is 30 days; `0` keeps request folders and
 worktrees forever. A startup/hourly job deletes the whole
@@ -408,10 +415,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 676 vitest cases: 499 server cases (state machine, migrations including
+`npm test` runs 683 vitest cases: 505 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
-activity retention, request-artifact and worktree retention, cutover run retention, engine
+activity retention, scorecard retention, request-artifact and worktree retention, cutover
+run retention, engine
 turns over a fake harness, worktree isolation against a real
 git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,

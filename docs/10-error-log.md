@@ -54,7 +54,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `budget.notify` | A webhook or email enqueue/send/delivery update fails; includes the channel, alert/delivery ids, attempt, and a short HTTP/network/SMTP code only—never the URL, secret, SMTP password, recipients, headers, or body |
 | `usage.rollup` | A rollup chunk fails before pruning; includes the day-aligned cutoff and committed watermark only |
 | `usage.prune` | Raw usage deletion fails after the rollup watermark commits; includes the cutoff and deleted count only |
-| `retention.prune` | Master activity pruning fails; includes the table name, cutoff, and deleted count only |
+| `retention.prune` | Master activity or scorecard retention deletion fails; includes the table name (`master_events`/`cell_summaries`), cutoff, and deleted count only |
 | `retention.artifacts` | A request-directory or worktree sweep fails; includes the request-dir count, worktree count, failure count, and cutoff only |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |
 

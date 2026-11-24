@@ -1134,3 +1134,30 @@ var, or dependency.
 a later chat starts fresh. Uncommitted work in an expired terminal checkout is
 discarded, matching a normal terminal dispose. Reserved-session cleanup is separate, as
 is visibility into the last sweep and worktrees orphaned by a `targetRepo` change.
+
+## D61. Scorecard history retention keeps the newest report per cell
+
+**Context.** The summary scheduler writes one `cell_summaries` row per generated report
+(default every 6 hours per cell). The row holds the markdown scorecard plus its
+`stats_json`; reads are only the newest report per cell and the latest five for the
+drawer. Nothing pruned the table, so report history grew without bound.
+
+**Decision.** Add `retention.cellSummariesDays` (default 90, `0` keeps history forever,
+max 3650) alongside `masterEventsDays`: the same `config.json` block, the same
+Config-page pattern of one card and one save per window, and the same startup/hourly
+`DataRetention` pass. A report is deleted when `created_at` is strictly before
+`now - cellSummariesDays`, except the newest row per cell as
+`SummaryRepository.latest()` defines it (`created_at DESC, id DESC`). Deletes are
+1000-row batches with an event-loop yield on the new `idx_cell_summaries_created` index,
+and each table prunes in its own `try/catch`: one `retention.prune` record on failure,
+the other table still runs, and the next tick retries. History is not rolled up, there is
+no `VACUUM`, and per-cell windows remain out of scope.
+
+**Why keep the newest row.** `latest()` drives both the drawer's last-known scorecard and
+the scheduler's due-ness. Deleting it would blank the panel for dormant cells and cells
+with scorecards disabled, and the scheduler would immediately regenerate a report for
+every such cell. Keeping one row per cell is bounded by the cell count.
+
+**Cost.** Up to one retained row per cell regardless of the window, and a correlated
+keep-latest subquery inside each batch (backed by the two cell_summaries indexes). No
+route, env var, column, or table changes.

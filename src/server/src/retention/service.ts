@@ -10,12 +10,32 @@ const DEFAULT_BATCH_SIZE = 1000;
 // Follow-up rows are the permanent dedupe key for `FOLLOW-UP:` titles
 // (invariant 16). They grow with created follow-ups, not scheduler cycles, so
 // they stay out of the purge.
-const DELETE_SQL = `
+const MASTER_EVENTS_DELETE_SQL = `
   DELETE FROM master_events
   WHERE id IN (
     SELECT id FROM master_events
     WHERE created_at < ? AND action <> 'followup'
     ORDER BY created_at
+    LIMIT ?
+  )
+`;
+
+// The newest report per cell is always kept: `SummaryRepository.latest()` drives
+// the scorecard drawer and the scheduler's due-ness, so pruning it would blank a
+// dormant cell's scorecard and queue an immediate regeneration. The subquery
+// matches `latest()`'s ordering (`created_at DESC, id DESC`).
+const CELL_SUMMARIES_DELETE_SQL = `
+  DELETE FROM cell_summaries
+  WHERE id IN (
+    SELECT s.id FROM cell_summaries s
+    WHERE s.created_at < ?
+      AND s.id <> (
+        SELECT l.id FROM cell_summaries l
+        WHERE l.cell_id = s.cell_id
+        ORDER BY l.created_at DESC, l.id DESC
+        LIMIT 1
+      )
+    ORDER BY s.created_at
     LIMIT ?
   )
 `;
@@ -28,6 +48,7 @@ export interface TablePruneResult {
 
 export interface RetentionRunResult {
   masterEvents: TablePruneResult;
+  cellSummaries: TablePruneResult;
 }
 
 export interface DataRetentionOptions {
@@ -40,9 +61,13 @@ export interface DataRetentionOptions {
   batchSize?: number;
 }
 
+type PruneTable = 'master_events' | 'cell_summaries';
+
 /**
- * Deletes raw `master_events` rows older than the configured retention window.
- * Runs once at startup, hourly after that, and again whenever settings change.
+ * Deletes raw `master_events` rows and old `cell_summaries` reports outside the
+ * configured retention windows. Runs once at startup, hourly after that, and
+ * again whenever settings change. Each table prunes independently: one failure
+ * is reported and retried on the next tick without blocking the other table.
  */
 export class DataRetention {
   private readonly db: Db;
@@ -106,13 +131,34 @@ export class DataRetention {
   }
 
   private async prune(now: number): Promise<RetentionRunResult> {
-    const days = this.settings.get().retention.masterEventsDays;
-    if (days <= 0) return { masterEvents: { deleted: 0, cutoff: null } };
+    const retention = this.settings.get().retention;
+    const masterEvents = await this.pruneTable(
+      now,
+      'master_events',
+      retention.masterEventsDays,
+      MASTER_EVENTS_DELETE_SQL,
+    );
+    const cellSummaries = await this.pruneTable(
+      now,
+      'cell_summaries',
+      retention.cellSummariesDays,
+      CELL_SUMMARIES_DELETE_SQL,
+    );
+    return { masterEvents, cellSummaries };
+  }
+
+  private async pruneTable(
+    now: number,
+    table: PruneTable,
+    days: number,
+    sql: string,
+  ): Promise<TablePruneResult> {
+    if (days <= 0) return { deleted: 0, cutoff: null };
 
     const cutoff = now - days * DAY_MS;
     let deleted = 0;
     try {
-      const statement = this.db.prepare(DELETE_SQL);
+      const statement = this.db.prepare(sql);
       // `runBatch` accumulates locally so a failure mid-drain still reports the
       // batches that committed.
       await deleteInBatches({
@@ -124,14 +170,10 @@ export class DataRetention {
         batchSize: this.batchSize,
         shouldStop: () => this.stopping,
       });
-      return { masterEvents: { deleted, cutoff } };
+      return { deleted, cutoff };
     } catch (error) {
-      this.errors?.error('retention.prune', error, {
-        table: 'master_events',
-        cutoff,
-        deleted,
-      });
-      return { masterEvents: { deleted, cutoff } };
+      this.errors?.error('retention.prune', error, { table, cutoff, deleted });
+      return { deleted, cutoff };
     }
   }
 }

@@ -112,6 +112,7 @@ describe('api client', () => {
     await api.runSummary('c1');
     await api.patchConfig({ summary: { intervalMinutes: 60 } });
     await api.patchConfig({ retention: { masterEventsDays: 30 } });
+    await api.patchConfig({ retention: { cellSummariesDays: 30 } });
     await api.patchConfig({ retention: { requestArtifactsDays: 7 } });
 
     const calls = fetchMock.mock.calls.map((call) => ({
@@ -133,6 +134,10 @@ describe('api client', () => {
     );
     expect(calls[6]?.url).toBe('/api/config');
     expect(calls[6]?.init?.body).toBe(
+      JSON.stringify({ retention: { cellSummariesDays: 30 } }),
+    );
+    expect(calls[7]?.url).toBe('/api/config');
+    expect(calls[7]?.init?.body).toBe(
       JSON.stringify({ retention: { requestArtifactsDays: 7 } }),
     );
   });

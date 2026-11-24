@@ -31,7 +31,11 @@ const scorecard: SummaryConfig = {
 };
 
 const usage: UsageSettings = { retentionDays: 90 };
-const retention: RetentionSettings = { masterEventsDays: 90, requestArtifactsDays: 30 };
+const retention: RetentionSettings = {
+  masterEventsDays: 90,
+  cellSummariesDays: 90,
+  requestArtifactsDays: 30,
+};
 
 const cell: Cell = {
   id: 'c1',
@@ -339,7 +343,7 @@ describe('ConfigPage', () => {
     });
     expect(activity).toHaveValue(90);
     expect(screen.getByText('0 keeps all master activity forever')).toBeInTheDocument();
-    expect(screen.getByText(/not rolled up/)).toBeInTheDocument();
+    expect(screen.getByText(/activity is not rolled up/)).toBeInTheDocument();
     expect(screen.getByText(/Follow-up markers are kept/)).toBeInTheDocument();
 
     fireEvent.change(activity, { target: { value: '30' } });
@@ -351,6 +355,31 @@ describe('ConfigPage', () => {
     expect(captured.config?.usage).toBeUndefined();
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(activity).toHaveValue(30);
+  });
+
+  it('loads and saves scorecard retention independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const summaries = await screen.findByRole('spinbutton', {
+      name: 'Scorecard retention (days)',
+    });
+    expect(summaries).toHaveValue(90);
+    expect(
+      screen.getByText('0 keeps all scorecard history forever'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/newest report per cell is always kept/)).toBeInTheDocument();
+    expect(screen.getByText(/Scorecard history is not rolled up/)).toBeInTheDocument();
+
+    fireEvent.change(summaries, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save scorecard retention' }));
+
+    await waitFor(() =>
+      expect(captured.config?.retention).toEqual({ cellSummariesDays: 30 }),
+    );
+    expect(captured.config?.usage).toBeUndefined();
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(summaries).toHaveValue(30);
   });
 
   it('loads and saves request artifact retention independently', async () => {

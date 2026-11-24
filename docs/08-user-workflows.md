@@ -114,6 +114,10 @@ last five.
 
 - **Run scorecard now** generates one immediately. It is allowed even when automatic
   scorecards are disabled.
+- Old reports expire under the Config page's **Scorecard retention** window
+  (`retention.cellSummariesDays`, default 90 days, `0` keeps history). The newest report
+  per cell is always kept, so **Earlier scorecards** and the next scheduled run stay
+  intact.
 - The schedule lives on the Config page: enable/disable, **Every (minutes)** (default
   360), **Window (minutes)** (default 360), and the report instructions. Save it with
   **Save schedule**.

@@ -342,7 +342,7 @@ describe('http api', () => {
       path: h.config.configPath,
       master: { intervalMinutes: 5, idleMinutes: 10, enabled: true },
       usage: { retentionDays: 90 },
-      retention: { masterEventsDays: 90, requestArtifactsDays: 30 },
+      retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30 },
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -384,6 +384,7 @@ describe('http api', () => {
     expect(retentionPatch.status).toBe(200);
     expect(retentionPatch.json().retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 90,
       requestArtifactsDays: 30,
     });
 
@@ -391,7 +392,17 @@ describe('http api', () => {
     expect(afterRetention.json()).toMatchObject({
       master: { intervalMinutes: 7 },
       usage: { retentionDays: 30 },
-      retention: { masterEventsDays: 30, requestArtifactsDays: 30 },
+      retention: { masterEventsDays: 30, cellSummariesDays: 90, requestArtifactsDays: 30 },
+    });
+
+    const summaryRetentionPatch = await call('PATCH', '/api/config', {
+      retention: { cellSummariesDays: 30 },
+    });
+    expect(summaryRetentionPatch.status).toBe(200);
+    expect(summaryRetentionPatch.json().retention).toEqual({
+      masterEventsDays: 30,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 30,
     });
 
     const artifactPatch = await call('PATCH', '/api/config', {
@@ -400,12 +411,14 @@ describe('http api', () => {
     expect(artifactPatch.status).toBe(200);
     expect(artifactPatch.json().retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 30,
       requestArtifactsDays: 7,
     });
 
     const afterArtifact = await call('GET', '/api/config');
     expect(afterArtifact.json().retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 30,
       requestArtifactsDays: 7,
     });
 
@@ -413,6 +426,11 @@ describe('http api', () => {
       retention: { masterEventsDays: 1.5 },
     });
     expect(badRetention.status).toBe(400);
+
+    const badCellSummaries = await call('PATCH', '/api/config', {
+      retention: { cellSummariesDays: -1 },
+    });
+    expect(badCellSummaries.status).toBe(400);
 
     const badArtifacts = await call('PATCH', '/api/config', {
       retention: { requestArtifactsDays: 3651 },

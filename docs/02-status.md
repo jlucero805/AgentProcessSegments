@@ -205,7 +205,8 @@ built and vended by the brain; real-CLI verification is still pending.
   Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
   master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, history, and **Run scorecard now**, and the Config page edits the
-  schedule/prompt. See `docs/08-user-workflows.md`.
+  schedule/prompt. `retention.cellSummariesDays` prunes old reports while always keeping
+  the newest per cell. See `docs/08-user-workflows.md`.
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
   scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
   transcript without a model turn. The Config page and the Cell master drawer embed the
@@ -246,11 +247,13 @@ built and vended by the brain; real-CLI verification is still pending.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
-  retention (`masterEventsDays`), spend budget (`monthlyUsd`, `alertAtPercent`,
-  `pauseOnExceeded`), and webhook delivery (`enabled`, `url`, `format`, `secret`) plus
-  email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`, `from`,
-  `to`), validated with zod and written atomically. Each saved block is merged over
-  defaults on load, including older files written before a block existed. `GET/PATCH
+  retention (`masterEventsDays`), scorecard retention (`cellSummariesDays`), request
+  artifact retention (`requestArtifactsDays`), spend budget (`monthlyUsd`,
+  `alertAtPercent`, `pauseOnExceeded`), and webhook delivery (`enabled`, `url`, `format`,
+  `secret`) plus email delivery (`enabled`, `host`, `port`, `secure`, `username`,
+  `password`, `from`, `to`), validated with zod and written atomically. Each saved block
+  is merged over defaults on load, including older files written before a block existed.
+  `GET/PATCH
   /api/config` expose all blocks and redact the signing secret as `secret: null` with
   `secretSet` and the SMTP password as `password: null` with `passwordSet`.
   `process.json` is the global process
@@ -273,7 +276,13 @@ built and vended by the brain; real-CLI verification is still pending.
   rolled up; scorecards keep their own `cell_summaries` reports. Rows with
   `action = 'followup'` are never pruned, because they are the deduplication key for
   `FOLLOW-UP:` titles. It records only `retention.prune` failures and joins overlapping
-  runs. Usage and activity retention are independent settings and save actions.
+  runs. Retention windows are independent settings with independent save actions.
+- Scorecard retention: `retention.cellSummariesDays` (default 90, `0` keeps scorecard
+  history forever) is edited on its own Config card and stored in `config.json`. The same
+  startup + hourly job deletes old `cell_summaries` report rows in 1000-row batches, but
+  always keeps the newest row per cell so `latest()`/the drawer and the scheduler's
+  due-ness stay intact. History is not rolled up; a failed table reports one
+  `retention.prune` record without blocking the other table.
 - Request artifact retention: `retention.requestArtifactsDays` (default 30, `0` keeps
   request artifacts forever) is edited on its own Config card. A startup + hourly job
   deletes the whole `requests/<id>/` workdir (transcripts, session id, generated config,
@@ -294,7 +303,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 676 vitest cases, all passing: 499 server across 37 files and 177 web across 24 files,
+- 683 vitest cases, all passing: 505 server across 37 files and 178 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic

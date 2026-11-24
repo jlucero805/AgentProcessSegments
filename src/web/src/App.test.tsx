@@ -114,7 +114,7 @@ function installFetch(
           prompt: 'summary prompt',
         },
         usage: { retentionDays: 90 },
-        retention: { masterEventsDays: 90, requestArtifactsDays: 30 },
+        retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30 },
         budget: { monthlyUsd: null, alertAtPercent: 80 },
         path: '/tmp/config.json',
       });

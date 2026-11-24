@@ -6,6 +6,7 @@ import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_NOTIFICATIONS,
   MAX_BUDGET_USD,
+  MAX_CELL_SUMMARIES_RETENTION_DAYS,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
   MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
@@ -152,6 +153,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [usageSaved, setUsageSaved] = useState(false);
   const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionSaved, setRetentionSaved] = useState(false);
+  const [cellSummariesSaving, setCellSummariesSaving] = useState(false);
+  const [cellSummariesSaved, setCellSummariesSaved] = useState(false);
   const [requestArtifactsSaving, setRequestArtifactsSaving] = useState(false);
   const [requestArtifactsSaved, setRequestArtifactsSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
@@ -310,6 +313,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     setRequestArtifactsSaved(false);
   };
 
+  const setCellSummariesDays = (days: number) => {
+    setRetentionSettings((current) =>
+      current ? { ...current, cellSummariesDays: days } : current,
+    );
+    setCellSummariesSaved(false);
+  };
+
   const setSegment = <K extends keyof SegmentConfig>(
     id: SegmentConfig['id'],
     key: K,
@@ -393,6 +403,23 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setRetentionSaving(false);
+    }
+  }
+
+  async function saveCellSummaries() {
+    if (!retention) return;
+    setCellSummariesSaving(true);
+    try {
+      const config = await api.patchConfig({
+        retention: { cellSummariesDays: retention.cellSummariesDays },
+      });
+      setRetentionSettings(config.retention);
+      setPath(config.path);
+      setCellSummariesSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setCellSummariesSaving(false);
     }
   }
 
@@ -900,6 +927,46 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onClick={() => void saveRetention()}
             >
               {retentionSaving ? <Spinner /> : 'Save activity retention'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Scorecard retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Each generated scorecard is a report row. Old reports are pruned in the
+          background; the newest report per cell is always kept so its drawer and the next
+          scheduled run stay intact.
+        </p>
+        <Field
+          label="Scorecard retention (days)"
+          hint="0 keeps all scorecard history forever"
+        >
+          <Input
+            type="number"
+            aria-label="Scorecard retention (days)"
+            min={0}
+            max={MAX_CELL_SUMMARIES_RETENTION_DAYS}
+            step={1}
+            value={retention.cellSummariesDays}
+            onChange={(event) => setCellSummariesDays(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. Scorecard history is not rolled up.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {cellSummariesSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={cellSummariesSaving}
+              onClick={() => void saveCellSummaries()}
+            >
+              {cellSummariesSaving ? <Spinner /> : 'Save scorecard retention'}
             </Button>
           </div>
         </div>

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 676 vitest cases: 499 server across 37 files and 177 web across 24 files, all green.
+- 683 vitest cases: 505 server across 37 files and 178 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -68,6 +68,7 @@ digests.
   parity (skills and slash commands), chat slash-menu skill discovery with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, configurable master-activity retention for `master_events`,
+  configurable scorecard-history retention for `cell_summaries`,
   configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
   accounting, and a GitHub Actions CI workflow template in
@@ -338,6 +339,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
+    `retention.cellSummariesDays` (default 90, `0` = forever) prunes older report rows
+    but always keeps the newest row per cell, so `latest()` and the scheduler's due-ness
+    never flip to "never summarized".
 32. **Harness choice is per cell or request and pinned per session.** A request session
     uses `requests.harness`, then its cell's `cells.harness`, then `config.harness`.
     Cell masters and summary sessions use their cell; setup, KB, and unassigned

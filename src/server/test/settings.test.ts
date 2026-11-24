@@ -59,16 +59,21 @@ describe('SettingsStore', () => {
     expect(store.get().usage).toEqual({ retentionDays: 30 });
   });
 
-  it('defaults master activity retention and loads a legacy master-only file', () => {
+  it('defaults every retention window and loads a legacy master-only file', () => {
     const file = tempFile();
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 90,
+      cellSummariesDays: 90,
       requestArtifactsDays: 30,
     });
 
     writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
     const legacy = new SettingsStore(file).get();
-    expect(legacy.retention).toEqual({ masterEventsDays: 90, requestArtifactsDays: 30 });
+    expect(legacy.retention).toEqual({
+      masterEventsDays: 90,
+      cellSummariesDays: 90,
+      requestArtifactsDays: 30,
+    });
     expect(legacy.usage).toEqual({ retentionDays: 90 });
     expect(legacy.master).toEqual(DEFAULT_SETTINGS.master);
   });
@@ -80,15 +85,21 @@ describe('SettingsStore', () => {
     store.onChange((settings) => seen.push(settings));
 
     const saved = store.patch({ retention: { masterEventsDays: 30 } });
-    expect(saved.retention).toEqual({ masterEventsDays: 30, requestArtifactsDays: 30 });
+    expect(saved.retention).toEqual({
+      masterEventsDays: 30,
+      cellSummariesDays: 90,
+      requestArtifactsDays: 30,
+    });
     expect(saved.usage).toEqual({ retentionDays: 90 });
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 90,
       requestArtifactsDays: 30,
     });
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 90,
       requestArtifactsDays: 30,
     });
 
@@ -99,19 +110,64 @@ describe('SettingsStore', () => {
     }
     expect(store.get().retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 90,
       requestArtifactsDays: 30,
     });
 
     const forever = store.patch({ retention: { masterEventsDays: 0 } });
-    expect(forever.retention).toEqual({ masterEventsDays: 0, requestArtifactsDays: 30 });
+    expect(forever.retention).toEqual({
+      masterEventsDays: 0,
+      cellSummariesDays: 90,
+      requestArtifactsDays: 30,
+    });
   });
 
-  it('loads a legacy retention block without the artifact window', () => {
+  it('loads a legacy retention block without the artifact or scorecard windows', () => {
     const file = tempFile();
     writeFileSync(file, JSON.stringify({ retention: { masterEventsDays: 30 } }));
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 30,
+      cellSummariesDays: 90,
       requestArtifactsDays: 30,
+    });
+  });
+
+  it('patches scorecard retention alone and rejects invalid values', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({ retention: { masterEventsDays: 45, requestArtifactsDays: 7 } });
+    const seen: unknown[] = [];
+    store.onChange((settings) => seen.push(settings));
+
+    const saved = store.patch({ retention: { cellSummariesDays: 30 } });
+    expect(saved.retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 7,
+    });
+    expect(seen).toHaveLength(1);
+    expect(new SettingsStore(file).get().retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 7,
+    });
+
+    for (const bad of [-1, 1.5, 3651, 'x']) {
+      expect(() =>
+        store.patch({ retention: { cellSummariesDays: bad as number } }),
+      ).toThrow();
+    }
+    expect(store.get().retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 7,
+    });
+
+    const forever = store.patch({ retention: { cellSummariesDays: 0 } });
+    expect(forever.retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 0,
+      requestArtifactsDays: 7,
     });
   });
 
@@ -123,10 +179,15 @@ describe('SettingsStore', () => {
     store.onChange((settings) => seen.push(settings));
 
     const saved = store.patch({ retention: { requestArtifactsDays: 7 } });
-    expect(saved.retention).toEqual({ masterEventsDays: 45, requestArtifactsDays: 7 });
+    expect(saved.retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 90,
+      requestArtifactsDays: 7,
+    });
     expect(seen).toHaveLength(1);
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 45,
+      cellSummariesDays: 90,
       requestArtifactsDays: 7,
     });
 
@@ -135,10 +196,18 @@ describe('SettingsStore', () => {
         store.patch({ retention: { requestArtifactsDays: bad as number } }),
       ).toThrow();
     }
-    expect(store.get().retention).toEqual({ masterEventsDays: 45, requestArtifactsDays: 7 });
+    expect(store.get().retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 90,
+      requestArtifactsDays: 7,
+    });
 
     const forever = store.patch({ retention: { requestArtifactsDays: 0 } });
-    expect(forever.retention).toEqual({ masterEventsDays: 45, requestArtifactsDays: 0 });
+    expect(forever.retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 90,
+      requestArtifactsDays: 0,
+    });
   });
 
   it('merges a patch, writes atomically, and notifies listeners', () => {

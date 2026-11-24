@@ -221,6 +221,9 @@ export function migrate(db: Db): void {
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_cell_summaries_cell_created ON cell_summaries(cell_id, created_at)',
   );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_cell_summaries_created ON cell_summaries(created_at)',
+  );
   db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_created ON usage_events(created_at)');
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_usage_events_cell_created ON usage_events(cell_id, created_at)',

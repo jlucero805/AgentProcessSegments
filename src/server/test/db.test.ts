@@ -101,6 +101,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_requests_cell');
     expect(indexes).toContain('idx_requests_state');
     expect(indexes).toContain('idx_cell_summaries_cell_created');
+    expect(indexes).toContain('idx_cell_summaries_created');
     expect(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;

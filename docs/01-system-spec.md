@@ -218,6 +218,25 @@ between batches, relying on `idx_master_events_created`. Rows with
 deduplication key for `FOLLOW-UP:` titles. Activity is not rolled up; scorecard history
 lives in `cell_summaries`. The job never runs `VACUUM`; SQLite reuses freed pages.
 
+### `cell_summaries`
+
+`id` (uuid PK), `cell_id`, `window_start`, `window_end`, `window_minutes`,
+`content` (markdown), `stats_json`, `created_at`. Indexes:
+`idx_cell_summaries_cell_created` for per-cell history lookups and
+`idx_cell_summaries_created` for retention cutoffs. One row is written per generated
+scorecard; the scheduler and the drawer read only the newest row per cell, and the
+drawer requests the latest five.
+
+`retention.cellSummariesDays` in `config.json` (editable from the Config page) bounds the
+table: default 90 days, `0` keeps scorecard history forever. The `master_events`
+startup/hourly job also deletes scorecard rows whose `created_at` is strictly before
+`now - cellSummariesDays`, in batches of 1000 with an event-loop yield between batches.
+The newest row per cell (`created_at DESC, id DESC`) is always kept, so a dormant cell or
+a cell with scorecards disabled keeps its last report and the scheduler does not queue an
+immediate regeneration. Each table prunes independently; a failure reports one
+`retention.prune` record with the table, cutoff, and deleted count. History is not rolled
+up and the job never runs `VACUUM`.
+
 ### Request artifact retention
 
 `retention.requestArtifactsDays` in `config.json` (editable from the Config page) bounds

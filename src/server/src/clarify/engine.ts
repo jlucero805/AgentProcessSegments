@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
@@ -134,6 +135,10 @@ export class Engine {
   private readonly parsers = new Map<string, TurnParserLike>();
   private readonly procs = new Map<string, ActiveProcess>();
   private readonly watchdogs = new Map<string, NodeJS.Timeout>();
+  /** Background runTurn continuations, so a discarded session can be settled first. */
+  private readonly runs = new Map<string, Promise<void>>();
+  /** Reserved sessions whose directories were deleted with their cell. */
+  private readonly discarded = new Set<string>();
 
   constructor(private readonly deps: EngineDeps) {}
 
@@ -167,6 +172,10 @@ export class Engine {
     if (pause) throw new SpendCapError(pause);
   }
 
+  private assertNotDiscarded(id: string): void {
+    if (this.discarded.has(id)) throw new Error(`session ${id} was discarded`);
+  }
+
   hasLive(id: string): boolean {
     return this.turns.has(id);
   }
@@ -193,6 +202,24 @@ export class Engine {
     this.finishTurn(id, turn, this.repo.get(id) ?? null);
     turn.resolve();
     return true;
+  }
+
+  /**
+   * Forget a cell-owned reserved session: cancel any live turn, wait for its
+   * background continuation to finish touching the workdir, then delete the
+   * whole session directory. Safe to call twice.
+   */
+  async discardSession(id: string): Promise<void> {
+    this.discarded.add(id);
+    this.cancel(id);
+    const run = this.runs.get(id);
+    if (run) await run.catch(() => {});
+    await rm(requestDir(this.config, id), {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 50,
+    });
   }
 
   attach(id: string, emit: (event: ClarifyEvent) => void): boolean {
@@ -268,6 +295,7 @@ export class Engine {
     sessionId: string,
     context?: string,
   ): Promise<LiveTurn> {
+    this.assertNotDiscarded(sessionId);
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
     this.assertSpend(masterCellId(sessionId));
@@ -286,6 +314,7 @@ export class Engine {
     sessionId: string,
     context?: string,
   ): Promise<LiveTurn> {
+    this.assertNotDiscarded(sessionId);
     const existing = this.turns.get(sessionId);
     if (existing) return existing;
     this.assertSpend(summaryCellId(sessionId));
@@ -312,6 +341,7 @@ export class Engine {
 
   /** Append a master log line to its chat without starting a model turn. */
   note(id: string, text: string): void {
+    if (this.discarded.has(id)) return;
     const trimmed = text.trim();
     if (trimmed === '') return;
     const parser = this.parsers.get(id);
@@ -356,7 +386,13 @@ export class Engine {
     if (request) this.repo.setAgentStatus(id, 'working');
     this.armWatchdog(id, turn, request);
 
-    void this.runTurn(id, turn, message, request);
+    const run = this.runTurn(id, turn, message, request);
+    this.runs.set(id, run);
+    void run
+      .finally(() => {
+        if (this.runs.get(id) === run) this.runs.delete(id);
+      })
+      .catch(() => {});
     return turn;
   }
 

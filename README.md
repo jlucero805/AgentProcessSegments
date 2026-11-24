@@ -186,7 +186,9 @@ editable from the Config page. The default is 90 days; `0` keeps activity foreve
 startup/hourly job deletes older `master_events` rows in batches. Activity is not rolled
 up: the UI reads only the latest events, and scorecard history stays in `cell_summaries`.
 Rows that record a created follow-up (`action = 'followup'`) are never pruned, because
-they are the deduplication key for repeated `FOLLOW-UP:` titles.
+they are the deduplication key for repeated `FOLLOW-UP:` titles. Deleting a cell
+immediately removes its non-followup activity and its reserved master and summary session
+directories; the follow-up markers survive so detached requests keep their dedupe history.
 
 Request artifact retention lives in `config.json` as `retention.requestArtifactsDays`,
 also editable from the Config page. The default is 30 days; `0` keeps request folders and
@@ -408,10 +410,11 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 676 vitest cases: 499 server cases (state machine, migrations including
+`npm test` runs 684 vitest cases: 507 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
-activity retention, request-artifact and worktree retention, cutover run retention, engine
+activity retention, cell-delete activity and session cleanup, request-artifact and worktree
+retention, cutover run retention, engine
 turns over a fake harness, worktree isolation against a real
 git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,

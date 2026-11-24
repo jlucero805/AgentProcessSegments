@@ -642,6 +642,42 @@ describe('MasterService', () => {
     ).toHaveLength(2);
   });
 
+  it('does not resurrect activity when a cell is deleted before a turn settles', async () => {
+    const process = processFor((config) => {
+      const implement = segment(config, 'implement');
+      implement.idleMinutes = 1;
+      implement.readyMarker = null;
+      implement.advanceTo = null;
+      implement.followUps.enabled = true;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Doomed');
+    dispatchRequest(fixture, 'Build it', cell.id);
+
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (fixture.engine.send as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      promise,
+    } as LiveTurn);
+    (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockReturnValue([
+      { role: 'agent', kind: 'text', text: 'FOLLOW-UP: Orphan', ts: 1 },
+    ]);
+
+    const result = await fixture.service.runCell(cell.id);
+    expect(result.prodded).toBe(1);
+
+    fixture.cells.remove(cell.id);
+    (fixture.engine.note as ReturnType<typeof vi.fn>).mockClear();
+    release();
+    await settleMaster();
+
+    expect(fixture.events.list({ cellId: cell.id })).toHaveLength(0);
+    expect(fixture.repo.list().filter((item) => item.title === 'Orphan')).toHaveLength(0);
+    expect(fixture.engine.note).not.toHaveBeenCalled();
+  });
+
   it('carries the source harness and target repo into follow-ups', async () => {
     const repoUrl = 'https://github.com/example/repo';
     const process = processFor((config) => {

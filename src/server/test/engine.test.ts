@@ -346,6 +346,89 @@ describe('turn engine', () => {
     ).toBe(true);
   });
 
+  it('discards cell-owned session directories and refuses new turns', async () => {
+    const h = fresh(() => defaultScript());
+    const cell = h.cells.create('Doomed');
+    const master = masterSessionId(cell.id);
+    const summary = summarySessionId(cell.id);
+
+    const masterTurn = await h.engine.startMaster('hello', master);
+    await masterTurn.promise;
+    await settle();
+    const summaryTurn = await h.engine.startSummary('facts', summary, 'Cell: Doomed');
+    await summaryTurn.promise;
+    await settle();
+
+    const masterDir = requestDir(h.config, master);
+    const summaryDir = requestDir(h.config, summary);
+    expect(existsSync(masterDir)).toBe(true);
+    expect(existsSync(summaryDir)).toBe(true);
+
+    await h.engine.discardSession(master);
+    await h.engine.discardSession(summary);
+    expect(existsSync(masterDir)).toBe(false);
+    expect(existsSync(summaryDir)).toBe(false);
+    expect(h.engine.hasLive(master)).toBe(false);
+    expect(h.engine.hasLive(summary)).toBe(false);
+
+    await h.engine.discardSession(master);
+    h.engine.note(master, 'late note');
+    expect(existsSync(masterDir)).toBe(false);
+
+    await expect(h.engine.startMaster('again', master)).rejects.toThrow(/discarded/);
+    await expect(h.engine.startSummary('again', summary)).rejects.toThrow(/discarded/);
+    expect(existsSync(masterDir)).toBe(false);
+    expect(existsSync(summaryDir)).toBe(false);
+  });
+
+  it('removes a session directory only after a pending prepare settles', async () => {
+    const h = fresh(() => defaultScript());
+    const cell = h.cells.create('Slow prepare');
+    const session = masterSessionId(cell.id);
+    const dir = requestDir(h.config, session);
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const prepare = h.harness.prepare.bind(h.harness);
+    h.harness.prepare = async (input) => {
+      await gate;
+      return prepare(input);
+    };
+
+    const turn = await h.engine.startMaster('hello', session);
+    expect(existsSync(dir)).toBe(true);
+
+    const discarding = h.engine.discardSession(session);
+    release();
+    await discarding;
+    await turn.promise;
+    await settle();
+
+    expect(existsSync(dir)).toBe(false);
+    expect(h.engine.hasLive(session)).toBe(false);
+  });
+
+  it('leaves another live cell session alone when one is discarded', async () => {
+    const h = fresh(() => []);
+    const doomed = h.cells.create('Doomed');
+    const alive = h.cells.create('Alive');
+    const doomedSession = masterSessionId(doomed.id);
+    const aliveSession = masterSessionId(alive.id);
+
+    await h.engine.startMaster('bye', doomedSession);
+    await h.engine.startMaster('stay', aliveSession);
+    await settle();
+
+    await h.engine.discardSession(doomedSession);
+    expect(existsSync(requestDir(h.config, doomedSession))).toBe(false);
+    expect(h.engine.hasLive(aliveSession)).toBe(true);
+    expect(existsSync(requestDir(h.config, aliveSession))).toBe(true);
+
+    await h.engine.discardSession(aliveSession);
+  });
+
   it('runs the summary generator read-only in its own session', async () => {
     const h = createHarness(
       () => defaultScript(),

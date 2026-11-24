@@ -134,8 +134,10 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 range 1–99), `process_json`, `created_at`. A request inherits its cell's harness unless it
 sets its own `requests.harness`; a cell master and summary use its cell's harness.
 `monthly_budget_usd` is the monthly spend budget in USD; NULL means no cell budget.
-`pause_on_exceeded` makes that budget a hard cap for the cell. See the budget contract
-below.
+`pause_on_exceeded` makes that budget a hard cap for the cell. Deleting a cell detaches
+its requests, deletes its `cell_summaries`, deletes its non-followup `master_events`, and
+removes the reserved `__master__:<id>` and `__summary__:<id>` session directories. See the
+budget contract below.
 
 ### `budget_alerts`
 
@@ -207,7 +209,7 @@ app banner show the same current-month status.
 `id` (uuid PK), `cell_id`, `request_id`, `action`
 (`cycle|start|prod|review|advance|followup|skip`), `detail`, `created_at`. Indexes:
 `idx_master_events_created` and `idx_master_events_request`. One row is written per
-scheduler cycle, prod, review, advance, skip, and created follow-up.
+scheduler cycle, start, prod, review, advance, skip, and created follow-up.
 
 `retention.masterEventsDays` in `config.json` (editable from the Config page) bounds the
 table: default 90 days, `0` keeps activity forever. A job runs shortly after startup, then
@@ -215,8 +217,10 @@ hourly, and immediately when the setting changes. It deletes rows whose `created
 strictly before `now - masterEventsDays`, in batches of 1000 with an event-loop yield
 between batches, relying on `idx_master_events_created`. Rows with
 `action = 'followup'` are never deleted, because `hasEvent` uses them as the permanent
-deduplication key for `FOLLOW-UP:` titles. Activity is not rolled up; scorecard history
-lives in `cell_summaries`. The job never runs `VACUUM`; SQLite reuses freed pages.
+deduplication key for `FOLLOW-UP:` titles. Deleting a cell deletes its non-followup rows
+in the same transaction that detaches its requests; follow-up rows stay for the detached
+requests. Activity is not rolled up; scorecard history lives in `cell_summaries`. The job
+never runs `VACUUM`; SQLite reuses freed pages.
 
 ### Request artifact retention
 
@@ -229,10 +233,12 @@ or `session.json`) is strictly before `now - requestArtifactsDays`. It also remo
 `dataDir/worktrees/<id>` when the request is terminal, the row is gone, or the request
 has no target repo, using `git worktree remove --force` and `git worktree prune`; the
 branch is kept. Non-terminal requests, live turns, and reserved session ids
-(`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`) are never touched. Sweeps
-yield between batches, join overlapping runs, and report one `retention.artifacts` error
-record with counts and the cutoff only. There is no rollup and no `VACUUM`; deleting a
-terminal workdir also drops its chat history and adapter session id.
+(`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`) are never touched by this job.
+Sweeps yield between batches, join overlapping runs, and report one `retention.artifacts`
+error record with counts and the cutoff only. There is no rollup and no `VACUUM`; deleting
+a terminal workdir also drops its chat history and adapter session id. Deleting a cell
+removes its `__master__:<id>` and `__summary__:<id>` directories immediately, independent
+of this retention window; the canceled live turns are allowed to settle before removal.
 
 `BudgetService` hands each evaluation's unacknowledged alerts to `BudgetNotifier`.
 `BudgetNotifier` owns a 60-second `unref()`'d timer and enqueues one delivery row per
@@ -357,10 +363,12 @@ price stays unknown, never zero.
   `RequestError('ILLEGAL_TRANSITION'|'NOT_FOUND')`, `addRun`, and agent-status, seen,
   and branch setters. `RequestError` maps to HTTP 404 or 409.
 - `cells/repository.ts`: `list` by name, `get`, `create`, `rename`, `delete` in a
-  transaction that nulls requests' `cell_id` before deleting the cell, plus policy,
-  harness, model/effort, monthly budget, and auto-compaction percentage updates. No
-  cascade delete of requests. Deleting a cell also reconciles its unacknowledged budget
-  alerts away.
+  transaction that nulls requests' `cell_id`, deletes `cell_summaries`, and deletes
+  non-followup `master_events` before deleting the cell, plus policy, harness,
+  model/effort, monthly budget, and auto-compaction percentage updates. No cascade delete
+  of requests. The DELETE route then discards the reserved `__master__:<id>` and
+  `__summary__:<id>` session directories. Deleting a cell also reconciles its
+  unacknowledged budget alerts away.
 - `kb/repository.ts`: `store({requestId,title,content})` replaces the prior entry for
   that request, plus `list`, `getByRequest`, and a literal LIKE `search`.
 - `usage/repository.ts`: `record(input)` writes one event per completed turn and

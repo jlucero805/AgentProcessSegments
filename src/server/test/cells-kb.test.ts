@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CellNotFoundError } from '../src/cells/repository.js';
+import { MasterEventRepository } from '../src/master/events.js';
 import { defaultProcess } from '../src/process/defaults.js';
 import { DEFAULT_SETTINGS } from '../src/settings.js';
 import { createHarness, type Harness } from './helpers.js';
@@ -40,6 +41,40 @@ describe('cells', () => {
     const survivor = repo.require(request.id);
     expect(survivor.cellId).toBeNull();
     expect(survivor.title).toBe('keep me');
+  });
+
+  it('removes activity but keeps follow-up markers when a cell is deleted', () => {
+    const { cells, db, repo } = fresh();
+    const events = new MasterEventRepository(db);
+    const doomed = cells.create('Doomed');
+    const other = cells.create('Other');
+    const request = repo.create({ title: 'keep me', cellId: doomed.id });
+
+    events.record({
+      cellId: doomed.id,
+      requestId: request.id,
+      action: 'start',
+      detail: request.title,
+    });
+    events.record({
+      cellId: doomed.id,
+      requestId: request.id,
+      action: 'followup',
+      detail: 'Add metrics',
+    });
+    events.record({
+      cellId: other.id,
+      requestId: null,
+      action: 'cycle',
+      detail: '{}',
+    });
+
+    cells.remove(doomed.id);
+
+    expect(events.list({ cellId: doomed.id }).map((event) => event.action)).toEqual(['followup']);
+    expect(events.hasEvent(request.id, 'followup', 'Add metrics')).toBe(true);
+    expect(events.list({ cellId: other.id })).toHaveLength(1);
+    expect(repo.require(request.id).cellId).toBeNull();
   });
 
   it('throws for a missing cell', () => {

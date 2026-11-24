@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveHarness } from '../src/domain/harness.js';
 import {
+  cellSessionIds,
   isReservedSessionId,
   KB_SESSION_ID,
   masterSessionId,
@@ -70,5 +71,13 @@ describe('reserved session ids', () => {
     expect(isReservedSessionId(summarySessionId('cell-a'))).toBe(true);
     expect(isReservedSessionId(setupSessionId('draft-a'))).toBe(true);
     expect(isReservedSessionId('f1c2e3d4-0000-4000-8000-000000000000')).toBe(false);
+  });
+
+  it('lists the master and summary sessions owned by one cell', () => {
+    expect(cellSessionIds('cell-a')).toEqual([
+      masterSessionId('cell-a'),
+      summarySessionId('cell-a'),
+    ]);
+    expect(cellSessionIds('cell-a').every(isReservedSessionId)).toBe(true);
   });
 });

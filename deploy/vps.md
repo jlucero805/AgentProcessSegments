@@ -411,6 +411,19 @@ the clone and paths, repairs git worktrees, installs the renamed unit with the m
 harness drop-in, verifies the database and UI, and restores the master setting. If
 anything fails it restores the old unit in place — it never moves migrated data back.
 
+The run directory's `state` file records how it ended. `failed` means the run stopped
+before moving the clone or paths: the clone and units are untouched, and `master.enabled`
+is restored if the run had paused it. `rolled-back` means the old unit was restored and
+restarted; if it does not become healthy, the script logs a warning and still records
+`rolled-back`. If the clone or XDG paths had already moved, they stay at the APS names and
+the restored unit reads them through a generated
+`sandbox-harness.service.d/zz-rollback.conf` with `SBOX_*` paths. Once the run reaches
+the backup step, the old unit, drop-ins, and pre-build `dist` bundles are under
+`<run-dir>/backup/`; keep that directory until the new unit has run for a while. A
+repeat run detects the migrated paths as already migrated and refuses to continue while
+the new unit is inactive; it does not resume a rolled-back attempt automatically.
+Inspect the run and the unit before retrying.
+
 ```bash
 cd ~/AgentProcessSegments          # the legacy clone name, or pass --old-clone
 npm run cutover:vps -- --dry-run   # inspect the full plan; changes nothing

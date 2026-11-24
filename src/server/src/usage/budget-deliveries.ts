@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import type {
+  BudgetScope,
+  BudgetThreshold,
   DeliveryChannel,
   DeliveryFormat,
   DeliveryStatus,
@@ -53,6 +55,80 @@ interface DeliveryRow {
   created_at: number;
   updated_at: number;
   delivered_at: number | null;
+}
+
+/** The alert fields joined into a delivery-history row. */
+export interface DeliveryAlertRecord {
+  scope: BudgetScope;
+  scopeId: string;
+  threshold: BudgetThreshold;
+  alertAtPercent: number;
+  budgetUsd: number;
+  spendUsd: number;
+  unknownCostTurns: number;
+  periodStart: number;
+  createdAt: number;
+  acknowledgedAt: number | null;
+}
+
+export interface DeliveryHistoryRecord {
+  delivery: DeliveryRecord;
+  alert: DeliveryAlertRecord;
+}
+
+export interface DeliveryHistoryFilter {
+  channel?: DeliveryChannel;
+  status?: DeliveryStatus;
+  alertId?: string;
+  /** Inclusive created-at lower bound in epoch milliseconds. */
+  from?: number;
+  /** Exclusive created-at upper bound in epoch milliseconds. */
+  to?: number;
+  limit: number;
+  offset: number;
+}
+
+interface DeliveryHistoryRow extends DeliveryRow {
+  scope: BudgetScope;
+  scope_id: string;
+  threshold: BudgetThreshold;
+  alert_at_percent: number;
+  budget_usd: number;
+  spend_usd: number;
+  unknown_cost_turns: number;
+  alert_period_start: number;
+  alert_created_at: number;
+  acknowledged_at: number | null;
+}
+
+/** Fixed SQL fragments; every value stays a bound parameter. */
+function historyWhere(filter: DeliveryHistoryFilter): {
+  sql: string;
+  params: Array<string | number>;
+} {
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  if (filter.channel !== undefined) {
+    clauses.push('d.channel = ?');
+    params.push(filter.channel);
+  }
+  if (filter.status !== undefined) {
+    clauses.push('d.status = ?');
+    params.push(filter.status);
+  }
+  if (filter.alertId !== undefined) {
+    clauses.push('d.alert_id = ?');
+    params.push(filter.alertId);
+  }
+  if (filter.from !== undefined) {
+    clauses.push('d.created_at >= ?');
+    params.push(filter.from);
+  }
+  if (filter.to !== undefined) {
+    clauses.push('d.created_at < ?');
+    params.push(filter.to);
+  }
+  return { sql: clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : '', params };
 }
 
 function toRecord(row: DeliveryRow): DeliveryRecord {
@@ -118,6 +194,77 @@ export class BudgetAlertDeliveryRepository {
       )
       .get(alertId, channel) as DeliveryRow;
     return toRecord(row);
+  }
+
+  /** Newest first, joined to the alert for the audit view. */
+  listFiltered(filter: DeliveryHistoryFilter): DeliveryHistoryRecord[] {
+    const where = historyWhere(filter);
+    const rows = this.db
+      .prepare(
+        `SELECT d.*, a.scope, a.scope_id, a.threshold, a.alert_at_percent, a.budget_usd,
+                a.spend_usd, a.unknown_cost_turns,
+                a.period_start AS alert_period_start,
+                a.created_at AS alert_created_at,
+                a.acknowledged_at
+           FROM budget_alert_deliveries d
+           JOIN budget_alerts a ON a.id = d.alert_id
+          WHERE 1 = 1${where.sql}
+          ORDER BY d.created_at DESC, d.id DESC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(...where.params, filter.limit, filter.offset) as DeliveryHistoryRow[];
+    return rows.map((row) => ({
+      delivery: toRecord(row),
+      alert: {
+        scope: row.scope,
+        scopeId: row.scope_id,
+        threshold: row.threshold,
+        alertAtPercent: row.alert_at_percent,
+        budgetUsd: row.budget_usd,
+        spendUsd: row.spend_usd,
+        unknownCostTurns: row.unknown_cost_turns,
+        periodStart: row.alert_period_start,
+        createdAt: row.alert_created_at,
+        acknowledgedAt: row.acknowledged_at,
+      },
+    }));
+  }
+
+  countFiltered(filter: DeliveryHistoryFilter): number {
+    const where = historyWhere(filter);
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total
+           FROM budget_alert_deliveries d
+           JOIN budget_alerts a ON a.id = d.alert_id
+          WHERE 1 = 1${where.sql}`,
+      )
+      .get(...where.params) as { total: number };
+    return row.total;
+  }
+
+  /**
+   * Put one failed or skipped row back in the queue under the current
+   * destination. Returns null when the row is not in a resendable state.
+   */
+  resetForResend(
+    id: string,
+    input: { format: DeliveryFormat; destinationHash: string; now: number },
+  ): DeliveryRecord | null {
+    const result = this.db
+      .prepare(
+        `UPDATE budget_alert_deliveries
+            SET status = 'pending',
+                attempts = 0,
+                next_attempt_at = ?,
+                updated_at = ?,
+                delivered_at = NULL,
+                format = ?,
+                destination_hash = ?
+          WHERE id = ? AND status IN ('failed', 'skipped')`,
+      )
+      .run(input.now, input.now, input.format, input.destinationHash, id);
+    return result.changes > 0 ? this.get(id) : null;
   }
 
   listDue(

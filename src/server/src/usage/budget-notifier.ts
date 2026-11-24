@@ -3,15 +3,23 @@ import type { CellRepository } from '../cells/repository.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import {
+  DELIVERY_CHANNELS,
   budgetAlertEvent,
   budgetAlertSubject,
   budgetEmailText,
   budgetPeriod,
   emailDeliveryConfigured,
+  resendBlockReason,
   type BudgetAlert,
   type BudgetAlertEvent,
+  type DeliveryChannel,
+  type DeliveryFormat,
+  type DeliveryHistoryItem,
+  type DeliveryHistoryQuery,
+  type DeliveryHistoryResponse,
   type DeliveryStatus,
   type EmailSettings,
+  type ResendBlockReason,
   type WebhookFormat,
   type WebhookSettings,
 } from '../domain/budget.js';
@@ -19,6 +27,8 @@ import type { BudgetAlertRecord } from './budget-alerts.js';
 import type { BudgetAlertRepository } from './budget-alerts.js';
 import type {
   BudgetAlertDeliveryRepository,
+  DeliveryAlertRecord,
+  DeliveryHistoryFilter,
   DeliveryRecord,
 } from './budget-deliveries.js';
 import {
@@ -88,6 +98,18 @@ export interface WebhookTestResult {
 }
 
 export type EmailTestResult = WebhookTestResult;
+
+export type ResendDeliveryResult =
+  | { ok: true; delivery: DeliveryHistoryItem }
+  | { ok: false; reason: 'not_found' | ResendBlockReason | 'internal' };
+
+/** The current route for one channel, including the identity rows are enqueued under. */
+interface ChannelRoute {
+  enabled: boolean;
+  configured: boolean;
+  format: DeliveryFormat;
+  hash: string;
+}
 
 /** The identity a delivery was enqueued for. Never returned or logged. */
 export function destinationHash(webhook: WebhookSettings): string {
@@ -242,37 +264,17 @@ export class BudgetNotifier {
   /** Enqueue current unacknowledged alerts, then try to flush. Never throws. */
   observe(alerts: BudgetAlert[]): void {
     try {
-      const { webhook, email } = this.settings.get().notifications;
       const now = this.clock();
-      const channels: Array<{
-        channel: 'webhook' | 'email';
-        format: WebhookFormat | 'email';
-        enabled: boolean;
-        hash: string;
-      }> = [
-        {
-          channel: 'webhook',
-          format: webhook.format,
-          enabled: webhook.enabled && webhook.url !== null,
-          hash: destinationHash(webhook),
-        },
-        {
-          channel: 'email',
-          format: 'email',
-          enabled: email.enabled && emailDeliveryConfigured(email),
-          hash: emailDestinationHash(email),
-        },
-      ];
-
-      for (const channel of channels) {
-        if (!channel.enabled) continue;
+      for (const channel of DELIVERY_CHANNELS) {
+        const route = this.channelRoute(channel);
+        if (!route.enabled || !route.configured) continue;
         for (const alert of alerts) {
           if (alert.acknowledgedAt !== null) continue;
           this.deliveries.enqueue({
             alertId: alert.id,
-            channel: channel.channel,
-            format: channel.format,
-            destinationHash: channel.hash,
+            channel,
+            format: route.format,
+            destinationHash: route.hash,
             now,
           });
         }
@@ -281,6 +283,24 @@ export class BudgetNotifier {
     } catch (error) {
       this.errors?.error('budget.notify', error, { phase: 'enqueue' });
     }
+  }
+
+  private channelRoute(channel: DeliveryChannel): ChannelRoute {
+    const { webhook, email } = this.settings.get().notifications;
+    if (channel === 'webhook') {
+      return {
+        enabled: webhook.enabled,
+        configured: webhook.url !== null,
+        format: webhook.format,
+        hash: destinationHash(webhook),
+      };
+    }
+    return {
+      enabled: email.enabled,
+      configured: emailDeliveryConfigured(email),
+      format: 'email',
+      hash: emailDestinationHash(email),
+    };
   }
 
   /** Drain due deliveries. Concurrent callers share the in-flight drain. */
@@ -378,6 +398,157 @@ export class BudgetNotifier {
         lastDeliveryAt: emailSummary.lastDeliveryAt,
         lastDeliveryStatus: emailSummary.lastDeliveryStatus,
         lastError: emailSummary.lastError,
+      },
+    };
+  }
+
+  /** Read-only audit across both channels. Never mutates or flushes. */
+  history(query: DeliveryHistoryQuery): DeliveryHistoryResponse {
+    const limit = query.limit ?? 25;
+    const offset = query.offset ?? 0;
+    const filter: DeliveryHistoryFilter = { limit, offset };
+    if (query.channel !== undefined) filter.channel = query.channel;
+    if (query.status !== undefined) filter.status = query.status;
+    if (query.alertId !== undefined) filter.alertId = query.alertId;
+    if (query.from !== undefined) filter.from = query.from;
+    if (query.to !== undefined) filter.to = query.to;
+
+    const currentPeriodStart = budgetPeriod(this.clock()).start;
+    const names = new Map(this.cells.list().map((cell) => [cell.id, cell.name]));
+    const deliveries = this.deliveries
+      .listFiltered(filter)
+      .map(({ delivery, alert }) => {
+        const cellName =
+          alert.scope === 'cell' ? names.get(alert.scopeId) ?? 'Deleted cell' : null;
+        return this.toHistoryItem(delivery, alert, cellName, currentPeriodStart);
+      });
+
+    return {
+      deliveries,
+      total: this.deliveries.countFiltered(filter),
+      limit,
+      offset,
+    };
+  }
+
+  /**
+   * Re-queue a failed or skipped row under the channel's current destination.
+   * Pending/delivering rows are a no-op; delivered rows are immutable.
+   */
+  resend(id: string): ResendDeliveryResult {
+    let alertId: string | undefined;
+    let channel: DeliveryChannel | undefined;
+    try {
+      const delivery = this.deliveries.get(id);
+      if (!delivery) return { ok: false, reason: 'not_found' };
+      alertId = delivery.alertId;
+      channel = delivery.channel;
+
+      const alert = this.alerts.get(delivery.alertId);
+      if (!alert) return { ok: false, reason: 'not_found' };
+
+      const now = this.clock();
+      const currentPeriodStart = budgetPeriod(now).start;
+      const cellName =
+        alert.scope === 'cell'
+          ? this.cells.list().find((cell) => cell.id === alert.scopeId)?.name ??
+            'Deleted cell'
+          : null;
+      const route = this.channelRoute(delivery.channel);
+      const block = resendBlockReason({
+        status: delivery.status,
+        acknowledgedAt: alert.acknowledgedAt,
+        periodStart: alert.periodStart,
+        currentPeriodStart,
+        channelEnabled: route.enabled,
+        channelConfigured: route.configured,
+      });
+
+      if (block === 'in_flight') {
+        return {
+          ok: true,
+          delivery: this.toHistoryItem(delivery, alert, cellName, currentPeriodStart),
+        };
+      }
+      if (block !== null) return { ok: false, reason: block };
+
+      const updated = this.deliveries.resetForResend(id, {
+        format: route.format,
+        destinationHash: route.hash,
+        now,
+      });
+      if (!updated) {
+        // A flush may have changed the row between the read and the guarded update.
+        const current = this.deliveries.get(id);
+        if (!current) return { ok: false, reason: 'not_found' };
+        if (current.status === 'pending' || current.status === 'delivering') {
+          return {
+            ok: true,
+            delivery: this.toHistoryItem(current, alert, cellName, currentPeriodStart),
+          };
+        }
+        if (current.status === 'delivered') {
+          return { ok: false, reason: 'already_delivered' };
+        }
+        return { ok: false, reason: 'internal' };
+      }
+
+      this.kick();
+      return {
+        ok: true,
+        delivery: this.toHistoryItem(updated, alert, cellName, currentPeriodStart),
+      };
+    } catch {
+      this.errors?.error('budget.notify', new Error('delivery resend failed'), {
+        phase: 'resend',
+        deliveryId: id,
+        ...(alertId !== undefined ? { alertId } : {}),
+        ...(channel !== undefined ? { channel } : {}),
+      });
+      return { ok: false, reason: 'internal' };
+    }
+  }
+
+  private toHistoryItem(
+    delivery: DeliveryRecord,
+    alert: DeliveryAlertRecord,
+    cellName: string | null,
+    currentPeriodStart: number,
+  ): DeliveryHistoryItem {
+    const route = this.channelRoute(delivery.channel);
+    const block = resendBlockReason({
+      status: delivery.status,
+      acknowledgedAt: alert.acknowledgedAt,
+      periodStart: alert.periodStart,
+      currentPeriodStart,
+      channelEnabled: route.enabled,
+      channelConfigured: route.configured,
+    });
+    return {
+      id: delivery.id,
+      alertId: delivery.alertId,
+      channel: delivery.channel,
+      format: delivery.format,
+      status: delivery.status,
+      attempts: delivery.attempts,
+      nextAttemptAt: delivery.nextAttemptAt,
+      lastError: delivery.lastError,
+      createdAt: delivery.createdAt,
+      updatedAt: delivery.updatedAt,
+      deliveredAt: delivery.deliveredAt,
+      canResend: block === null,
+      alert: {
+        scope: alert.scope,
+        cellId: alert.scope === 'cell' ? alert.scopeId : null,
+        cellName,
+        threshold: alert.threshold,
+        alertAtPercent: alert.alertAtPercent,
+        budgetUsd: alert.budgetUsd,
+        spendUsd: alert.spendUsd,
+        unknownCostTurns: alert.unknownCostTurns,
+        periodStart: alert.periodStart,
+        createdAt: alert.createdAt,
+        acknowledgedAt: alert.acknowledgedAt,
       },
     };
   }

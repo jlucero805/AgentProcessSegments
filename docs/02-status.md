@@ -240,9 +240,11 @@ built and vended by the brain; real-CLI verification is still pending.
   durable outbox keyed by `(alert_id, channel)`; it retries transient failures per
   channel, honors `Retry-After`, skips acknowledged/prior-month/stale-destination rows,
   and prunes after 400 days. The Config page edits and tests both channels, and
-  `GET /api/notifications/status` reports per-channel queue state. Delivery is advisory
-  and never blocks budgets, turns, or the in-app banner. Native chat bots, per-cell
-  routing, and delivery history/resend are not built.
+  `GET /api/notifications/status` reports per-channel queue state. A **Delivery history**
+  card lists recent attempts across both channels with filters, pagination, sanitized
+  errors, and a guarded Resend for failed/skipped current-month rows; delivered rows are
+  immutable. Delivery is advisory and never blocks budgets, turns, or the in-app banner.
+  Native chat bots and per-cell routing are not built.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
@@ -294,7 +296,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 676 vitest cases, all passing: 499 server across 37 files and 177 web across 24 files,
+- 699 vitest cases, all passing: 516 server across 38 files and 183 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -376,8 +378,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
   per-turn applied-price audit). Advisory budget alerts, webhook and email delivery,
   effective-dated estimates, and daily usage rollups are built.
-- Native Slack/Discord bot delivery, per-cell routing, delivery history/resend, and
-  reusing the outbox for non-budget events; the webhook and email channels are built.
+- Native Slack/Discord bot delivery, per-cell routing, and reusing the outbox for
+  non-budget events; the webhook and email channels plus delivery history/resend are
+  built.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
@@ -425,6 +428,8 @@ PATCH  /api/config                        {master?, summary?, usage?, retention?
 GET    /api/budgets                       statuses + unacknowledged alerts + active pauses
 POST   /api/budgets/alerts/:id/ack
 GET    /api/notifications/status          per-channel enabled/configured, pending/failed, last delivery
+GET    /api/notifications/deliveries      read-only audit, filters + limit/offset, canResend
+POST   /api/notifications/deliveries/:id/resend  guarded resend for failed/skipped rows
 POST   /api/notifications/webhook/test    synthetic test event; 400 without a URL, 502 on rejection
 POST   /api/notifications/email/test      synthetic test email; 400 unconfigured, 502 on rejection
 GET    /api/process

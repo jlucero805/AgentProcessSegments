@@ -13,6 +13,7 @@ import {
   emailDeliveryConfigured,
   emailRecipientsError,
   isLoopbackSmtpHost,
+  resendBlockReason,
   smtpHostError,
   type BudgetAlert,
   type BudgetUsageTotals,
@@ -647,5 +648,30 @@ describe('budget email helpers', () => {
     expect(emailDeliveryConfigured({ ...base, host: null })).toBe(false);
     expect(emailDeliveryConfigured({ ...base, from: null })).toBe(false);
     expect(emailDeliveryConfigured({ ...base, to: [] })).toBe(false);
+  });
+
+  it('allows resend only for active failed or skipped deliveries', () => {
+    const base = {
+      status: 'failed' as const,
+      acknowledgedAt: null,
+      periodStart: PERIOD.start,
+      currentPeriodStart: PERIOD.start,
+      channelEnabled: true,
+      channelConfigured: true,
+    };
+
+    expect(resendBlockReason(base)).toBeNull();
+    expect(resendBlockReason({ ...base, status: 'skipped' })).toBeNull();
+    expect(resendBlockReason({ ...base, status: 'delivered' })).toBe('already_delivered');
+    expect(resendBlockReason({ ...base, status: 'pending' })).toBe('in_flight');
+    expect(resendBlockReason({ ...base, status: 'delivering' })).toBe('in_flight');
+    expect(resendBlockReason({ ...base, acknowledgedAt: NOW })).toBe('alert_acknowledged');
+    expect(resendBlockReason({ ...base, periodStart: PERIOD.start - 1 })).toBe(
+      'not_current_period',
+    );
+    expect(resendBlockReason({ ...base, channelEnabled: false })).toBe('channel_disabled');
+    expect(resendBlockReason({ ...base, channelConfigured: false })).toBe(
+      'channel_unconfigured',
+    );
   });
 });

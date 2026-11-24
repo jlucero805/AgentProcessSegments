@@ -833,3 +833,220 @@ describe('BudgetNotifier email channel', () => {
     expect(logged).not.toContain('ops@example.test');
   });
 });
+
+describe('BudgetNotifier delivery history', () => {
+  function enqueueWebhook(
+    context: ReturnType<typeof setup>,
+    alert: BudgetAlertRecord,
+  ): ReturnType<BudgetAlertDeliveryRepository['enqueue']> {
+    const webhook = context.settings.get().notifications.webhook;
+    return context.deliveries.enqueue({
+      alertId: alert.id,
+      channel: 'webhook',
+      format: webhook.format,
+      destinationHash: destinationHash(webhook),
+      now: NOW,
+    });
+  }
+
+  it('lists history without exposing the destination or payload', () => {
+    const context = setup({ send: sender(() => ok()).send });
+    const record = addAlert(context.alerts);
+    const row = enqueueWebhook(context, record);
+    context.deliveries.markFailed(row.id, NOW, 'HTTP 503');
+
+    const history = context.notifier.history({ limit: 10, offset: 0 });
+
+    expect(history).toMatchObject({ total: 1, limit: 10, offset: 0 });
+    expect(history.deliveries[0]).toMatchObject({
+      id: row.id,
+      alertId: record.id,
+      channel: 'webhook',
+      status: 'failed',
+      attempts: 0,
+      lastError: 'HTTP 503',
+      canResend: true,
+      alert: {
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        threshold: 'warning',
+        alertAtPercent: 80,
+        budgetUsd: 100,
+        spendUsd: 85,
+        periodStart: PERIOD.start,
+      },
+    });
+    const serialized = JSON.stringify(history);
+    expect(serialized).not.toContain(
+      destinationHash(context.settings.get().notifications.webhook),
+    );
+    expect(serialized).not.toContain('hooks.example.test');
+  });
+
+  it('resolves cell names and falls back for a deleted cell', () => {
+    const context = setup({ send: sender(() => ok()).send });
+    const cell = context.cells.create('Alpha');
+    const record = addAlert(context.alerts, { scope: 'cell', scopeId: cell.id });
+    enqueueWebhook(context, record);
+
+    expect(context.notifier.history({}).deliveries[0]?.alert).toMatchObject({
+      cellId: cell.id,
+      cellName: 'Alpha',
+    });
+
+    context.db.prepare('DELETE FROM cells WHERE id = ?').run(cell.id);
+    expect(context.notifier.history({}).deliveries[0]?.alert.cellName).toBe('Deleted cell');
+  });
+
+  it('resends a failed row under the current destination exactly once', async () => {
+    const fake = sender(() => ok());
+    const context = setup({ send: fake.send });
+    const record = addAlert(context.alerts);
+    const row = enqueueWebhook(context, record);
+    context.deliveries.markFailed(row.id, NOW, 'HTTP 503');
+    context.settings.patch({ notifications: { webhook: { format: 'slack' } } });
+
+    const result = context.notifier.resend(row.id);
+
+    expect(result).toMatchObject({ ok: true });
+    if (result.ok) {
+      expect(result.delivery).toMatchObject({
+        status: 'pending',
+        format: 'slack',
+        attempts: 0,
+        canResend: false,
+      });
+    }
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(1);
+    expect(JSON.parse(String(fake.calls[0]?.init.body))).toHaveProperty('text');
+    expect(context.deliveries.get(row.id)).toMatchObject({
+      status: 'delivered',
+      format: 'slack',
+      attempts: 1,
+      destinationHash: destinationHash(context.settings.get().notifications.webhook),
+    });
+    expect(
+      (
+        context.db
+          .prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries')
+          .get() as { count: number }
+      ).count,
+    ).toBe(1);
+  });
+
+  it('no-ops pending rows and refuses delivered or guarded rows without mutating them', () => {
+    const context = setup({ send: sender(() => ok()).send });
+    const record = addAlert(context.alerts);
+    const pending = enqueueWebhook(context, record);
+
+    expect(context.notifier.resend(pending.id)).toMatchObject({ ok: true });
+    expect(context.deliveries.get(pending.id)).toMatchObject({ status: 'pending', attempts: 0 });
+
+    const delivered = enqueueWebhook(
+      context,
+      addAlert(context.alerts, { threshold: 'exceeded' }),
+    );
+    context.deliveries.markDelivered(delivered.id, NOW);
+    expect(context.notifier.resend(delivered.id)).toEqual({
+      ok: false,
+      reason: 'already_delivered',
+    });
+
+    const acknowledgedRecord = addAlert(context.alerts, { alertAtPercent: 70 });
+    const acknowledged = enqueueWebhook(context, acknowledgedRecord);
+    context.deliveries.markFailed(acknowledged.id, NOW, 'HTTP 503');
+    context.alerts.acknowledge(acknowledgedRecord.id, NOW);
+    expect(context.notifier.resend(acknowledged.id)).toEqual({
+      ok: false,
+      reason: 'alert_acknowledged',
+    });
+    expect(context.deliveries.get(acknowledged.id)).toMatchObject({
+      status: 'failed',
+      attempts: 0,
+    });
+
+    const priorRecord = addAlert(context.alerts, {
+      alertAtPercent: 60,
+      periodStart: PERIOD.start - 1,
+    });
+    const prior = enqueueWebhook(context, priorRecord);
+    context.deliveries.markFailed(prior.id, NOW, 'HTTP 503');
+    expect(context.notifier.resend(prior.id)).toEqual({
+      ok: false,
+      reason: 'not_current_period',
+    });
+
+    context.settings.patch({ notifications: { webhook: { enabled: false } } });
+    const disabled = enqueueWebhook(
+      context,
+      addAlert(context.alerts, { alertAtPercent: 50 }),
+    );
+    context.deliveries.markFailed(disabled.id, NOW, 'HTTP 503');
+    expect(context.notifier.resend(disabled.id)).toEqual({
+      ok: false,
+      reason: 'channel_disabled',
+    });
+
+    expect(context.notifier.resend('missing')).toEqual({ ok: false, reason: 'not_found' });
+  });
+
+  it('resends email through the current SMTP settings', async () => {
+    const fake = sender(() => ok());
+    const mail = emailSender();
+    const context = setup({ send: fake.send, sendEmail: mail.send, email: {} });
+    const record = addAlert(context.alerts);
+    const email = context.settings.get().notifications.email;
+    const row = context.deliveries.enqueue({
+      alertId: record.id,
+      channel: 'email',
+      format: 'email',
+      destinationHash: emailDestinationHash(email),
+      now: NOW,
+    });
+    context.deliveries.markFailed(row.id, NOW, 'eauth');
+    context.settings.patch({
+      notifications: { email: { username: 'aps', password: 'new-secret' } },
+    });
+
+    expect(context.notifier.resend(row.id)).toMatchObject({ ok: true });
+    await context.notifier.flush();
+
+    expect(mail.calls).toHaveLength(1);
+    expect(context.deliveries.get(row.id)).toMatchObject({
+      status: 'delivered',
+      destinationHash: emailDestinationHash(context.settings.get().notifications.email),
+    });
+  });
+
+  it('reports a sanitized resend failure and returns internal', () => {
+    const errors = { error: vi.fn() };
+    const context = setup({
+      send: sender(() => ok()).send,
+      errors: errors as unknown as ErrorSink,
+    });
+    const record = addAlert(context.alerts);
+    const row = enqueueWebhook(context, record);
+    context.deliveries.markFailed(row.id, NOW, 'HTTP 503');
+    vi.spyOn(context.deliveries, 'resetForResend').mockImplementation(() => {
+      throw new Error('database exploded at hooks.example.test');
+    });
+
+    expect(context.notifier.resend(row.id)).toEqual({ ok: false, reason: 'internal' });
+    expect(errors.error).toHaveBeenCalledWith(
+      'budget.notify',
+      expect.any(Error),
+      expect.objectContaining({
+        phase: 'resend',
+        deliveryId: row.id,
+        alertId: record.id,
+        channel: 'webhook',
+      }),
+    );
+    const logged = JSON.stringify(errors.error.mock.calls);
+    expect(logged).not.toContain('database exploded');
+    expect(logged).not.toContain('hooks.example.test');
+  });
+});

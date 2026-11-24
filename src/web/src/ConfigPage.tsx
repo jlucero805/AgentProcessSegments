@@ -19,6 +19,10 @@ import {
   type BudgetStatus,
   type BudgetsResponse,
   type CellDetail,
+  type DeliveryChannel,
+  type DeliveryHistoryItem,
+  type DeliveryHistoryResponse,
+  type DeliveryStatus,
   type EmailPatch,
   type MasterConfig,
   type MasterEvent,
@@ -60,6 +64,25 @@ function moneyLabel(value: number): string {
 
 function pct(value: number): string {
   return `${value.toFixed(0)}%`;
+}
+
+const DELIVERY_TONES: Record<
+  DeliveryStatus,
+  'neutral' | 'green' | 'blue' | 'amber' | 'red' | 'purple'
+> = {
+  pending: 'amber',
+  delivering: 'blue',
+  delivered: 'green',
+  failed: 'red',
+  skipped: 'neutral',
+};
+
+function deliveryAlertLabel(item: DeliveryHistoryItem): string {
+  const scope =
+    item.alert.scope === 'overall' ? 'Overall' : item.alert.cellName ?? 'Deleted cell';
+  return `${scope} · ${item.alert.threshold} ${pct(item.alert.alertAtPercent)} · ${moneyLabel(
+    item.alert.spendUsd,
+  )} of ${moneyLabel(item.alert.budgetUsd)}`;
 }
 
 /** Split the recipients box on commas, semicolons, or newlines and dedupe. */
@@ -189,6 +212,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
   const [notificationStatus, setNotificationStatus] =
     useState<NotificationStatusResponse | null>(null);
+  const [deliveries, setDeliveries] = useState<DeliveryHistoryResponse | null>(null);
+  const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel | ''>('');
+  const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus | ''>('');
+  const [deliveryOffset, setDeliveryOffset] = useState(0);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [prices, setPrices] = useState<ModelPrice[]>([]);
   const [priceForm, setPriceForm] = useState<PriceFormState>(emptyPriceForm);
   const [priceSaving, setPriceSaving] = useState(false);
@@ -197,15 +227,23 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
 
   const load = useCallback(async () => {
     try {
-      const [config, processConfig, cellList, eventList, budgetResponse, statusResponse] =
-        await Promise.all([
-          api.getConfig(),
-          api.getProcess(),
-          api.getCells(),
-          api.getMasterEvents({ limit: 20 }),
-          api.getBudgets().catch(() => null),
-          api.getNotificationStatus().catch(() => null),
-        ]);
+      const [
+        config,
+        processConfig,
+        cellList,
+        eventList,
+        budgetResponse,
+        statusResponse,
+        deliveryResponse,
+      ] = await Promise.all([
+        api.getConfig(),
+        api.getProcess(),
+        api.getCells(),
+        api.getMasterEvents({ limit: 20 }),
+        api.getBudgets().catch(() => null),
+        api.getNotificationStatus().catch(() => null),
+        api.getNotificationDeliveries({ limit: 10, offset: 0 }).catch(() => null),
+      ]);
       const loadedBudget = config.budget ?? { ...DEFAULT_BUDGET_SETTINGS };
       const loadedWebhook = config.notifications?.webhook ?? {
         enabled: false,
@@ -254,6 +292,12 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setEmailFrom(loadedEmail.from ?? '');
       setEmailTo(loadedEmail.to.join(', '));
       setNotificationStatus(statusResponse ?? null);
+      setDeliveries(
+        deliveryResponse && Array.isArray(deliveryResponse.deliveries)
+          ? deliveryResponse
+          : null,
+      );
+      setDeliveryOffset(deliveryResponse?.offset ?? 0);
     } catch (error) {
       onError(describeError(error));
     }
@@ -277,6 +321,44 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       mounted = false;
     };
   }, [onError]);
+
+  async function refreshDeliveries(
+    offset = deliveryOffset,
+    channel = deliveryChannel,
+    status = deliveryStatus,
+  ): Promise<void> {
+    setDeliveryLoading(true);
+    try {
+      const response = await api.getNotificationDeliveries({
+        channel: channel === '' ? undefined : channel,
+        status: status === '' ? undefined : status,
+        limit: 10,
+        offset,
+      });
+      setDeliveries(response);
+      setDeliveryOffset(response.offset);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setDeliveryLoading(false);
+    }
+  }
+
+  async function resendDelivery(item: DeliveryHistoryItem): Promise<void> {
+    setResendingId(item.id);
+    setResendMessage(null);
+    try {
+      await api.resendNotificationDelivery(item.id);
+      setResendMessage('Resend queued; delivery will retry on the next flush.');
+      await refreshDeliveries();
+      const status = await api.getNotificationStatus().catch(() => null);
+      setNotificationStatus(status);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setResendingId(null);
+    }
+  }
 
   const set = <K extends keyof MasterConfig>(key: K, value: MasterConfig[K]) => {
     setMaster((current) => (current ? { ...current, [key]: value } : current));
@@ -506,6 +588,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setWebhookClearSecret(false);
       const status = await api.getNotificationStatus().catch(() => null);
       setNotificationStatus(status);
+      void refreshDeliveries();
       setWebhookSaved(true);
       setWebhookTest(null);
     } catch (error) {
@@ -528,6 +611,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       });
       const status = await api.getNotificationStatus().catch(() => null);
       setNotificationStatus(status);
+      void refreshDeliveries();
     } finally {
       setWebhookTesting(false);
     }
@@ -608,6 +692,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setEmailTo(saved.to.join(', '));
       const status = await api.getNotificationStatus().catch(() => null);
       setNotificationStatus(status);
+      void refreshDeliveries();
       setEmailSaved(true);
       setEmailTest(null);
     } catch (error) {
@@ -630,6 +715,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       });
       const status = await api.getNotificationStatus().catch(() => null);
       setNotificationStatus(status);
+      void refreshDeliveries();
     } finally {
       setEmailTesting(false);
     }
@@ -1395,6 +1481,154 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
             </Button>
           </div>
         </div>
+      </Card>
+
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Delivery history</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            Recent webhook and email delivery attempts for budget alerts. Delivery is
+            advisory; history is read-only and bounded.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Channel" hint="webhook or email">
+            <Select
+              value={deliveryChannel}
+              onChange={(event) => {
+                const value = event.target.value as DeliveryChannel | '';
+                setDeliveryChannel(value);
+                void refreshDeliveries(0, value, deliveryStatus);
+              }}
+            >
+              <option value="">All channels</option>
+              <option value="webhook">Webhook</option>
+              <option value="email">Email</option>
+            </Select>
+          </Field>
+          <Field label="Status" hint="delivery outcome">
+            <Select
+              value={deliveryStatus}
+              onChange={(event) => {
+                const value = event.target.value as DeliveryStatus | '';
+                setDeliveryStatus(value);
+                void refreshDeliveries(0, deliveryChannel, value);
+              }}
+            >
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="delivering">Delivering</option>
+              <option value="delivered">Delivered</option>
+              <option value="failed">Failed</option>
+              <option value="skipped">Skipped</option>
+            </Select>
+          </Field>
+        </div>
+
+        {!deliveries || deliveries.deliveries.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            {deliveryChannel !== '' || deliveryStatus !== ''
+              ? 'No deliveries match these filters.'
+              : 'No deliveries yet.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[52rem] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-wide text-zinc-600">
+                <tr>
+                  <th className="pb-2 font-medium">Created</th>
+                  <th className="pb-2 font-medium">Channel</th>
+                  <th className="pb-2 font-medium">Alert</th>
+                  <th className="pb-2 font-medium">Status</th>
+                  <th className="pb-2 text-right font-medium">Attempts</th>
+                  <th className="pb-2 font-medium">Last error</th>
+                  <th className="pb-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {deliveries.deliveries.map((item) => (
+                  <tr key={item.id}>
+                    <td
+                      className="whitespace-nowrap py-2 pr-3 text-zinc-500"
+                      title={new Date(item.createdAt).toISOString()}
+                    >
+                      {timeAgo(item.createdAt)} ago
+                    </td>
+                    <td className="py-2 pr-3 text-zinc-400">{item.channel}</td>
+                    <td className="py-2 pr-3 text-zinc-300">{deliveryAlertLabel(item)}</td>
+                    <td className="py-2 pr-3">
+                      <Badge tone={DELIVERY_TONES[item.status]}>{item.status}</Badge>
+                    </td>
+                    <td className="py-2 pr-3 text-right text-zinc-400">{item.attempts}</td>
+                    <td
+                      className="max-w-[14rem] truncate py-2 pr-3 text-zinc-500"
+                      title={item.lastError ?? ''}
+                    >
+                      {item.lastError ?? '—'}
+                    </td>
+                    <td className="py-2 text-right">
+                      {item.canResend ? (
+                        <Button
+                          size="sm"
+                          disabled={resendingId !== null}
+                          aria-label={`Resend ${item.channel} delivery for ${deliveryAlertLabel(item)}`}
+                          onClick={() => void resendDelivery(item)}
+                        >
+                          {resendingId === item.id ? <Spinner /> : 'Resend'}
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-3 text-[11px] text-zinc-500">
+          <span>
+            {deliveries && deliveries.total > 0
+              ? `Showing ${deliveries.offset + 1}–${Math.min(
+                  deliveries.offset + deliveries.deliveries.length,
+                  deliveries.total,
+                )} of ${deliveries.total}`
+              : 'No deliveries'}
+          </span>
+          <div className="flex items-center gap-2">
+            {resendMessage ? (
+              <span role="status" className="text-emerald-400">
+                {resendMessage}
+              </span>
+            ) : null}
+            <Button
+              size="sm"
+              disabled={deliveryLoading || deliveryOffset === 0}
+              onClick={() => void refreshDeliveries(Math.max(0, deliveryOffset - 10))}
+            >
+              Newer
+            </Button>
+            <Button
+              size="sm"
+              disabled={
+                deliveryLoading ||
+                !deliveries ||
+                deliveryOffset + deliveries.deliveries.length >= deliveries.total
+              }
+              onClick={() => void refreshDeliveries(deliveryOffset + 10)}
+            >
+              Older
+            </Button>
+            <Button size="sm" disabled={deliveryLoading} onClick={() => void refreshDeliveries()}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-zinc-600">
+          History keeps 400 days of delivery rows. Clearing a budget, changing its threshold,
+          or deleting a cell removes its unacknowledged alerts and their delivery rows.
+        </p>
       </Card>
 
       <ProcessEditor

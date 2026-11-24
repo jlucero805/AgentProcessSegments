@@ -205,6 +205,90 @@ export const DELIVERY_STATUSES = [
 ] as const;
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 
+/** The alert fields copied into a delivery-history row. */
+export interface DeliveryAlertSnapshot {
+  scope: BudgetScope;
+  cellId: string | null;
+  cellName: string | null;
+  threshold: BudgetThreshold;
+  alertAtPercent: number;
+  budgetUsd: number;
+  spendUsd: number;
+  unknownCostTurns: number;
+  periodStart: number;
+  createdAt: number;
+  acknowledgedAt: number | null;
+}
+
+/** One safe delivery-history row: no destination, secret, recipient, or payload. */
+export interface DeliveryHistoryItem {
+  id: string;
+  alertId: string;
+  channel: DeliveryChannel;
+  format: DeliveryFormat;
+  status: DeliveryStatus;
+  attempts: number;
+  nextAttemptAt: number;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+  deliveredAt: number | null;
+  canResend: boolean;
+  alert: DeliveryAlertSnapshot;
+}
+
+export interface DeliveryHistoryQuery {
+  channel?: DeliveryChannel;
+  status?: DeliveryStatus;
+  alertId?: string;
+  /** Inclusive created-at lower bound in epoch milliseconds. */
+  from?: number;
+  /** Exclusive created-at upper bound in epoch milliseconds. */
+  to?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DeliveryHistoryResponse {
+  deliveries: DeliveryHistoryItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export type ResendBlockReason =
+  | 'already_delivered'
+  | 'alert_acknowledged'
+  | 'not_current_period'
+  | 'channel_disabled'
+  | 'channel_unconfigured';
+
+export type ResendBlock = ResendBlockReason | 'in_flight';
+
+export interface ResendGuardInput {
+  status: DeliveryStatus;
+  acknowledgedAt: number | null;
+  periodStart: number;
+  currentPeriodStart: number;
+  channelEnabled: boolean;
+  channelConfigured: boolean;
+}
+
+/**
+ * Decide whether a failed or skipped delivery may be resent. `null` means
+ * resendable; `in_flight` is already scheduled and is an idempotent no-op.
+ * Delivered rows are immutable so an alert can never be sent twice.
+ */
+export function resendBlockReason(input: ResendGuardInput): ResendBlock | null {
+  if (input.status === 'delivered') return 'already_delivered';
+  if (input.status === 'pending' || input.status === 'delivering') return 'in_flight';
+  if (input.acknowledgedAt !== null) return 'alert_acknowledged';
+  if (input.periodStart !== input.currentPeriodStart) return 'not_current_period';
+  if (!input.channelEnabled) return 'channel_disabled';
+  if (!input.channelConfigured) return 'channel_unconfigured';
+  return null;
+}
+
 const WEBHOOK_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 const SMTP_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 const EMAIL_ADDRESS_RE = /^[^\s@<>]+@[^\s@<>]+$/;

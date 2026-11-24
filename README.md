@@ -305,8 +305,18 @@ and only cleared when the operator asks.
 
 `GET /api/notifications/status` shows per-channel queue, failure, and last-delivery state.
 `POST /api/notifications/webhook/test` and `POST /api/notifications/email/test` send
-synthetic test events without writing alert or delivery rows. Native chat bots, per-cell
-routing, and delivery history remain separate backlog items.
+synthetic test events without writing alert or delivery rows.
+
+The **Delivery history** card lists recent webhook and email attempts newest first, with
+channel, alert, status, attempts, next attempt, and a sanitized error. Filter by channel
+and status; each page holds ten rows. **Resend** is offered only for `failed` or `skipped`
+rows whose alert is unacknowledged in the current UTC month and whose channel is enabled
+and configured. A resend reuses the outbox row, re-stamps it to the current destination
+and format, resets the attempt count, and queues it for the next flush; delivered rows
+are immutable. History is read-only, pruned after 400 days, and a row disappears when its
+alert is deleted (clearing a budget, changing its threshold, or deleting a cell).
+`GET /api/notifications/deliveries` and `POST /api/notifications/deliveries/:id/resend`
+back the card. Native chat bots and per-cell routing remain separate backlog items.
 
 ## Docs
 
@@ -408,7 +418,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 676 vitest cases: 499 server cases (state machine, migrations including
+`npm test` runs 699 vitest cases: 516 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, request-artifact and worktree retention, cutover run retention, engine
@@ -420,7 +430,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 177 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 183 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

@@ -169,6 +169,14 @@ last five.
    touching the other. Transient failures retry for about three hours; permanent ones are
    marked failed in the Config card. Delivery problems never stop work or hide the in-app
    banner.
+10. The **Delivery history** card below the channel settings lists recent attempts for
+    both channels. Filter by channel or status; use **Refresh** or the Newer/Older buttons
+    to page. A failed or skipped row that still belongs to an unacknowledged current-month
+    alert shows **Resend**. Pressing it re-queues the same outbox row under the channel's
+    current destination and format, resets its attempt count, and shows a queued message;
+    the next notifier flush sends it. Delivered rows never show Resend. History is pruned
+    after 400 days, and clearing a budget, changing its threshold, or deleting a cell
+    removes its unacknowledged rows.
 
 ## 4d. Read spend and maintain model prices
 

@@ -87,6 +87,32 @@ describe('api client', () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe('/api/requests?view=intake');
   });
 
+  it('builds delivery history queries and posts resend to an encoded id', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ deliveries: [], total: 0, limit: 10, offset: 0 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.getNotificationDeliveries({
+      channel: 'webhook',
+      status: 'failed',
+      alertId: 'a b',
+      from: 1,
+      to: 2,
+      limit: 10,
+      offset: 20,
+    });
+    await api.resendNotificationDelivery('d/1');
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      '/api/notifications/deliveries?channel=webhook&status=failed&alertId=a+b&from=1&to=2&limit=10&offset=20',
+    );
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      '/api/notifications/deliveries/d%2F1/resend',
+    );
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('POST');
+  });
+
   it('sends JSON on create', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({ id: 'r1' }, 201),

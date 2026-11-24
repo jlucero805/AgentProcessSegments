@@ -9,7 +9,7 @@ import { EFFORT_LEVELS, STATES } from '../domain/request.js';
 import { readEnv } from '../env.js';
 import { SEGMENT_FLOW_GUIDE } from '../process/definition.js';
 import { errorMessage } from '../util/errors.js';
-import { MCP_SERVER_KEY } from './identity.js';
+import { MCP_SERVER_KEY, MCP_SERVER_VERSION } from './identity.js';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -281,7 +281,7 @@ export interface McpOptions {
 
 export function buildMcpServer(options: McpOptions): McpServer {
   const api = new BrainApi(options.brainUrl, options.fetchImpl, options.timeoutMs);
-  const server = new McpServer({ name: MCP_SERVER_KEY, version: '0.1.0' });
+  const server = new McpServer({ name: MCP_SERVER_KEY, version: MCP_SERVER_VERSION });
   const requestId = options.requestId;
   const scope = options.scope ?? (requestId === '' ? 'kb' : 'request');
 

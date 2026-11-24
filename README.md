@@ -446,7 +446,8 @@ src/server/src
   summary/            per-cell scorecard policy, deterministic stats, read-only generation,
                       polling scheduler, persisted report history
   mcp/server.ts       stdio `aps` MCP server exposing harness tools, proxied to the API
-  mcp/identity.ts     shared MCP server key, tool prefix, and allow-list helper
+  mcp/identity.ts     shared MCP server key, handshake version, tool prefix,
+                      and allow-list helper
   skills/catalog.ts   OpenCode/Claude skill discovery, global + project + request repo
   usage/types.ts      pure usage contract shared with the SPA
   usage/repository.ts usage_events writes plus merged raw/daily queries

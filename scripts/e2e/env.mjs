@@ -298,6 +298,18 @@ export function buildMcpSmokeClientPins({ home, base, requestId }) {
 }
 
 /**
+ * Pins for the screenshots capture browser. The SPA renders the master drawer's
+ * clock text with the browser locale and timezone, so an inherited
+ * LANG/LC_ALL/TZ would change the committed images. `buildPinnedEnv` also keeps
+ * inherited harness settings and credentials out of Chromium.
+ */
+export const SCREENSHOT_BROWSER_PINS = Object.freeze({
+  TZ: 'UTC',
+  LANG: 'en_US.UTF-8',
+  LC_ALL: 'en_US.UTF-8',
+});
+
+/**
  * Pins for the screenshots server: the staged temp board, no agent CLI, and
  * temp XDG dirs so the run cannot read the host's config or state.
  */

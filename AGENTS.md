@@ -136,7 +136,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   wins. `scripts/e2e.mjs`, `scripts/claude-mock-smoke.mjs`, `scripts/mcp-smoke.mjs`, and
   `scripts/screenshots.mjs` all spawn through it; none spreads `process.env`. Without
   that, a host `APS_TURN_TIMEOUT_MS`, `APS_PLUGINS_DIR`, or legacy `SBOX_HARNESS_BIN`
-  silently changes what a proof proves. The Claude and MCP smokes keep deliberate
+  silently changes what a proof proves. The screenshot tool also pins its capture
+  browser (`SCREENSHOT_BROWSER_PINS`, `--lang=en-US`): the master drawer formats clock
+  text in the browser, so an inherited `LANG`/`TZ` would otherwise change the committed
+  image. The Claude and MCP smokes keep deliberate
   `SBOX_*` pins to prove the legacy aliases: scrubbing inherited `APS_*` first is what
   makes those pins authoritative. The Claude smoke pins its legacy
   `SBOX_CONFIG`/`SBOX_PROCESS`/`SBOX_ERROR_LOG` paths; the MCP smoke pins the canonical

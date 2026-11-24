@@ -585,7 +585,10 @@ is absent.
 `docs/screenshots/board.png` and `docs/screenshots/master.png` from a staged temp board.
 It needs `npm run build` first and exits non-zero when Puppeteer is absent; pass
 `--allow-missing-puppeteer` to skip the capture deliberately (it prints the current
-image timestamps).
+image timestamps). The spawned server and the capture browser both get a pinned
+environment from `scripts/e2e/env.mjs`, so inherited `APS_*`/`SBOX_*` settings,
+credentials, `LANG`, and `TZ` cannot change the staged board; `npm run test:e2e-env`
+guards the pins.
 
 CI (`deploy/ci-workflow.yml`) runs lint, typecheck, the full test suite, the build, the
 E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also

@@ -12,9 +12,12 @@
 // committed images. --allow-missing-puppeteer is the deliberate opt-out and
 // prints the current image timestamps instead.
 //
-// Everything runs against a throwaway database, data dir, and config. No agent
-// turn starts: the master timer is longer than this script's deadline, and a
-// current scorecard keeps the summary scheduler from catching up.
+// Everything runs against a throwaway database, data dir, and config. The
+// spawned server and the capture browser both get a pinned env from
+// scripts/e2e/env.mjs, so host app settings, credentials, and locale cannot
+// change the staged images. No agent turn starts: the master timer is longer
+// than this script's deadline, and a current scorecard keeps the summary
+// scheduler from catching up.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -23,7 +26,11 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPinnedEnv, buildScreenshotPins } from './e2e/env.mjs';
+import {
+  buildPinnedEnv,
+  buildScreenshotPins,
+  SCREENSHOT_BROWSER_PINS,
+} from './e2e/env.mjs';
 import { resolvePuppeteer } from './e2e/puppeteer.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -427,7 +434,8 @@ async function capture() {
 
   browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    env: buildPinnedEnv(process.env, SCREENSHOT_BROWSER_PINS),
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--lang=en-US'],
   }).catch((error) => {
     throw new Error(
       `${error.message}\n  hint: run \`npx puppeteer browsers install chrome\` ` +

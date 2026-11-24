@@ -12,6 +12,7 @@ import {
   buildPinnedEnv,
   buildScreenshotPins,
   resolveClaudeBin,
+  SCREENSHOT_BROWSER_PINS,
   SCRUB_PREFIXES,
   scrubEnv,
 } from './env.mjs';
@@ -581,6 +582,35 @@ test('buildScreenshotPins keeps the staged paths and pins XDG/HOME', () => {
   assert.equal(Object.hasOwn(env, 'SBOX_HARNESS'), false);
 });
 
+test('the screenshot browser env pins locale and timezone and drops app env', () => {
+  const env = buildPinnedEnv(
+    {
+      ...proofHostile,
+      LANG: 'de_DE.UTF-8',
+      LC_ALL: 'de_DE.UTF-8',
+      TZ: 'Asia/Tokyo',
+      PUPPETEER_EXECUTABLE_PATH: '/opt/chrome/chrome',
+    },
+    SCREENSHOT_BROWSER_PINS,
+  );
+
+  assert.equal(env.LANG, 'en_US.UTF-8');
+  assert.equal(env.LC_ALL, 'en_US.UTF-8');
+  assert.equal(env.TZ, 'UTC');
+  assertOnlyPinnedScrubNames(env, SCREENSHOT_BROWSER_PINS);
+  assert.equal(Object.hasOwn(env, 'ANTHROPIC_API_KEY'), false);
+  assert.equal(Object.hasOwn(env, 'CLAUDE_CODE_OAUTH_TOKEN'), false);
+  assert.equal(Object.hasOwn(env, 'APS_HARNESS'), false);
+  assert.equal(Object.hasOwn(env, 'SBOX_HARNESS_BIN'), false);
+
+  // Chromium still needs the ordinary host env to find its binary and profile.
+  assert.equal(env.PATH, '/usr/bin:/bin');
+  assert.equal(env.HOME, '/root');
+  assert.equal(env.TMPDIR, '/tmp');
+  assert.equal(env.HTTPS_PROXY, 'http://proxy:8080');
+  assert.equal(env.PUPPETEER_EXECUTABLE_PATH, '/opt/chrome/chrome');
+});
+
 test('proof pin builders reject missing, empty, and relative paths', () => {
   const cases = [
     ['buildClaudeSmokePins', claudePinsArgs, ['root', 'home', 'temp', 'dbPath', 'dataDir']],
@@ -657,7 +687,7 @@ test('every proof script builds child env through the shared helper', () => {
     ['scripts/e2e.mjs', 'buildE2eEnv', 1],
     ['scripts/claude-mock-smoke.mjs', 'buildPinnedEnv', 1],
     ['scripts/mcp-smoke.mjs', 'buildPinnedEnv', 2],
-    ['scripts/screenshots.mjs', 'buildPinnedEnv', 1],
+    ['scripts/screenshots.mjs', 'buildPinnedEnv', 2],
   ];
 
   for (const [file, builder, count] of expected) {
@@ -684,4 +714,14 @@ test('every proof script builds child env through the shared helper', () => {
       `${file} must not read inherited APS/SBOX settings directly`,
     );
   }
+});
+
+test('the screenshot browser launch pins its language and env', () => {
+  const source = readFileSync(path.join(repoRoot, 'scripts', 'screenshots.mjs'), 'utf8');
+  assert.match(
+    source,
+    /env:\s*buildPinnedEnv\(process\.env,\s*SCREENSHOT_BROWSER_PINS\)/,
+    'the browser must get the pinned env',
+  );
+  assert.match(source, /'--lang=en-US'/, 'the browser locale must be pinned');
 });

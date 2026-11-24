@@ -339,7 +339,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 868 vitest cases, all passing: 669 server across 46 files and 199 web across 24 files,
+- 871 vitest cases, all passing: 672 server across 46 files and 199 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -371,8 +371,10 @@ built and vended by the brain; real-CLI verification is still pending.
   smokes keep deliberate `SBOX_*` pins for legacy-alias coverage, and `mcp-smoke` now
   fails when a tool round trip does not persist. `npm run test:e2e-env` guards the
   builders, their call sites, and the screenshot script's missing-Puppeteer policy. CI
-  runs the E2E step with hostile `SBOX_*`/`APS_*` overrides
-  exported, so a regression that leaks the host env fails the build.
+  runs the E2E and MCP stdio smoke steps with the same hostile `SBOX_*`/`APS_*`
+  overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
+  that leaks the host env into either proof fails the build;
+  `src/server/test/ci-workflow.test.ts` fails if the two blocks drift.
 - CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
   full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
   `scripts/mcp-smoke.mjs` on pushes and pull requests. It also re-runs the web suite

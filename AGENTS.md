@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 868 vitest cases: 669 server across 46 files and 199 web across 24 files, all green.
+- 871 vitest cases: 672 server across 46 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -96,7 +96,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 669 server + 199 web, plus the e2e env guard
+npm test                       # 672 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -143,10 +143,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   XDG_* directly, outside `readEnv`. `scripts/e2e/env.test.mjs` guards the builders and
   each script's call site (`npm run test:e2e-env`); the pin builders reject missing or
   relative paths so a dropped mock or port cannot fall back to a real CLI on `PATH`.
-  CI's E2E step exports hostile sentinels (`SBOX_HARNESS_BIN=/bin/false`,
-  `APS_HARNESS=opencode`, `APS_TURN_TIMEOUT_MS=1`, ...); reproduce it with
-  `npm run build`, then `env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode node
-  scripts/e2e.mjs`.
+  CI's E2E and MCP stdio smoke steps export the same hostile sentinels
+  (`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`,
+  `APS_BRAIN_URL=http://127.0.0.1:1`, `APS_REQUEST_ID=hostile-request`, ...);
+  reproduce it with `npm run build`, then `env SBOX_HARNESS_BIN=/bin/false
+  APS_HARNESS=opencode node scripts/e2e.mjs`, and the same env with
+  `node scripts/mcp-smoke.mjs`. `src/server/test/ci-workflow.test.ts` keeps both
+  step blocks identical.
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
   Code binary can be supplied with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock

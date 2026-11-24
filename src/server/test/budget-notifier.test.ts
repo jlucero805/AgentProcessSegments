@@ -18,12 +18,13 @@ import {
   type BudgetAlertInput,
   type BudgetAlertRecord,
 } from '../src/usage/budget-alerts.js';
-import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
+import { NotificationEventDeliveryRepository } from '../src/notifications/event-deliveries.js';
 import {
-  BudgetNotifier,
+  NotificationService,
   destinationHash,
   type FetchLike,
-} from '../src/usage/budget-notifier.js';
+} from '../src/notifications/service.js';
+import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
 import {
   EmailSendError,
   emailDestinationHash,
@@ -113,6 +114,7 @@ function setup(options: SetupOptions) {
   const cells = new CellRepository(db);
   const alerts = new BudgetAlertRepository(db);
   const deliveries = new BudgetAlertDeliveryRepository(db);
+  const events = new NotificationEventDeliveryRepository(db);
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sbox-notifier-'));
   const settings = new SettingsStore(path.join(dir, 'config.json'));
   settings.patch({
@@ -128,8 +130,9 @@ function setup(options: SetupOptions) {
     },
   });
   const clock = options.clock ?? makeClock();
-  const notifier = new BudgetNotifier({
+  const notifier = new NotificationService({
     deliveries,
+    events,
     alerts,
     cells,
     settings,
@@ -140,7 +143,7 @@ function setup(options: SetupOptions) {
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
     ...(options.errors ? { errors: options.errors } : {}),
   });
-  return { db, cells, alerts, deliveries, settings, clock, notifier };
+  return { db, cells, alerts, deliveries, events, settings, clock, notifier };
 }
 
 function addAlert(

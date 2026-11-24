@@ -36,6 +36,7 @@ describe('db migrations', () => {
     expect(tables).toContain('usage_rollup_state');
     expect(tables).toContain('budget_alerts');
     expect(tables).toContain('budget_alert_deliveries');
+    expect(tables).toContain('notification_event_deliveries');
     expect(tables).toContain('model_pricing');
     expect(
       db.prepare('SELECT rolled_through FROM usage_rollup_state WHERE id = 1').get(),
@@ -113,6 +114,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_usage_events_turn');
     expect(indexes).toContain('idx_budget_alerts_identity');
     expect(indexes).toContain('idx_budget_alert_deliveries_due');
+    expect(indexes).toContain('idx_notification_event_deliveries_due');
     expect(indexes).toContain('idx_model_pricing_model_effective');
     const legacyTables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
@@ -120,8 +122,30 @@ describe('db migrations', () => {
       }>
     ).map((row) => row.name);
     expect(legacyTables).toContain('model_pricing');
+    expect(legacyTables).toContain('notification_event_deliveries');
     expect(legacyTables).toContain('usage_daily');
     expect(legacyTables).toContain('usage_rollup_state');
+    db.close();
+  });
+
+  it('keeps one event delivery per dedupe key and channel without a foreign key', () => {
+    const db = openDb(':memory:');
+    const insert = db.prepare(
+      `INSERT INTO notification_event_deliveries
+         (id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES (?, 'turn:r1:engine.exit:exit_1:1', 'turn.failed', ?, 'json', 'hash',
+               '{}', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+    );
+    insert.run('e1', 'webhook');
+    expect(() => insert.run('e2', 'webhook')).toThrow();
+    insert.run('e3', 'email');
+    const rows = db
+      .prepare(
+        `SELECT channel FROM notification_event_deliveries ORDER BY channel`,
+      )
+      .all() as Array<{ channel: string }>;
+    expect(rows).toEqual([{ channel: 'email' }, { channel: 'webhook' }]);
     db.close();
   });
 

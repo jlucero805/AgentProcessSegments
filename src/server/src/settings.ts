@@ -3,6 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_EVENT_NOTIFICATIONS,
   DEFAULT_NOTIFICATIONS,
   DEFAULT_SMTP_PORT,
   MAX_BUDGET_USD,
@@ -15,6 +16,8 @@ import {
   webhookUrlError,
   type BudgetSettings,
   type EmailSettings,
+  type EventChannelSettings,
+  type EventNotificationSettings,
   type NotificationsSettings,
   type NotificationsView,
   type WebhookSettings,
@@ -173,9 +176,31 @@ const emailSchema: z.ZodType<EmailSettings, z.ZodTypeDef, unknown> = z
     }
   });
 
+const eventChannelSchema: z.ZodType<
+  EventChannelSettings,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  webhook: z.boolean().default(false),
+  email: z.boolean().default(false),
+});
+
+const eventsSchema: z.ZodType<EventNotificationSettings, z.ZodTypeDef, unknown> = z.object({
+  failedTurns: eventChannelSchema.default(() => ({
+    ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns,
+  })),
+  masterErrors: eventChannelSchema.default(() => ({
+    ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors,
+  })),
+});
+
 const notificationsSchema: z.ZodType<NotificationsSettings, z.ZodTypeDef, unknown> = z.object({
   webhook: webhookSchema.default(() => ({ ...DEFAULT_NOTIFICATIONS.webhook })),
   email: emailSchema,
+  events: eventsSchema.default(() => ({
+    failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+    masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+  })),
 });
 
 const webhookPatchSchema = z.object({
@@ -196,6 +221,16 @@ const emailPatchSchema: z.ZodType<Partial<EmailSettings>, z.ZodTypeDef, unknown>
   to: z.array(z.string().max(MAX_EMAIL_ADDRESS_LENGTH)).max(MAX_EMAIL_RECIPIENTS).optional(),
 });
 
+const eventChannelPatchSchema = z.object({
+  webhook: z.boolean().optional(),
+  email: z.boolean().optional(),
+});
+
+const eventsPatchSchema = z.object({
+  failedTurns: eventChannelPatchSchema.optional(),
+  masterErrors: eventChannelPatchSchema.optional(),
+});
+
 const settingsSchema = z.object({
   master: masterSchema,
   summary: summarySchema,
@@ -209,6 +244,10 @@ const settingsSchema = z.object({
   budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
   notifications: notificationsSchema.default(() => ({
     webhook: { ...DEFAULT_NOTIFICATIONS.webhook },
+    events: {
+      failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+      masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+    },
   })),
 });
 
@@ -242,6 +281,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifications: {
     webhook: { ...DEFAULT_NOTIFICATIONS.webhook },
     email: { ...DEFAULT_NOTIFICATIONS.email, to: [] },
+    events: {
+      failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+      masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+    },
   },
 };
 
@@ -274,6 +317,10 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
         from: email.from,
         to: [...email.to],
       },
+      events: {
+        failedTurns: { ...settings.notifications.events.failedTurns },
+        masterErrors: { ...settings.notifications.events.masterErrors },
+      },
     },
   };
 }
@@ -286,7 +333,11 @@ export const settingsPatchSchema = z
     retention: retentionSchema.partial().optional(),
     budget: budgetSchema.partial().optional(),
     notifications: z
-      .object({ webhook: webhookPatchSchema.optional(), email: emailPatchSchema.optional() })
+      .object({
+        webhook: webhookPatchSchema.optional(),
+        email: emailPatchSchema.optional(),
+        events: eventsPatchSchema.optional(),
+      })
       .partial()
       .optional(),
   })
@@ -364,6 +415,16 @@ export class SettingsStore {
         email: {
           ...current.notifications.email,
           ...(parsed.notifications?.email ?? {}),
+        },
+        events: {
+          failedTurns: {
+            ...current.notifications.events.failedTurns,
+            ...(parsed.notifications?.events?.failedTurns ?? {}),
+          },
+          masterErrors: {
+            ...current.notifications.events.masterErrors,
+            ...(parsed.notifications?.events?.masterErrors ?? {}),
+          },
         },
       },
     });

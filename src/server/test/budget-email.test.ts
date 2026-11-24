@@ -121,6 +121,28 @@ describe('createEmailSender', () => {
     expect(fake.close).toHaveBeenCalledOnce();
   });
 
+  it('uses event headers instead of an alert id for event mail', async () => {
+    const fake = transport();
+    const created = factory(fake.transport);
+    const send = createEmailSender({ timeoutMs: 5_000, createTransport: created.createTransport });
+
+    await send(
+      EMAIL,
+      { ...MESSAGE, alertId: undefined, eventKind: 'turn.failed', eventId: 'turn:r1:1' },
+      new AbortController().signal,
+    );
+
+    expect(fake.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: {
+          'X-APS-Delivery-Id': 'delivery-1',
+          'X-APS-Event-Kind': 'turn.failed',
+          'X-APS-Event-Id': 'turn:r1:1',
+        },
+      }),
+    );
+  });
+
   it('uses implicit TLS when secure is on and allows plaintext loopback', async () => {
     const secureFake = transport();
     const secure = factory(secureFake.transport);

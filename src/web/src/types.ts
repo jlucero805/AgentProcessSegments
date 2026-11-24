@@ -53,6 +53,8 @@ export type {
   EmailPatch,
   EmailSettings,
   EmailView,
+  EventChannelSettings,
+  EventNotificationSettings,
   NotificationsSettings,
   NotificationsView,
   SpendPause,
@@ -171,9 +173,24 @@ export interface WebhookStatus {
   lastError: string | null;
 }
 
+export interface EventKindStatus {
+  pending: number;
+  failed: number;
+}
+
+export interface EventNotificationStatus {
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+  byKind: Record<'turn.failed' | 'master.error', EventKindStatus>;
+}
+
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
   email: EmailStatus;
+  events: EventNotificationStatus;
 }
 
 export interface EmailStatus {

@@ -1218,3 +1218,32 @@ rows still cascade with their alert, so clearing a budget, changing a threshold,
 a cell, or a month rollover removes unacknowledged history; snapshotting alert fields is a
 separate follow-up. Resends are not attributed to an operator because the app has no
 user identity.
+
+## D64. Operational errors reuse the notification channels with a sibling outbox
+
+**Context.** D55/D57 delivered budget alerts by a durable signed webhook and SMTP email.
+Failed request turns and master errors still reached only the transcript, `master_events`,
+and the local error log, so an operator had to watch the UI to notice a stuck factory. A
+second transport or a synthetic budget alert would duplicate credentials, retry logic, and
+dedupe semantics or pollute the budget banner.
+
+**Decision.** Add per-event, per-channel opt-in routes under
+`notifications.events.failedTurns`/`.masterErrors`. `turn.failed` covers request-scoped
+turns that end in `engine.result`, `engine.exit`, `engine.timeout`, or `engine.turn`;
+`master.error` covers `master.turn`/`master.cycle` failures and skips expected spend-cap
+refusals. Events drain through the same `NotificationService`, channel settings,
+destination hash, HMAC signing, 10-second timeout, retry schedule, `Retry-After`, crash
+recovery, and 400-day prune as budget alerts. The sibling
+`notification_event_deliveries` table keys `UNIQUE(dedupe_key, channel)`; a failed-turn key
+is request+source+safe reason+UTC hour and a master key is cell+source+segment+UTC hour, so
+a deterministic failure loop sends at most one message per signature per hour per channel.
+It is a sibling rather than a synthetic alert because budget rows require an alert FK and
+acknowledgement/period semantics. Payloads carry ids, title/state, harness/model, and a
+classification label only, never raw error text, stderr, prompts, transcripts, or
+credentials. No route backfills historical events; disabling a route marks pending rows
+`skipped`. Failures use error source `notifications.event` with ids and a short reason.
+
+**Cost.** A second small outbox table and a new Config card, no migration of existing
+budget rows and no new dependency. Event history/resend is not part of the existing budget
+history view; that, summary-generation events, per-cell routing, and configurable
+coalescing windows remain follow-ups.

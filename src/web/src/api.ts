@@ -45,6 +45,7 @@ import type {
   WebhookTestResult,
   EmailPatch,
   EmailTestResult,
+  EventChannelSettings,
 } from './types';
 
 export class ApiError extends Error {
@@ -340,7 +341,14 @@ export const api = {
     usage?: Partial<UsageSettings>;
     retention?: Partial<RetentionSettings>;
     budget?: Partial<BudgetSettings>;
-    notifications?: { webhook?: WebhookPatch; email?: EmailPatch };
+    notifications?: {
+      webhook?: WebhookPatch;
+      email?: EmailPatch;
+      events?: {
+        failedTurns?: Partial<EventChannelSettings>;
+        masterErrors?: Partial<EventChannelSettings>;
+      };
+    };
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });
   },

@@ -9,12 +9,14 @@ import { MasterEventRepository } from '../src/master/events.js';
 import { MasterScheduler } from '../src/master/scheduler.js';
 import { MasterService } from '../src/master/service.js';
 import type { SpendPause } from '../src/domain/budget.js';
+import type { MasterErrorNotification } from '../src/domain/notifications.js';
 import type { MasterResult } from '../src/master/types.js';
 import { defaultProcess, READY_FOR_IMPLEMENTATION } from '../src/process/defaults.js';
 import type { ProcessConfig } from '../src/process/definition.js';
 import type { ProcessStore } from '../src/process/store.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { DEFAULT_SETTINGS, SettingsStore } from '../src/settings.js';
+import { SpendCapError } from '../src/usage/spend-cap.js';
 
 interface Fixture {
   db: Db;
@@ -27,6 +29,7 @@ interface Fixture {
   started: string[];
   startTexts: Array<{ id: string; text: string }>;
   turns: Array<{ action: 'start' | 'send'; id: string }>;
+  masterErrors: MasterErrorNotification[];
   service: MasterService;
 }
 
@@ -55,6 +58,7 @@ function setup(
   const started: string[] = [];
   const startTexts: Array<{ id: string; text: string }> = [];
   const turns: Array<{ action: 'start' | 'send'; id: string }> = [];
+  const masterErrors: MasterErrorNotification[] = [];
   const turn = () => ({ promise: Promise.resolve() }) as unknown as LiveTurn;
   const engine = {
     hasLive: vi.fn(() => false),
@@ -86,8 +90,22 @@ function setup(
     events,
     process,
     ...(spendCap ? { spendCap } : {}),
+    onMasterError: (event) => masterErrors.push(event),
   });
-  return { db, repo, cells, events, settings, engine, sent, started, startTexts, turns, service };
+  return {
+    db,
+    repo,
+    cells,
+    events,
+    settings,
+    engine,
+    sent,
+    started,
+    startTexts,
+    turns,
+    masterErrors,
+    service,
+  };
 }
 
 function dispatchRequest(
@@ -202,6 +220,67 @@ describe('MasterService', () => {
     expect(notes.some((text) => text.includes('Prodded'))).toBe(true);
     expect(notes.some((text) => text.includes('Moved'))).toBe(true);
     expect(notes.some((text) => text.includes('Master cycle'))).toBe(true);
+  });
+
+  it('reports a master turn failure and ignores an expected spend refusal', async () => {
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    const request = dispatchRequest(fixture, 'Will fail', cell.id);
+    (fixture.engine.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('spawn failed'),
+    );
+
+    await runEnabledCells(fixture);
+
+    expect(fixture.masterErrors).toHaveLength(1);
+    expect(fixture.masterErrors[0]).toMatchObject({
+      source: 'master.turn',
+      cellId: cell.id,
+      requestId: request.id,
+      segment: 'implement',
+    });
+
+    const second = setup();
+    const secondCell = second.cells.create('Capped');
+    dispatchRequest(second, 'Capped request', secondCell.id);
+    (second.engine.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new SpendCapError({
+        scope: 'cell',
+        cellId: secondCell.id,
+        cellName: secondCell.name,
+        label: secondCell.name,
+        periodStart: Date.now(),
+        periodEnd: Date.now() + 1,
+        budgetUsd: 1,
+        spendUsd: 2,
+        spendIsLowerBound: false,
+        unpricedTurns: 0,
+        percentUsed: 200,
+      }),
+    );
+
+    await runEnabledCells(second);
+    expect(second.masterErrors).toHaveLength(0);
+  });
+
+  it('reports a failure in the completion handler', async () => {
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    const request = dispatchRequest(fixture, 'Settle fails', cell.id);
+    (fixture.engine.transcript as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('transcript unreadable');
+    });
+
+    await runEnabledCells(fixture);
+    await settleMaster();
+
+    expect(fixture.masterErrors).toHaveLength(1);
+    expect(fixture.masterErrors[0]).toMatchObject({
+      source: 'master.turn',
+      cellId: cell.id,
+      requestId: request.id,
+      segment: 'implement',
+    });
   });
 
   it('skips fresh, live, and disabled-cell queues', async () => {
@@ -759,6 +838,42 @@ describe('MasterScheduler', () => {
 
       scheduler.stop();
       cells.list();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a scheduler cycle rejection', async () => {
+    vi.useFakeTimers();
+    try {
+      const base = mkdtempSync(path.join(os.tmpdir(), 'sbox-sched-error-'));
+      const settings = new SettingsStore(path.join(base, 'config.json'));
+      settings.patch({ master: { enabled: true } });
+      const cells = new CellRepository(openDb(path.join(base, 'db.sqlite')));
+      const cell = cells.create('Broken', null, 2);
+      const service = {
+        runCell: vi.fn(async () => {
+          throw new Error('database is locked');
+        }),
+        lastRunAt: null,
+        lastResult: null,
+        lastFor: vi.fn(() => null),
+        pauseFor: vi.fn(() => null),
+      } as unknown as MasterService;
+      const onError = vi.fn();
+      const scheduler = new MasterScheduler(service, settings, cells, undefined, onError);
+      scheduler.start();
+
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+
+      expect(onError).toHaveBeenCalledWith({
+        source: 'master.cycle',
+        cellId: cell.id,
+        requestId: null,
+        segment: null,
+        occurredAt: expect.any(Number),
+      });
+      scheduler.stop();
     } finally {
       vi.useRealTimers();
     }

@@ -163,6 +163,19 @@ history** card reads this table through the read-only join below; a manual resen
 the same `failed`/`skipped` row under the current destination and never creates a second
 row.
 
+### `notification_event_deliveries`
+
+`id` (uuid PK), `dedupe_key`, `kind` (`turn.failed|master.error`), `channel`
+(`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`,
+`payload_json`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
+`next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
+`UNIQUE(dedupe_key, channel)` is the event idempotency key;
+`idx_notification_event_deliveries_due` covers `(status, next_attempt_at)`. The row has no
+alert foreign key, so it survives request/cell deletion and carries a self-contained,
+sanitized payload. `dedupe_key` is a request+source+reason+UTC-hour signature for a failed
+turn, or a cell+source+segment+UTC-hour signature for a master error. Rows older than 400
+days are pruned on notifier start.
+
 ### Spend budgets
 
 `src/server/src/domain/budget.ts` is pure and re-exported by the SPA. `config.json` carries
@@ -179,6 +192,11 @@ from: null, to: [] }`; enabling it requires a host, a `from` address (plain or
 password are either both set or both null. `to` is replaced whole on patch, and an omitted
 password keeps the saved one while `null` clears it. The API returns the webhook with
 `secret: null`/`secretSet` and email with `password: null`/`passwordSet`.
+`notifications.events` defaults to
+`{ failedTurns: { webhook: false, email: false }, masterErrors: { webhook: false, email:
+false } }`; a route only sends when its channel is also enabled and configured. Settings
+patches merge both event levels independently, and enabling a route never replays old
+events.
 
 `BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
 budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
@@ -262,9 +280,10 @@ a terminal workdir also drops its chat history and adapter session id. Deleting 
 removes its `__master__:<id>` and `__summary__:<id>` directories immediately, independent
 of this retention window; the canceled live turns are allowed to settle before removal.
 
-`BudgetService` hands each evaluation's unacknowledged alerts to `BudgetNotifier`.
-`BudgetNotifier` owns a 60-second `unref()`'d timer and enqueues one delivery row per
-enabled alert/channel, deduped by `(alert_id, channel)`. Webhook attempts post JSON as the
+`BudgetService` hands each evaluation's unacknowledged alerts to
+`NotificationService` (formerly `BudgetNotifier`). The service owns a 60-second
+`unref()`'d timer and enqueues one delivery row per enabled alert/channel, deduped by
+`(alert_id, channel)`. Webhook attempts post JSON as the
 v1 event (alert fields plus `periodEnd` and `text`), or the text-only Slack/Discord bodies.
 Email attempts send a plain-text message whose subject names the scope and threshold and
 whose body carries the alert sentence, UTC period, and alert id, with alert/delivery
@@ -280,8 +299,23 @@ the other. Failures go to the error sink as `budget.notify` with ids, channel, a
 a short reason only. A disabled or unreachable destination never affects budgets, turns,
 or the banner.
 
+The same service drains `notification_event_deliveries` for the opt-in
+`notifications.events` routes. `Engine` emits `turn.failed` once for a request-scoped turn
+whose failure classification is `engine.result`, `engine.exit`, `engine.timeout`, or
+`engine.turn`; `MasterService`/`MasterScheduler` emit `master.error` for `master.turn` and
+`master.cycle` failures and skip expected spend-cap refusals. JSON event bodies are a v1
+envelope (`version`, `event`, `severity`, `title`, `occurredAt`, `text`, and a typed
+`turn`/`master` object); Slack is `{text}` and Discord is `{content}`. Events reuse the
+budget HMAC headers, 10-second timeout, bounded retry, `Retry-After`, destination hash, and
+400-day prune. The same signature in the same UTC hour creates one row per channel; the
+first row wins, and disabling a route or channel marks pending rows `skipped`. Payloads
+contain ids, title/state, harness/model, and a safe classification only; raw error text
+stays in the transcript and error log. Event failures go to `notifications.event` with
+kind/delivery ids and a short reason only.
+
 `GET /api/notifications/status` reports per-channel enabled/configured, pending, failed,
-and the latest delivery (webhook also reports format). `POST
+and the latest budget delivery (webhook also reports format), plus an `events` block with
+aggregate and per-kind pending/failed counts and the latest event delivery. `POST
 /api/notifications/webhook/test` and `POST /api/notifications/email/test` send synthetic
 `budget.test` events through the same timeout and transport paths; they require a
 configured destination, write no alert or delivery rows, and return `200` or `502`.

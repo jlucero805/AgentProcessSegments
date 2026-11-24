@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 714 vitest cases: 530 server across 38 files and 184 web across 24 files, all green.
+- 739 vitest cases: 554 server across 39 files and 185 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -59,7 +59,8 @@ digests.
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
-  an in-app alert/pause banner, opt-in signed webhook and SMTP email delivery, an
+  an in-app alert/pause banner, opt-in signed webhook and SMTP email delivery for budget
+  alerts plus failed-turn/master-error notifications, an
   optional single-worker Merge step with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
   a systemd user unit for a VPS, a reviewed live-VPS cutover script
@@ -90,7 +91,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 530 server + 184 web, plus the e2e env guard
+npm test                       # 554 server + 185 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -367,18 +368,22 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     transitions, `agentStatus`, session writes, or spawning; in-flight turns finish.
     Refuse with `SpendCapError` / HTTP `409 spend_cap`; never log an expected refusal as an
     error.
-35. **Webhook alert delivery is advisory, idempotent, and signed.** One
-    `budget_alert_deliveries` row per `(alert_id, channel)` is the dedupe record; never
-    send a delivered alert twice. Rows carry the `destination_hash` they were enqueued
-    under so a URL/format/secret change skips pending rows instead of sending them with
-    new credentials. Delivery retries are bounded, failures go to `budget.notify` with
-    ids only, and a notifier failure must never throw into budget evaluation, an HTTP
-    handler, or a turn. Tests inject the sender; no external network traffic. Delivery
-    history is a read-only view that never returns a destination, secret, recipient, or
-    payload. Manual resend only re-queues `failed`/`skipped` rows for an unacknowledged
-    current-month alert on an enabled, configured channel; it re-stamps the destination
-    and preserves the one-row-per-alert dedupe. A delivered row is never resent. Resend
-    failures reuse `budget.notify` with delivery/alert ids and phase only.
+35. **Notification delivery is advisory, idempotent, and signed.** One
+    `budget_alert_deliveries` row per `(alert_id, channel)` and one
+    `notification_event_deliveries` row per `(dedupe_key, channel)` are the dedupe
+    records; never send a delivered alert or event twice. Rows carry the
+    `destination_hash` they were enqueued under so a URL/format/secret change skips
+    pending rows instead of sending them with new credentials. Event payloads carry ids
+    and classifications only, never raw error text, stderr, prompts, transcripts, or
+    credentials. Delivery retries are bounded, failures go to `budget.notify` (budget) or
+    `notifications.event` (events) with ids only, and a notifier failure must never throw
+    into budget evaluation, an HTTP handler, a turn, or a master cycle. Tests inject the
+    sender; no external network traffic. Delivery history is a read-only view that never
+    returns a destination, secret, recipient, or payload. Manual resend only re-queues
+    `failed`/`skipped` budget rows for an unacknowledged current-month alert on an
+    enabled, configured channel; it re-stamps the destination and preserves the
+    one-row-per-alert dedupe. A delivered row is never resent. Resend failures reuse
+    `budget.notify` with delivery/alert ids and phase only.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
@@ -418,7 +423,11 @@ outbox: add the channel value, a destination identity, and a sender with the sam
 timeout/retry/error classification. Redact every credential from `redactSettings` (the
 webhook secret and the SMTP password are redacted today), never log a URL, recipient list,
 or secret, and inject the transport in tests. Webhook and email are the current channels;
-see `usage/budget-email.ts` for the nodemailer seam.
+see `usage/budget-email.ts` for the nodemailer seam. Operational events use the sibling
+`notification_event_deliveries` outbox, drain through `notifications/service.ts`, and
+dedupe per UTC hour by a stable signature; add a new event kind to
+`domain/notifications.ts`, the event route settings, and the engine/master hook that
+observes it.
 
 **Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
 `collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points

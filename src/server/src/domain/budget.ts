@@ -158,9 +158,21 @@ export interface EmailView {
   to: string[];
 }
 
+/** Which channels receive one operational event kind. Both default off. */
+export interface EventChannelSettings {
+  webhook: boolean;
+  email: boolean;
+}
+
+export interface EventNotificationSettings {
+  failedTurns: EventChannelSettings;
+  masterErrors: EventChannelSettings;
+}
+
 export interface NotificationsSettings {
   webhook: WebhookSettings;
   email: EmailSettings;
+  events: EventNotificationSettings;
 }
 
 /** The API view: secrets are always redacted and `*Set` reports their presence. */
@@ -175,7 +187,13 @@ export interface WebhookView {
 export interface NotificationsView {
   webhook: WebhookView;
   email: EmailView;
+  events: EventNotificationSettings;
 }
+
+export const DEFAULT_EVENT_NOTIFICATIONS: EventNotificationSettings = {
+  failedTurns: { webhook: false, email: false },
+  masterErrors: { webhook: false, email: false },
+};
 
 export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
   webhook: { enabled: false, url: null, format: 'json', secret: null },
@@ -188,6 +206,10 @@ export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
     password: null,
     from: null,
     to: [],
+  },
+  events: {
+    failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+    masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
   },
 };
 

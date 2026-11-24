@@ -181,6 +181,13 @@ last five.
     the next notifier flush sends it. Delivered rows never show Resend. History is pruned
     after 400 days, and clearing a budget, changing its threshold, or deleting a cell
     removes its unacknowledged rows.
+11. The **Event notifications** card below email delivery can send failed request turns
+    and master turn/cycle errors. Check Webhook and/or Email per event kind, then **Save
+    event notifications**; each selected channel must also be enabled above. Notifications
+    contain the request title/state or cell, ids, and a failure classification only, never
+    prompts, transcripts, or raw error text. Repeat failures with the same signature are
+    coalesced to one message per hour per channel; enabling a route does not replay old
+    events. The card shows aggregate and per-kind pending/failed counts.
 
 ## 4d. Read spend and maintain model prices
 

@@ -312,9 +312,20 @@ rows share the same outbox and retry schedule but dedupe per channel, so disabli
 re-pointing one channel never cancels the other. A saved password is redacted from the API
 and only cleared when the operator asks.
 
-`GET /api/notifications/status` shows per-channel queue, failure, and last-delivery state.
-`POST /api/notifications/webhook/test` and `POST /api/notifications/email/test` send
-synthetic test events without writing alert or delivery rows.
+The independent **Event notifications** card can also send two operational events to the
+same channels: **failed request turns** (a harness error result, non-zero agent exit, or
+timeout) and **master errors** (a failed master turn or scheduler cycle). Each event kind
+has its own webhook and email checkboxes; the channel must also be enabled above. Event
+bodies carry ids, the request title/state, and a failure classification only, never a
+prompt, transcript, diff, stderr block, or raw error text. Repeated failures with the same
+signature are coalesced to one message per UTC hour per channel, and enabling a route never
+backfills old events. Event deliveries use the same durable retry, signing, timeout, and
+destination-rotation rules as budget alerts.
+
+`GET /api/notifications/status` shows per-channel queue, failure, and last-delivery state,
+plus aggregate and per-kind event counts. `POST /api/notifications/webhook/test` and
+`POST /api/notifications/email/test` send synthetic test events without writing alert or
+delivery rows.
 
 The **Delivery history** card lists recent webhook and email attempts newest first, with
 channel, alert, status, attempts, next attempt, and a sanitized error. Filter by channel
@@ -427,7 +438,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 714 vitest cases: 530 server cases (state machine, migrations including
+`npm test` runs 739 vitest cases: 554 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -440,7 +451,7 @@ the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scor
 stats/generation/scheduling, budget status/alerts/hard caps, webhook delivery
 dedupe/retry/signing with an injected sender, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a real
-socket) and 184 web cases (shared contract re-exports, NDJSON client, chat folding,
+socket) and 185 web cases (shared contract re-exports, NDJSON client, chat folding,
 slash/skill resolution, request-form mapping, docs helpers and Help overlay, the source
 link, board, create modal, composer, cell bar, cell creation, config/process and pricing
 editor, budget and alert-delivery cards, budget banner, master detail and scorecard, the

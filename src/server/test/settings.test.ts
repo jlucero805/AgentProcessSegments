@@ -493,6 +493,47 @@ describe('SettingsStore', () => {
     });
   });
 
+  it('defaults event notifications and merges both levels across reloads', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    expect(store.get().notifications.events).toEqual({
+      failedTurns: { webhook: false, email: false },
+      masterErrors: { webhook: false, email: false },
+    });
+
+    store.patch({
+      notifications: {
+        webhook: {
+          enabled: true,
+          url: 'https://hooks.example.test/budget',
+          format: 'discord',
+          secret: '0123456789abcdef',
+        },
+        events: { failedTurns: { webhook: true } },
+      },
+    });
+    const first = store.patch({
+      notifications: { events: { failedTurns: { email: true } } },
+    });
+    expect(first.notifications.events).toEqual({
+      failedTurns: { webhook: true, email: true },
+      masterErrors: { webhook: false, email: false },
+    });
+    expect(first.notifications.webhook).toMatchObject({
+      enabled: true,
+      format: 'discord',
+      secret: '0123456789abcdef',
+    });
+
+    const reloaded = new SettingsStore(file).get();
+    expect(reloaded.notifications.events).toEqual(first.notifications.events);
+    expect(reloaded.notifications.webhook.format).toBe('discord');
+
+    expect(() =>
+      store.patch({ notifications: { events: { failedTurns: { webhook: 'yes' } } } }),
+    ).toThrow();
+  });
+
   it('fills missing webhook fields from defaults on load', () => {
     const file = tempFile();
     writeFileSync(

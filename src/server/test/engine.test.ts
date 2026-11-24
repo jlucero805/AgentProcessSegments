@@ -20,6 +20,7 @@ import type { ErrorSink } from '../src/logging/errors.js';
 import { requestDir } from '../src/config.js';
 import { masterSessionId, setupSessionId, summarySessionId } from '../src/domain/sessions.js';
 import type { SpendPause } from '../src/domain/budget.js';
+import type { TurnFailureNotification } from '../src/domain/notifications.js';
 import { SpendCapError } from '../src/usage/spend-cap.js';
 
 let harness: Harness | null = null;
@@ -31,6 +32,22 @@ function fresh(script?: (text: string) => string[]): Harness {
 
 function freshWithErrors(script: (text: string) => string[], errors: ErrorSink): Harness {
   harness = createHarness(script, undefined, undefined, errors);
+  return harness;
+}
+
+function freshWithTurnFailures(
+  script: (text: string) => string[],
+  failures: TurnFailureNotification[],
+  configOverrides: Partial<Harness['config']> = {},
+): Harness {
+  harness = createHarness(
+    script,
+    undefined,
+    undefined,
+    undefined,
+    configOverrides,
+    (event) => failures.push(event),
+  );
   return harness;
 }
 
@@ -1006,6 +1023,135 @@ describe('turn engine', () => {
     expect(h.engine.hasLive(request.id)).toBe(false);
     expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
     expect(h.usage.query({}).totals.turns).toBe(1);
+  });
+
+  it('reports a harness error result as one failed-turn event', async () => {
+    const failures: TurnFailureNotification[] = [];
+    const h = freshWithTurnFailures(
+      () => [initLine('sess-notify-error'), errorResultLine('authentication expired')],
+      failures,
+    );
+    const cell = h.cells.create('Alpha');
+    const request = h.repo.create({ title: 'Notify this failure', cellId: cell.id });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      turnId: turn.turnId,
+      requestId: request.id,
+      requestTitle: 'Notify this failure',
+      state: 'clarify',
+      cellId: cell.id,
+      harness: 'claude',
+      source: 'engine.result',
+      reason: 'harness error result',
+    });
+    expect(failures[0]?.occurredAt).toEqual(expect.any(Number));
+  });
+
+  it('reports a process exit with only its code, not stderr', async () => {
+    const failures: TurnFailureNotification[] = [];
+    const h = freshWithTurnFailures(() => [], failures);
+    const request = h.repo.create({ title: 'Crashy notify' });
+
+    const turn = await h.engine.start(request.id);
+    await settle();
+    h.harness.process?.emitStderr('token=super-secret');
+    h.harness.process?.emitExit(7);
+    await turn.promise;
+    await settle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      source: 'engine.exit',
+      reason: 'process exited with code 7',
+    });
+    expect(JSON.stringify(failures)).not.toContain('super-secret');
+  });
+
+  it('reports a timeout as a failure and never forwards stderr', async () => {
+    const failures: TurnFailureNotification[] = [];
+    const h = freshWithTurnFailures(() => [], failures, { turnTimeoutMs: 10 });
+    const request = h.repo.create({ title: 'Slow notify' });
+
+    const turn = await h.engine.start(request.id);
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+    await turn.promise;
+    await settle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.source).toBe('engine.timeout');
+    expect(failures[0]?.reason).toMatch(/^timeout after /);
+  });
+
+  it('reports an engine exception without raw error text', async () => {
+    const failures: TurnFailureNotification[] = [];
+    const h = freshWithTurnFailures(defaultScript, failures);
+    (
+      h.harness as unknown as { prepare: () => Promise<never> }
+    ).prepare = async () => {
+      throw new Error('/definitely/secret/path');
+    };
+    const request = h.repo.create({ title: 'Broken worktree' });
+
+    await h.engine.start(request.id);
+    await settle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      source: 'engine.turn',
+      reason: 'engine error',
+    });
+    expect(JSON.stringify(failures)).not.toContain('/definitely/secret/path');
+  });
+
+  it('does not report successful, cancelled, or non-request turns', async () => {
+    const failures: TurnFailureNotification[] = [];
+    const h = freshWithTurnFailures(defaultScript, failures);
+    const request = h.repo.create({ title: 'Successful' });
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    const cancelled = h.repo.create({ title: 'Cancelled' });
+    const live = await h.engine.start(cancelled.id);
+    h.engine.cancel(cancelled.id);
+    await live.promise;
+    await settle();
+
+    const kb = await h.engine.startKb('seed');
+    await kb.promise;
+    await settle();
+
+    expect(failures).toHaveLength(0);
+  });
+
+  it('does not let a throwing failure hook change the turn outcome', async () => {
+    const errorSpy = vi.fn();
+    const h = freshWithErrors(() => [initLine('sess-hook-throw'), errorResultLine('boom')], {
+      error: errorSpy,
+    });
+    const request = h.repo.create({ title: 'Hook throws' });
+    // Replace the hook after construction so the turn still completes normally.
+    const failures: TurnFailureNotification[] = [];
+    (
+      h.engine as unknown as {
+        deps: { onTurnFailure?: (event: TurnFailureNotification) => void };
+      }
+    ).deps.onTurnFailure = () => {
+      throw new Error('hook exploded');
+    };
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(failures).toHaveLength(0);
+    expect(turn.events.some((event) => event.t === 'done')).toBe(true);
+    expect(errorSpy.mock.calls.some(([source]) => source === 'notifications.event')).toBe(true);
   });
 
   it('does not report a successful result as an error', async () => {

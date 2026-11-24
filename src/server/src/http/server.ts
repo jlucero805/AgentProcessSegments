@@ -42,7 +42,7 @@ import { redactSettings, type SettingsStore } from '../settings.js';
 import { SkillCatalog } from '../skills/catalog.js';
 import type { SummaryRepository } from '../summary/repository.js';
 import type { SummaryScheduler } from '../summary/scheduler.js';
-import type { BudgetNotifier } from '../usage/budget-notifier.js';
+import type { NotificationService } from '../notifications/service.js';
 import type { BudgetService } from '../usage/budgets.js';
 import { SpendCapError } from '../usage/spend-cap.js';
 import { TerminalService, TerminalError } from '../terminal/service.js';
@@ -62,7 +62,7 @@ export interface ServerDeps {
   plugins: PluginManager;
   settings: SettingsStore;
   budgets: BudgetService;
-  notifications: BudgetNotifier;
+  notifications: NotificationService;
   master: MasterScheduler;
   masterEvents: MasterEventRepository;
   summary: SummaryScheduler;

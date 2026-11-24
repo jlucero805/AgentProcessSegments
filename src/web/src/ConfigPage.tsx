@@ -213,6 +213,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [emailSaved, setEmailSaved] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [eventSettings, setEventSettings] = useState<NotificationsView['events'] | null>(null);
+  const [eventSaving, setEventSaving] = useState(false);
+  const [eventSaved, setEventSaved] = useState(false);
   const [notificationStatus, setNotificationStatus] =
     useState<NotificationStatusResponse | null>(null);
   const [deliveries, setDeliveries] = useState<DeliveryHistoryResponse | null>(null);
@@ -260,6 +263,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         password: null,
         passwordSet: false,
       };
+      const loadedEvents = config.notifications?.events ?? {
+        ...DEFAULT_NOTIFICATIONS.events,
+      };
       setMaster(config.master);
       setSummary(config.summary);
       setUsage(config.usage);
@@ -294,6 +300,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setEmailClearPassword(false);
       setEmailFrom(loadedEmail.from ?? '');
       setEmailTo(loadedEmail.to.join(', '));
+      setEventSettings(loadedEvents);
       setNotificationStatus(statusResponse ?? null);
       setDeliveries(
         deliveryResponse && Array.isArray(deliveryResponse.deliveries)
@@ -746,6 +753,38 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     } finally {
       setEmailTesting(false);
     }
+  }
+
+  async function saveEvents() {
+    if (!eventSettings) return;
+    setEventSaving(true);
+    try {
+      const config = await api.patchConfig({ notifications: { events: eventSettings } });
+      setEventSettings(
+        config.notifications?.events ?? { ...DEFAULT_NOTIFICATIONS.events },
+      );
+      setPath(config.path);
+      const status = await api.getNotificationStatus().catch(() => null);
+      setNotificationStatus(status);
+      setEventSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setEventSaving(false);
+    }
+  }
+
+  function setEventRoute(
+    kind: 'failedTurns' | 'masterErrors',
+    channel: 'webhook' | 'email',
+    value: boolean,
+  ): void {
+    setEventSettings((current) =>
+      current
+        ? { ...current, [kind]: { ...current[kind], [channel]: value } }
+        : current,
+    );
+    setEventSaved(false);
   }
 
   async function saveProcess() {
@@ -1545,6 +1584,76 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onClick={() => void saveEmail()}
             >
               {emailSaving ? <Spinner /> : 'Save email delivery'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Event notifications</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">
+            Send failed request turns and master errors to the same webhook and email
+            channels. Events include ids and a failure classification, never prompts,
+            transcripts, or raw error text.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {(
+            [
+              ['failedTurns', 'Failed turns'],
+              ['masterErrors', 'Master errors'],
+            ] as const
+          ).map(([kind, label]) => (
+            <div
+              key={kind}
+              className="flex flex-col gap-2 rounded-lg border border-zinc-800 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span className="text-sm text-zinc-300">{label}</span>
+              <div className="flex flex-wrap items-center gap-4">
+                <Checkbox
+                  label="Webhook"
+                  aria-label={`${label} by webhook`}
+                  checked={eventSettings?.[kind].webhook ?? false}
+                  onChange={(event) =>
+                    setEventRoute(kind, 'webhook', event.target.checked)
+                  }
+                />
+                <Checkbox
+                  label="Email"
+                  aria-label={`${label} by email`}
+                  checked={eventSettings?.[kind].email ?? false}
+                  onChange={(event) =>
+                    setEventRoute(kind, 'email', event.target.checked)
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-[11px] text-zinc-600">
+          A channel must also be enabled above. Repeat failures with the same signature are
+          coalesced to one message per hour; turning a channel off skips pending events.
+        </p>
+
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            {notificationStatus?.events
+              ? `${notificationStatus.events.pending} pending · ${notificationStatus.events.failed} failed · turns ${notificationStatus.events.byKind['turn.failed'].pending} pending / ${notificationStatus.events.byKind['turn.failed'].failed} failed · master ${notificationStatus.events.byKind['master.error'].pending} pending / ${notificationStatus.events.byKind['master.error'].failed} failed`
+              : 'No event deliveries yet.'}
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {eventSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={eventSaving}
+              onClick={() => void saveEvents()}
+            >
+              {eventSaving ? <Spinner /> : 'Save event notifications'}
             </Button>
           </div>
         </div>

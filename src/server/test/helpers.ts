@@ -16,6 +16,7 @@ import { loadConfig, type Config } from '../src/config.js';
 import { openDb, type Db } from '../src/db.js';
 import type { SpendPause } from '../src/domain/budget.js';
 import type { HarnessId } from '../src/domain/harness.js';
+import type { TurnFailureNotification } from '../src/domain/notifications.js';
 import type { Effort, TranscriptMsg } from '../src/domain/request.js';
 import { KbRepository } from '../src/kb/repository.js';
 import type { ErrorSink } from '../src/logging/errors.js';
@@ -226,6 +227,7 @@ export function createHarness(
   errors?: ErrorSink,
   configOverrides: Partial<Config> = {},
   onUsageRecorded?: () => void,
+  onTurnFailure?: (event: TurnFailureNotification) => void,
 ): Harness {
   const config = withConfigOverrides(testConfig(), configOverrides);
   const db = openDb(config.dbPath);
@@ -249,6 +251,7 @@ export function createHarness(
     spendCap,
     ...(onUsageRecorded ? { onUsageRecorded } : {}),
     ...(errors ? { errors } : {}),
+    ...(onTurnFailure ? { onTurnFailure } : {}),
     cellConfig:
       cellConfig ??
       ((cellId) => {

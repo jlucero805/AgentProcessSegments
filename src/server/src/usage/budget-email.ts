@@ -9,7 +9,10 @@ export interface EmailMessage {
   subject: string;
   text: string;
   messageId: string;
-  alertId: string;
+  /** Budget emails carry the alert id; event emails use eventId/eventKind. */
+  alertId?: string;
+  eventKind?: string;
+  eventId?: string;
   deliveryId: string;
 }
 
@@ -177,16 +180,19 @@ export function createEmailSender(options: {
 
     try {
       if (signal.aborted) throw abortError();
+      const headers: Record<string, string> = {
+        'X-APS-Delivery-Id': message.deliveryId,
+      };
+      if (message.alertId !== undefined) headers['X-APS-Alert-Id'] = message.alertId;
+      if (message.eventKind !== undefined) headers['X-APS-Event-Kind'] = message.eventKind;
+      if (message.eventId !== undefined) headers['X-APS-Event-Id'] = message.eventId;
       const info = await transport.sendMail({
         from: email.from,
         to: email.to,
         subject: message.subject,
         text: message.text,
         messageId: message.messageId,
-        headers: {
-          'X-APS-Alert-Id': message.alertId,
-          'X-APS-Delivery-Id': message.deliveryId,
-        },
+        headers,
       });
       const rejected = info.rejected ?? [];
       const accepted = info.accepted ?? [];

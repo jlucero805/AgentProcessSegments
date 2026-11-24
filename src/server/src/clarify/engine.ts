@@ -6,6 +6,11 @@ import type { Config } from '../config.js';
 import { requestDir } from '../config.js';
 import type { SpendPause } from '../domain/budget.js';
 import { isHarnessId, resolveHarness as resolveHarnessOrder, type HarnessId } from '../domain/harness.js';
+import {
+  clipNotificationText,
+  type TurnFailureNotification,
+  type TurnFailureSource,
+} from '../domain/notifications.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import { DEFAULT_AUTOCOMPACT_PERCENT } from '../domain/request.js';
 import {
@@ -63,6 +68,8 @@ export interface LiveTurn {
   stoppedBy: SpendPause | null;
   resolve: () => void;
   failure: string | null;
+  /** A safe classification for outbound event notifications. */
+  failureEvent: { source: TurnFailureSource; reason: string } | null;
   /** True once the failure has been broadcast to this turn's subscribers. */
   failureReported: boolean;
   /** Index in the seeded transcript where this turn's messages start. */
@@ -132,6 +139,8 @@ export interface EngineDeps {
   spendCap?: (cellId: string | null) => SpendPause | null;
   /** Called after a usage row is written so hard caps can stop sibling turns. */
   onUsageRecorded?: () => void;
+  /** Advisory. A callback failure is logged and never changes the turn. */
+  onTurnFailure?: (event: TurnFailureNotification) => void;
 }
 
 export class Engine {
@@ -403,6 +412,7 @@ export class Engine {
       stoppedBy: null,
       resolve,
       failure: null,
+      failureEvent: null,
       failureReported: false,
       transcriptStart: parser.transcript.length,
       turnId: randomUUID(),
@@ -504,6 +514,7 @@ export class Engine {
         this.deps.errors?.error('engine.turn', error, { session: id });
         const message = errorMessage(error);
         turn.failure = message;
+        turn.failureEvent = { source: 'engine.turn', reason: 'engine error' };
         this.broadcast(turn, { t: 'error', message });
         turn.failureReported = true;
       }
@@ -543,6 +554,7 @@ export class Engine {
     }
 
     const recorded = this.recordUsage(id, turn, parser);
+    this.notifyTurnFailure(id, turn, request);
 
     const fresh = this.repo.get(id) ?? null;
     turn.done = true;
@@ -557,6 +569,46 @@ export class Engine {
       } catch (error) {
         this.deps.errors?.error('budget.enforce', error, { session: id });
       }
+    }
+  }
+
+  /** Advisory outbound notification for a failed request-scoped turn. */
+  private notifyTurnFailure(
+    id: string,
+    turn: LiveTurn,
+    request: Request | null,
+  ): void {
+    if (
+      !turn.failure ||
+      turn.scope !== 'request' ||
+      turn.requestId === null ||
+      request === null
+    ) {
+      return;
+    }
+    const failure = turn.failureEvent ?? {
+      source: 'engine.turn' as const,
+      reason: 'engine error',
+    };
+    try {
+      this.deps.onTurnFailure?.({
+        turnId: turn.turnId,
+        requestId: turn.requestId,
+        requestTitle: clipNotificationText(request.title),
+        state: request.state,
+        cellId: turn.cellId,
+        harness: turn.harnessId,
+        model: turn.model,
+        source: failure.source,
+        reason: failure.reason,
+        occurredAt: Date.now(),
+      });
+    } catch (error) {
+      this.deps.errors?.error('notifications.event', error, {
+        kind: 'turn.failed',
+        session: id,
+        turnId: turn.turnId,
+      });
     }
   }
 
@@ -644,6 +696,7 @@ export class Engine {
     const label = timeoutMs < 1_000 ? `${timeoutMs}ms` : `${Math.round(timeoutMs / 1_000)}s`;
     const message = `agent turn timed out after ${label}${stderr ? `\nstderr:\n${stderr}` : ''}`;
     turn.failure = message;
+    turn.failureEvent = { source: 'engine.timeout', reason: `timeout after ${label}` };
     // Mark it cancelled so `runTurn` does not broadcast the same failure twice.
     turn.cancelled = true;
     this.deps.errors?.error('engine.timeout', new Error(message), {
@@ -676,6 +729,7 @@ export class Engine {
       }
       if (turn.failureReported) continue;
       if (!turn.failure) turn.failure = event.message;
+      turn.failureEvent ??= { source: 'engine.result', reason: 'harness error result' };
       turn.failureReported = true;
       const message = turn.failure;
       this.deps.errors?.error('engine.result', new Error(message), {
@@ -705,6 +759,10 @@ export class Engine {
     turn.failure = `agent process exited with code ${code ?? 'unknown'}${
       stderr ? `\nstderr:\n${stderr}` : ''
     }`;
+    turn.failureEvent = {
+      source: 'engine.exit',
+      reason: `process exited with code ${code ?? 'unknown'}`,
+    };
     this.deps.errors?.error('engine.exit', new Error(turn.failure), {
       session: id,
       code,

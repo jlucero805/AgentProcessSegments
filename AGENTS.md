@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 758 vitest cases: 571 server across 40 files and 187 web across 24 files, all green.
+- 783 vitest cases: 595 server across 41 files and 188 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -91,7 +91,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 555 server + 186 web, plus the e2e env guard
+npm test                       # 595 server + 188 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -388,6 +388,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     an unacknowledged current-month alert on an enabled, configured channel; it re-stamps
     the destination and preserves the one-row-per-alert dedupe. A delivered row is never
     resent. Resend failures reuse `budget.notify` with delivery/alert ids and phase only.
+    Operational events use the sibling `notification_event_deliveries` outbox, keyed
+    `UNIQUE(dedupe_key, channel)` with a one-hour failure signature, drain through
+    `notifications/service.ts`, and send classification-only payloads to the enabled
+    webhook/email routes. A delivered event is never resent; event failures use
+    `notifications.event` with ids and a short reason only.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
@@ -427,8 +432,12 @@ outbox: add the channel value, a destination identity, and a sender with the sam
 timeout/retry/error classification. Redact every credential from `redactSettings` (the
 webhook secret, SMTP password, and Slack/Discord bot tokens are redacted today), never log
 a URL, recipient list, channel ID, or secret, and inject the transport in tests. Webhook,
-SMTP email, and Slack/Discord bots are the current channels; see `usage/budget-chat.ts`
-for the chat payload/classification seam and `usage/budget-email.ts` for nodemailer.
+SMTP email, and Slack/Discord bots are the current budget channels; see
+`usage/budget-chat.ts` for the chat payload/classification seam and `usage/budget-email.ts`
+for nodemailer. Operational event notifications use the sibling
+`notification_event_deliveries` outbox and deliberately route only to webhook and email;
+add a new event kind in `domain/notifications.ts`, the event route settings, and the
+engine/master hook that observes it.
 
 **Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
 `collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points

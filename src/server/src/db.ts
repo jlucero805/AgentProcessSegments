@@ -150,6 +150,24 @@ CREATE TABLE IF NOT EXISTS budget_alerts (
 
 ${BUDGET_DELIVERIES_DDL};
 
+CREATE TABLE IF NOT EXISTS notification_event_deliveries (
+  id               TEXT PRIMARY KEY,
+  dedupe_key       TEXT NOT NULL,
+  kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error')),
+  channel          TEXT NOT NULL,
+  format           TEXT NOT NULL,
+  destination_hash TEXT NOT NULL,
+  payload_json     TEXT NOT NULL,
+  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at  INTEGER NOT NULL,
+  last_error       TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  delivered_at     INTEGER,
+  UNIQUE(dedupe_key, channel)
+);
+
 CREATE TABLE IF NOT EXISTS model_pricing (
   id                       TEXT PRIMARY KEY,
   model                    TEXT NOT NULL,
@@ -275,6 +293,10 @@ export function migrate(db: Db): void {
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_budget_alert_deliveries_due
        ON budget_alert_deliveries(status, next_attempt_at)`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_notification_event_deliveries_due
+       ON notification_event_deliveries(status, next_attempt_at)`,
   );
   db.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_model_effective ON model_pricing(model, effective_from)',

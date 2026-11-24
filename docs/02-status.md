@@ -253,7 +253,11 @@ built and vended by the brain; real-CLI verification is still pending.
   **Delivery history** card lists recent attempts with filters, pagination, sanitized
   errors, and a guarded Resend for failed/skipped current-month rows; delivered rows are
   immutable and a chat row is resendable only while its destination still matches.
-  Delivery is advisory and never blocks budgets, turns, or the in-app banner.
+  An opt-in **Event notifications** card routes failed request turns and master
+  turn/cycle errors to the same webhook/email channels, per event kind and channel;
+  `notification_event_deliveries` dedupes by a one-hour signature, sends
+  classification-only payloads, and shares the retry/signing/prune rules. Delivery is
+  advisory and never blocks budgets, turns, master cycles, or the in-app banner.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
@@ -261,8 +265,9 @@ built and vended by the brain; real-CLI verification is still pending.
   artifact retention (`requestArtifactsDays`), spend budget (`monthlyUsd`,
   `alertAtPercent`, `pauseOnExceeded`), webhook delivery (`enabled`, `url`, `format`,
   `secret`), email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`,
-  `from`, `to`), and Slack/Discord bot delivery (`enabled`, `botToken`, `destinations`,
-  `defaultChannelId`, `routes`), validated with zod and written atomically. Each saved
+  `from`, `to`), Slack/Discord bot delivery (`enabled`, `botToken`, `destinations`,
+  `defaultChannelId`, `routes`), and event routes (`failedTurns`/`masterErrors` with
+  `webhook`/`email` booleans), validated with zod and written atomically. Each saved
   block is merged over defaults on load, including older files written before a block
   existed. `GET/PATCH
   /api/config` expose all blocks and redact the signing secret as `secret: null` with
@@ -319,7 +324,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 758 vitest cases, all passing: 571 server across 40 files and 187 web across 24 files,
+- 783 vitest cases, all passing: 595 server across 41 files and 188 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -404,9 +409,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - A hard-cap operator override/snooze, automatic replay of a cap-stopped prompt, and a
   strict unknown-cost policy. Admission plus in-flight cancellation is built.
 - Fan-out to multiple Slack/Discord destinations per scope, per-scope routing for the
-  webhook/email channels, interactive acknowledgement, and reusing the outbox for
-  non-budget events. Webhook, email, and native Slack/Discord bot channels with
-  per-cell routing plus delivery history/resend are built.
+  webhook/email channels, interactive acknowledgement, summary-failure events, and
+  configurable event coalescing windows. Webhook, email, and native Slack/Discord bot
+  channels with per-cell routing, delivery history/resend, and failed-turn/master-error
+  events are built.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
@@ -450,10 +456,10 @@ DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
 GET    /api/config
-PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?,slack?,discord?}}
+PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?,slack?,discord?,events?}}
 GET    /api/budgets                       statuses + unacknowledged alerts + active pauses
 POST   /api/budgets/alerts/:id/ack
-GET    /api/notifications/status          per-channel and per-destination queue/last-delivery state
+GET    /api/notifications/status          per-channel/per-destination and per-event-kind queue/last-delivery state
 GET    /api/notifications/deliveries      read-only audit, filters + limit/offset, canResend
 POST   /api/notifications/deliveries/:id/resend  guarded resend for failed/skipped rows
 POST   /api/notifications/webhook/test    synthetic test event; 400 without a URL, 502 on rejection

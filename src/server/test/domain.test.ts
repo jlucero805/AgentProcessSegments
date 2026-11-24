@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { resolveHarness } from '../src/domain/harness.js';
 import {
+  clipNotificationText,
+  masterErrorEnvelope,
+  turnFailedEnvelope,
+} from '../src/domain/notifications.js';
+import {
   cellSessionIds,
   isReservedSessionId,
   KB_SESSION_ID,
@@ -79,5 +84,50 @@ describe('reserved session ids', () => {
       summarySessionId('cell-a'),
     ]);
     expect(cellSessionIds('cell-a').every(isReservedSessionId)).toBe(true);
+  });
+});
+
+describe('notification event builders', () => {
+  const turn = {
+    turnId: 'turn-1',
+    requestId: 'req-1',
+    requestTitle: 'Fix the parser',
+    state: 'implement' as const,
+    cellId: 'cell-1',
+    harness: 'opencode' as const,
+    model: 'model-1',
+    source: 'engine.timeout' as const,
+    reason: 'timeout after 10m',
+    occurredAt: 1,
+  };
+
+  it('clips titles and builds a text-only master turn sentence', () => {
+    expect(clipNotificationText('  one\n two  ', 20)).toBe('one two');
+    expect(clipNotificationText('x'.repeat(30), 10)).toBe(`${'x'.repeat(9)}…`);
+
+    const envelope = masterErrorEnvelope(
+      {
+        source: 'master.turn',
+        cellId: 'cell-1',
+        requestId: 'req-1',
+        segment: 'implement',
+        occurredAt: 1,
+      },
+      'Acme',
+    );
+    expect(envelope.title).toBe('Master error: Acme');
+    expect(envelope.text).toBe(
+      'Master turn failed for cell "Acme" on request req-1 in implement.',
+    );
+    expect(envelope.master.source).toBe('master.turn');
+  });
+
+  it('marks a deleted cell and keeps the turn classification in the envelope', () => {
+    const envelope = turnFailedEnvelope(turn, null);
+    expect(envelope.title).toBe('Turn failed: Fix the parser');
+    expect(envelope.text).toBe(
+      'Turn failed for "Fix the parser" in implement, Deleted cell: timeout after 10m.',
+    );
+    expect(envelope.turn).toEqual(turn);
   });
 });

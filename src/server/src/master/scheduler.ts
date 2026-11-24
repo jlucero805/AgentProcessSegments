@@ -1,4 +1,5 @@
 import type { CellRepository } from '../cells/repository.js';
+import type { MasterErrorNotification } from '../domain/notifications.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import { SpendCapError } from '../usage/spend-cap.js';
@@ -32,6 +33,7 @@ export class MasterScheduler {
     private readonly settings: SettingsStore,
     private readonly cells: CellRepository,
     private readonly errors?: ErrorSink,
+    private readonly onError?: (event: MasterErrorNotification) => void,
   ) {}
 
   start(): void {
@@ -90,6 +92,21 @@ export class MasterScheduler {
         if (current) current.nextRunAt = Date.now() + intervalMs;
         void this.runKey(key, run).catch((error: unknown) => {
           this.errors?.error('master.cycle', error, { cellId: key });
+          try {
+            this.onError?.({
+              source: 'master.cycle',
+              cellId: key,
+              requestId: null,
+              segment: null,
+              occurredAt: Date.now(),
+            });
+          } catch (callbackError) {
+            this.errors?.error('notifications.event', callbackError, {
+              kind: 'master.error',
+              cellId: key,
+              source: 'master.cycle',
+            });
+          }
         });
       }, intervalMs);
       timer.unref?.();

@@ -14,6 +14,8 @@ import { ErrorLogger } from './logging/errors.js';
 import { MasterEventRepository } from './master/events.js';
 import { MasterScheduler } from './master/scheduler.js';
 import { MasterService } from './master/service.js';
+import { NotificationEventDeliveryRepository } from './notifications/event-deliveries.js';
+import { NotificationService } from './notifications/service.js';
 import { PluginManager } from './plugins/manager.js';
 import { PricingRepository } from './pricing/repository.js';
 import { defaultProcess } from './process/defaults.js';
@@ -28,7 +30,6 @@ import { SummaryScheduler } from './summary/scheduler.js';
 import { SummaryService } from './summary/service.js';
 import { BudgetAlertRepository } from './usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from './usage/budget-deliveries.js';
-import { BudgetNotifier } from './usage/budget-notifier.js';
 import { BudgetService } from './usage/budgets.js';
 import { UsageRepository } from './usage/repository.js';
 import { UsageRetention } from './usage/retention.js';
@@ -59,8 +60,9 @@ export async function main(): Promise<void> {
       errors,
     );
     const budgetAlerts = new BudgetAlertRepository(db);
-    const notifications = new BudgetNotifier({
+    const notifications = new NotificationService({
       deliveries: new BudgetAlertDeliveryRepository(db),
+      events: new NotificationEventDeliveryRepository(db),
       alerts: budgetAlerts,
       cells,
       settings,
@@ -89,6 +91,7 @@ export async function main(): Promise<void> {
       errors,
       spendCap: (cellId) => budgets.admission(cellId),
       onUsageRecorded: () => enforcement?.check(),
+      onTurnFailure: (event) => notifications.observeTurnFailure(event),
       cellConfig: (cellId) => {
         const cell = cells.get(cellId);
         return cell
@@ -122,8 +125,11 @@ export async function main(): Promise<void> {
       process: processStore,
       errors,
       spendCap: (cellId) => budgets.admission(cellId),
+      onMasterError: (event) => notifications.observeMasterError(event),
     });
-    const master = new MasterScheduler(masterService, settings, cells, errors);
+    const master = new MasterScheduler(masterService, settings, cells, errors, (event) =>
+      notifications.observeMasterError(event),
+    );
     const summaries = new SummaryRepository(db);
     const summaryService = new SummaryService({
       repo,

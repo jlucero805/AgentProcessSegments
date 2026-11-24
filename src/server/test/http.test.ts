@@ -20,7 +20,8 @@ import { SummaryScheduler } from '../src/summary/scheduler.js';
 import { SummaryService } from '../src/summary/service.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
-import { BudgetNotifier, type FetchLike } from '../src/usage/budget-notifier.js';
+import { NotificationEventDeliveryRepository } from '../src/notifications/event-deliveries.js';
+import { NotificationService, type FetchLike } from '../src/notifications/service.js';
 import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
@@ -33,7 +34,7 @@ interface Open {
   h: Harness;
   app: FastifyInstance;
   base: string;
-  notifications: BudgetNotifier;
+  notifications: NotificationService;
 }
 
 let open: Open | null = null;
@@ -88,8 +89,9 @@ async function makeApp(
     spendCap: (cellId) => admission?.(cellId) ?? null,
   });
   const budgetAlerts = new BudgetAlertRepository(h.db);
-  const notifications = new BudgetNotifier({
+  const notifications = new NotificationService({
     deliveries: new BudgetAlertDeliveryRepository(h.db),
+    events: new NotificationEventDeliveryRepository(h.db),
     alerts: budgetAlerts,
     cells: h.cells,
     settings,
@@ -826,7 +828,56 @@ describe('http api', () => {
         lastError: null,
         destinations: [],
       },
+      events: {
+        pending: 0,
+        failed: 0,
+        lastDeliveryAt: null,
+        lastDeliveryStatus: null,
+        lastError: null,
+        byKind: {
+          'turn.failed': { pending: 0, failed: 0 },
+          'master.error': { pending: 0, failed: 0 },
+        },
+      },
     });
+  });
+
+  it('patches and reloads event notification routes', async () => {
+    const { h } = await makeApp();
+
+    const before = await call('GET', '/api/config');
+    expect(before.json().notifications.events).toEqual({
+      failedTurns: { webhook: false, email: false },
+      masterErrors: { webhook: false, email: false },
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      notifications: { events: { failedTurns: { webhook: true } } },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.json().notifications.events).toEqual({
+      failedTurns: { webhook: true, email: false },
+      masterErrors: { webhook: false, email: false },
+    });
+
+    const further = await call('PATCH', '/api/config', {
+      notifications: { events: { masterErrors: { email: true } } },
+    });
+    expect(further.json().notifications.events).toEqual({
+      failedTurns: { webhook: true, email: false },
+      masterErrors: { webhook: false, email: true },
+    });
+    expect(new SettingsStore(h.config.configPath).get().notifications.events).toEqual(
+      further.json().notifications.events,
+    );
+
+    const bad = await call('PATCH', '/api/config', {
+      notifications: { events: { failedTurns: { webhook: 'yes' } } },
+    });
+    expect(bad.status).toBe(400);
+    expect(
+      (await call('GET', '/api/config')).json().notifications.events.failedTurns.webhook,
+    ).toBe(true);
   });
 
   it('patches, redacts, and reloads email settings', async () => {

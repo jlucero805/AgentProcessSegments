@@ -13,12 +13,12 @@ opt-in hard caps that pause new work at turn boundaries. Estimated pricing is bu
 page editor, and estimates that never overwrite a harness-reported cost. Deferred work:
 
 - **Alert delivery refinements.** Signed webhook, SMTP email, and native Slack/Discord
-  bot delivery with per-cell routing plus read-only delivery history with guarded manual
-  resend are built. Add fan-out to multiple chat destinations per scope, per-scope routing
-  for the webhook and email channels, interactive acknowledgement from chat,
-  pause-transition delivery, and reuse of the outbox for non-budget events (failed turns,
-  master errors). Keep every destination deduped by the existing delivery row and
-  credentials redacted.
+  bot delivery with per-cell routing, read-only delivery history with guarded manual
+  resend, and opt-in failed-turn/master-error events are built. Add fan-out to multiple
+  chat destinations per scope, per-scope routing for the webhook and email channels,
+  interactive acknowledgement from chat, pause-transition delivery, summary-failure
+  events, bot event routes, and configurable event coalescing windows. Keep every
+  destination deduped by its delivery row and credentials redacted.
 - **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65). An
   operator one-turn override/snooze, automatic replay of a cap-stopped prompt, a broad
   partial-usage rule for user stop/timeout, and a strict unknown-cost policy are deferred;

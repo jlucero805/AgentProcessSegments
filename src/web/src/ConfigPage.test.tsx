@@ -102,6 +102,11 @@ const emptyChat: ChatView = {
   routes: [],
 };
 
+const eventSettings = {
+  failedTurns: { webhook: false, email: false },
+  masterErrors: { webhook: false, email: false },
+};
+
 const notificationStatus = {
   webhook: {
     enabled: false,
@@ -141,6 +146,17 @@ const notificationStatus = {
     lastDeliveryStatus: null,
     lastError: null,
     destinations: [],
+  },
+  events: {
+    pending: 2,
+    failed: 1,
+    lastDeliveryAt: null,
+    lastDeliveryStatus: null,
+    lastError: null,
+    byKind: {
+      'turn.failed': { pending: 1, failed: 1 },
+      'master.error': { pending: 1, failed: 0 },
+    },
   },
 };
 
@@ -261,6 +277,10 @@ interface Captured {
         defaultChannelId?: string | null;
         routes?: Array<{ cellId: string; channelId: string }>;
       };
+      events?: {
+        failedTurns?: { webhook?: boolean; email?: boolean };
+        masterErrors?: { webhook?: boolean; email?: boolean };
+      };
     };
   };
   process?: { segments?: SegmentConfig[] };
@@ -366,6 +386,11 @@ function installFetch(
             ? discordPatch.defaultChannelId
             : discordView.defaultChannelId,
       };
+      const eventsPatch = captured.config?.notifications?.events;
+      const patchedEvents = {
+        failedTurns: { ...eventSettings.failedTurns, ...(eventsPatch?.failedTurns ?? {}) },
+        masterErrors: { ...eventSettings.masterErrors, ...(eventsPatch?.masterErrors ?? {}) },
+      };
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
         summary: { ...scorecard, ...captured.config?.summary },
@@ -381,6 +406,7 @@ function installFetch(
           email: { ...patchedEmail, password: null, passwordSet },
           slack: patchedSlack,
           discord: patchedDiscord,
+          events: patchedEvents,
         },
         path: '/tmp/agent-process-segments/config.json',
       });
@@ -397,6 +423,7 @@ function installFetch(
           email: emailView,
           slack: slackView,
           discord: discordView,
+          events: eventSettings,
         },
         path: '/tmp/agent-process-segments/config.json',
       });
@@ -667,6 +694,32 @@ describe('ConfigPage', () => {
     );
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('0123456789abcdef')).not.toBeInTheDocument();
+  });
+
+  it('saves event notification routes independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const failedWebhook = await screen.findByRole('checkbox', {
+      name: /failed turns by webhook/i,
+    });
+    const masterEmail = screen.getByRole('checkbox', {
+      name: /master errors by email/i,
+    });
+    expect(failedWebhook).not.toBeChecked();
+    fireEvent.click(failedWebhook);
+    fireEvent.click(masterEmail);
+    fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
+
+    await waitFor(() =>
+      expect(captured.config?.notifications?.events).toEqual({
+        failedTurns: { webhook: true, email: false },
+        masterErrors: { webhook: false, email: true },
+      }),
+    );
+    expect(captured.config?.notifications?.webhook).toBeUndefined();
+    expect(screen.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
+    expect(screen.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
   });
 
   it('clears a saved webhook secret only on request', async () => {

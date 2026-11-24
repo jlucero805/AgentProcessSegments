@@ -191,11 +191,23 @@ export interface EmailView {
   to: string[];
 }
 
+/** Which webhook/email channels receive one operational event kind. */
+export interface EventChannelSettings {
+  webhook: boolean;
+  email: boolean;
+}
+
+export interface EventNotificationSettings {
+  failedTurns: EventChannelSettings;
+  masterErrors: EventChannelSettings;
+}
+
 export interface NotificationsSettings {
   webhook: WebhookSettings;
   email: EmailSettings;
   slack: ChatSettings;
   discord: ChatSettings;
+  events: EventNotificationSettings;
 }
 
 /** The API view: secrets are always redacted and `*Set` reports their presence. */
@@ -221,6 +233,7 @@ export interface NotificationsView {
   email: EmailView;
   slack: ChatView;
   discord: ChatView;
+  events: EventNotificationSettings;
 }
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
@@ -229,6 +242,11 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   destinations: [],
   defaultChannelId: null,
   routes: [],
+};
+
+export const DEFAULT_EVENT_NOTIFICATIONS: EventNotificationSettings = {
+  failedTurns: { webhook: false, email: false },
+  masterErrors: { webhook: false, email: false },
 };
 
 export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
@@ -245,6 +263,10 @@ export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
   },
   slack: { ...DEFAULT_CHAT_SETTINGS, destinations: [], routes: [] },
   discord: { ...DEFAULT_CHAT_SETTINGS, destinations: [], routes: [] },
+  events: {
+    failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+    masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+  },
 };
 
 /** True when email has enough settings to attempt a send. */

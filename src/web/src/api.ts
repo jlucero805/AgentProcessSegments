@@ -47,6 +47,7 @@ import type {
   WebhookTestResult,
   EmailPatch,
   EmailTestResult,
+  EventChannelSettings,
 } from './types';
 
 export class ApiError extends Error {
@@ -347,6 +348,10 @@ export const api = {
       email?: EmailPatch;
       slack?: ChatPatch;
       discord?: ChatPatch;
+      events?: {
+        failedTurns?: Partial<EventChannelSettings>;
+        masterErrors?: Partial<EventChannelSettings>;
+      };
     };
   }): Promise<ConfigResponse> {
     return request('/api/config', { method: 'PATCH', body: JSON.stringify(patch) });

@@ -2,6 +2,7 @@ import type { Engine, LiveTurn } from '../clarify/engine.js';
 import { masterSessionId } from '../clarify/engine.js';
 import type { CellRepository } from '../cells/repository.js';
 import type { SpendPause } from '../domain/budget.js';
+import type { MasterErrorNotification } from '../domain/notifications.js';
 import { canTransition, isTerminal, type Request, type State } from '../domain/request.js';
 import type { MasterEventRepository, MasterEventInput } from '../master/events.js';
 import type { MasterResult } from '../master/types.js';
@@ -47,6 +48,8 @@ export interface MasterServiceDeps {
   errors?: ErrorSink;
   /** Optional hard-cap admission check for a cell. */
   spendCap?: (cellId: string) => SpendPause | null;
+  /** Advisory. A callback failure is logged and never fails a cycle. */
+  onMasterError?: (event: MasterErrorNotification) => void;
 }
 
 /** Pipeline position, with the finishing stages later than the planning stages. */
@@ -117,6 +120,18 @@ export class MasterService {
   private record(event: MasterEventInput): void {
     if (event.cellId !== null && !this.cellExists(event.cellId)) return;
     this.deps.events.record(event);
+  }
+
+  private notifyError(event: MasterErrorNotification): void {
+    try {
+      this.deps.onMasterError?.(event);
+    } catch (error) {
+      this.deps.errors?.error('notifications.event', error, {
+        kind: 'master.error',
+        cellId: event.cellId,
+        source: event.source,
+      });
+    }
   }
 
   private process(): ProcessConfig {
@@ -357,6 +372,15 @@ export class MasterService {
         requestId: request.id,
         segment: segment.id,
       });
+      if (!(error instanceof SpendCapError)) {
+        this.notifyError({
+          source: 'master.turn',
+          cellId: bucket.cellId,
+          requestId: request.id,
+          segment: segment.id,
+          occurredAt: Date.now(),
+        });
+      }
       this.record({
         cellId: bucket.cellId,
         requestId: request.id,
@@ -415,6 +439,15 @@ export class MasterService {
         requestId: request.id,
         segment: segment.id,
       });
+      if (!(error instanceof SpendCapError)) {
+        this.notifyError({
+          source: 'master.turn',
+          cellId: bucket.cellId,
+          requestId: request.id,
+          segment: segment.id,
+          occurredAt: Date.now(),
+        });
+      }
       this.record({
         cellId: bucket.cellId,
         requestId: request.id,

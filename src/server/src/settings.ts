@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_CHAT_SETTINGS,
+  DEFAULT_EVENT_NOTIFICATIONS,
   DEFAULT_NOTIFICATIONS,
   DEFAULT_SMTP_PORT,
   MAX_BOT_TOKEN_LENGTH,
@@ -26,6 +27,8 @@ import {
   type ChatSettings,
   type ChatView,
   type EmailSettings,
+  type EventChannelSettings,
+  type EventNotificationSettings,
   type NotificationsSettings,
   type NotificationsView,
   type WebhookSettings,
@@ -291,11 +294,33 @@ function chatProviderSchema(
     });
 }
 
+const eventChannelSchema: z.ZodType<
+  EventChannelSettings,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  webhook: z.boolean().default(false),
+  email: z.boolean().default(false),
+});
+
+const eventsSchema: z.ZodType<EventNotificationSettings, z.ZodTypeDef, unknown> = z.object({
+  failedTurns: eventChannelSchema.default(() => ({
+    ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns,
+  })),
+  masterErrors: eventChannelSchema.default(() => ({
+    ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors,
+  })),
+});
+
 const notificationsSchema: z.ZodType<NotificationsSettings, z.ZodTypeDef, unknown> = z.object({
   webhook: webhookSchema.default(() => ({ ...DEFAULT_NOTIFICATIONS.webhook })),
   email: emailSchema,
   slack: chatProviderSchema('slack').default(() => structuredClone(DEFAULT_CHAT_SETTINGS)),
   discord: chatProviderSchema('discord').default(() => structuredClone(DEFAULT_CHAT_SETTINGS)),
+  events: eventsSchema.default(() => ({
+    failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+    masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+  })),
 });
 
 const webhookPatchSchema = z.object({
@@ -328,6 +353,17 @@ const chatPatchSchema: z.ZodType<Partial<ChatSettings>, z.ZodTypeDef, unknown> =
   defaultChannelId: z.string().max(64).nullable().optional(),
   routes: z.array(chatRouteSchema).max(MAX_CHAT_ROUTES).optional(),
 });
+
+const eventChannelPatchSchema = z.object({
+  webhook: z.boolean().optional(),
+  email: z.boolean().optional(),
+});
+
+const eventsPatchSchema = z.object({
+  failedTurns: eventChannelPatchSchema.optional(),
+  masterErrors: eventChannelPatchSchema.optional(),
+});
+
 
 const settingsSchema = z.object({
   master: masterSchema,
@@ -375,6 +411,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     email: { ...DEFAULT_NOTIFICATIONS.email, to: [] },
     slack: structuredClone(DEFAULT_NOTIFICATIONS.slack),
     discord: structuredClone(DEFAULT_NOTIFICATIONS.discord),
+    events: {
+      failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
+      masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+    },
   },
 };
 
@@ -420,6 +460,10 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
       },
       slack: redactChat(settings.notifications.slack),
       discord: redactChat(settings.notifications.discord),
+      events: {
+        failedTurns: { ...settings.notifications.events.failedTurns },
+        masterErrors: { ...settings.notifications.events.masterErrors },
+      },
     },
   };
 }
@@ -437,6 +481,7 @@ export const settingsPatchSchema = z
         email: emailPatchSchema.optional(),
         slack: chatPatchSchema.optional(),
         discord: chatPatchSchema.optional(),
+        events: eventsPatchSchema.optional(),
       })
       .partial()
       .optional(),
@@ -523,6 +568,16 @@ export class SettingsStore {
         discord: {
           ...current.notifications.discord,
           ...(parsed.notifications?.discord ?? {}),
+        },
+        events: {
+          failedTurns: {
+            ...current.notifications.events.failedTurns,
+            ...(parsed.notifications?.events?.failedTurns ?? {}),
+          },
+          masterErrors: {
+            ...current.notifications.events.masterErrors,
+            ...(parsed.notifications?.events?.masterErrors ?? {}),
+          },
         },
       },
     });

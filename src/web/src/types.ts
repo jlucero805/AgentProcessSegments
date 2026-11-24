@@ -59,6 +59,8 @@ export type {
   EmailPatch,
   EmailSettings,
   EmailView,
+  EventChannelSettings,
+  EventNotificationSettings,
   NotificationsSettings,
   NotificationsView,
   SpendPause,
@@ -206,11 +208,26 @@ export interface ChatStatus {
   destinations: ChatDestinationStatus[];
 }
 
+export interface EventKindStatus {
+  pending: number;
+  failed: number;
+}
+
+export interface EventNotificationStatus {
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+  byKind: Record<'turn.failed' | 'master.error', EventKindStatus>;
+}
+
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
   email: EmailStatus;
   slack: ChatStatus;
   discord: ChatStatus;
+  events: EventNotificationStatus;
 }
 
 export interface EmailStatus {

@@ -24,25 +24,37 @@ import {
   type DeliveryHistoryResponse,
   type DeliveryStatus,
   type EmailSettings,
+  type EventChannelSettings,
   type ResendBlockReason,
   type WebhookFormat,
   type WebhookSettings,
 } from '../domain/budget.js';
-import type { BudgetAlertRecord } from './budget-alerts.js';
-import type { BudgetAlertRepository } from './budget-alerts.js';
+import {
+  EVENT_NOTIFICATION_KINDS,
+  type MasterErrorNotification,
+  type NotificationEventEnvelope,
+  type NotificationEventKind,
+  type TurnFailureNotification,
+  masterErrorEnvelope,
+  notificationEventEmailText,
+  notificationEventSubject,
+  turnFailedEnvelope,
+} from '../domain/notifications.js';
+import type { BudgetAlertRecord } from '../usage/budget-alerts.js';
+import type { BudgetAlertRepository } from '../usage/budget-alerts.js';
 import type {
   BudgetAlertDeliveryRepository,
   DeliveryAlertRecord,
   DeliveryHistoryFilter,
   DeliveryRecord,
-} from './budget-deliveries.js';
+} from '../usage/budget-deliveries.js';
 import {
   createEmailSender,
   emailDestinationHash,
   emailErrorReason,
   type EmailMessage,
   type EmailSendLike,
-} from './budget-email.js';
+} from '../usage/budget-email.js';
 import {
   chatDestinationHash,
   chatRequest,
@@ -52,7 +64,11 @@ import {
   resolveChatTarget,
   type ChatDecision,
   type ChatTarget,
-} from './budget-chat.js';
+} from '../usage/budget-chat.js';
+import type {
+  EventDeliveryRecord,
+  NotificationEventDeliveryRepository,
+} from './event-deliveries.js';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -64,8 +80,9 @@ const MAX_RETRY_AFTER_MS = 60 * 60_000;
 const PRUNE_AGE_MS = 400 * 24 * 60 * 60_000;
 const DEFAULT_BATCH_SIZE = 20;
 
-export interface BudgetNotifierDeps {
+export interface NotificationServiceDeps {
   deliveries: BudgetAlertDeliveryRepository;
+  events: NotificationEventDeliveryRepository;
   alerts: BudgetAlertRepository;
   cells: Pick<CellRepository, 'list'>;
   settings: Pick<SettingsStore, 'get' | 'onChange'>;
@@ -122,11 +139,26 @@ export interface ChatStatus {
   destinations: ChatDestinationStatus[];
 }
 
+export interface EventKindStatus {
+  pending: number;
+  failed: number;
+}
+
+export interface EventNotificationStatus {
+  pending: number;
+  failed: number;
+  lastDeliveryAt: number | null;
+  lastDeliveryStatus: DeliveryStatus | null;
+  lastError: string | null;
+  byKind: Record<NotificationEventKind, EventKindStatus>;
+}
+
 export interface NotificationStatusResponse {
   webhook: WebhookStatus;
   email: EmailStatus;
   slack: ChatStatus;
   discord: ChatStatus;
+  events: EventNotificationStatus;
 }
 
 export interface WebhookTestResult {
@@ -201,6 +233,40 @@ export function deliveryErrorReason(error: unknown): string {
   return 'network error';
 }
 
+const HOUR_MS = 60 * 60_000;
+
+function safeKeyPart(value: string): string {
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return cleaned.slice(0, 60);
+}
+
+function hourBucket(occurredAt: number): number {
+  return Math.floor(occurredAt / HOUR_MS);
+}
+
+/** Stable per-channel idempotency key for one event signature in a UTC hour. */
+export function eventDedupeKey(
+  event: TurnFailureNotification | MasterErrorNotification,
+  kind: NotificationEventKind,
+): string {
+  return kind === 'turn.failed'
+    ? `turn:${(event as TurnFailureNotification).requestId}:${(event as TurnFailureNotification).source}:${safeKeyPart((event as TurnFailureNotification).reason)}:${hourBucket(event.occurredAt)}`
+    : `master:${(event as MasterErrorNotification).cellId}:${(event as MasterErrorNotification).source}:${safeKeyPart((event as MasterErrorNotification).segment ?? '')}:${hourBucket(event.occurredAt)}`;
+}
+
+function eventChannelEnabled(
+  route: EventChannelSettings | undefined,
+  channel: DeliveryChannel,
+): boolean {
+  return route?.[channel as 'webhook' | 'email'] === true;
+}
+
+function eventBody(format: DeliveryFormat, envelope: NotificationEventEnvelope): string {
+  if (format === 'slack') return JSON.stringify({ text: envelope.text });
+  if (format === 'discord') return JSON.stringify({ content: envelope.text });
+  return JSON.stringify(envelope);
+}
+
 function formatBody(webhook: WebhookSettings, event: BudgetAlertEvent): string {
   if (webhook.format === 'slack') return JSON.stringify({ text: event.text });
   if (webhook.format === 'discord') return JSON.stringify({ content: event.text });
@@ -212,10 +278,11 @@ function headersFor(
   webhook: WebhookSettings,
   idempotencyKey: string,
   timestamp: number,
+  userAgent = 'aps-budget-alert/1',
 ): Record<string, string> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
-    'user-agent': 'aps-budget-alert/1',
+    'user-agent': userAgent,
     'idempotency-key': idempotencyKey,
     'x-aps-timestamp': String(timestamp),
   };
@@ -232,8 +299,9 @@ function headersFor(
  * retried within a bounded schedule, and reported to the error sink without
  * throwing into the caller.
  */
-export class BudgetNotifier {
+export class NotificationService {
   private readonly deliveries: BudgetAlertDeliveryRepository;
+  private readonly events: NotificationEventDeliveryRepository;
   private readonly alerts: BudgetAlertRepository;
   private readonly cells: Pick<CellRepository, 'list'>;
   private readonly settings: Pick<SettingsStore, 'get' | 'onChange'>;
@@ -253,8 +321,9 @@ export class BudgetNotifier {
   private generation = 0;
   private readonly controllers = new Set<AbortController>();
 
-  constructor(options: BudgetNotifierDeps) {
+  constructor(options: NotificationServiceDeps) {
     this.deliveries = options.deliveries;
+    this.events = options.events;
     this.alerts = options.alerts;
     this.cells = options.cells;
     this.settings = options.settings;
@@ -285,6 +354,8 @@ export class BudgetNotifier {
     const now = this.clock();
     this.deliveries.resetStale(now);
     this.deliveries.pruneBefore(now - PRUNE_AGE_MS);
+    this.events.resetStale(now);
+    this.events.pruneBefore(now - PRUNE_AGE_MS);
     this.unsubscribe = this.settings.onChange(() => this.kick());
     this.timer = setInterval(() => this.kick(), this.intervalMs);
     this.timer.unref?.();
@@ -347,6 +418,53 @@ export class BudgetNotifier {
     }
   }
 
+  /** Enqueue one failed request turn for the event's routed channels. Never throws. */
+  observeTurnFailure(event: TurnFailureNotification): void {
+    this.observeEvent(
+      'turn.failed',
+      event,
+      this.settings.get().notifications.events.failedTurns,
+    );
+  }
+
+  /** Enqueue one master error for the event's routed channels. Never throws. */
+  observeMasterError(event: MasterErrorNotification): void {
+    this.observeEvent(
+      'master.error',
+      event,
+      this.settings.get().notifications.events.masterErrors,
+    );
+  }
+
+  private observeEvent(
+    kind: NotificationEventKind,
+    event: TurnFailureNotification | MasterErrorNotification,
+    route: EventChannelSettings,
+  ): void {
+    try {
+      const now = this.clock();
+      const payloadJson = JSON.stringify(event);
+      const dedupeKey = eventDedupeKey(event, kind);
+      for (const channel of DELIVERY_CHANNELS) {
+        if (!eventChannelEnabled(route, channel)) continue;
+        const channelRoute = this.channelRoute(channel);
+        if (!channelRoute.enabled || !channelRoute.configured) continue;
+        this.events.enqueue({
+          dedupeKey,
+          kind,
+          channel,
+          format: channelRoute.format,
+          destinationHash: channelRoute.hash,
+          payloadJson,
+          now,
+        });
+      }
+      this.kick();
+    } catch (error) {
+      this.errors?.error('notifications.event', error, { kind, phase: 'enqueue' });
+    }
+  }
+
   private channelRoute(
     channel: DeliveryChannel,
     scope?: Pick<BudgetAlert, 'scope' | 'cellId'>,
@@ -395,6 +513,13 @@ export class BudgetNotifier {
 
   private async drain(): Promise<void> {
     const generation = this.generation;
+    // Keep the existing budget/chat path first so a flush still reaches its
+    // sender synchronously; each drain has its own catch.
+    await this.drainBudgetAndChat(generation);
+    await this.drainEvents(generation);
+  }
+
+  private async drainBudgetAndChat(generation: number): Promise<void> {
     try {
       const { webhook, email } = this.settings.get().notifications;
       const now = this.clock();
@@ -556,10 +681,244 @@ export class BudgetNotifier {
     );
   }
 
+  private async drainEvents(generation: number): Promise<void> {
+    try {
+      const { webhook, email, events } = this.settings.get().notifications;
+      const now = this.clock();
+
+      for (const kind of EVENT_NOTIFICATION_KINDS) {
+        const route = kind === 'turn.failed' ? events.failedTurns : events.masterErrors;
+        for (const channel of DELIVERY_CHANNELS) {
+          if (!eventChannelEnabled(route, channel)) {
+            this.events.skipKindChannel(kind, channel, now);
+          }
+        }
+      }
+
+      if (!webhook.enabled || webhook.url === null) {
+        this.events.skipPending('webhook', now);
+      } else {
+        await this.drainEventChannel(
+          'webhook',
+          destinationHash(webhook),
+          now,
+          generation,
+        );
+      }
+
+      if (!email.enabled || !emailDeliveryConfigured(email)) {
+        this.events.skipPending('email', now);
+      } else {
+        await this.drainEventChannel(
+          'email',
+          emailDestinationHash(email),
+          now,
+          generation,
+        );
+      }
+    } catch (error) {
+      this.errors?.error('notifications.event', error, { phase: 'flush' });
+    }
+  }
+
+  private async drainEventChannel(
+    channel: DeliveryChannel,
+    destinationHashValue: string,
+    now: number,
+    generation: number,
+  ): Promise<void> {
+    this.events.skipStaleDestination(channel, destinationHashValue, now);
+    const due = this.events.listDue(channel, destinationHashValue, now, this.batchSize);
+    for (const delivery of due) {
+      if (generation !== this.generation) return;
+      await this.deliverEvent(delivery, generation);
+    }
+  }
+
+  private eventCellName(delivery: EventDeliveryRecord, payload: unknown): string | null {
+    if (delivery.kind === 'master.error') {
+      const event = payload as MasterErrorNotification;
+      const cellId = typeof event.cellId === 'string' ? event.cellId : null;
+      if (cellId === null) return null;
+      return this.cells.list().find((cell) => cell.id === cellId)?.name ?? 'Deleted cell';
+    }
+    const event = payload as TurnFailureNotification;
+    if (event.cellId === null) return null;
+    return this.cells.list().find((cell) => cell.id === event.cellId)?.name ?? 'Deleted cell';
+  }
+
+  private eventEnvelope(
+    delivery: EventDeliveryRecord,
+    payload: unknown,
+    cellName: string | null,
+  ): NotificationEventEnvelope {
+    return delivery.kind === 'turn.failed'
+      ? turnFailedEnvelope(payload as TurnFailureNotification, cellName)
+      : masterErrorEnvelope(payload as MasterErrorNotification, cellName);
+  }
+
+  private async deliverEvent(
+    delivery: EventDeliveryRecord,
+    generation: number,
+  ): Promise<void> {
+    const marked = this.events.markDelivering(delivery.id, this.clock());
+    if (!marked) return;
+
+    let payload: unknown;
+    let cellName: string | null = null;
+    let envelope: NotificationEventEnvelope;
+    try {
+      payload = JSON.parse(marked.payloadJson) as unknown;
+      cellName = this.eventCellName(marked, payload);
+      envelope = this.eventEnvelope(marked, payload, cellName);
+    } catch {
+      if (generation !== this.generation) return;
+      this.events.markFailed(marked.id, this.clock(), 'invalid payload');
+      this.reportEvent(marked, marked.attempts, 'invalid payload');
+      return;
+    }
+
+    const { webhook, email } = this.settings.get().notifications;
+    if (marked.channel === 'webhook') {
+      if (!webhook.enabled || webhook.url === null) {
+        this.events.markSkipped(marked.id, this.clock());
+        return;
+      }
+      const body = eventBody(marked.format, envelope);
+      let response: Response;
+      try {
+        response = await this.sendOnce(
+          webhook,
+          body,
+          marked.dedupeKey,
+          this.clock(),
+          'aps-notify/1',
+        );
+      } catch (error) {
+        if (generation !== this.generation) return;
+        this.handleEventFailure(marked, deliveryErrorReason(error), {
+          retryable: true,
+          retryAfterMs: null,
+        });
+        return;
+      }
+      if (generation !== this.generation) return;
+      if (isSuccess(response.status)) {
+        this.events.markDelivered(marked.id, this.clock());
+        return;
+      }
+      this.handleEventFailure(marked, `HTTP ${response.status}`, {
+        retryable: isRetryable(response.status),
+        retryAfterMs: retryAfterMs(response, this.clock()),
+      });
+      return;
+    }
+
+    if (marked.channel !== 'email') {
+      this.events.markSkipped(marked.id, this.clock());
+      return;
+    }
+    if (!email.enabled || !emailDeliveryConfigured(email)) {
+      this.events.markSkipped(marked.id, this.clock());
+      return;
+    }
+    const message: EmailMessage = {
+      from: email.from ?? '',
+      to: email.to,
+      subject: notificationEventSubject(envelope, cellName),
+      text: notificationEventEmailText(envelope, cellName),
+      messageId: `<event-${marked.id}@aps.local>`,
+      deliveryId: marked.id,
+      eventKind: marked.kind,
+      eventId: marked.dedupeKey,
+    };
+    try {
+      await this.sendEmailOnce(email, message);
+    } catch (error) {
+      if (generation !== this.generation) return;
+      const classified = emailErrorReason(error);
+      this.handleEventFailure(marked, classified.reason, {
+        retryable: !classified.permanent,
+        retryAfterMs: null,
+      });
+      return;
+    }
+    if (generation !== this.generation) return;
+    this.events.markDelivered(marked.id, this.clock());
+  }
+
+  private handleEventFailure(
+    delivery: EventDeliveryRecord,
+    reason: string,
+    options: { retryable: boolean; retryAfterMs: number | null },
+  ): void {
+    const now = this.clock();
+    const attempt = delivery.attempts;
+    const delay = this.retryDelay(attempt, options);
+    if (delay === null) {
+      this.events.markFailed(delivery.id, now, reason);
+      this.reportEvent(delivery, attempt, reason);
+      return;
+    }
+    this.events.markRetry(delivery.id, now, now + delay, reason);
+    this.reportEvent(delivery, attempt, reason);
+  }
+
+  private retryDelay(
+    attempt: number,
+    options: { retryable: boolean; retryAfterMs: number | null },
+  ): number | null {
+    if (!options.retryable || attempt >= this.maxAttempts) return null;
+    return (
+      options.retryAfterMs ??
+      RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ??
+      0
+    );
+  }
+
+  private reportEvent(
+    delivery: EventDeliveryRecord,
+    attempt: number,
+    reason: string,
+  ): void {
+    let ids: Record<string, unknown> = { dedupeKey: delivery.dedupeKey };
+    try {
+      const payload = JSON.parse(delivery.payloadJson) as Record<string, unknown>;
+      if (delivery.kind === 'turn.failed') {
+        ids = {
+          dedupeKey: delivery.dedupeKey,
+          turnId: payload['turnId'],
+          requestId: payload['requestId'],
+          cellId: payload['cellId'],
+        };
+      } else {
+        ids = {
+          dedupeKey: delivery.dedupeKey,
+          cellId: payload['cellId'],
+          requestId: payload['requestId'],
+          source: payload['source'],
+        };
+      }
+    } catch {
+      // Keep the dedupe key; the row is already marked failed.
+    }
+    this.errors?.error('notifications.event', new Error(reason), {
+      ...ids,
+      kind: delivery.kind,
+      deliveryId: delivery.id,
+      channel: delivery.channel,
+      attempt,
+      reason,
+    });
+  }
+
   status(): NotificationStatusResponse {
     const { webhook, email } = this.settings.get().notifications;
     const webhookSummary = this.deliveries.status('webhook');
     const emailSummary = this.deliveries.status('email');
+    const eventSummary = this.events.status();
+    const failedTurns = this.events.status('turn.failed');
+    const masterErrors = this.events.status('master.error');
     return {
       webhook: {
         enabled: webhook.enabled,
@@ -582,6 +941,23 @@ export class BudgetNotifier {
       },
       slack: this.chatStatus('slack'),
       discord: this.chatStatus('discord'),
+      events: {
+        pending: eventSummary.pending,
+        failed: eventSummary.failed,
+        lastDeliveryAt: eventSummary.lastDeliveryAt,
+        lastDeliveryStatus: eventSummary.lastDeliveryStatus,
+        lastError: eventSummary.lastError,
+        byKind: {
+          'turn.failed': {
+            pending: failedTurns.pending,
+            failed: failedTurns.failed,
+          },
+          'master.error': {
+            pending: masterErrors.pending,
+            failed: masterErrors.failed,
+          },
+        },
+      },
     };
   }
 
@@ -1075,6 +1451,7 @@ export class BudgetNotifier {
     body: string,
     idempotencyKey: string,
     timestamp: number,
+    userAgent = 'aps-budget-alert/1',
   ): Promise<Response> {
     const url = webhook.url;
     if (url === null) throw new Error('no webhook URL configured');
@@ -1096,7 +1473,7 @@ export class BudgetNotifier {
       return await Promise.race([
         this.send(url, {
           method: 'POST',
-          headers: headersFor(body, webhook, idempotencyKey, timestamp),
+          headers: headersFor(body, webhook, idempotencyKey, timestamp, userAgent),
           body,
           redirect: 'manual',
           signal: controller.signal,

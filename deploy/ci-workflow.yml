@@ -41,9 +41,10 @@ jobs:
 
       - run: npm run build
 
-      # Export hostile overrides so a regression that spreads process.env into
-      # the brain fails here instead of passing silently. None are real config.
-      # These include the values from the original report plus stronger sentinels.
+      # Export hostile overrides to both proof steps so a regression that
+      # spreads process.env into the brain or the MCP client fails here instead
+      # of passing silently. None are real config. The two blocks are identical
+      # on purpose; src/server/test/ci-workflow.test.ts fails if they drift.
       - name: E2E API workflow
         env:
           HOME: /nonexistent
@@ -53,12 +54,14 @@ jobs:
           SBOX_CLAUDE_BIN: /bin/false
           SBOX_PLUGINS_DIR: /nonexistent/host-plugins
           SBOX_BRAIN_URL: http://127.0.0.1:1
+          SBOX_REQUEST_ID: hostile-request
           SBOX_TURN_TIMEOUT_MS: "1"
           APS_HARNESS: opencode
           APS_HARNESS_BIN: /bin/false
           APS_CLAUDE_BIN: /bin/false
           APS_PLUGINS_DIR: /nonexistent/host-plugins
           APS_BRAIN_URL: http://127.0.0.1:1
+          APS_REQUEST_ID: hostile-request
           APS_TURN_TIMEOUT_MS: "1"
           APS_DEFAULT_MODEL: host/model
           ANTHROPIC_API_KEY: sk-hostile-not-real
@@ -69,6 +72,26 @@ jobs:
         run: ./scripts/smoke.sh
 
       - name: MCP stdio smoke
+        env:
+          HOME: /nonexistent
+          NODE_ENV: production
+          SBOX_HARNESS: opencode
+          SBOX_HARNESS_BIN: /bin/false
+          SBOX_CLAUDE_BIN: /bin/false
+          SBOX_PLUGINS_DIR: /nonexistent/host-plugins
+          SBOX_BRAIN_URL: http://127.0.0.1:1
+          SBOX_REQUEST_ID: hostile-request
+          SBOX_TURN_TIMEOUT_MS: "1"
+          APS_HARNESS: opencode
+          APS_HARNESS_BIN: /bin/false
+          APS_CLAUDE_BIN: /bin/false
+          APS_PLUGINS_DIR: /nonexistent/host-plugins
+          APS_BRAIN_URL: http://127.0.0.1:1
+          APS_REQUEST_ID: hostile-request
+          APS_TURN_TIMEOUT_MS: "1"
+          APS_DEFAULT_MODEL: host/model
+          ANTHROPIC_API_KEY: sk-hostile-not-real
+          ANTHROPIC_BASE_URL: https://example.invalid
         run: node scripts/mcp-smoke.mjs
 
       # Exits 0 without a claude binary; verifies the real CLI when one is installed.

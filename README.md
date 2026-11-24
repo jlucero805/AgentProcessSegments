@@ -494,7 +494,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 889 vitest cases: 690 server cases across 46 files (state machine,
+`npm test` runs 892 vitest cases: 693 server cases across 46 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -550,14 +550,18 @@ port, harness, and mock binary are pinned. The Claude and MCP smokes keep delibe
 `SBOX_*` pins so the legacy aliases stay under test. A shell that exports harness
 overrides therefore still exercises the mock.
 
-CI runs that E2E step with hostile overrides exported (`SBOX_HARNESS_BIN=/bin/false`,
-`APS_HARNESS=opencode`, `APS_TURN_TIMEOUT_MS=1`, and similar), so a regression that lets
-the host env through fails the build. Reproduce it locally after building:
+CI runs the E2E and MCP stdio smoke steps with hostile overrides exported
+(`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`, `APS_BRAIN_URL=http://127.0.0.1:1`,
+`APS_REQUEST_ID=hostile-request`, and similar), so a regression that lets the host env
+through fails the build. `src/server/test/ci-workflow.test.ts` keeps both steps' env
+blocks identical. Reproduce it locally after building:
 
 ```bash
 npm run build
 env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_TURN_TIMEOUT_MS=1 \
   node scripts/e2e.mjs
+env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_BRAIN_URL=http://127.0.0.1:1 \
+  APS_REQUEST_ID=hostile-request node scripts/mcp-smoke.mjs
 ```
 
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first

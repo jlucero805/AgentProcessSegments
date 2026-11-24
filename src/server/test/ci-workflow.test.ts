@@ -69,6 +69,7 @@ const HOSTILE_SENTINELS = {
 const proofSteps = [
   { name: 'E2E API workflow', run: 'node scripts/e2e.mjs' },
   { name: 'MCP stdio smoke', run: 'node scripts/mcp-smoke.mjs' },
+  { name: 'Claude mock smoke', run: 'node scripts/claude-mock-smoke.mjs' },
 ];
 
 describe('deploy/ci-workflow.yml', () => {
@@ -90,9 +91,9 @@ describe('deploy/ci-workflow.yml', () => {
     }
   });
 
-  it('keeps the two proof env blocks identical', () => {
-    const [first, second] = proofSteps;
-    expect(stepEnv(stepBlock(second.name))).toEqual(stepEnv(stepBlock(first.name)));
+  it('keeps the E2E and MCP env blocks identical', () => {
+    const [e2e, mcp] = proofSteps;
+    expect(stepEnv(stepBlock(mcp.name))).toEqual(stepEnv(stepBlock(e2e.name)));
   });
 
   it('keeps the hostile env step-scoped', () => {

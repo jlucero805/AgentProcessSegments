@@ -1034,6 +1034,12 @@ and per-script, so adding a script means adding a builder and a hostile-env test
 than reusing one global env. `scripts/smoke.sh` is bash and keeps its own pinning; making
 it share the contract is separate work.
 
+The Claude smoke's own binary discovery is script-scoped too: `--claude-bin <path>` or
+`CLAUDE_MOCK_SMOKE_BIN`, then `claude` on `PATH`. An inherited `APS_CLAUDE_BIN` (or the
+legacy `SBOX_CLAUDE_BIN`) cannot choose the binary under test (the brain still reads
+those normally), and the script-scoped variable is dropped from the child env by the same
+`CLAUDE_*` scrub.
+
 ## D57. Budget alerts also deliver by SMTP email
 
 **Context.** D55 built one durable, signed webhook channel. Operators without a webhook

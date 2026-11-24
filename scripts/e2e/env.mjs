@@ -47,6 +47,65 @@ export function buildPinnedEnv(hostEnv, pins) {
 /** The E2E entrypoint's name for the shared builder. */
 export const buildE2eEnv = buildPinnedEnv;
 
+/**
+ * Choose the Claude binary for the mock smoke from script-scoped inputs only.
+ *
+ * Inherited `APS_*` / `SBOX_*` settings must never choose the binary under test, so
+ * this deliberately ignores `APS_CLAUDE_BIN`/`SBOX_CLAUDE_BIN`. Precedence:
+ * `--claude-bin <path>` / `--claude-bin=<path>`, then `CLAUDE_MOCK_SMOKE_BIN`,
+ * then `claude` on `PATH`. An explicit value must be an absolute executable
+ * file; a bad value throws instead of silently falling back. A PATH miss
+ * returns null so the caller keeps the documented skip. `isExecutable` is
+ * injected so tests do not touch the filesystem.
+ */
+export function resolveClaudeBin({ argv = [], env = {}, isExecutable } = {}) {
+  if (typeof isExecutable !== 'function') {
+    throw new TypeError('resolveClaudeBin: isExecutable must be a function');
+  }
+
+  let flagValue;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--claude-bin') {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith('--')) {
+        throw new TypeError('resolveClaudeBin: --claude-bin requires a path');
+      }
+      flagValue = value;
+      break;
+    }
+    if (arg.startsWith('--claude-bin=')) {
+      flagValue = arg.slice('--claude-bin='.length);
+      break;
+    }
+  }
+
+  for (const [source, value] of [
+    ['--claude-bin', flagValue],
+    ['CLAUDE_MOCK_SMOKE_BIN', env.CLAUDE_MOCK_SMOKE_BIN],
+  ]) {
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new TypeError(`resolveClaudeBin: ${source} must be a non-empty path`);
+    }
+    if (!path.isAbsolute(value)) {
+      throw new TypeError(`resolveClaudeBin: ${source} must be an absolute path: ${value}`);
+    }
+    if (!isExecutable(value)) {
+      throw new TypeError(`resolveClaudeBin: ${source} is not an executable file: ${value}`);
+    }
+    return value;
+  }
+
+  const pathValue = typeof env.PATH === 'string' ? env.PATH : '';
+  for (const dir of pathValue.split(path.delimiter)) {
+    if (dir === '') continue;
+    const candidate = path.resolve(dir, 'claude');
+    if (isExecutable(candidate)) return candidate;
+  }
+  return null;
+}
+
 function requireString(name, value, builder = 'buildE2ePins') {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new TypeError(`${builder}: ${name} must be a non-empty string`);
@@ -131,7 +190,7 @@ export function buildClaudeSmokePins({
 }) {
   const builder = 'buildClaudeSmokePins';
   requireAbsolutePath('root', root, builder);
-  // A bare `claude` is allowed: findBinary() may resolve one from PATH.
+  // resolveClaudeBin() returns an absolute path from the flag/env/PATH resolver.
   requireString('claude', claude, builder);
   requireAbsolutePath('home', home, builder);
   requireAbsolutePath('temp', temp, builder);

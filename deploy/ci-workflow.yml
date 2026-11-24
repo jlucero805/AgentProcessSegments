@@ -95,5 +95,30 @@ jobs:
         run: node scripts/mcp-smoke.mjs
 
       # Exits 0 without a claude binary; verifies the real CLI when one is installed.
+      # Hostile sentinels prove the smoke's own binary discovery ignores inherited
+      # production config; a regression that reads APS_CLAUDE_BIN runs /bin/false
+      # and fails instead of skipping.
       - name: Claude mock smoke
+        env:
+          HOME: /nonexistent
+          NODE_ENV: production
+          SBOX_HARNESS: opencode
+          SBOX_HARNESS_BIN: /bin/false
+          SBOX_CLAUDE_BIN: /bin/false
+          SBOX_PLUGINS_DIR: /nonexistent/host-plugins
+          SBOX_BRAIN_URL: http://127.0.0.1:1
+          SBOX_REQUEST_ID: hostile-request
+          SBOX_TURN_TIMEOUT_MS: "1"
+          APS_DB: /nonexistent/hostile.sqlite
+          APS_DATA_DIR: /nonexistent/hostile-data
+          APS_HARNESS: opencode
+          APS_HARNESS_BIN: /bin/false
+          APS_CLAUDE_BIN: /bin/false
+          APS_PLUGINS_DIR: /nonexistent/host-plugins
+          APS_BRAIN_URL: http://127.0.0.1:1
+          APS_REQUEST_ID: hostile-request
+          APS_TURN_TIMEOUT_MS: "1"
+          APS_DEFAULT_MODEL: host/model
+          ANTHROPIC_API_KEY: sk-hostile-not-real
+          ANTHROPIC_BASE_URL: https://example.invalid
         run: node scripts/claude-mock-smoke.mjs

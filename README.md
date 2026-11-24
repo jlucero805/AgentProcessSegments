@@ -537,7 +537,9 @@ SQLite, and fails if any round trip or persisted value does not match.
 `node scripts/claude-mock-smoke.mjs` verifies the real Claude Code binary against a local
 mock Anthropic API: a streamed turn, an MCP tool round-trip, resumed session, and a
 probed model catalog. It runs with a hermetic child env and pins the legacy `SBOX_*`
-aliases on purpose. It skips when no `claude` binary is available.
+aliases on purpose. It selects its own binary from `--claude-bin <path>` or
+`CLAUDE_MOCK_SMOKE_BIN`, then `claude` on `PATH`; inherited `APS_*`/`SBOX_*` settings are
+ignored. It skips when no `claude` binary is available.
 
 `npm run e2e` boots the built brain on a temp DB with a deterministic mock Claude CLI,
 creates a dedicated `E2E` cell, and exercises clarify → dispatch → master prod/review →
@@ -550,11 +552,12 @@ port, harness, and mock binary are pinned. The Claude and MCP smokes keep delibe
 `SBOX_*` pins so the legacy aliases stay under test. A shell that exports harness
 overrides therefore still exercises the mock.
 
-CI runs the E2E and MCP stdio smoke steps with hostile overrides exported
-(`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`, `APS_BRAIN_URL=http://127.0.0.1:1`,
-`APS_REQUEST_ID=hostile-request`, and similar), so a regression that lets the host env
-through fails the build. `src/server/test/ci-workflow.test.ts` keeps both steps' env
-blocks identical. Reproduce it locally after building:
+CI runs the E2E, MCP stdio, and Claude mock smoke steps with hostile overrides exported
+(`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`, `APS_CLAUDE_BIN=/bin/false`,
+`APS_BRAIN_URL=http://127.0.0.1:1`, `APS_REQUEST_ID=hostile-request`, and similar), so a
+regression that lets the host env through fails the build.
+`src/server/test/ci-workflow.test.ts` keeps the E2E and MCP steps' env blocks identical.
+Reproduce it locally after building:
 
 ```bash
 npm run build
@@ -562,6 +565,8 @@ env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_TURN_TIMEOUT_MS=1 \
   node scripts/e2e.mjs
 env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_BRAIN_URL=http://127.0.0.1:1 \
   APS_REQUEST_ID=hostile-request node scripts/mcp-smoke.mjs
+env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_CLAUDE_BIN=/bin/false \
+  APS_DB=/tmp/hostile-claude-smoke.sqlite node scripts/claude-mock-smoke.mjs
 ```
 
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first

@@ -222,10 +222,13 @@ built and vended by the brain; real-CLI verification is still pending.
   backslash search, drawer edits overwritten on turn completion, touch-invisible cell
   actions, and the fixed-width KB sidebar on phones.
 - Spend budgets: an overall monthly budget, warning percentage, and opt-in
-  `pauseOnExceeded` live in `config.json`; each cell can store `monthly_budget_usd` and
-  `pause_on_exceeded`. Budgets use the UTC calendar month. Advisory alerts use
-  harness-reported cost; hard caps use reported plus estimated cost and return `409
-  spend_cap` before a new turn. `budget_alerts` stores durable warning/exceeded rows keyed
+  `pauseOnExceeded`/`pauseOnUnknownCost` live in `config.json`; each cell can store
+  `monthly_budget_usd`, `pause_on_exceeded`, and `pause_on_unknown_cost`. Budgets use the
+  UTC calendar month. Advisory alerts use harness-reported cost; hard caps use reported
+  plus estimated cost and return `409 spend_cap` before a new turn. A strict cap also
+  refuses work while any current-month turn is unpriced, with `reason: "unknown_cost"` and
+  a pricing/clear/disable remedy; a reached cap reports `reason: "cap_reached"`.
+  `budget_alerts` stores durable warning/exceeded rows keyed
   by scope, month, threshold, budget, and warning percentage; `GET /api/budgets` exposes
   status, unacknowledged alerts, and active `pauses`; `POST
   /api/budgets/alerts/:id/ack` dismisses an alert without overriding a cap. The Config
@@ -256,7 +259,7 @@ built and vended by the brain; real-CLI verification is still pending.
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
   retention (`masterEventsDays`), scorecard retention (`cellSummariesDays`), request
   artifact retention (`requestArtifactsDays`), spend budget (`monthlyUsd`,
-  `alertAtPercent`, `pauseOnExceeded`), webhook delivery (`enabled`, `url`, `format`,
+  `alertAtPercent`, `pauseOnExceeded`, `pauseOnUnknownCost`), webhook delivery (`enabled`, `url`, `format`,
   `secret`), email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`,
   `from`, `to`), and Slack/Discord bot delivery (`enabled`, `botToken`, `destinations`,
   `defaultChannelId`, `routes`), validated with zod and written atomically. Each saved
@@ -315,7 +318,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 741 vitest cases, all passing: 555 server across 39 files and 186 web across 24 files,
+- 750 vitest cases, all passing: 561 server across 39 files and 189 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API), and `scripts/e2e.mjs` (built brain + deterministic
@@ -435,8 +438,8 @@ GET    /api/cell-drafts/:id
 PUT    /api/cell-drafts/:id
 PATCH  /api/cell-drafts/:id
 DELETE /api/cell-drafts/:id
-POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, pauseOnExceeded?}
-PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, pauseOnExceeded?, process?}
+POST   /api/cells                         {name, process?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, pauseOnExceeded?, pauseOnUnknownCost?}
+PATCH  /api/cells/:id                     {name?, masterEnabled?, masterIntervalMinutes?, maxConcurrent?, harness?, model?, effort?, monthlyBudgetUsd?, pauseOnExceeded?, pauseOnUnknownCost?, process?}
 DELETE /api/cells/:id
 GET    /api/plugins
 POST   /api/plugins                       {url,subdir?,name?}

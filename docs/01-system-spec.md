@@ -130,11 +130,13 @@ Indexes: `idx_requests_state`, `idx_requests_cell`, the second created **after**
 
 `id` (uuid PK), `name`, `master_enabled`, `master_interval_minutes`, `max_concurrent`
 (default 3), `harness` (null inherits the process default), `model`, `effort`, nullable
-`monthly_budget_usd`, `pause_on_exceeded` (default 0), `autocompact_percent` (default 80,
-range 1–99), `process_json`, `created_at`. A request inherits its cell's harness unless it
-sets its own `requests.harness`; a cell master and summary use its cell's harness.
-`monthly_budget_usd` is the monthly spend budget in USD; NULL means no cell budget.
-`pause_on_exceeded` makes that budget a hard cap for the cell. Deleting a cell detaches
+`monthly_budget_usd`, `pause_on_exceeded` (default 0), `pause_on_unknown_cost` (default 0),
+`autocompact_percent` (default 80, range 1–99), `process_json`, `created_at`. A request
+inherits its cell's harness unless it sets its own `requests.harness`; a cell master and
+summary use its cell's harness. `monthly_budget_usd` is the monthly spend budget in USD;
+NULL means no cell budget. `pause_on_exceeded` makes that budget a hard cap for the cell;
+`pause_on_unknown_cost` makes it a strict cap that also refuses work while any turn in the
+month is unpriced. Deleting a cell detaches
 its requests, deletes its `cell_summaries`, deletes its non-followup `master_events`, and
 removes the reserved `__master__:<id>` and `__summary__:<id>` session directories. See the
 budget contract below.
@@ -169,8 +171,9 @@ and never creates a second row for that destination.
 ### Spend budgets
 
 `src/server/src/domain/budget.ts` is pure and re-exported by the SPA. `config.json` carries
-`budget: { monthlyUsd: number|null, alertAtPercent: 1..100, pauseOnExceeded: boolean }`;
-the default is no overall budget, an 80% warning, and enforcement off. Budget periods are
+`budget: { monthlyUsd: number|null, alertAtPercent: 1..100, pauseOnExceeded: boolean,
+pauseOnUnknownCost: boolean }`; the default is no overall budget, an 80% warning, and
+enforcement off. Budget periods are
 UTC calendar months `[start, end)`. `notifications.webhook` defaults to
 `{ enabled: false, url: null, format: "json", secret: null }`; `enabled` requires an https
 URL (http is accepted only for loopback hosts), `format` is `json|slack|discord`, and a
@@ -205,21 +208,31 @@ a known lower bound and the UI labels it "at least". The service evaluates on st
 A scope with `pauseOnExceeded`/`pause_on_exceeded` is a **hard cap**. Its cap spend is
 reported plus estimated cost; `capSpendIsLowerBound` is true when any turn has neither.
 The cap pauses when cap spend is greater than or equal to the budget. Warning thresholds
-never pause, and a scope whose spend is unknowable fails open rather than blocking work.
+never pause. With `pauseOnUnknownCost`/`pause_on_unknown_cost` enabled on the same scope,
+the cap is **strict**: it also pauses when `unpricedTurns > 0`, even though the lower bound
+is below the budget. A reached cap wins the reason (`cap_reached`) over `unknown_cost`.
+Strict mode is inert without `pauseOnExceeded` and a budget. Estimated-cost turns do not
+trigger it because cap spend counts them. A ledger read failure still fails open and is
+logged; strict mode governs cost data, not database availability.
+
 An overall pause refuses every new agent turn (request, master, summary, KB, setup); a
 cell pause refuses only that cell's request, master, and summary turns. Acknowledgement
-does not clear a pause. Raising or clearing the budget, disabling the option, or the next
-UTC month resumes. Admission is checked before any turn side effect; in-flight turns
-finish and there are no spend reservations.
+does not clear a pause. Adding an effective-dated price, clearing the budget, disabling
+the option, or the next UTC month resumes. Raising the budget clears a reached cap but not
+an unknown-cost pause, because that trigger does not depend on the budget amount. A turn
+with no reported model cannot be priced after the fact, so clearing the cap or disabling
+strict mode is its only non-rollover remedy. Admission is checked before any turn side
+effect; in-flight turns finish and there are no spend reservations.
 
 `GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
-`capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, and `paused`), unacknowledged
-current-month alerts, and a `pauses` array for active hard caps. A manual turn start or
+`pauseOnUnknownCost`, `capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, `paused`, and
+`pauseReason`), unacknowledged current-month alerts, and a `pauses` array for active hard
+caps with a `reason` (`cap_reached` or `unknown_cost`). A manual turn start or
 `POST /api/master/run` / `POST /api/summaries/run` while paused returns `409` with
-`error: "spend_cap"` and the scope, spend, budget, and period. `POST
+`error: "spend_cap"`, `reason`, and the scope, spend, budget, and period. `POST
 /api/budgets/alerts/:id/ack` is idempotent. Global budget writes use `PATCH /api/config`;
 cell budget and pause writes use `PATCH /api/cells/:id`. The Config page, Usage page, and
-app banner show the same current-month status.
+app banner show the same current-month status and pause reason.
 
 ### `master_events`
 
@@ -821,6 +834,7 @@ interface Cell {
   harness: HarnessId | null; model: string | null; effort: string | null;
   monthlyBudgetUsd: number | null;
   pauseOnExceeded: boolean; // hard cap; default false
+  pauseOnUnknownCost: boolean; // strict cap; default false
   autocompactPercent: number; // 1–99, default 80
   createdAt: number;
 }

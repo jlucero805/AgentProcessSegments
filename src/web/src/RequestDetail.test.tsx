@@ -15,6 +15,7 @@ const cell: Cell = {
   effort: 'high',
   monthlyBudgetUsd: null,
   pauseOnExceeded: false,
+  pauseOnUnknownCost: false,
   autocompactPercent: 80,
   createdAt: 1,
 };

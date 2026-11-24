@@ -188,6 +188,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [budgetMonthly, setBudgetMonthly] = useState('');
   const [budgetAlertPercent, setBudgetAlertPercent] = useState('80');
   const [budgetPauseOnExceeded, setBudgetPauseOnExceeded] = useState(false);
+  const [budgetPauseOnUnknownCost, setBudgetPauseOnUnknownCost] = useState(false);
   const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaved, setBudgetSaved] = useState(false);
@@ -281,6 +282,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       );
       setBudgetAlertPercent(String(loadedBudget.alertAtPercent));
       setBudgetPauseOnExceeded(loadedBudget.pauseOnExceeded);
+      setBudgetPauseOnUnknownCost(loadedBudget.pauseOnUnknownCost);
       setBudgetView(
         budgetResponse && Array.isArray(budgetResponse.statuses) ? budgetResponse : null,
       );
@@ -553,14 +555,22 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     }
 
     setBudgetSaving(true);
+    const pauseOnUnknownCost =
+      monthlyUsd !== null && budgetPauseOnExceeded && budgetPauseOnUnknownCost;
     try {
       const config = await api.patchConfig({
-        budget: { monthlyUsd, alertAtPercent, pauseOnExceeded: budgetPauseOnExceeded },
+        budget: {
+          monthlyUsd,
+          alertAtPercent,
+          pauseOnExceeded: budgetPauseOnExceeded,
+          pauseOnUnknownCost,
+        },
       });
       const savedBudget = config.budget ?? {
         monthlyUsd,
         alertAtPercent,
         pauseOnExceeded: budgetPauseOnExceeded,
+        pauseOnUnknownCost,
       };
       setBudget(savedBudget);
       setBudgetMonthly(
@@ -568,6 +578,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       );
       setBudgetAlertPercent(String(savedBudget.alertAtPercent));
       setBudgetPauseOnExceeded(savedBudget.pauseOnExceeded);
+      setBudgetPauseOnUnknownCost(savedBudget.pauseOnUnknownCost);
       const nextView = await api.getBudgets().catch(() => null);
       setBudgetView(nextView && Array.isArray(nextView.statuses) ? nextView : null);
       setBudgetSaved(true);
@@ -1112,7 +1123,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           <SectionTitle>Spend budgets</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
             Monthly budgets for the whole brain and each cell. Alerts are warnings; enable
-            pause-on-exceeded to stop starting new work for that scope at its cap.
+            pause-on-exceeded to stop starting new work for that scope at its cap. Strict
+            unknown-cost mode also pauses while any counted turn has no known cost.
           </p>
         </div>
 
@@ -1161,15 +1173,25 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                         ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
                         : ''}
                     </p>
-                    {status.paused ? (
-                      <p className="text-[11px] text-red-300">
+                  </>
+                )}
+                {status.paused ? (
+                  <p className="text-[11px] text-red-300">
+                    {status.pauseReason === 'unknown_cost' ? (
+                      <>
+                        Paused: {status.unpricedTurns} unpriced turn
+                        {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified.
+                        Add a matching price, clear the budget, or turn off strict pause.
+                      </>
+                    ) : (
+                      <>
                         New work is paused at {moneyLabel(status.capSpendUsd)} of{' '}
                         {moneyLabel(status.budgetUsd)} cap spend
                         {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
-                      </p>
-                    ) : null}
-                  </>
-                )}
+                      </>
+                    )}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1220,10 +1242,25 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           }}
         />
 
+        <Checkbox
+          label="Also pause when a turn's cost is unknown (strict)"
+          checked={
+            budgetMonthly.trim() !== '' &&
+            budgetPauseOnExceeded &&
+            budgetPauseOnUnknownCost
+          }
+          disabled={budgetMonthly.trim() === '' || !budgetPauseOnExceeded}
+          onChange={() => {
+            setBudgetPauseOnUnknownCost((current) => !current);
+            setBudgetSaved(false);
+          }}
+        />
+
         <p className="text-[11px] text-zinc-600">
           Budgets use the UTC calendar month. Alerts use harness-reported cost; hard caps also
-          count estimated cost, and unpriced turns are shown as a lower bound. Cell budgets and
-          their pause option are set when editing a cell.
+          count estimated cost, and unpriced turns are shown as a lower bound. Strict mode
+          pauses even when the known spend is below the cap if any turn cannot be priced. Cell
+          budgets and their pause options are set when editing a cell.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1231,7 +1268,11 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
             {budget?.monthlyUsd === null
               ? 'No overall budget saved.'
               : `Overall budget ${moneyLabel(budget?.monthlyUsd ?? 0)} per month${
-                  budget?.pauseOnExceeded ? ' with pause on exceeded.' : '.'
+                  budget?.pauseOnExceeded
+                    ? budget.pauseOnUnknownCost
+                      ? ' with pause on exceeded and strict unknown cost.'
+                      : ' with pause on exceeded.'
+                    : '.'
                 }`}
           </p>
           <div className="flex items-center justify-end gap-2">

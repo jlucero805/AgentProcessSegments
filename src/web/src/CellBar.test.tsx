@@ -15,6 +15,7 @@ const cells: Cell[] = [
     effort: null,
     monthlyBudgetUsd: null,
     pauseOnExceeded: false,
+    pauseOnUnknownCost: false,
     autocompactPercent: 80,
     createdAt: 1,
   },

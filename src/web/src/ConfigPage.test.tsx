@@ -51,11 +51,17 @@ const cell: Cell = {
   effort: null,
   monthlyBudgetUsd: null,
   pauseOnExceeded: false,
+  pauseOnUnknownCost: false,
   autocompactPercent: 80,
   createdAt: 1,
 };
 
-const budget = { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: false };
+const budget = {
+  monthlyUsd: 100,
+  alertAtPercent: 80,
+  pauseOnExceeded: false,
+  pauseOnUnknownCost: false,
+};
 
 const webhook: {
   enabled: boolean;
@@ -165,10 +171,12 @@ const budgetView: BudgetsResponse = {
       spendIsLowerBound: true,
       state: 'warning',
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
       capSpendUsd: 85,
       capSpendIsLowerBound: true,
       unpricedTurns: 0,
       paused: false,
+      pauseReason: null,
     },
   ],
   alerts: [],
@@ -229,6 +237,7 @@ interface Captured {
       monthlyUsd?: number | null;
       alertAtPercent?: number;
       pauseOnExceeded?: boolean;
+      pauseOnUnknownCost?: boolean;
     };
     notifications?: {
       webhook?: {
@@ -618,6 +627,11 @@ describe('ConfigPage', () => {
     const threshold = screen.getByRole('spinbutton', { name: /alert threshold/i });
     expect(threshold).toHaveValue(80);
 
+    const strict = screen.getByRole('checkbox', {
+      name: /also pause when a turn's cost is unknown/i,
+    });
+    expect(strict).toBeDisabled();
+
     fireEvent.change(monthly, { target: { value: '250.5' } });
     fireEvent.change(threshold, { target: { value: '90' } });
     fireEvent.click(
@@ -625,6 +639,8 @@ describe('ConfigPage', () => {
         name: /pause new work when the overall budget is exceeded/i,
       }),
     );
+    expect(strict).not.toBeDisabled();
+    fireEvent.click(strict);
     fireEvent.click(screen.getByRole('button', { name: 'Save budgets' }));
 
     await waitFor(() =>
@@ -632,9 +648,33 @@ describe('ConfigPage', () => {
         monthlyUsd: 250.5,
         alertAtPercent: 90,
         pauseOnExceeded: true,
+        pauseOnUnknownCost: true,
       }),
     );
     expect(captured.config?.master).toBeUndefined();
+  });
+
+  it('explains a strict unknown-cost pause even when spend is unknown', async () => {
+    installFetch({
+      ...budgetView,
+      statuses: [
+        {
+          ...budgetView.statuses[0]!,
+          state: 'unknown',
+          paused: true,
+          pauseReason: 'unknown_cost',
+          unknownCostTurns: 2,
+          unpricedTurns: 2,
+          capSpendIsLowerBound: true,
+        },
+      ],
+    });
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText(/Spend unknown/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Paused: 2 unpriced turns, so cost cannot be verified/i),
+    ).toBeInTheDocument();
   });
 
   it('configures and saves webhook delivery', async () => {

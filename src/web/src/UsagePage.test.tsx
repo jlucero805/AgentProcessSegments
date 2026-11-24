@@ -16,6 +16,7 @@ const CELLS = [
     effort: null,
     monthlyBudgetUsd: null,
     pauseOnExceeded: false,
+    pauseOnUnknownCost: false,
     createdAt: 1,
   },
 ];
@@ -41,10 +42,12 @@ const BUDGETS: BudgetsResponse = {
       spendIsLowerBound: true,
       state: 'warning',
       pauseOnExceeded: true,
+      pauseOnUnknownCost: false,
       capSpendUsd: 85,
       capSpendIsLowerBound: true,
       unpricedTurns: 0,
       paused: false,
+      pauseReason: null,
     },
   ],
   alerts: [],
@@ -153,13 +156,21 @@ describe('UsagePage', () => {
     renderUsage({
       budgets: {
         ...BUDGETS,
-        statuses: [{ ...BUDGETS.statuses[0]!, paused: true, capSpendUsd: 100 }],
+        statuses: [
+          {
+            ...BUDGETS.statuses[0]!,
+            paused: true,
+            pauseReason: 'cap_reached',
+            capSpendUsd: 100,
+          },
+        ],
         pauses: [
           {
             scope: 'overall',
             cellId: null,
             cellName: null,
             label: 'Overall',
+            reason: 'cap_reached',
             periodStart: Date.UTC(2026, 10, 1),
             periodEnd: Date.UTC(2026, 11, 1),
             budgetUsd: 100,
@@ -175,6 +186,49 @@ describe('UsagePage', () => {
     expect(await screen.findByText('paused')).toBeInTheDocument();
     expect(screen.getByText(/Paused at \$100\.00 cap spend/)).toBeInTheDocument();
     expect(screen.queryByText(/budgets never stop work/i)).not.toBeInTheDocument();
+  });
+
+  it('explains a strict unknown-cost pause in the unknown state', async () => {
+    installFetch();
+    renderUsage({
+      budgets: {
+        ...BUDGETS,
+        statuses: [
+          {
+            ...BUDGETS.statuses[0]!,
+            state: 'unknown',
+            pauseOnUnknownCost: true,
+            paused: true,
+            pauseReason: 'unknown_cost',
+            unpricedTurns: 2,
+            unknownCostTurns: 2,
+            capSpendIsLowerBound: true,
+          },
+        ],
+        pauses: [
+          {
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            label: 'Overall',
+            reason: 'unknown_cost',
+            periodStart: Date.UTC(2026, 10, 1),
+            periodEnd: Date.UTC(2026, 11, 1),
+            budgetUsd: 100,
+            spendUsd: 5,
+            spendIsLowerBound: true,
+            unpricedTurns: 2,
+            percentUsed: 5,
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/Spend unknown/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Paused: 2 unpriced turns, so cost cannot be verified/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/strict caps pause while any turn is unpriced/i)).toBeInTheDocument();
   });
 
   it('does not show an all-unpriced budget as zero', async () => {

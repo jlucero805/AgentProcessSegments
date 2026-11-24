@@ -20,8 +20,9 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
   master errors). Keep every destination deduped by the existing delivery row and
   credentials redacted.
 - **Hard-cap refinements.** Cancelling in-flight work on a crossing, an operator one-turn
-  override/snooze, and a strict unknown-cost policy are deferred; current caps are
-  admission-only and fail open when spend is unknowable.
+  override/snooze, and a fail-closed policy for an unreadable usage ledger are deferred.
+  Current caps are admission-only; strict unknown-cost enforcement is built, but ledger
+  read errors still fail open.
 - **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
   context-length tiers, currencies other than USD, and a per-turn applied-price audit
   view. The current table is exact-model, flat, USD-only, and operator-maintained.

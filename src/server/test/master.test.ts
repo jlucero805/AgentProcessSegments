@@ -854,6 +854,7 @@ describe('MasterScheduler', () => {
       cellId: null,
       cellName: null,
       label: 'Overall',
+      reason: 'cap_reached',
       periodStart: Date.UTC(2026, 10, 1),
       periodEnd: Date.UTC(2026, 11, 1),
       budgetUsd: 100,
@@ -875,6 +876,22 @@ describe('MasterScheduler', () => {
     expect(second.skipped).toBe(1);
     expect(fixture.events.list({ cellId: cell.id })).toHaveLength(1);
     expect(fixture.engine.note).toHaveBeenCalledTimes(1);
+
+    // A different reason for the same scope/period/budget is a new episode.
+    pause = {
+      ...pause,
+      reason: 'unknown_cost',
+      spendUsd: 5,
+      unpricedTurns: 1,
+    };
+    const third = await fixture.service.runCell(cell.id);
+    expect(third.skipped).toBe(1);
+    expect(fixture.events.list({ cellId: cell.id })).toHaveLength(2);
+    expect(fixture.engine.note).toHaveBeenCalledTimes(2);
+    expect(fixture.engine.note).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.stringContaining('cannot be verified'),
+    );
 
     pause = null;
     await fixture.service.runCell(cell.id);

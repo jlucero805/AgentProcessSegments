@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 741 vitest cases: 555 server across 39 files and 186 web across 24 files, all green.
+- 750 vitest cases: 561 server across 39 files and 189 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -58,8 +58,9 @@ digests.
   polling scheduler with catch-up and backoff), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
-  budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries,
-  an in-app alert/pause banner, opt-in signed webhook, SMTP email, and native
+  budgets with durable alerts, opt-in hard caps that pause new work at turn boundaries
+  including a strict unknown-cost mode, an in-app alert/pause banner, opt-in signed
+  webhook, SMTP email, and native
   Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
@@ -91,7 +92,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 555 server + 186 web, plus the e2e env guard
+npm test                       # 561 server + 189 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guard for the proof-script spawn env
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
@@ -294,7 +295,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     frozen at rollup time; raw days keep query-time estimates. Budget status reads
     `UsageRepository.totals` (the same merged view). Advisory status and alerts compare
     reported cost only; opt-in hard caps compare reported plus estimated cost and mark
-    unpriced spend as a lower bound. Do not add guessed prices or partial usage writes.
+    unpriced spend as a lower bound. Strict caps can also refuse work while any turn is
+    unpriced. Do not add guessed prices or partial usage writes.
     External delivery, hard-cap cancellation/override, and pricing maintenance at scale
     follow `docs/09-backlog.md`.
 21. **Merge is serialized.** The optional `merge` state defaults to `maxConcurrent: 1`;
@@ -362,12 +364,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     KB, master, setup, and summary sessions keep the harness/global behavior.
 34. **Hard spend caps are opt-in admission checks.** `budget.pauseOnExceeded` and
     `cells.pause_on_exceeded` default false. Cap spend is reported plus estimated cost;
-    warning thresholds and acknowledgement never pause. An overall pause refuses every
-    new agent turn, a cell pause is cell-scoped, and master/summary schedulers skip
-    paused cells without failure backoff. Check admission before `clarifyStarted`, state
-    transitions, `agentStatus`, session writes, or spawning; in-flight turns finish.
-    Refuse with `SpendCapError` / HTTP `409 spend_cap`; never log an expected refusal as an
-    error.
+    warning thresholds and acknowledgement never pause. `budget.pauseOnUnknownCost` and
+    `cells.pause_on_unknown_cost` add a strict mode that pauses while any current-month
+    turn has neither a reported nor an estimated cost, even below the budget. A reached
+    cap wins the reason (`cap_reached` over `unknown_cost`); strict mode is inert without
+    `pauseOnExceeded` and a budget. Adding an effective-dated price, clearing the budget,
+    disabling enforcement, or a new UTC month resumes; raising a budget does not clear an
+    unknown-cost pause. A ledger read failure still fails open and is logged. An overall
+    pause refuses every new agent turn, a cell pause is cell-scoped, and master/summary
+    schedulers skip paused cells without failure backoff. Check admission before
+    `clarifyStarted`, state transitions, `agentStatus`, session writes, or spawning;
+    in-flight turns finish. Refuse with `SpendCapError` / HTTP `409 spend_cap` carrying
+    the reason; never log an expected refusal as an error.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

@@ -90,6 +90,7 @@ describe('BudgetBanner', () => {
             cellId: null,
             cellName: null,
             label: 'Overall',
+            reason: 'cap_reached',
             periodStart,
             periodEnd,
             budgetUsd: 100,
@@ -106,6 +107,39 @@ describe('BudgetBanner', () => {
     expect(pause).toHaveTextContent('hard cap reached');
     expect(pause).toHaveTextContent('New work is paused');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('shows an unknown-cost pause as unverifiable, not as a reached cap', () => {
+    renderBanner(
+      response(
+        [],
+        [
+          {
+            scope: 'cell',
+            cellId: 'c1',
+            cellName: 'Alpha',
+            label: 'Alpha',
+            reason: 'unknown_cost',
+            periodStart,
+            periodEnd,
+            budgetUsd: 100,
+            spendUsd: 5,
+            spendIsLowerBound: true,
+            unpricedTurns: 2,
+            percentUsed: 5,
+          },
+        ],
+      ),
+    );
+
+    const pause = screen.getByRole('alert');
+    expect(pause).toHaveTextContent(
+      'Alpha cost is unknown: 2 unpriced turns in the current UTC month',
+    );
+    expect(pause).toHaveTextContent('known spend is at least $5.00 of $100.00');
+    expect(pause).toHaveTextContent('add a matching price');
+    expect(pause).not.toHaveTextContent('hard cap reached');
+    expect(pause).not.toHaveTextContent('raise or clear');
   });
 
   it('dismisses through the shared feed without fetching', () => {

@@ -33,6 +33,7 @@ import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { UsageRepository } from '../src/usage/repository.js';
+import { spendPauseMessage } from '../src/usage/spend-cap.js';
 import { UsageRollups } from '../src/usage/rollups.js';
 
 const NOW = Date.UTC(2026, 10, 15, 12, 0, 0);
@@ -396,6 +397,161 @@ describe('budgets', () => {
     expect(service.admission(null, NOW)).toBeNull();
   });
 
+  it('pauses a strict cap while any turn is unpriced, even below the budget', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings } = makeService(usage);
+    settings.patch({
+      budget: {
+        monthlyUsd: 100,
+        alertAtPercent: 80,
+        pauseOnExceeded: true,
+        pauseOnUnknownCost: true,
+      },
+    });
+    usage.overall = {
+      turns: 2,
+      costUsd: 5,
+      estimatedCostUsd: 0,
+      unpricedTurns: 1,
+      unknownCostTurns: 1,
+    };
+
+    const status = service.statuses(NOW).statuses[0]!;
+    expect(status.state).toBe('ok');
+    expect(status.capSpendUsd).toBe(5);
+    expect(status.paused).toBe(true);
+    expect(status.pauseReason).toBe('unknown_cost');
+    expect(service.statuses(NOW).pauses).toMatchObject([
+      { scope: 'overall', reason: 'unknown_cost', unpricedTurns: 1, spendUsd: 5 },
+    ]);
+    expect(service.admission(null, NOW)).toMatchObject({
+      scope: 'overall',
+      reason: 'unknown_cost',
+      budgetUsd: 100,
+      spendUsd: 5,
+      unpricedTurns: 1,
+    });
+
+    // Raising the budget does not make an unpriced month verifiable.
+    settings.patch({ budget: { monthlyUsd: 200 } });
+    expect(service.admission(null, NOW)).not.toBeNull();
+
+    // Pricing the turn clears the pause without a restart.
+    usage.overall = { ...usage.overall, unpricedTurns: 0, unknownCostTurns: 0 };
+    expect(service.admission(null, NOW)).toBeNull();
+
+    // Clear the budget, or turn strict mode off, to resume the same ledger.
+    usage.overall = { ...usage.overall, unpricedTurns: 1, unknownCostTurns: 1 };
+    settings.patch({ budget: { monthlyUsd: null } });
+    expect(service.admission(null, NOW)).toBeNull();
+    settings.patch({ budget: { monthlyUsd: 100, pauseOnUnknownCost: false } });
+    expect(service.admission(null, NOW)).toBeNull();
+  });
+
+  it('reports a reached cap ahead of unknown cost', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings } = makeService(usage);
+    settings.patch({
+      budget: {
+        monthlyUsd: 100,
+        alertAtPercent: 80,
+        pauseOnExceeded: true,
+        pauseOnUnknownCost: true,
+      },
+    });
+    usage.overall = {
+      turns: 2,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 1,
+      unknownCostTurns: 1,
+    };
+
+    expect(service.statuses(NOW).statuses[0]).toMatchObject({
+      paused: true,
+      pauseReason: 'cap_reached',
+    });
+    expect(service.admission(null, NOW)?.reason).toBe('cap_reached');
+  });
+
+  it('explains an unknown-cost pause without suggesting a budget increase', () => {
+    const message = spendPauseMessage({
+      scope: 'cell',
+      cellId: 'c1',
+      cellName: 'Alpha',
+      label: 'Alpha',
+      reason: 'unknown_cost',
+      periodStart: PERIOD.start,
+      periodEnd: PERIOD.end,
+      budgetUsd: 100,
+      spendUsd: 5,
+      spendIsLowerBound: true,
+      unpricedTurns: 2,
+      percentUsed: 5,
+    });
+    expect(message).toContain('Alpha monthly spend cap cannot be verified');
+    expect(message).toContain('2 unpriced turns');
+    expect(message).toContain('at least $5.00 of $100.00');
+    expect(message).toContain('add a matching price');
+    expect(message).not.toContain('raise the budget');
+  });
+
+  it('does not apply strict unknown cost without an enabled cap', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings } = makeService(usage);
+    usage.overall = {
+      turns: 1,
+      costUsd: null,
+      estimatedCostUsd: null,
+      unpricedTurns: 1,
+      unknownCostTurns: 1,
+    };
+    settings.patch({
+      budget: { monthlyUsd: null, pauseOnUnknownCost: true },
+    });
+    expect(service.statuses(NOW).statuses).toEqual([]);
+    expect(service.admission(null, NOW)).toBeNull();
+
+    settings.patch({
+      budget: { monthlyUsd: 100, pauseOnExceeded: false, pauseOnUnknownCost: true },
+    });
+    expect(service.statuses(NOW).statuses[0]?.paused).toBe(false);
+    expect(service.admission(null, NOW)).toBeNull();
+  });
+
+  it('scopes a strict cell pause to that cell', () => {
+    const usage = new FakeUsageSource();
+    const { service, cells } = makeService(usage);
+    const alpha = cells.create('Alpha');
+    const beta = cells.create('Beta');
+    cells.setMonthlyBudget(alpha.id, 50);
+    cells.setMonthlyBudget(beta.id, 50);
+    cells.setPauseOnExceeded(alpha.id, true);
+    cells.setPauseOnUnknownCost(alpha.id, true);
+    cells.setPauseOnExceeded(beta.id, true);
+    usage.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 0,
+      estimatedCostUsd: 0,
+      unpricedTurns: 1,
+      unknownCostTurns: 1,
+    });
+    usage.cells.set(beta.id, {
+      turns: 1,
+      costUsd: 1,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+
+    expect(service.admission(alpha.id, NOW)).toMatchObject({
+      scope: 'cell',
+      cellId: alpha.id,
+      reason: 'unknown_cost',
+    });
+    expect(service.admission(beta.id, NOW)).toBeNull();
+  });
+
   it('scopes a cell pause and lets overall win', () => {
     const usage = new FakeUsageSource();
     const { service, cells, settings } = makeService(usage);
@@ -467,7 +623,12 @@ describe('budgets', () => {
     const errors: ErrorSink = { error: vi.fn() };
     const { service, settings } = makeService(usage, makeStore(), errors);
     settings.patch({
-      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+      budget: {
+        monthlyUsd: 100,
+        alertAtPercent: 80,
+        pauseOnExceeded: true,
+        pauseOnUnknownCost: true,
+      },
     });
 
     expect(service.admission(null, NOW)).toBeNull();

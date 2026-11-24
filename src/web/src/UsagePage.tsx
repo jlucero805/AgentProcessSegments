@@ -133,7 +133,7 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
           <SectionTitle>Monthly budgets</SectionTitle>
           <p className="mt-1 text-[11px] text-zinc-600">
             {month} (UTC) · alerts use reported cost; pause-on-exceeded caps also count
-            estimates.
+            estimates, and strict caps pause while any turn is unpriced.
           </p>
         </div>
         <span className="text-xs text-zinc-500">warning at {budgets.alertAtPercent}%</span>
@@ -196,14 +196,24 @@ function BudgetSummary({ feed }: { feed: BudgetFeed }) {
                     {status.percentUsed.toFixed(0)}% used · {moneyLabel(status.remainingUsd)}{' '}
                     remaining
                   </p>
-                  {status.paused ? (
-                    <p className="text-[11px] text-red-300">
-                      Paused at {moneyLabel(status.capSpendUsd)} cap spend
-                      {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
-                    </p>
-                  ) : null}
                 </>
               )}
+              {status.paused ? (
+                <p className="text-[11px] text-red-300">
+                  {status.pauseReason === 'unknown_cost' ? (
+                    <>
+                      Paused: {status.unpricedTurns} unpriced turn
+                      {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified. Add
+                      a matching price, clear the budget, or turn off strict pause.
+                    </>
+                  ) : (
+                    <>
+                      Paused at {moneyLabel(status.capSpendUsd)} cap spend
+                      {status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
+                    </>
+                  )}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

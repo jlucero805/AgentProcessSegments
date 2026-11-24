@@ -45,6 +45,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const [harness, setHarness] = useState<HarnessId | ''>('');
   const [monthlyBudget, setMonthlyBudget] = useState('');
   const [pauseOnExceeded, setPauseOnExceeded] = useState(false);
+  const [pauseOnUnknownCost, setPauseOnUnknownCost] = useState(false);
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState<Effort | ''>('');
   const [autocompactPercent, setAutocompactPercent] = useState('80');
@@ -92,6 +93,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         : String(cell.monthlyBudgetUsd),
     );
     setPauseOnExceeded(cell?.pauseOnExceeded ?? false);
+    setPauseOnUnknownCost(cell?.pauseOnUnknownCost ?? false);
     setModel(cell?.model ?? '');
     setEffort(cell?.effort ?? '');
     setAutocompactPercent(String(cell?.autocompactPercent ?? 80));
@@ -384,6 +386,8 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         harness: harness || null,
         monthlyBudgetUsd: budgetValue,
         pauseOnExceeded: budgetValue !== null && pauseOnExceeded,
+        pauseOnUnknownCost:
+          budgetValue !== null && pauseOnExceeded && pauseOnUnknownCost,
         model: model || null,
         effort: effort || null,
         autocompactPercent: compact,
@@ -488,6 +492,15 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
           checked={pauseOnExceeded}
           disabled={monthlyBudget.trim() === ''}
           onChange={(event) => setPauseOnExceeded(event.target.checked)}
+        />
+
+        <Checkbox
+          label="Also pause this cell when a turn's cost is unknown (strict)"
+          checked={
+            monthlyBudget.trim() !== '' && pauseOnExceeded && pauseOnUnknownCost
+          }
+          disabled={monthlyBudget.trim() === '' || !pauseOnExceeded}
+          onChange={(event) => setPauseOnUnknownCost(event.target.checked)}
         />
 
         <Field

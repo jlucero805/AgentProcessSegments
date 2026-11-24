@@ -288,10 +288,17 @@ Each scope can also opt into **pause on exceeded**. A hard cap counts reported p
 estimated cost, pauses new work at the cap, and leaves in-flight turns alone. Overall
 pauses every new agent turn; a cell pause affects only that cell's request, master, and
 summary work. Raise or clear the budget, turn the option off, or wait for the UTC month to
-roll over to resume. Acknowledging an alert does not override a pause. The same cap spend
-and pause state are shown on the Config and Usage pages and in the app banner. The Usage
-card and banner share one budget poll; the card keeps its last good status when a refresh
-fails and offers Retry when budget status cannot be loaded.
+roll over to resume. Acknowledging an alert does not override a pause.
+
+The cap can additionally opt into **strict unknown cost**. Strict mode pauses the scope
+while any turn in the current UTC month has neither a reported nor an estimated cost, even
+when the known lower bound is below the budget. Add a matching effective-dated price,
+clear the budget, turn strict mode off, or wait for the next month to resume; raising the
+budget only helps a reached cap. A turn with no reported model cannot be priced after the
+fact. A ledger read failure still fails open. The same cap spend and pause state are shown
+on the Config and Usage pages and in the app banner, with a distinct unknown-cost reason.
+The Usage card and banner share one budget poll; the card keeps its last good status when
+a refresh fails and offers Retry when budget status cannot be loaded.
 
 ## Alert delivery
 
@@ -438,7 +445,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 741 vitest cases: 555 server cases (state machine, migrations including
+`npm test` runs 750 vitest cases: 561 server cases (state machine, migrations including
 the index ordering fix on a legacy database, repositories, both stream parsers, usage
 event capture and aggregation, effective-dated pricing and estimation, usage rollups and
 activity retention, scorecard retention, cell-delete activity and session cleanup,
@@ -448,10 +455,11 @@ git repo, the MCP tool surface, harness
 config/MCP/plugin mapping, model probing, the plugin manager against real git clones,
 process definitions/store/follow-ups, per-cell policies/tickers/limits/auto-compaction,
 the generic master pipeline, segment caps and merge, turn watchdogs/stderr, scorecard
-stats/generation/scheduling, budget status/alerts/hard caps, webhook/email/Slack/Discord
+stats/generation/scheduling, budget status/alerts/hard caps including strict unknown
+cost, webhook/email/Slack/Discord
 delivery dedupe/retry/signing with an injected sender, delivery history and resend,
 docs manifest/traversal/HTTP, error-log format/rotation, skill discovery, terminal
-session lifecycle, and the HTTP API over a real socket) and 186 web cases (shared contract
+session lifecycle, and the HTTP API over a real socket) and 189 web cases (shared contract
 re-exports, NDJSON client, chat folding, slash/skill resolution, request-form mapping,
 docs helpers and Help overlay, the source link, board, create modal, composer, cell bar,
 cell creation, config/process and pricing editor, budget and alert-delivery cards

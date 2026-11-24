@@ -487,6 +487,7 @@ describe('http api', () => {
       monthlyUsd: null,
       alertAtPercent: 80,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -497,6 +498,7 @@ describe('http api', () => {
       monthlyUsd: 250.5,
       alertAtPercent: 90,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
 
     const budgets = await call('GET', '/api/budgets');
@@ -576,6 +578,59 @@ describe('http api', () => {
     expect(after.state).toBe('clarify');
   });
 
+  it('refuses a new turn with an unknown-cost reason when the cap is strict', async () => {
+    await makeApp();
+    const cell = await call('POST', '/api/cells', {
+      name: 'Strict',
+      monthlyBudgetUsd: 100,
+      pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    const request = await call('POST', '/api/requests', { title: 'Blocked', cellId });
+    const requestId = (request.json() as { id: string }).id;
+    open?.h.usage.record({
+      turnId: 'unknown-turn',
+      sessionId: 'unknown-session',
+      scope: 'request',
+      cellId,
+      requestId,
+      model: 'unknown-model',
+      effort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      costUsd: null,
+      createdAt: Date.now(),
+    });
+
+    const budgets = await call('GET', '/api/budgets');
+    const body = budgets.json() as {
+      pauses: Array<{ reason: string; unpricedTurns: number }>;
+    };
+    expect(body.pauses).toMatchObject([
+      { reason: 'unknown_cost', unpricedTurns: 1 },
+    ]);
+
+    const refused = await call('POST', `/api/requests/${requestId}/clarify/start`);
+    expect(refused.status).toBe(409);
+    expect(refused.json()).toMatchObject({
+      error: 'spend_cap',
+      reason: 'unknown_cost',
+      scope: 'cell',
+      cellId,
+      budgetUsd: 100,
+      spendUsd: 0,
+      unpricedTurns: 1,
+    });
+    const after = open!.h.repo.require(requestId);
+    expect(after.clarifyStarted).toBe(false);
+    expect(after.agentStatus).toBe('none');
+    expect(after.state).toBe('clarify');
+  });
+
   it('refuses manual master and summary runs when the overall cap is exceeded', async () => {
     await makeApp();
     const cell = await call('POST', '/api/cells', { name: 'Capped' });
@@ -612,23 +667,53 @@ describe('http api', () => {
     expect(summary.json()).toMatchObject({ error: 'spend_cap', scope: 'overall' });
   });
 
-  it('persists the cell pause flag through create and patch', async () => {
+  it('persists the cell pause and strict flags through create and patch', async () => {
     await makeApp();
     const created = await call('POST', '/api/cells', {
       name: 'Capped',
       monthlyBudgetUsd: 10,
       pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
     });
     expect(created.json()).toMatchObject({
       monthlyBudgetUsd: 10,
       pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
     });
     const id = (created.json() as { id: string }).id;
 
-    const off = await call('PATCH', `/api/cells/${id}`, { pauseOnExceeded: false });
-    expect(off.json()).toMatchObject({ pauseOnExceeded: false });
-    const on = await call('PATCH', `/api/cells/${id}`, { pauseOnExceeded: true });
-    expect(on.json()).toMatchObject({ pauseOnExceeded: true });
+    const off = await call('PATCH', `/api/cells/${id}`, {
+      pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
+    });
+    expect(off.json()).toMatchObject({
+      pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
+    });
+    const on = await call('PATCH', `/api/cells/${id}`, {
+      pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
+    });
+    expect(on.json()).toMatchObject({
+      pauseOnExceeded: true,
+      pauseOnUnknownCost: true,
+    });
+
+    const patched = await call('PATCH', '/api/config', {
+      budget: {
+        monthlyUsd: 100,
+        alertAtPercent: 80,
+        pauseOnExceeded: true,
+        pauseOnUnknownCost: true,
+      },
+    });
+    expect(patched.json()).toMatchObject({
+      budget: { pauseOnUnknownCost: true },
+    });
+    const config = await call('GET', '/api/config');
+    expect(config.json()).toMatchObject({
+      budget: { pauseOnUnknownCost: true },
+    });
   });
 
   it('patches, redacts, and reloads webhook settings', async () => {
@@ -674,6 +759,7 @@ describe('http api', () => {
       monthlyUsd: null,
       alertAtPercent: 80,
       pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
     });
     expect(readFileSync(h.config.configPath, 'utf8')).toContain('0123456789abcdef');
 

@@ -79,6 +79,8 @@ export interface Cell {
   monthlyBudgetUsd: number | null;
   /** When true, new work for this cell pauses once cap spend reaches its budget. */
   pauseOnExceeded: boolean;
+  /** When true, new work for this cell also pauses while any turn has unknown cost. */
+  pauseOnUnknownCost: boolean;
   /** Context-window percentage at which a request session auto-compacts. */
   autocompactPercent: number;
   createdAt: number;

@@ -430,9 +430,9 @@ export class MasterService {
 
     const pause = this.deps.spendCap?.(bucket.cellId) ?? null;
     if (pause) {
-      // A pause episode is the scope + period + budget. Re-noting on every tick
-      // would bury the master chat in identical skip messages.
-      const key = `${pause.scope}:${pause.periodStart}:${pause.budgetUsd}`;
+      // A pause episode is the scope + period + budget + reason. Re-noting on
+      // every tick would bury the master chat in identical skip messages.
+      const key = `${pause.scope}:${pause.periodStart}:${pause.budgetUsd}:${pause.reason}`;
       if (this.paused.get(bucket.cellId) !== key) {
         this.paused.set(bucket.cellId, key);
         const detail = spendPauseMessage(pause);
@@ -451,7 +451,7 @@ export class MasterService {
       return result;
     }
     if (this.paused.delete(bucket.cellId)) {
-      this.note(bucket.cellId, 'Resumed new work: spending is under its cap.');
+      this.note(bucket.cellId, 'Resumed new work: the spend cap no longer blocks this cell.');
     }
 
     const selection = this.selectCandidates(process, bucket, now);

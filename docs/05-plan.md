@@ -227,3 +227,6 @@ states dispose the session as before; disabling the master stops scheduling imme
   reported-plus-estimated cap spend, engine admission before turn side effects,
   scheduler skips, `409 spend_cap`, pause banner/status, persisted budget reload fix,
   tests and docs.
+- [x] **46. Strict unknown-cost hard caps** — overall and per-cell pause-on-unknown-cost
+  policy, strict admission while any turn is unpriced, cap-reached precedence, reason-aware
+  409/banner/status copy, additive cell column, tests and docs.

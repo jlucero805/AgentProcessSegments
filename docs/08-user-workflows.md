@@ -153,36 +153,43 @@ last five.
    budget. An overall pause stops every new agent turn; a cell pause stops only that
    cell's request, master, and summary turns. Running turns finish. Raise or clear the
    budget, turn the checkbox off, or wait for the next UTC month to resume.
-5. Active alerts appear above every page and can be dismissed with **×**; dismissing does
-   not override a hard cap. A separate red pause notice stays until spending is under the
-   cap again. The Usage page shows paused scopes and cap spend.
-6. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
+5. For a true ceiling, also tick **Also pause when a turn's cost is unknown (strict)**. The
+   scope then pauses while any current-month turn has no reported or estimated cost, even
+   if the known spend is below the budget. Add a matching effective-dated price, clear the
+   budget, turn strict mode off, or wait for the next month to resume. Raising the budget
+   does not clear an unknown-cost pause, and a turn with no reported model cannot be
+   priced after the fact. A ledger read failure still fails open.
+6. Active alerts appear above every page and can be dismissed with **×**; dismissing does
+   not override a hard cap. A separate red pause notice stays until the pause clears and
+   explains whether the cap was reached or the cost is unknown. The Usage page shows
+   paused scopes, cap spend, and the reason.
+7. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
-7. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
+8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
    paste an HTTPS URL (loopback may use http), pick JSON, Slack, or Discord, and optionally
    set a 16-256 character signing secret. Save, then press **Send test** to verify. JSON
    receivers should verify `X-APS-Signature`; Slack and Discord ignore it. The card also
    shows pending/failed counts and the latest delivery.
-8. For email, use the separate **Email delivery** card: enable it, set the SMTP host and
+9. For email, use the separate **Email delivery** card: enable it, set the SMTP host and
    port (465 for implicit TLS, 587 for STARTTLS), optional username and password, a From
    address, and up to ten recipients. Save, then **Send test email**. A blank password
    keeps the saved one; **Clear password** removes it, and the username must be cleared at
    the same time. Remote hosts require STARTTLS when implicit TLS is off.
-9. For native chat, create a Slack app with the `chat:write` scope (or a Discord
+10. For native chat, create a Slack app with the `chat:write` scope (or a Discord
    application with View Channel and Send Messages), install it, and copy the bot token.
    Invite the bot to each target channel. In **Config → Slack alerts** or **Discord
    alerts**, paste the token, add each channel ID and an optional label, choose a default
    destination, and add per-cell routes. Save, then **Send test** on a destination. A
    blank token keeps the saved one; **Clear token** disables the provider and removes it.
    Use channel IDs, not `#channel` names.
-10. The overall budget goes to the default destination. A cell uses its route when one is
+11. The overall budget goes to the default destination. A cell uses its route when one is
     set and otherwise the default; a cell with neither is not delivered to that provider.
     Each alert is sent once per destination. Acknowledging it, clearing a budget, changing
     a route/default, or rotating a token/channel cancels that destination's pending
     notification without touching other channels. Transient failures retry for about
     three hours; permanent ones are marked failed in the Config card. Delivery problems
     never stop work or hide the in-app banner.
-11. The **Delivery history** card below the channel settings lists recent attempts for
+12. The **Delivery history** card below the channel settings lists recent attempts for
     webhook, email, Slack, and Discord. Filter by channel or status; use **Refresh** or the
     Newer/Older buttons to page. A failed or skipped row that still belongs to an
     unacknowledged current-month alert shows **Resend** when its current destination still
@@ -251,7 +258,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Global process template | `$XDG_CONFIG_HOME/agent-process-segments/process.json` (`APS_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
 | Per-cell harness | `cells.harness` in SQLite (NULL = `APS_HARNESS`) |
-| Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `pauseOnExceeded`) |
+| Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `pauseOnExceeded`, `pauseOnUnknownCost`) |
 | Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded` in SQLite |
 | Budget alert history | `budget_alerts` in SQLite |
 | Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |

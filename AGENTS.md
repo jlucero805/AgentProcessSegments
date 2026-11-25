@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 903 vitest cases: 700 server across 46 files and 203 web across 24 files, all green.
+- 907 vitest cases: 704 server across 47 files and 203 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -96,7 +96,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 700 server + 203 web, plus the e2e env guard
+npm test                       # 704 server + 203 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -465,6 +465,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     (`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`). Leftover
     `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
     a failed sweep is one `retention.artifacts` record, not a crash.
+39. **The lint gate is zero-warning and guarded.** `npm run lint` is
+    `eslint src --max-warnings=0`, so a warning fails the gate just like an error. The
+    script, root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}`,
+    `dist`/`node_modules` ignored, unused suppressions fatal), and the CI lint step are
+    guarded by `src/server/test/lint-gate.test.ts`. Do not weaken any of them without
+    updating the guard and this invariant.
 
 ## Extension recipes
 

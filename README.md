@@ -144,18 +144,20 @@ unknown or as an explicit lower bound, never as zero.
 ## Quick start
 
 ```bash
-npm install
+npm ci --include=dev
 npm test
 npm run e2e
 npm run build
 APS_DB=$PWD/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
-The brain's systemd unit exports `NODE_ENV=production`, and agent shells inherit it. npm
-then installs production dependencies only: a plain `npm install` or `npm ci` omits
-`typescript`, `vitest`, and ESLint, so `npm run typecheck` fails with `tsc: not found`. In
-such a shell run `npm ci --include=dev` (or `NODE_ENV=development npm ci`) before the
-commands above.
+The brain's systemd unit exports `NODE_ENV=production`, and agent shells inherit it, so
+a bare `npm install` or `npm ci` installs production dependencies only and
+`npm run typecheck` fails with `tsc: not found`. Use the `npm ci --include=dev` above
+(or `NODE_ENV=development npm ci`); a fresh `npm ci` under the inherited env prunes
+`typescript`, `vite`, `vitest`, and ESLint again, so pass the flag every time. See the
+`AGENTS.md` environment-facts bullet for the sibling failures and the
+`npm config get omit` check.
 
 The brain binds `127.0.0.1:7391` unless `APS_HOST` / `APS_PORT` say otherwise. Do not
 widen the bind. A tunnel is the audience gate, not the process.

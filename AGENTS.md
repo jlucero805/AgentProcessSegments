@@ -93,7 +93,8 @@ digests.
 ## Commands
 
 ```bash
-npm install
+npm ci --include=dev           # keeps devDependencies under an inherited NODE_ENV=production;
+                               # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
 npm test                       # 696 server + 199 web, plus the e2e env guard
@@ -221,10 +222,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.
 - **`NODE_ENV=production` hides devDependencies from npm.** The brain unit exports it and
-  agent shells inherit it, so a bare `npm install`/`npm ci` omits `typescript`, `vitest`,
-  ESLint, and the rest of the devDependencies, and `npm run lint`/`typecheck`/`test` fail
-  with missing binaries. Install with `--include=dev` (or unset `NODE_ENV`) in agent
-  shells.
+  agent shells inherit it, so a bare `npm install` or `npm ci` installs production
+  dependencies only: `typescript`, `vite`, `vitest`, ESLint, and the rest of the
+  devDependencies never land. `npm run typecheck` then fails with `tsc: not found`,
+  `npm test` with `vitest: not found`, `npm run lint` with `eslint: not found`, and
+  `npm run build` cannot find `vite`/`tsc`. Recover with `npm ci --include=dev` (or
+  `NODE_ENV=development npm ci`); a fresh `npm ci` under the inherited env prunes them
+  again, so pass the flag every time. `npm config get omit` printing `dev` confirms the
+  cause. Use `npm install --include=dev` when you are changing the lockfile, not for a
+  fresh checkout.
 - **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
   On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
   `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.

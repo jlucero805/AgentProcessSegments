@@ -289,6 +289,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     message resumes. Stop clears the client queue; normal completion drains it in order.
     Queues live per request under `aps-queue:<id>`; a queue written by the old
     `sbox-queue:<id>` key is adopted once on load, copied to the new key, and removed.
+    A restored queue waits for the `/clarify` snapshot to say whether a turn is live, so
+    a reload mid-turn drains only after that turn's `done`. `POST /clarify/send` refuses
+    with `409 turn_active` while a turn runs; the client requeues the text at the front
+    and reattaches instead of surfacing an error.
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and resolves it so `finishTurn` can save the partial transcript; never
     delete a live turn's maps without resolving its promise. `Engine.discardSession` is

@@ -507,3 +507,258 @@ describe('ClarifyChat queue persistence', () => {
     expect(sendBodies).toHaveLength(1);
   });
 });
+
+describe('ClarifyChat reload during a live turn', () => {
+  function liveResponse(live: ReturnType<typeof controllableStream>): Response {
+    return new Response(live.stream, {
+      status: 200,
+      headers: { 'content-type': 'application/x-ndjson' },
+    });
+  }
+
+  it('holds a persisted queue until the reattached turn ends', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify/stream')) return liveResponse(live);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse([
+            '{"t":"text","text":"queued reply"}\n',
+            doneEvent('queued reply'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-reload', JSON.stringify(['after reload']));
+
+    render(<ClarifyChat requestId="req-reload" started commands={[]} onError={() => {}} />);
+
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(screen.getByText('1 queued')).toBeInTheDocument();
+    expect(sendBodies).toHaveLength(0);
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('first reply')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(sendBodies[0]).toMatchObject({ text: 'after reload' });
+    expect(await screen.findByText('queued reply')).toBeInTheDocument();
+    expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-reload')).toBeNull();
+  });
+
+  it('does not drain before the initial snapshot resolves', async () => {
+    const sendBodies: unknown[] = [];
+    let resolveClarify!: (response: Response) => void;
+    const clarify = new Promise<Response>((resolve) => {
+      resolveClarify = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) return clarify;
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse(['{"t":"text","text":"sent"}\n', doneEvent('sent')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-slow', JSON.stringify(['slow start']));
+
+    render(<ClarifyChat requestId="req-slow" started commands={[]} onError={() => {}} />);
+
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(sendBodies).toHaveLength(0);
+
+    await act(async () => {
+      resolveClarify(jsonResponse({ started: true, active: false, transcript: [] }));
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(sendBodies[0]).toMatchObject({ text: 'slow start' });
+  });
+
+  it('drains a restored queue one message per turn, in order', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify/stream')) return liveResponse(live);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          const body = JSON.parse(String(init?.body)) as { text: string };
+          sendBodies.push(body);
+          return ndjsonResponse([
+            `{"t":"text","text":"reply to ${body.text}"}\n`,
+            doneEvent(`reply to ${body.text}`),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem(
+      'aps-queue:req-order',
+      JSON.stringify(['first queued', 'second queued']),
+    );
+
+    render(<ClarifyChat requestId="req-order" started commands={[]} onError={() => {}} />);
+
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(screen.getByText('2 queued')).toBeInTheDocument();
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('live reply')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(2));
+    expect(sendBodies.map((body) => (body as { text: string }).text)).toEqual([
+      'first queued',
+      'second queued',
+    ]);
+  });
+
+  it('keeps a restored queue when hydration fails and drains after retry', async () => {
+    const sendBodies: unknown[] = [];
+    let clarifyCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          clarifyCalls += 1;
+          return clarifyCalls === 1
+            ? jsonResponse({ error: 'internal', message: 'snapshot failed' }, 500)
+            : jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse(['{"t":"text","text":"sent"}\n', doneEvent('sent')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-fail', JSON.stringify(['held']));
+
+    render(
+      <ClarifyChat
+        requestId="req-fail"
+        started
+        commands={[]}
+        onError={() => {}}
+        inlineErrors
+      />,
+    );
+
+    expect(await screen.findByText('snapshot failed')).toBeInTheDocument();
+    expect(sendBodies).toHaveLength(0);
+    expect(screen.getByText('1 queued')).toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-fail')).toBe(JSON.stringify(['held']));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(sendBodies[0]).toMatchObject({ text: 'held' });
+  });
+
+  it('requeues and reattaches when a send races a live turn', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    let clarifyCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify/stream')) return liveResponse(live);
+        if (url.endsWith('/clarify')) {
+          clarifyCalls += 1;
+          return clarifyCalls === 1
+            ? jsonResponse({ started: true, active: false, transcript: [] })
+            : jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          if (sendBodies.length === 1) {
+            return jsonResponse(
+              { error: 'turn_active', message: 'A turn is already running.' },
+              409,
+            );
+          }
+          return ndjsonResponse([
+            '{"t":"text","text":"delivered"}\n',
+            doneEvent('delivered'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-race', JSON.stringify(['race text']));
+
+    render(
+      <ClarifyChat requestId="req-race" started commands={[]} onError={() => {}} inlineErrors />,
+    );
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-race')).toBe(
+      JSON.stringify(['race text']),
+    );
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('live finished')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(2));
+    expect(sendBodies[1]).toMatchObject({ text: 'race text' });
+    expect(window.localStorage.getItem('aps-queue:req-race')).toBeNull();
+  });
+
+  it('treats a spend-cap 409 as an error instead of requeueing', async () => {
+    const sendBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return jsonResponse({ error: 'spend_cap', message: 'Spend cap reached' }, 409);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-cap', JSON.stringify(['too expensive']));
+
+    render(
+      <ClarifyChat requestId="req-cap" started commands={[]} onError={() => {}} inlineErrors />,
+    );
+
+    expect(await screen.findByText('Spend cap reached')).toBeInTheDocument();
+    expect(sendBodies).toHaveLength(1);
+    expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-cap')).toBeNull();
+  });
+});

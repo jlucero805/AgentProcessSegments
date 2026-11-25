@@ -846,7 +846,10 @@ carried in the `done` event:
   digest box with "Index and finalize". The board's bulk action uses the saved digest;
   use the drawer when a digest needs review or editing.
 - **Chat:** `ClarifyChat` plus `runtime.ts` using `useExternalStoreRuntime`; React owns
-  messages and running state and probes `/clarify/stream` to reattach on mount.
+  messages and running state and probes `/clarify/stream` to reattach on mount. A queue
+  restored from localStorage is drained only after the `/clarify` snapshot says no turn
+  is live; while one is, it waits for `done`, and a `409 turn_active` from
+  `/clarify/send` requeues the text and reattaches.
   `Thread.tsx` holds assistant-ui primitives, markdown, tool cards, and code diffs.
   `Composer.tsx` is a custom input with a `/` slash-command autocomplete from
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.

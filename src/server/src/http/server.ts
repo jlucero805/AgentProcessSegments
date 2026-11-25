@@ -650,6 +650,15 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.post('/api/requests/:id/clarify/send', async (request, reply) => {
     const { id } = request.params as { id: string };
     const { text } = sendSchema.parse(request.body);
+    // A live turn cannot accept another prompt: `Engine.send` would return it
+    // and the text would be dropped. Refuse instead, so the client keeps the
+    // message queued and retries after the running turn ends.
+    if (engine.hasLive(id)) {
+      return reply.code(409).send({
+        error: 'turn_active',
+        message: 'A turn is already running; send this after it finishes.',
+      });
+    }
     return respondTurn(
       reply,
       engine,

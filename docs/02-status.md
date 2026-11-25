@@ -189,6 +189,9 @@ built and vended by the brain; real-CLI verification is still pending.
   Chromium mid-turn and seeing the same turn continue.
 - Chat controls: composing while a turn runs queues the message under the per-request
   `aps-queue:<requestId>` localStorage key and drains in order when the turn ends. A
+  restored queue waits for `GET /clarify` to report whether a turn is live, so a reload
+  mid-turn does not push it into the running turn; `POST /clarify/send` refuses with
+  `409 turn_active` while a turn runs and the client requeues the text. A
   queue left under the pre-rename `sbox-queue:<id>` key is migrated on first load and the
   legacy key is removed. Stop calls `POST /clarify/stop`, kills the child, saves the
   partial transcript, keeps the saved session for the next message, and clears the queue

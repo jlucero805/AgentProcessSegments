@@ -68,6 +68,8 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly issues?: unknown,
+    /** Machine-readable `error` code from the response body, when present. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -102,7 +104,8 @@ async function toApiError(response: Response): Promise<ApiError> {
     issueMessage ||
     (typeof body?.['error'] === 'string' && body['error']) ||
     `${response.status} ${response.statusText}`;
-  return new ApiError(response.status, message, body?.['issues']);
+  const code = typeof body?.['error'] === 'string' ? body['error'] : undefined;
+  return new ApiError(response.status, message, body?.['issues'], code);
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {

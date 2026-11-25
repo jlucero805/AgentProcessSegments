@@ -325,6 +325,13 @@ cancelled, kills the child (SIGTERM then SIGKILL), lets `finishTurn` save the pa
 transcript, and leaves `session.json` alone so the next message resumes. Stop clears the
 queue; the client shows "Stopped. You can interject."
 
+A queue restored from storage is held until `GET /clarify` reports whether a turn is
+live. If one is, the queue waits for that turn's `done` and then drains; if the snapshot
+fails, the queue stays queued and persisted until a later snapshot succeeds. A send that
+races a turn already running is refused by `POST /clarify/send` with
+`409 turn_active`; the client puts the text back at the front of the queue, reattaches,
+and retries after `done` instead of dropping it.
+
 **Cost.** The queue is per browser and not visible to other clients or the server. A stop
 is best-effort: the process can take a moment to die, and the transcript is whatever the
 parser had flushed. Migration is best-effort too: a tab still running the old bundle can

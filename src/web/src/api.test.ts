@@ -203,4 +203,19 @@ describe('api client', () => {
       message: 'bad title',
     });
   });
+
+  it('exposes the machine-readable error code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({ error: 'turn_active', message: 'A turn is already running.' }, 409),
+      ),
+    );
+
+    await expect(streamNdjson('/clarify/send', () => {})).rejects.toMatchObject({
+      status: 409,
+      code: 'turn_active',
+      message: 'A turn is already running.',
+    });
+  });
 });

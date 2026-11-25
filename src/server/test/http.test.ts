@@ -2010,6 +2010,36 @@ describe('http api', () => {
     expect(idle.json()).toEqual({ active: false });
   });
 
+  it('refuses a clarify send while a turn is live', async () => {
+    const { h } = await makeApp({}, () => []);
+    const request = h.repo.create({ title: 'Busy' });
+
+    const turn = await h.engine.start(request.id);
+    const refused = await call('POST', `/api/requests/${request.id}/clarify/send`, {
+      text: 'discarded text',
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'turn_active' });
+
+    h.harness.process?.emit(resultLine());
+    await turn.promise;
+    await settle();
+
+    expect(h.harness.sessions).toHaveLength(1);
+    expect(
+      h.engine.transcript(request.id).some((message) => message.text === 'discarded text'),
+    ).toBe(false);
+
+    const accepted = call('POST', `/api/requests/${request.id}/clarify/send`, {
+      text: 'retry now',
+    });
+    await settle();
+    h.harness.process?.emit(resultLine());
+    const response = await accepted;
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('"t":"done"');
+  });
+
   it('creates cells, renames them, and detaches requests on delete', async () => {
     const { h } = await makeApp();
 

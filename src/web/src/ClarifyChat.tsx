@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, describeError, streamNdjson } from './api';
+import { ApiError, api, describeError, streamNdjson } from './api';
 import {
   appendUser,
   applyEvent,
@@ -115,6 +115,10 @@ export function ClarifyChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [running, setRunning] = useState(false);
   const [queue, setQueue] = useState<string[]>(() => readQueue(queueKey, legacyQueueKey));
+  // Whether the client knows if the server still has a live turn. A queue
+  // restored from storage must not drain until a snapshot or a send proves it.
+  const [synced, setSynced] = useState(false);
+  const syncedRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
@@ -140,6 +144,13 @@ export function ClarifyChat({
   const setBusy = useCallback((value: boolean) => {
     runningRef.current = value;
     setRunning(value);
+  }, []);
+
+  /** Record that the client knows whether a turn is live on the server. */
+  const markSynced = useCallback(() => {
+    if (syncedRef.current) return;
+    syncedRef.current = true;
+    setSynced(true);
   }, []);
 
   const handleEvent = useCallback(
@@ -176,9 +187,14 @@ export function ClarifyChat({
     const controller = new AbortController();
     activeStream.current?.abort();
     activeStream.current = controller;
+    // Do not drain while this snapshot is in flight: a 409 requeue would
+    // otherwise re-send into the same turn before we reattach.
+    syncedRef.current = false;
+    setSynced(false);
     try {
       const state = await api.getClarify(requestId);
       if (controller.signal.aborted) return;
+      markSynced();
       setInlineError(null);
       failedAttempt.current = null;
       setMessages(fromTranscript(state.transcript ?? []));
@@ -200,7 +216,7 @@ export function ClarifyChat({
         setStopping(false);
       }
     }
-  }, [requestId, handleEvent, setBusy]);
+  }, [requestId, handleEvent, setBusy, markSynced]);
 
   useEffect(() => {
     // Always read the snapshot: a live turn can exist even if the request row
@@ -234,8 +250,16 @@ export function ClarifyChat({
         );
         setInlineError(null);
         failedAttempt.current = null;
+        markSynced();
       } catch (error) {
         if (!controller.signal.aborted) {
+          if (error instanceof ApiError && error.status === 409 && error.code === 'turn_active') {
+            // A turn started after our snapshot. Keep the text and reattach so
+            // it drains once that turn ends instead of being dropped server-side.
+            setQueue((current) => [text, ...current]);
+            void hydrate();
+            return;
+          }
           const message = describeError(error);
           // A failure after events were received may already have started the
           // turn on the server; reattach instead of sending the text twice.
@@ -251,7 +275,7 @@ export function ClarifyChat({
         }
       }
     },
-    [requestId, handleEvent, setBusy],
+    [requestId, handleEvent, setBusy, hydrate, markSynced],
   );
 
   const retry = useCallback(() => {
@@ -278,13 +302,17 @@ export function ClarifyChat({
     [started, disabled, sendText],
   );
 
-  // Drain one queued message whenever the previous turn has finished.
+  // Drain one queued message once the server confirms no turn is running.
+  // `synced` is cleared while a snapshot is in flight and after a 409 requeue,
+  // so a restored queue cannot be pushed into a turn we have not reattached to.
   useEffect(() => {
-    if (running || !started || disabled || queue.length === 0) return;
+    if (!synced || !syncedRef.current || running || !started || disabled || queue.length === 0) {
+      return;
+    }
     const [next, ...rest] = queue;
     setQueue(rest);
     void sendText(next);
-  }, [running, started, disabled, queue, sendText]);
+  }, [synced, running, started, disabled, queue, sendText]);
 
   const stop = useCallback(async () => {
     if (!runningRef.current) return;

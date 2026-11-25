@@ -430,6 +430,18 @@ npm run cutover:vps -- --dry-run   # inspect the full plan; changes nothing
 npm run cutover:vps -- --detach --request-id <request-id>
 ```
 
+Options: `--dry-run`, `--detach`, `--request-id ID`, `--home DIR`, `--old-clone DIR`,
+`--new-clone DIR`, `--wait-seconds N`, `--allow-busy`, `--keep-runs N`, `--keep-days D`,
+`--no-prune`, `--help`.
+
+A real cutover also prunes older run directories before it creates the new one and after
+it writes `success`, `failed`, or `rolled-back`. By default it keeps the newest 10 runs
+and anything modified in the last 30 days, plus the current run, the `latest` target, the
+newest successful rollback point, and any non-terminal run inside the pruner's 7-day
+grace window. Use `--keep-runs`/`--keep-days` to tune it, or `--no-prune` to skip both
+passes and keep scheduling `npm run prune:cutover` yourself. The effective flags and the
+`prune-before`/`prune-after` output are recorded in `cutover.log`.
+
 `--detach` copies the script to `~/.aps-cutover/runs/<UTC>/cutover.sh` and launches it
 with `systemd-run --user`. Watch it with:
 
@@ -482,10 +494,11 @@ Notes for similar installs:
 
 ## Prune cutover run directories and backups
 
-Each real cutover leaves a run directory under `~/.aps-cutover/runs/<UTC>/`. Nothing
-removes older runs, and each one is roughly 6 MB on a typical host: `dist/` holds the
-pre-build bundles, `errors.log.before` the old error log, and `backup/systemd/` the
-rollback unit and drop-ins. Prune them with:
+Each real cutover leaves a run directory under `~/.aps-cutover/runs/<UTC>/`. A real
+cutover prunes older runs automatically before it starts and after it finishes; each one
+is roughly 6 MB on a typical host: `dist/` holds the pre-build bundles,
+`errors.log.before` the old error log, and `backup/systemd/` the rollback unit and
+drop-ins. Prune them by hand with:
 
 ```bash
 npm run prune:cutover -- --dry-run   # list what would be removed
@@ -501,8 +514,9 @@ windows. Tune it with `--keep-runs N`, `--keep-days D`, and
 Deleting a run directory also deletes its rollback copy, so inspect
 `~/.aps-cutover/latest/backup` before an aggressive prune.
 
-`deploy/cutover-vps.sh` does not prune for you yet; run the command after a cutover, or
-schedule it weekly:
+A real `deploy/cutover-vps.sh` forwards `--keep-runs`/`--keep-days` to this pruner and
+skips both passes with `--no-prune`. If you opted out, run the command manually after a
+cutover, or schedule it weekly:
 
 ```cron
 17 4 * * 0 cd "$HOME/agent-process-segments" && npm run prune:cutover -- --keep-runs 5 --keep-days 14 >> "$HOME/.aps-cutover/prune.log" 2>&1

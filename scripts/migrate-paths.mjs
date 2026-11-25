@@ -2,11 +2,18 @@
 // One-time move from the legacy Sandbox Harness runtime names to Agent Process
 // Segments. The brain never runs this automatically: moving a live data directory
 // can break git worktree metadata and an open SQLite database, so the script
-// refuses while a known brain unit is active. Use --allow-running only when the
-// operator accepts that risk. Re-running is safe; existing destinations are never
-// overwritten.
+// refuses while a known brain unit is active or a visible process is using the
+// planned paths. Use --allow-running only when the operator accepts that risk.
+// Re-running is safe; existing destinations are never overwritten.
 import { spawnSync } from 'node:child_process';
-import { existsSync, renameSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -16,6 +23,8 @@ const BRAIN_UNITS = [
   { unit: 'sandbox-harness.service', scope: 'user' },
   { unit: 'sandbox-harness.service', scope: 'system' },
 ];
+
+const PROC_ROOT = '/proc';
 
 function usage() {
   return [
@@ -29,7 +38,7 @@ function usage() {
     '',
     'Options:',
     '  --dry-run        Print the planned moves; change nothing.',
-    '  --allow-running  Move even when a brain unit is active (unsafe).',
+    '  --allow-running  Move even when a brain unit or process is using the paths (unsafe).',
     '  --home DIR       Home directory that owns the XDG defaults.',
     '  --cwd DIR        Directory that holds the SQLite database.',
     '  --help           Show this help.',
@@ -118,38 +127,187 @@ function activeBrainUnits() {
   return { active, unavailable };
 }
 
-function checkRunningBrain(options) {
+function resolvedSources(planned) {
+  return planned.map((item) => {
+    let source;
+    try {
+      source = realpathSync(item.from);
+    } catch {
+      source = path.resolve(item.from);
+    }
+    return { ...item, source };
+  });
+}
+
+function withoutDeletedSuffix(target) {
+  const suffix = ' (deleted)';
+  return target.endsWith(suffix) ? target.slice(0, -suffix.length) : target;
+}
+
+function matchesSource(candidate, source) {
+  if (!path.isAbsolute(candidate)) return false;
+  if (source.kind === 'directory') {
+    return candidate === source.source || candidate.startsWith(`${source.source}${path.sep}`);
+  }
+  return candidate === source.source;
+}
+
+function processLabel(pid) {
+  try {
+    return readFileSync(`${PROC_ROOT}/${pid}/comm`, 'utf8').trim() || '?';
+  } catch {
+    return '?';
+  }
+}
+
+/**
+ * Find visible processes that already have one of the planned sources open or
+ * use a planned directory as their cwd. Linux-only: callers fall back to a note
+ * when /proc is unavailable rather than making the migration unusable.
+ */
+function processesUsingSources(planned) {
+  const sources = resolvedSources(planned);
+  const matches = [];
+  const seen = new Set();
+  let unreadable = 0;
+  let entries;
+
+  try {
+    entries = readdirSync(PROC_ROOT);
+  } catch {
+    return { matches, unavailable: true, unreadable: 0 };
+  }
+
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (pid === process.pid) continue;
+
+    const dir = `${PROC_ROOT}/${entry}`;
+    const comm = processLabel(entry);
+    let denied = false;
+    const record = (target, via) => {
+      const candidate = withoutDeletedSuffix(target);
+      for (const source of sources) {
+        if (!matchesSource(candidate, source)) continue;
+        const key = `${pid}:${candidate}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        matches.push({ pid, comm, path: candidate, via });
+        return;
+      }
+    };
+
+    try {
+      record(readlinkSync(`${dir}/cwd`), 'cwd');
+    } catch (error) {
+      if (error?.code === 'EACCES' || error?.code === 'EPERM') denied = true;
+    }
+
+    try {
+      for (const fd of readdirSync(`${dir}/fd`)) {
+        try {
+          record(readlinkSync(`${dir}/fd/${fd}`), 'fd');
+        } catch (error) {
+          if (error?.code === 'EACCES' || error?.code === 'EPERM') denied = true;
+        }
+      }
+    } catch (error) {
+      if (error?.code === 'EACCES' || error?.code === 'EPERM') denied = true;
+    }
+
+    if (denied) unreadable += 1;
+  }
+
+  return { matches, unavailable: false, unreadable };
+}
+
+function processBlocker(match) {
+  return match.via === 'cwd'
+    ? `pid ${match.pid} (${match.comm}) has cwd ${match.path}`
+    : `pid ${match.pid} (${match.comm}) has ${match.path} open`;
+}
+
+function checkRunningBrain(options, planned) {
   const { active, unavailable } = activeBrainUnits();
   if (unavailable) {
     console.error('note: could not query systemd; cannot verify that a brain unit is stopped');
   }
-  if (active.length === 0) return true;
+
+  const {
+    matches,
+    unavailable: procUnavailable,
+    unreadable,
+  } = processesUsingSources(planned);
+  if (procUnavailable) {
+    console.error('note: could not inspect /proc; cannot verify that no process is using the paths');
+  }
+  if (unreadable > 0) {
+    console.error(
+      `note: could not inspect ${unreadable} process(es); a brain owned by another user or hidden by permissions may go undetected`,
+    );
+  }
+
+  if (active.length === 0 && matches.length === 0) return true;
 
   const names = active.map(unitLabel).join(', ');
+
   if (options.dryRun) {
-    if (options.allowRunning) {
-      console.error(
-        `warning: ${names} active; a real run with --allow-running would move files under a live brain`,
-      );
-    } else {
-      console.error(
-        `warning: ${names} active; a real run would refuse. Stop the unit or pass --allow-running.`,
-      );
+    if (active.length > 0) {
+      if (options.allowRunning) {
+        console.error(
+          `warning: ${names} active; a real run with --allow-running would move files under a live brain`,
+        );
+      } else {
+        console.error(
+          `warning: ${names} active; a real run would refuse. Stop the unit or pass --allow-running.`,
+        );
+      }
+    }
+    if (matches.length > 0) {
+      const pids = matches.map((match) => `pid ${match.pid} (${match.comm})`).join(', ');
+      if (options.allowRunning) {
+        console.error(
+          `warning: ${pids} using the planned paths; a real run with --allow-running would move files under a live brain`,
+        );
+      } else {
+        console.error(
+          `warning: ${pids} using the planned paths; a real run would refuse. Stop the process or pass --allow-running.`,
+        );
+      }
     }
     return true;
   }
 
   if (options.allowRunning) {
-    console.error(
-      `warning: ${names} active; moving files under a live brain can corrupt the database, sessions, and worktrees`,
-    );
+    if (active.length > 0) {
+      console.error(
+        `warning: ${names} active; moving files under a live brain can corrupt the database, sessions, and worktrees`,
+      );
+    }
+    if (matches.length > 0) {
+      console.error(
+        `warning: ${matches.length} process(es) using the planned paths; moving files under a live brain can corrupt the database, sessions, and worktrees`,
+      );
+    }
     return true;
   }
 
-  console.error(`refusing to migrate: ${names} active`);
-  console.error('stop the brain unit first:');
-  for (const entry of active) console.error(`  ${stopCommand(entry)}`);
-  console.error('or re-run with --allow-running to move files under a live brain (unsafe).');
+  if (active.length > 0) {
+    console.error(`refusing to migrate: ${names} active`);
+    console.error('stop the brain unit first:');
+    for (const entry of active) console.error(`  ${stopCommand(entry)}`);
+    console.error('or re-run with --allow-running to move files under a live brain (unsafe).');
+  }
+
+  if (matches.length > 0) {
+    console.error(`refusing to migrate: ${matches.length} process(es) using the planned paths`);
+    for (const match of matches) console.error(`  ${processBlocker(match)}`);
+    console.error('stop the foreground brain or the process holding these paths:');
+    for (const pid of new Set(matches.map((match) => match.pid))) console.error(`  kill ${pid}`);
+    console.error('or re-run with --allow-running to move files under a live brain (unsafe).');
+  }
+
   process.exitCode = 1;
   return false;
 }
@@ -188,16 +346,19 @@ function main(argv) {
       label: 'data directory',
       from: path.join(options.home, '.sandbox-harness'),
       to: path.join(options.home, '.agent-process-segments'),
+      kind: 'directory',
     },
     {
       label: 'config directory',
       from: path.join(configHome, 'sandbox-harness'),
       to: path.join(configHome, 'agent-process-segments'),
+      kind: 'directory',
     },
     {
       label: 'state directory',
       from: path.join(stateHome, 'sandbox-harness'),
       to: path.join(stateHome, 'agent-process-segments'),
+      kind: 'directory',
     },
   ];
 
@@ -214,17 +375,17 @@ function main(argv) {
   const dbTo = path.join(options.cwd, 'agent-process-segments.sqlite');
   if (existsSync(dbFrom)) {
     if (existsSync(dbTo)) {
-      skipped.push({ label: 'database', from: dbFrom, to: dbTo });
+      skipped.push({ label: 'database', from: dbFrom, to: dbTo, kind: 'file' });
     } else {
       for (const suffix of ['', '-wal', '-shm']) {
         const from = `${dbFrom}${suffix}`;
         const to = `${dbTo}${suffix}`;
         if (!existsSync(from)) continue;
         if (existsSync(to)) {
-          skipped.push({ label: `database${suffix}`, from, to });
+          skipped.push({ label: `database${suffix}`, from, to, kind: 'file' });
           continue;
         }
-        planned.push({ label: `database${suffix}`, from, to });
+        planned.push({ label: `database${suffix}`, from, to, kind: 'file' });
       }
     }
   }
@@ -238,7 +399,7 @@ function main(argv) {
     return;
   }
 
-  if (!checkRunningBrain(options)) return;
+  if (!checkRunningBrain(options, planned)) return;
 
   if (options.dryRun) {
     for (const item of planned) {

@@ -244,9 +244,13 @@ names the variable in a warning. Values are not trimmed or expanded, so `APS_DB=
 and paths with spaces keep working.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
-`sandbox-harness.service` is active (user or system scope). Stop the unit first;
-`--allow-running` bypasses the guard and can corrupt an open SQLite database. A
-foreground/dev brain or a custom unit name is not detected.
+`sandbox-harness.service` is active (user or system scope), or while a visible process
+still has the legacy data, config, state, or SQLite paths open. On Linux it checks
+`/proc` for open file descriptors and cwds, so a foreground/dev brain or a custom unit
+name is caught when the process is visible. Stop the brain or process first;
+`--allow-running` bypasses both guards and can corrupt an open SQLite database. A brain
+in a separate PID namespace/container, a non-Linux host, or a process hidden by
+permissions is not detected.
 
 To move an existing install to the new names:
 
@@ -496,7 +500,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 916 vitest cases: 706 server cases across 47 files (state machine,
+`npm test` runs 922 vitest cases: 712 server cases across 47 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

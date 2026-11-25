@@ -731,7 +731,11 @@ defaults.
   below. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That
   script refuses to run while `agent-process-segments.service` or
-  `sandbox-harness.service` is active; `--allow-running` is the unsafe override.
+  `sandbox-harness.service` is active or while a visible process still has those paths
+  open; on Linux it checks `/proc` for open file descriptors and cwds.
+  `--allow-running` is the unsafe override. A brain in a separate PID
+  namespace/container, a non-Linux host, or a process hidden by permissions is not
+  detected.
 
 ### Models
 

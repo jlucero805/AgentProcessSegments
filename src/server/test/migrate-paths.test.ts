@@ -1,4 +1,5 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import {
   chmodSync,
   existsSync,
@@ -14,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { legacyPathWarning, loadConfig } from '../src/config.js';
 
 const script = fileURLToPath(new URL('../../../scripts/migrate-paths.mjs', import.meta.url));
+const HOLDER_READY_TIMEOUT_MS = 5000;
 
 interface RunOptions {
   active?: string[];
@@ -71,6 +73,73 @@ function run(
     },
     encoding: 'utf8',
   });
+}
+
+async function waitForHolder(child: ChildProcess): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('holder process did not become ready'));
+    }, HOLDER_READY_TIMEOUT_MS);
+    timer.unref();
+    const onData = (chunk: Buffer | string) => {
+      if (!String(chunk).includes('ready')) return;
+      clearTimeout(timer);
+      child.stdout?.off('data', onData);
+      resolve();
+    };
+    child.stdout?.on('data', onData);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      reject(new Error(`holder process exited early with code ${code}`));
+    });
+  });
+}
+
+async function stopHolder(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit');
+  child.kill('SIGKILL');
+  await exited;
+}
+
+/** Hold a file descriptor open in a separate process until the test stops it. */
+async function holdFile(file: string): Promise<ChildProcess> {
+  const code = [
+    "const fs = require('node:fs');",
+    `fs.openSync(${JSON.stringify(file)}, 'r');`,
+    "process.stdout.write('ready');",
+    'setInterval(() => {}, 1000);',
+  ].join(' ');
+  const child = spawn(process.execPath, ['-e', code], {
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  try {
+    await waitForHolder(child);
+  } catch (error) {
+    child.kill('SIGKILL');
+    throw error;
+  }
+  return child;
+}
+
+/** Start a separate process with a cwd inside the migration source. */
+async function holdCwd(cwd: string): Promise<ChildProcess> {
+  const child = spawn(
+    process.execPath,
+    ['-e', "process.stdout.write('ready'); setInterval(() => {}, 1000);"],
+    { cwd, stdio: ['ignore', 'pipe', 'inherit'] },
+  );
+  try {
+    await waitForHolder(child);
+  } catch (error) {
+    child.kill('SIGKILL');
+    throw error;
+  }
+  return child;
 }
 
 function write(file: string, body = 'x'): void {
@@ -266,6 +335,152 @@ describe('migrate-paths script', () => {
       'shm',
     );
   });
+
+  it.skipIf(process.platform !== 'linux')(
+    'refuses while a process holds the legacy database open',
+    async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const holder = await holdFile(legacy.db);
+
+      try {
+        const result = run(paths);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/pid \d+ \(.+\)/);
+        expect(result.stderr).toContain('sandbox-harness.sqlite open');
+        expect(result.stderr).toContain('--allow-running');
+        expect(existsSync(legacy.data)).toBe(true);
+        expect(existsSync(legacy.config)).toBe(true);
+        expect(existsSync(legacy.state)).toBe(true);
+        expect(existsSync(legacy.db)).toBe(true);
+        expect(existsSync(`${legacy.db}-wal`)).toBe(true);
+        expect(existsSync(`${legacy.db}-shm`)).toBe(true);
+        expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+        expect(existsSync(path.join(paths.cwd, 'agent-process-segments.sqlite'))).toBe(false);
+      } finally {
+        await stopHolder(holder);
+      }
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux')(
+    'refuses while a process cwd is inside the legacy data directory',
+    async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const holder = await holdCwd(legacy.data);
+
+      try {
+        const result = run(paths);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/pid \d+ \(.+\)/);
+        expect(result.stderr).toContain('has cwd');
+        expect(result.stderr).toContain('.sandbox-harness');
+        expect(existsSync(legacy.data)).toBe(true);
+        expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+      } finally {
+        await stopHolder(holder);
+      }
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux')(
+    'refuses while a process holds a file inside the legacy config directory open',
+    async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const holder = await holdFile(path.join(legacy.config, 'config.json'));
+
+      try {
+        const result = run(paths);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/pid \d+ \(.+\)/);
+        expect(result.stderr).toContain('config.json open');
+        expect(existsSync(legacy.config)).toBe(true);
+        expect(existsSync(path.join(paths.configHome, 'agent-process-segments'))).toBe(false);
+      } finally {
+        await stopHolder(holder);
+      }
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux')(
+    'warns but previews in dry-run mode while a process holds a path',
+    async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const holder = await holdFile(legacy.db);
+
+      try {
+        const result = run(paths, ['--dry-run']);
+
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('a real run would refuse');
+        expect(result.stderr).toContain('using the planned paths');
+        expect(result.stdout).toContain('would move data directory');
+        expect(result.stdout).toContain('dry run: no files were changed');
+        expect(existsSync(legacy.db)).toBe(true);
+        expect(existsSync(path.join(paths.cwd, 'agent-process-segments.sqlite'))).toBe(false);
+      } finally {
+        await stopHolder(holder);
+      }
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux')(
+    'moves with --allow-running and warns while a process holds a path',
+    async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const holder = await holdFile(legacy.db);
+
+      try {
+        const result = run(paths, ['--allow-running']);
+
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('can corrupt the database');
+        expect(result.stdout).toContain('migration complete');
+        expect(existsSync(legacy.db)).toBe(false);
+        expect(readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite'), 'utf8')).toBe(
+          'db',
+        );
+        expect(
+          readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite-wal'), 'utf8'),
+        ).toBe('wal');
+        expect(
+          readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite-shm'), 'utf8'),
+        ).toBe('shm');
+      } finally {
+        await stopHolder(holder);
+      }
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux')(
+    'reports nothing to migrate when a process holds a path but every move is skipped',
+    async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      write(path.join(paths.home, '.agent-process-segments', 'keep.txt'), 'new');
+      write(path.join(paths.configHome, 'agent-process-segments', 'keep.txt'), 'new');
+      write(path.join(paths.stateHome, 'agent-process-segments', 'keep.txt'), 'new');
+      write(path.join(paths.cwd, 'agent-process-segments.sqlite'), 'new');
+      const holder = await holdFile(legacy.db);
+
+      try {
+        const result = run(paths);
+
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain('nothing to migrate');
+        expect(result.stderr).not.toContain('refusing to migrate');
+      } finally {
+        await stopHolder(holder);
+      }
+    },
+  );
 
   it('still reports nothing to migrate when a unit is active but there is no legacy data', () => {
     const paths = workspace();

@@ -344,7 +344,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 907 vitest cases, all passing: 704 server across 47 files and 203 web across 24 files,
+- 908 vitest cases, all passing: 705 server across 47 files and 203 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -397,15 +397,18 @@ built and vended by the brain; real-CLI verification is still pending.
 - `better-sqlite3` is v11, not the spec's v9 pin. The rebuild targeted Node 22.7, where
   v9 has no prebuilt binary; this host runs Node 24, where v11 compiles from source and
   needs `make`, `g++`, and `python3`.
-- `@fastify/static` v8, `@fastify/websocket` v11, Fastify v5. The spec named the
-  plugins, not versions.
+- `@fastify/static` v10, `@fastify/websocket` v11, Fastify v5, zod v4. The spec named the
+  plugins, not versions. Static v10 clears the path-traversal route-guard advisories;
+  zod 4 clears the oversized-collection memory advisory and needed only the `ZodType`
+  generic update in `settings.ts`.
 - HTTP tests use a real listening socket instead of `app.inject()`. On Node 22.7,
   `light-my-request` does `require()` of an ESM-only `cookie` v2 and throws. That is a
   test-harness incompatibility, not a production path: `listen()` works.
-- The SPA pins `@assistant-ui/react` 0.10 (the `useExternalStoreRuntime` era) with
-  React 18, as the spec names. The registry now ships 0.15, which moved the primitives.
-  Tailwind stays v3, with PostCSS and autoprefixer wired through `postcss.config.js`.
-  Vite 8 and Vitest 5 run in the web workspace; the server keeps Vitest 2.
+- The SPA uses `@assistant-ui/react` 0.15.38 (the `useExternalStoreRuntime` era) with
+  React 18, as the spec names. The 0.15 line still supports the external-store API and
+  clears the transitive `nanoid` advisories. Tailwind stays v3, with PostCSS and
+  autoprefixer wired through `postcss.config.js`. Vite 8 and Vitest 5 run in the web
+  workspace; the server keeps Vitest 2.
 - The OpenCode adapter runs one process per turn instead of one long-lived child: the
   CLI is one-shot per message. `--session` carries continuity, `--standalone` isolates
   each turn's config, `--archived` keeps brain sessions out of the user's list, and

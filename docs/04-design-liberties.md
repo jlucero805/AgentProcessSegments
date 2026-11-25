@@ -103,13 +103,13 @@ stays a template until that scope is granted.
 
 ## 8. SPA dependency pins
 
-**Chosen.** React 18 with `@assistant-ui/react` 0.10 and Tailwind 3; Vite 8 and Vitest 5
-for the web workspace, Vitest 2 on the server.
+**Chosen.** React 18 with `@assistant-ui/react` 0.15.38 and Tailwind 3; Vite 8 and
+Vitest 5 for the web workspace, Vitest 2 on the server.
 
-**Alternative.** The current assistant-ui 0.15 line and React 19.
+**Alternative.** React 19.
 
-**Why.** The spec names the external-store API and React 18; the 0.10 line matches it.
-**Review note.** Upgrading assistant-ui later is a primitives migration.
+**Why.** The spec names the external-store API and React 18, and 0.15.38 still supports
+both while clearing the vulnerable `nanoid` range that 0.10 pulled in.
 
 ## 9. Cell masters are deterministic and marker-based
 

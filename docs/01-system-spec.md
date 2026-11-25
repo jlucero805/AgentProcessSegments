@@ -898,7 +898,7 @@ carried in the `done` event:
 ```bash
 npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
-npm run typecheck           # tsc --noEmit for both
+npm run typecheck           # tsc --noEmit for server and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
 npm run lint                # eslint over src + JS tooling; bash -n over deploy scripts
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js

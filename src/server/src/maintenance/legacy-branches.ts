@@ -21,11 +21,13 @@ export type MigrationAction =
   | 'rename'
   | 'delete-contained'
   | 'repair-db'
+  | 'prune-orphan'
   | 'skip-inflight'
   | 'skip-checked-out'
   | 'skip-diverged'
   | 'skip-missing'
   | 'skip-orphan'
+  | 'skip-orphan-checked-out'
   | 'skip-no-repo'
   | 'error';
 
@@ -37,12 +39,18 @@ export interface MigrationEntry {
   action: MigrationAction;
   /** True only when this run mutated a ref. `repair-db` never does. */
   applied: boolean;
+  /** Local rescue ref holding an orphan's tip after `prune-orphan`. */
+  backupRef?: string;
   detail?: string;
 }
 
 export interface MigrateRepoInput {
   repoPath: string;
   rows: LegacyBranchRow[];
+  /** Every request id in the database, not just this repo's legacy candidates. */
+  knownRequestIds?: readonly string[];
+  /** Opt-in orphan pruning; default false keeps today's report-only behavior. */
+  pruneOrphans?: boolean;
   apply: boolean;
   git?: GitRunner;
 }
@@ -53,6 +61,11 @@ export const ROW_MIGRATION_ACTIONS: readonly MigrationAction[] = [
   'delete-contained',
   'repair-db',
 ];
+
+/** Results that delete a ref without touching a request row. */
+export const PRUNE_ACTIONS: readonly MigrationAction[] = ['prune-orphan'];
+
+const ZERO_SHA = '0000000000000000000000000000000000000000';
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await exec('git', ['-C', cwd, ...args], {
@@ -98,6 +111,29 @@ async function refExists(git: GitRunner, repo: string, branch: string): Promise<
   }
 }
 
+/**
+ * Create a local rescue ref for an orphan tip. The name embeds the SHA, so an
+ * existing ref is only acceptable when it already points at the same commit.
+ */
+async function archiveOrphan(
+  git: GitRunner,
+  repo: string,
+  backupRef: string,
+  sha: string,
+): Promise<void> {
+  let existing: string | null = null;
+  try {
+    existing = await git(repo, ['rev-parse', '--verify', '--quiet', backupRef]);
+  } catch {
+    existing = null;
+  }
+  if (existing === sha) return;
+  if (existing !== null) {
+    throw new Error(`backup ref ${backupRef} already points at ${existing}`);
+  }
+  await git(repo, ['update-ref', backupRef, sha, ZERO_SHA]);
+}
+
 /** True when `ancestor` is reachable from `descendant`; rethrows real git failures. */
 async function isAncestor(
   git: GitRunner,
@@ -141,12 +177,13 @@ function entry(
 /**
  * Decide (and optionally apply) the disposition of every legacy branch in one
  * checkout. One failing branch never stops the others; failures surface as
- * `error` entries. Orphan `sbox/*` refs are reported and never touched.
+ * `error` entries. Orphan `sbox/*` refs are reported, and only pruned when
+ * `pruneOrphans` is set; their tips are archived first.
  */
 export async function migrateRepo(input: MigrateRepoInput): Promise<MigrationEntry[]> {
   const git = input.git ?? runGit;
   const repo = path.resolve(input.repoPath);
-  const knownIds = new Set(input.rows.map((row) => row.id));
+  const knownIds = new Set(input.knownRequestIds ?? input.rows.map((row) => row.id));
   const candidates = input.rows.filter((row) => row.branch === legacyBranchName(row.id));
 
   let inside = false;
@@ -234,21 +271,55 @@ export async function migrateRepo(input: MigrateRepoInput): Promise<MigrationEnt
   try {
     const listed = await git(repo, [
       'for-each-ref',
-      '--format=%(refname:short)',
+      '--format=%(refname)',
       'refs/heads/sbox/',
     ]);
-    for (const ref of listed.split('\n').map((line) => line.trim())) {
-      if (!ref.startsWith('sbox/')) continue;
-      const id = ref.slice('sbox/'.length);
-      if (knownIds.has(id)) continue;
-      entries.push({
+    for (const fullRef of listed.split('\n').map((line) => line.trim())) {
+      if (!fullRef.startsWith('refs/heads/sbox/')) continue;
+      const branch = fullRef.slice('refs/heads/'.length);
+      const suffix = branch.slice('sbox/'.length);
+      if (knownIds.has(suffix)) continue;
+
+      const entryBase = {
         requestId: null,
         repo,
-        legacyBranch: ref,
+        legacyBranch: branch,
         canonicalBranch: null,
-        action: 'skip-orphan',
-        applied: false,
-      });
+      } as const;
+
+      if (!input.pruneOrphans) {
+        entries.push({ ...entryBase, action: 'skip-orphan', applied: false });
+        continue;
+      }
+
+      if (checkedOut.has(branch)) {
+        entries.push({ ...entryBase, action: 'skip-orphan-checked-out', applied: false });
+        continue;
+      }
+
+      let backupRef: string | undefined;
+      try {
+        const tip = await git(repo, ['rev-parse', `refs/heads/${branch}`]);
+        backupRef = `refs/sbox-pruned/${suffix}-${tip}`;
+        if (input.apply) {
+          await archiveOrphan(git, repo, backupRef, tip);
+          await git(repo, ['update-ref', '-d', `refs/heads/${branch}`, tip]);
+        }
+        entries.push({
+          ...entryBase,
+          action: 'prune-orphan',
+          applied: input.apply,
+          backupRef,
+        });
+      } catch (error) {
+        entries.push({
+          ...entryBase,
+          action: 'error',
+          applied: false,
+          ...(backupRef === undefined ? {} : { backupRef }),
+          detail: message(error),
+        });
+      }
     }
   } catch {
     // Orphan reporting is informational; a repo without the ref namespace is fine.

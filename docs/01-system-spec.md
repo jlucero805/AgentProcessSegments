@@ -720,7 +720,9 @@ defaults.
   terminal transitions. `retention.requestArtifactsDays` later sweeps leftover checkouts
   for terminal or row-less requests; it never touches a non-terminal request and keeps
   the branch. Once a request is terminal, `npm run migrate:branches` retires its legacy
-  `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`).
+  `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`). The same command
+  reports orphan `sbox/*` refs with no request row, and with `--prune-orphans` archives
+  their tips under `refs/sbox-pruned/` before deleting the branch.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
   (`mcp-config.json` or `opencode/opencode.json`). The `requests/` parent and each

@@ -114,7 +114,8 @@ node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built 
                                # (--allow-missing-puppeteer skips deliberately)
 node scripts/clean-test-tmp.mjs  # dry-run: stale test temp dirs; --apply to delete
 npm run migrate:paths           # move legacy paths; refuses while a brain unit or process is using them
-npm run migrate:branches        # migrate finished sbox/* worktree branches (dry run first)
+npm run migrate:branches        # migrate finished sbox/* worktree branches (dry run first;
+                                # --prune-orphans retires refs with no request row)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
 npm run upgrade:vps -- --dry-run  # pull + rebuild + restart; --detach inside the brain
 # on a VPS, the brain runs as a systemd user unit:
@@ -270,7 +271,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 7. **Terminal transitions dispose.** `done` and `dropped` must call `engine.dispose(id)`,
    which kills the child and removes the worktree but keeps the branch. Legacy
    `sbox/<id>` branches are retired only by `npm run migrate:branches`, never by the
-   engine.
+   engine. Orphan `sbox/*` refs require `--prune-orphans`, are archived under
+   `refs/sbox-pruned/` before deletion, and are never touched while checked out.
 8. **Plugins contribute skills and commands only.** `install` strips `hooks`,
    `mcpServers`, `hooks/`, and `.mcp.json`. Never re-add them.
 9. **Guards at the boundary.** zod validates HTTP and MCP input. Repositories trust

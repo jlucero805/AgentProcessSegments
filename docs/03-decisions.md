@@ -93,8 +93,10 @@ them. `npm run migrate:branches` does that: dry run by default, `--apply` rename
 legacy ref, deletes it only when it is already contained in `aps/<id>`, and rewrites the
 terminal request's stored branch without touching `updated_at` (which would reorder
 history and reset the master's idle clock). Non-terminal requests, checked-out branches,
-and diverged pairs are always skipped; orphan `sbox/*` refs are reported but never
-deleted. A human resolves a diverged pair because committing to either disposition could
+and diverged pairs are always skipped. Orphan `sbox/*` refs are reported but kept by
+default; `--prune-orphans` archives their tips under `refs/sbox-pruned/` and then deletes
+the branch, and a ref whose id still has any request row is never treated as an orphan.
+A human resolves a diverged pair because committing to either disposition could
 lose work.
 
 ## D8. The user turn is pushed into the parser's transcript

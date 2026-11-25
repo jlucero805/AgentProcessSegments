@@ -270,14 +270,22 @@ until the request finishes; once nothing is in flight, retire them with:
 npm run build                       # the command runs from dist
 npm run migrate:branches -- --dry-run
 npm run migrate:branches -- --apply
+# optional: also retire orphan refs that have no request row
+npm run migrate:branches -- --prune-orphans --dry-run
+npm run migrate:branches -- --apply --prune-orphans
 ```
 
 The command renames a lone `sbox/<id>` to `aps/<id>`, deletes the legacy ref when it is
 already contained in `aps/<id>`, and repairs a stored branch whose legacy ref is gone.
 It never touches a branch for a request that is not `done`/`dropped`, a branch checked
 out in any worktree, or a diverged `sbox`/`aps` pair (those are reported for manual
-review). Orphan `sbox/*` refs with no request row are report-only. Pass `--repo DIR` to
-limit the run and `--db FILE` to point at a non-default database.
+review). Orphan `sbox/*` refs with no request row are reported but kept by default; add
+`--prune-orphans` to retire them. With `--apply`, the orphan tip is first archived as
+`refs/sbox-pruned/<suffix>-<sha>`, then the branch is deleted, so no commits are lost.
+Checked-out orphans are skipped, and a ref is orphaned only when its id has no request
+row at all. List backups with `git for-each-ref refs/sbox-pruned/` and restore one with
+`git branch <name> <ref>`. Pass `--repo DIR` to limit the run and `--db FILE` to point
+at a non-default database.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if

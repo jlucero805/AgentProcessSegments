@@ -9,7 +9,9 @@
   "scripts": {
     "build": "npm run build --workspace src/web && npm run build --workspace src/server",
     "typecheck": "npm run typecheck --workspace src/server && npm run typecheck --workspace src/web",
-    "lint": "eslint src --max-warnings=0",
+    "lint": "npm run --silent lint:js && npm run --silent lint:sh",
+    "lint:js": "eslint . --max-warnings=0",
+    "lint:sh": "for f in deploy/*.sh scripts/*.sh; do bash -n \"$f\" || exit 1; done",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",
     "test:e2e-env": "node --test scripts/e2e/env.test.mjs scripts/e2e/claude-bin.test.mjs scripts/e2e/puppeteer.test.mjs scripts/screenshots.test.mjs",
     "e2e": "npm run build && node scripts/e2e.mjs",
@@ -23,9 +25,11 @@
     "smoke:claude": "node scripts/claude-mock-smoke.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "concurrently": "^10.0.7",
     "eslint": "^10.15.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
     "typescript-eslint": "^8.73.0"
   }
 }

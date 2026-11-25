@@ -341,7 +341,6 @@ async function stopBrain() {
   });
 }
 
-let requestId = null;
 try {
   brain = startBrain();
   await waitFor(
@@ -359,7 +358,7 @@ try {
     title: 'Claude mock verification',
     body: 'The mock API drives a tool call and a reply.',
   });
-  requestId = request.id;
+  const requestId = request.id;
 
   const first = await stream(`/api/requests/${requestId}/clarify/start`);
   const firstText = first.filter((event) => event.t === 'text').map((event) => event.text).join('');

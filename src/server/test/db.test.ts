@@ -34,6 +34,7 @@ describe('db migrations', () => {
     expect(tables).toContain('usage_events');
     expect(tables).toContain('usage_daily');
     expect(tables).toContain('usage_rollup_state');
+    expect(tables).toContain('usage_prune_state');
     expect(tables).toContain('budget_alerts');
     expect(tables).toContain('budget_alert_deliveries');
     expect(tables).toContain('notification_event_deliveries');
@@ -113,11 +114,13 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_requests_state');
     expect(indexes).toContain('idx_cell_summaries_cell_created');
     expect(indexes).toContain('idx_cell_summaries_created');
-    expect(
-      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+    const tables = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
-      }>).map((row) => row.name),
-    ).toContain('cell_summaries');
+      }>
+    ).map((row) => row.name);
+    expect(tables).toContain('cell_summaries');
+    expect(tables).toContain('usage_prune_state');
     expect(indexes).toContain('idx_usage_events_created');
     expect(indexes).toContain('idx_usage_events_cell_created');
     expect(indexes).toContain('idx_usage_events_request_created');

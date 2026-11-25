@@ -516,10 +516,10 @@ routing, delivery history, and spend-cap overrides, budget banner, master detail
 scorecard, the usage page and formatters, and the app shell with the drawer and chat
 mounted under jsdom).
 
-Those totals are collected Vitest cases, so skipped cases count: the server number is
-695 passed plus 1 skipped. When a case or test file is added or removed, refresh all
-five numbers from `vitest list --json` in `src/server` and `src/web`; the totals are
-quoted identically in this file, `AGENTS.md`, and `docs/02-status.md`, and
+Those totals are collected Vitest cases, so skipped cases still count toward them.
+When a case or test file is added or removed, refresh all five numbers from
+`vitest list --json` in `src/server` and `src/web`; the totals are quoted identically in
+this file, `AGENTS.md`, and `docs/02-status.md`, and
 `src/server/test/doc-counts.test.ts` fails when they drift apart.
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the

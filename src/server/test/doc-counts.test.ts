@@ -10,7 +10,7 @@ import { walkFiles } from '../src/util/files.js';
 // quotes the same five numbers, the total adds up, and the quoted file counts match
 // the test files on disk. Case counts are refreshed by hand in the commit that
 // changes them; verify with `vitest list --json` in `src/server` and `src/web`
-// (collected cases include skipped ones, so 696 server is 695 passed + 1 skipped).
+// (collected cases include skipped ones).
 
 const repo = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 

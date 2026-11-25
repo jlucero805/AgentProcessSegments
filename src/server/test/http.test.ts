@@ -2669,6 +2669,27 @@ describe('http api', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('does not escape webDir via encoded traversal paths', async () => {
+    const dir = tmpDir('web');
+    mkdirSync(path.join(dir, 'assets'));
+    writeFileSync(path.join(dir, 'index.html'), '<!doctype html><body>spa-index</body>');
+    writeFileSync(path.join(dir, '..', 'outside-web-dir.txt'), 'outside-web-dir-sentinel');
+    await makeApp({ webDir: dir });
+
+    for (const url of [
+      '/../outside-web-dir.txt',
+      '/%2e%2e/outside-web-dir.txt',
+      '/assets/..%2f..%2foutside-web-dir.txt',
+      '/assets/%2e%2e/%2e%2e/outside-web-dir.txt',
+      '/assets/..%5c..%5coutside-web-dir.txt',
+    ]) {
+      const response = await call('GET', url);
+      // The only safe outcome is that the sentinel never leaves webDir; a rejected
+      // static path may surface as 403/404, the SPA fallback, or the app's generic 500.
+      expect(response.text).not.toContain('outside-web-dir-sentinel');
+    }
+  });
+
   it('streams a clarify turn as NDJSON over a real socket', async () => {
     const { h } = await makeApp();
     const request = h.repo.create({ title: 'Stream me' });

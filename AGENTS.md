@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 907 vitest cases: 704 server across 47 files and 203 web across 24 files, all green.
+- 916 vitest cases: 706 server across 47 files and 210 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -97,7 +97,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 704 server + 203 web, plus the e2e env guard
+npm test                       # 706 server + 210 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)

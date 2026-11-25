@@ -20,10 +20,12 @@ The data model and SQL are unchanged either way.
 **Context.** The spec names `fastify`, `@fastify/static`, and `@fastify/websocket` but no
 versions.
 
-**Decision.** Fastify 5, static v8, websocket v11.
+**Decision.** Fastify 5, static v10, websocket v11.
 
 **Cost.** Route code is written against v5 types. A v4 deployment would need the error
-handler and websocket registration revisited.
+handler and websocket registration revisited. Static v10 is the first major that clears
+the path-traversal and route-guard advisories; the `root` plus `sendFile` usage here is
+unchanged.
 
 ## D3. An `AgentHarness` seam instead of calling `spawn` from the engine
 
@@ -172,20 +174,18 @@ process exits on SIGTERM.
 **Cost.** An in-flight NDJSON turn is cut at shutdown rather than drained. Shutdown is
 already the end of service, and the transcript on disk is what survives.
 
-## D14. The SPA pins assistant-ui 0.10 and React 18
+## D14. The SPA uses assistant-ui 0.15.38 with React 18
 
-**Context.** The spec names React 18 and `useExternalStoreRuntime`. The registry now
-ships `@assistant-ui/react` 0.15, whose primitives and runtime helpers moved, and React
-19 is current.
+**Context.** The spec names React 18 and `useExternalStoreRuntime`. An earlier pass
+pinned the 0.10 line while 0.15 was new. The 0.10 line also pulled a vulnerable
+`nanoid` range; 0.15.38 resolves `nanoid` 6.
 
-**Decision.** Pin the 0.10 line of `@assistant-ui/react` with React 18 so the spec's
-external-store model is exactly what the code uses. Keep Tailwind v3 with PostCSS and
-autoprefixer; Vite 8 and Vitest 5 run in the web workspace while the server keeps
-Vitest 2.
+**Decision.** Use `@assistant-ui/react` 0.15.38 with React 18. The external-store
+runtime and primitives used by `runtime.ts` and `Thread.tsx` still compile and the web
+suite passes, and 0.15 ships zod 4. Keep Tailwind v3 with PostCSS and autoprefixer;
+Vite 8 and Vitest 5 run in the web workspace while the server keeps Vitest 2.
 
-**Cost.** Two Vitest majors live in the repo, and a later assistant-ui upgrade will be
-a primitives migration. In exchange the chat code matches the contract the spec
-describes and the server tests are untouched.
+**Cost.** Two Vitest majors live in the repo. React 19 remains deferred.
 
 ## D15. A systemd user unit on the VPS
 

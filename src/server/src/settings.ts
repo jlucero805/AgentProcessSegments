@@ -105,7 +105,7 @@ const retentionSchema = z.object({
   requestArtifactsDays: z.number().int().min(0).max(MAX_REQUEST_ARTIFACTS_RETENTION_DAYS),
 }) satisfies z.ZodType<RetentionSettings>;
 
-const webhookSchema: z.ZodType<WebhookSettings, z.ZodTypeDef, unknown> = z
+const webhookSchema: z.ZodType<WebhookSettings, unknown> = z
   .object({
     enabled: z.boolean().default(false),
     url: z.string().max(2048).nullable().default(null),
@@ -128,7 +128,7 @@ const webhookSchema: z.ZodType<WebhookSettings, z.ZodTypeDef, unknown> = z
     }
   });
 
-const emailSchema: z.ZodType<EmailSettings, z.ZodTypeDef, unknown> = z
+const emailSchema: z.ZodType<EmailSettings, unknown> = z
   .object({
     enabled: z.boolean().default(false),
     host: z.string().max(253).nullable().default(null),
@@ -200,7 +200,7 @@ const chatRouteSchema = z.object({
 
 function chatProviderSchema(
   provider: ChatProvider,
-): z.ZodType<ChatSettings, z.ZodTypeDef, unknown> {
+): z.ZodType<ChatSettings, unknown> {
   return z
     .object({
       enabled: z.boolean().default(false),
@@ -295,16 +295,12 @@ function chatProviderSchema(
     });
 }
 
-const eventChannelSchema: z.ZodType<
-  EventChannelSettings,
-  z.ZodTypeDef,
-  unknown
-> = z.object({
+const eventChannelSchema: z.ZodType<EventChannelSettings, unknown> = z.object({
   webhook: z.boolean().default(false),
   email: z.boolean().default(false),
 });
 
-const eventsSchema: z.ZodType<EventNotificationSettings, z.ZodTypeDef, unknown> = z.object({
+const eventsSchema: z.ZodType<EventNotificationSettings, unknown> = z.object({
   failedTurns: eventChannelSchema.default(() => ({
     ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns,
   })),
@@ -313,7 +309,7 @@ const eventsSchema: z.ZodType<EventNotificationSettings, z.ZodTypeDef, unknown> 
   })),
 });
 
-const notificationsSchema: z.ZodType<NotificationsSettings, z.ZodTypeDef, unknown> = z.object({
+const notificationsSchema: z.ZodType<NotificationsSettings, unknown> = z.object({
   webhook: webhookSchema.default(() => ({ ...DEFAULT_NOTIFICATIONS.webhook })),
   email: emailSchema,
   slack: chatProviderSchema('slack').default(() => structuredClone(DEFAULT_CHAT_SETTINGS)),
@@ -331,7 +327,7 @@ const webhookPatchSchema = z.object({
   secret: z.string().min(16).max(256).nullable().optional(),
 });
 
-const emailPatchSchema: z.ZodType<Partial<EmailSettings>, z.ZodTypeDef, unknown> = z.object({
+const emailPatchSchema: z.ZodType<Partial<EmailSettings>, unknown> = z.object({
   enabled: z.boolean().optional(),
   host: z.string().max(253).nullable().optional(),
   port: z.number().int().min(1).max(65535).optional(),
@@ -342,7 +338,7 @@ const emailPatchSchema: z.ZodType<Partial<EmailSettings>, z.ZodTypeDef, unknown>
   to: z.array(z.string().max(MAX_EMAIL_ADDRESS_LENGTH)).max(MAX_EMAIL_RECIPIENTS).optional(),
 });
 
-const chatPatchSchema: z.ZodType<Partial<ChatSettings>, z.ZodTypeDef, unknown> = z.object({
+const chatPatchSchema: z.ZodType<Partial<ChatSettings>, unknown> = z.object({
   enabled: z.boolean().optional(),
   botToken: z
     .string()

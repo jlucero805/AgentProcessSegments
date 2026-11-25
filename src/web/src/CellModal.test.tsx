@@ -386,4 +386,73 @@ describe('CellModal', () => {
     expect(patched).not.toBeNull();
     expect(patched).toMatchObject({ autocompactPercent: 80 });
   });
+
+  it('resets the form and starts a fresh draft when reopened', async () => {
+    const cell: CellDetail = {
+      id: 'c1',
+      name: 'Alpha',
+      masterEnabled: true,
+      masterIntervalMinutes: 7,
+      maxConcurrent: 3,
+      harness: null,
+      model: null,
+      effort: null,
+      monthlyBudgetUsd: null,
+      pauseOnExceeded: false,
+      pauseOnUnknownCost: false,
+      autocompactPercent: 80,
+      process: baseProcess(),
+      createdAt: 1,
+    };
+    const draftPuts: string[] = [];
+    const draftDeletes: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/cells/c1') return jsonResponse(cell);
+        if (url.startsWith('/api/cell-drafts/') && init?.method === 'PUT') {
+          draftPuts.push(url);
+          return jsonResponse({ id: 'draft-1', name: 'Draft' });
+        }
+        if (url.startsWith('/api/cell-drafts/') && init?.method === 'DELETE') {
+          draftDeletes.push(url);
+          return jsonResponse({ ok: true });
+        }
+        return jsonResponse({});
+      }),
+    );
+
+    const view = (open: boolean) => (
+      <CellModal
+        open={open}
+        cell={cell}
+        commands={[]}
+        onClose={() => {}}
+        onSaved={() => {}}
+        onError={() => {}}
+      />
+    );
+    const { rerender } = render(view(true));
+
+    const name = await screen.findByDisplayValue('Alpha');
+    fireEvent.change(name, { target: { value: 'Edited' } });
+    expect(screen.getByDisplayValue('Edited')).toBeInTheDocument();
+    await waitFor(() => expect(draftPuts.length).toBeGreaterThan(0), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const firstDraft = draftPuts[0];
+
+    rerender(view(false));
+    await waitFor(() => expect(draftDeletes).toEqual([firstDraft]), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    rerender(view(true));
+    expect(await screen.findByDisplayValue('Alpha')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Edited')).toBeNull();
+    await waitFor(() => expect(draftPuts.some((url) => url !== firstDraft)).toBe(true), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+  }, CELL_MODAL_TEST_TIMEOUT_MS);
 });

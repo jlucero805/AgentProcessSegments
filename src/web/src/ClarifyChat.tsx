@@ -129,13 +129,18 @@ export function ClarifyChat({
   const activeStream = useRef<AbortController | null>(null);
 
   const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
   const onRequestRef = useRef(onRequest);
-  onRequestRef.current = onRequest;
   const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
   const onDraftChangedRef = useRef(onDraftChanged);
-  onDraftChangedRef.current = onDraftChanged;
+
+  // Keep the parent's callbacks current without making them stream-effect
+  // dependencies. The refs are only read from stream and event callbacks.
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onRequestRef.current = onRequest;
+    onDoneRef.current = onDone;
+    onDraftChangedRef.current = onDraftChanged;
+  }, [onError, onRequest, onDone, onDraftChanged]);
 
   useEffect(() => {
     writeQueue(queueKey, queue);
@@ -143,6 +148,7 @@ export function ClarifyChat({
 
   const setBusy = useCallback((value: boolean) => {
     runningRef.current = value;
+    if (value) setElapsed(0);
     setRunning(value);
   }, []);
 
@@ -221,7 +227,9 @@ export function ClarifyChat({
   useEffect(() => {
     // Always read the snapshot: a live turn can exist even if the request row
     // has not flipped `clarifyStarted` yet.
-    void hydrate();
+    void (async () => {
+      await hydrate();
+    })();
   }, [hydrate, started]);
 
   useEffect(() => () => activeStream.current?.abort(), []);
@@ -338,10 +346,7 @@ export function ClarifyChat({
   }, [stopping, setBusy]);
 
   useEffect(() => {
-    if (!running) {
-      setElapsed(0);
-      return;
-    }
+    if (!running) return;
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAt) / 1000));

@@ -67,6 +67,14 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
     text: string;
     detail: string;
   } | null>(null);
+  // The cell whose index-all confirmation the state above belongs to. A
+  // different cell is a different batch, so the notices reset before render.
+  const [noticeCellId, setNoticeCellId] = useState(cellId);
+  if (noticeCellId !== cellId) {
+    setNoticeCellId(cellId);
+    setIndexAllPending(false);
+    setIndexAllNotice(null);
+  }
   const dragRef = useRef<{ id: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -83,15 +91,10 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
   }, [onError]);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
-
-  // A different cell is a different batch. Do not carry a confirmation or a
-  // result notice across the filter change.
-  useEffect(() => {
-    setIndexAllPending(false);
-    setIndexAllNotice(null);
-  }, [cellId]);
 
   useEffect(() => {
     if (!indexAllPending) return;

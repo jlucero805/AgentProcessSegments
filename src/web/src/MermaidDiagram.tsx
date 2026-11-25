@@ -14,20 +14,24 @@ type RenderState =
 export function MermaidDiagram({ source }: MermaidDiagramProps) {
   const reactId = useId();
   const renderId = `help-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
-  const [state, setState] = useState<RenderState>({ status: 'loading' });
+  // Stamped with its source so a new diagram renders as loading until the
+  // async render replaces it, without resetting the state in an effect.
+  const [rendered, setRendered] = useState<{ source: string; state: RenderState } | null>(null);
+
+  const state: RenderState =
+    rendered?.source === source ? rendered.state : { status: 'loading' };
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: 'loading' });
 
     void (async () => {
       try {
         const mermaid = await loadMermaid();
         if (cancelled) return;
         const { svg } = await mermaid.render(renderId, source);
-        if (!cancelled) setState({ status: 'ready', svg });
+        if (!cancelled) setRendered({ source, state: { status: 'ready', svg } });
       } catch {
-        if (!cancelled) setState({ status: 'error' });
+        if (!cancelled) setRendered({ source, state: { status: 'error' } });
       }
     })();
 

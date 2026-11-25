@@ -28,6 +28,36 @@ describe('CreateModal', () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it('starts with an empty form after it is closed and reopened', () => {
+    const { rerender } = render(
+      <CreateModal open onClose={() => {}} cellId={null} onCreated={() => {}} onError={() => {}} />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('What should the agent do?'), {
+      target: { value: 'Draft title' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('/path/to/repo or git URL'), {
+      target: { value: '/tmp/draft' },
+    });
+
+    rerender(
+      <CreateModal
+        open={false}
+        onClose={() => {}}
+        cellId={null}
+        onCreated={() => {}}
+        onError={() => {}}
+      />,
+    );
+    expect(screen.queryByPlaceholderText('What should the agent do?')).toBeNull();
+
+    rerender(
+      <CreateModal open onClose={() => {}} cellId={null} onCreated={() => {}} onError={() => {}} />,
+    );
+    expect(screen.getByPlaceholderText('What should the agent do?')).toHaveValue('');
+    expect(screen.getByPlaceholderText('/path/to/repo or git URL')).toHaveValue('');
+  });
+
   it('refuses an empty title without calling the API', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

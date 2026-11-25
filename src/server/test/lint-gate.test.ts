@@ -46,8 +46,10 @@ describe('zero-warning lint gate', () => {
     expect(eslintConfig).toContain("'**/node_modules/**'");
     expect(eslintConfig).toContain("reportUnusedDisableDirectives: 'error'");
     expect(eslintConfig).toContain("'@typescript-eslint/no-explicit-any': 'warn'");
-    expect(eslintConfig).toContain("'react-hooks/rules-of-hooks': 'error'");
-    expect(eslintConfig).toContain("'react-hooks/exhaustive-deps': 'warn'");
+    expect(eslintConfig).toContain(
+      "extends: [reactHooks.configs.flat['recommended-latest']]",
+    );
+    expect(eslintConfig).not.toContain("'react-hooks/rules-of-hooks': 'error'");
   });
 
   it('runs the gate in CI before typecheck', () => {

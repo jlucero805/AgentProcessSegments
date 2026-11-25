@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 922 vitest cases: 712 server across 47 files and 210 web across 24 files, all green.
+- 924 vitest cases: 712 server across 47 files and 212 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -97,7 +97,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 712 server + 210 web, plus the e2e env guard
+npm test                       # 712 server + 212 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -552,6 +552,12 @@ by mutating the global file.
 - Tests assert behavior a client can observe, not internal calls, except MCP where the
   HTTP request is the behavior.
 - Commit each green unit. Message shape: `type(scope): subject`.
+- `src/web/src` is linted with the `react-hooks` `recommended-latest` preset, and
+  `--max-warnings=0` makes it fatal. Keep synchronous `setState` out of effect bodies:
+  call a loader inside an async closure (`void (async () => { await load(); })()`) and
+  never write state before its first `await`; reset state from a changed prop with the
+  guarded render-phase adjustment (`if (seen !== prop) { setSeen(prop); ... }`) instead
+  of an effect. Do not add a suppression to dodge these rules.
 - Update `docs/02-status.md` in the same commit that changes what is built.
 - The suite totals in `AGENTS.md`, `README.md`, and `docs/02-status.md` (cases, files,
   total) are guarded by `test/doc-counts.test.ts`; update all three and the `npm test`

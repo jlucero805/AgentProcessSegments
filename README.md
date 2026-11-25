@@ -500,7 +500,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 922 vitest cases: 712 server cases across 47 files (state machine,
+`npm test` runs 924 vitest cases: 712 server cases across 47 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -514,7 +514,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 210 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 212 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot
@@ -540,7 +540,8 @@ an hour, and add `--apply` to delete them.
 
 `npm run lint` runs ESLint 10 from one flat config (`eslint.config.mjs`) over the
 TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.opencode`
-plugin sources when present, with the classic React hook rules for the SPA. It also runs
+plugin sources when present, with the `react-hooks` `recommended-latest` preset for the
+SPA. It also runs
 `bash -n` over `deploy/*.sh` and `scripts/smoke.sh`, and fails on any warning. The shell
 check needs `bash`, which the deploy runbooks already require.
 

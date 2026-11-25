@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { api, describeError } from './api';
 import { Button, Field, Input, Modal, Spinner, Textarea } from './ui';
 
@@ -15,13 +15,16 @@ export function CreateModal({ open, onClose, cellId, onCreated, onError }: Creat
   const [body, setBody] = useState('');
   const [targetRepo, setTargetRepo] = useState('');
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) return;
-    setTitle('');
-    setBody('');
-    setTargetRepo('');
-  }, [open]);
+  // Clear the fields on the open→closed edge so the next open starts empty.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) {
+      setTitle('');
+      setBody('');
+      setTargetRepo('');
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();

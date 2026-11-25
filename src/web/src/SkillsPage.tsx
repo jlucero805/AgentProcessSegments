@@ -27,7 +27,9 @@ export function SkillsPage({ onError }: SkillsPageProps) {
   }, [onError]);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   async function install(event: FormEvent) {

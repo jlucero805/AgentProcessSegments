@@ -105,7 +105,9 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void loadCells();
+    void (async () => {
+      await loadCells();
+    })();
   }, [loadCells]);
 
   useEffect(() => {

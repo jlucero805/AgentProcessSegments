@@ -325,7 +325,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   }, [onError]);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   useEffect(() => {

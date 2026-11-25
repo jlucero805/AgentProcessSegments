@@ -93,7 +93,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   }, [id, onError]);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   const loadUsage = useCallback(async () => {
@@ -106,7 +108,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   }, [id]);
 
   useEffect(() => {
-    void loadUsage();
+    void (async () => {
+      await loadUsage();
+    })();
   }, [loadUsage]);
 
   useEffect(() => {

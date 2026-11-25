@@ -45,6 +45,9 @@ export function SpendOverrideControl({
 }) {
   const [minutes, setMinutes] = useState(60);
   const [working, setWorking] = useState(false);
+  // A mount-scoped clock: the rest-of-period option is recomputed only when the
+  // control remounts, and the server clamps an override to the period end.
+  const [now] = useState(() => Date.now());
 
   if (!paused) return null;
 
@@ -54,7 +57,7 @@ export function SpendOverrideControl({
       MAX_MINUTES,
       periodEnd === undefined
         ? MAX_MINUTES
-        : Math.ceil((periodEnd - Date.now()) / 60_000),
+        : Math.ceil((periodEnd - now) / 60_000),
     ),
   );
   const options = [

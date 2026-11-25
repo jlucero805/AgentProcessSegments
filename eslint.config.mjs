@@ -58,11 +58,10 @@ export default tseslint.config(
     },
   },
   {
+    // The compiler-backed preset: the classic hook rules plus the React
+    // correctness rules (set-state-in-effect, refs, purity, ...). Effects keep
+    // synchronous state writes out of their bodies; see AGENTS.md.
     files: ['src/web/src/**/*.{ts,tsx}'],
-    plugins: { 'react-hooks': reactHooks },
-    rules: {
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
-    },
+    extends: [reactHooks.configs.flat['recommended-latest']],
   },
 );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api, describeError } from './api';
 import {
   MAX_CHAT_LABEL_LENGTH,
@@ -71,8 +71,11 @@ export function ChatDeliveryCard({
   const [saved, setSaved] = useState(false);
   const [testingChannel, setTestingChannel] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
-
-  useEffect(() => {
+  // Re-seed the editable form when the saved settings object changes. This is a
+  // guarded render-phase adjustment, so the form never depends on an effect.
+  const [syncedSettings, setSyncedSettings] = useState(settings);
+  if (syncedSettings !== settings) {
+    setSyncedSettings(settings);
     setEnabled(settings.enabled);
     setToken('');
     setClearToken(false);
@@ -80,7 +83,7 @@ export function ChatDeliveryCard({
     setDefaultChannelId(settings.defaultChannelId ?? '');
     setRoutes(settings.routes.map((route) => ({ ...route })));
     setTestResults({});
-  }, [settings]);
+  }
 
   const hasToken = !clearToken && (token.trim() !== '' || settings.botTokenSet);
   const channels = destinations

@@ -548,7 +548,6 @@ export function UsagePage({
   }, [onError]);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const query = rangeQuery(range);
       const result = await api.getUsage({
@@ -564,7 +563,9 @@ export function UsagePage({
   }, [cellId, onError, range]);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   return (
@@ -585,7 +586,11 @@ export function UsagePage({
               <button
                 key={option.key}
                 type="button"
-                onClick={() => setRange(option.key)}
+                onClick={() => {
+                  if (option.key === range) return;
+                  setLoading(true);
+                  setRange(option.key);
+                }}
                 className={
                   range === option.key
                     ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
@@ -599,7 +604,11 @@ export function UsagePage({
           <Select
             aria-label="Filter usage by cell"
             value={cellId}
-            onChange={(event) => setCellId(event.target.value)}
+            onChange={(event) => {
+              if (event.target.value === cellId) return;
+              setLoading(true);
+              setCellId(event.target.value);
+            }}
           >
             <option value="">All cells</option>
             {cells.map((cell) => (

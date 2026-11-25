@@ -40,19 +40,32 @@ function pageTitle(state: LoadState, pages: DocPage[], slug: string): string {
 export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
   const [pages, setPages] = useState<DocPage[]>([]);
   const [manifest, setManifest] = useState<LoadState>('loading');
-  const [doc, setDoc] = useState<DocContent | null>(null);
-  const [page, setPage] = useState<LoadState>('loading');
+  // The article view is stamped with its slug so a page change shows the
+  // loading state until the new markdown arrives, without resetting in an effect.
+  const [view, setView] = useState<{ slug: string; state: LoadState; doc: DocContent | null }>({
+    slug,
+    state: 'loading',
+    doc: null,
+  });
   const [navOpen, setNavOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  // Escape and the focus trap read the latest close handler from the ref.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  const current = view.slug === slug ? view : null;
+  const page: LoadState = current?.state ?? 'loading';
+  const doc = current?.doc ?? null;
+  const copied = copiedSlug === slug;
 
   useEffect(() => {
     let cancelled = false;
-    setManifest('loading');
     api
       .getDocs()
       .then(({ pages: next }) => {
@@ -70,19 +83,19 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setDoc(null);
-    setPage('loading');
-    setCopied(false);
     api
       .getDoc(slug)
       .then((content) => {
         if (cancelled) return;
-        setDoc(content);
-        setPage('ready');
+        setView({ slug, state: 'ready', doc: content });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setPage(error instanceof ApiError && error.status === 404 ? 'missing' : 'error');
+        setView({
+          slug,
+          state: error instanceof ApiError && error.status === 404 ? 'missing' : 'error',
+          doc: null,
+        });
       });
     return () => {
       cancelled = true;
@@ -128,10 +141,10 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
   }, []);
 
   useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1500);
+    if (copiedSlug === null) return;
+    const timer = window.setTimeout(() => setCopiedSlug(null), 1500);
     return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [copiedSlug]);
 
   const groups = useMemo(() => groupDocs(pages), [pages]);
   const headings = useMemo(() => extractHeadings(doc?.markdown ?? ''), [doc?.markdown]);
@@ -140,9 +153,9 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
     if (!doc) return;
     try {
       await navigator.clipboard?.writeText(doc.markdown);
-      setCopied(true);
+      setCopiedSlug(slug);
     } catch {
-      setCopied(false);
+      setCopiedSlug(null);
     }
   };
 

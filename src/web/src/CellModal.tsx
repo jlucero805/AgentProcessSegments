@@ -38,23 +38,39 @@ type DraftStatus = 'idle' | 'syncing' | 'ready' | 'error';
  * global default. This is where an operator decides what the cell's master should
  * push toward before the cell has any requests.
  */
-export function CellModal({ open, cell, commands, onClose, onSaved, onError }: CellModalProps) {
-  const [name, setName] = useState('');
-  const [interval, setInterval] = useState('');
-  const [maxConcurrent, setMaxConcurrent] = useState('3');
-  const [harness, setHarness] = useState<HarnessId | ''>('');
-  const [monthlyBudget, setMonthlyBudget] = useState('');
-  const [pauseOnExceeded, setPauseOnExceeded] = useState(false);
-  const [pauseOnUnknownCost, setPauseOnUnknownCost] = useState(false);
-  const [model, setModel] = useState('');
-  const [effort, setEffort] = useState<Effort | ''>('');
-  const [autocompactPercent, setAutocompactPercent] = useState('80');
+export function CellModal(props: CellModalProps) {
+  if (!props.open) return null;
+  // The editor owns the draft's lifetime: closing unmounts it, the effect
+  // cleanup stops the setup chat and deletes the draft, and the next open mounts
+  // a fresh editor whose initial state comes straight from `cell`.
+  return <CellModalEditor key={props.cell?.id ?? 'new'} {...props} />;
+}
+
+function CellModalEditor({ open, cell, commands, onClose, onSaved, onError }: CellModalProps) {
+  const [name, setName] = useState(cell?.name ?? '');
+  const [interval, setInterval] = useState(
+    cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '',
+  );
+  const [maxConcurrent, setMaxConcurrent] = useState(String(cell?.maxConcurrent ?? 3));
+  const [harness, setHarness] = useState<HarnessId | ''>(cell?.harness ?? '');
+  const [monthlyBudget, setMonthlyBudget] = useState(
+    cell?.monthlyBudgetUsd === null || cell?.monthlyBudgetUsd === undefined
+      ? ''
+      : String(cell.monthlyBudgetUsd),
+  );
+  const [pauseOnExceeded, setPauseOnExceeded] = useState(cell?.pauseOnExceeded ?? false);
+  const [pauseOnUnknownCost, setPauseOnUnknownCost] = useState(cell?.pauseOnUnknownCost ?? false);
+  const [model, setModel] = useState(cell?.model ?? '');
+  const [effort, setEffort] = useState<Effort | ''>(cell?.effort ?? '');
+  const [autocompactPercent, setAutocompactPercent] = useState(
+    String(cell?.autocompactPercent ?? 80),
+  );
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
   const [supportsEffort, setSupportsEffort] = useState(true);
-  const [process, setProcess] = useState<ProcessConfig | null>(null);
-  const [draftId, setDraftId] = useState<string | null>(null);
-  const [setupId, setSetupId] = useState<string | null>(null);
+  const [process, setProcess] = useState<ProcessConfig | null>(cell?.process ?? null);
+  const [draftId] = useState(() => crypto.randomUUID());
+  const [setupId] = useState(() => setupSessionId(draftId));
   const [draftStatus, setDraftStatus] = useState<DraftStatus>('idle');
   const [draftError, setDraftError] = useState<string | null>(null);
   const [syncAttempt, setSyncAttempt] = useState(0);
@@ -62,7 +78,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
   const draftReadyRef = useRef(false);
   const loadingProcessRef = useRef(true);
   const onErrorRef = useRef(onError);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // The draft sync below must not depend on the parent's callback identity: an
@@ -73,39 +89,12 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
 
   const key = cell?.id ?? 'new';
 
+  // Always refresh the policy for an existing cell. The caller may hold a
+  // snapshot from before another screen saved the cell, and the bug report was
+  // exactly that: the editor showed the global defaults instead of the cell's
+  // current policy.
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
-    const newDraftId = crypto.randomUUID();
-    const draftSetupId = setupSessionId(newDraftId);
-    setDraftId(newDraftId);
-    setSetupId(draftSetupId);
-    setDraftStatus('idle');
-    setDraftError(null);
-    setSyncAttempt(0);
-    setName(cell?.name ?? '');
-    setInterval(cell?.masterIntervalMinutes ? String(cell.masterIntervalMinutes) : '');
-    setMaxConcurrent(String(cell?.maxConcurrent ?? 3));
-    setHarness(cell?.harness ?? '');
-    setMonthlyBudget(
-      cell?.monthlyBudgetUsd === null || cell?.monthlyBudgetUsd === undefined
-        ? ''
-        : String(cell.monthlyBudgetUsd),
-    );
-    setPauseOnExceeded(cell?.pauseOnExceeded ?? false);
-    setPauseOnUnknownCost(cell?.pauseOnUnknownCost ?? false);
-    setModel(cell?.model ?? '');
-    setEffort(cell?.effort ?? '');
-    setAutocompactPercent(String(cell?.autocompactPercent ?? 80));
-    setProcess(cell?.process ?? null);
-    // Always refresh the policy for an existing cell. The caller may hold a
-    // snapshot from before another screen saved the cell, and the bug report
-    // was exactly that: the editor showed the global defaults instead of the
-    // cell's current policy.
-    loadingProcessRef.current = true;
-    setLoading(true);
-    setSaving(false);
-
     const loadProcess = async () => {
       try {
         if (cell) {
@@ -123,7 +112,7 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
         // If the refresh fails, an existing cell still has the snapshot passed
         // by the caller to fall back to. Only surface the error when there is
         // nothing else to edit.
-        if (!cancelled && !cell?.process) onError(describeError(error));
+        if (!cancelled && !cell?.process) onErrorRef.current(describeError(error));
       } finally {
         if (!cancelled) {
           loadingProcessRef.current = false;
@@ -135,10 +124,10 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
 
     return () => {
       cancelled = true;
-      void api.stopClarify(draftSetupId).catch(() => {});
-      void api.deleteCellDraft(newDraftId).catch(() => {});
+      void api.stopClarify(setupId).catch(() => {});
+      void api.deleteCellDraft(draftId).catch(() => {});
     };
-  }, [open, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draftId, setupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Models and effort capability follow the selected harness. The change
   // handler clears a stale model/effort before this fetch resolves.
@@ -193,9 +182,8 @@ export function CellModal({ open, cell, commands, onClose, onSaved, onError }: C
     const concurrency = Number(maxConcurrent);
     const compact = Number(autocompactPercent);
 
-    setDraftStatus((current) => (current === 'ready' ? current : 'syncing'));
-
     const timer = window.setTimeout(() => {
+      setDraftStatus((current) => (current === 'ready' ? current : 'syncing'));
       const timeout = new Promise<never>((_, reject) => {
         timeoutTimer = window.setTimeout(
           () =>

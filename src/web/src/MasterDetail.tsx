@@ -103,7 +103,9 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   }, [cellId, onError]);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   // Keep the live view current while the drawer is open.

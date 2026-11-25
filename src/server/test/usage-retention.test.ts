@@ -3,6 +3,8 @@ import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../src/db.js';
 import { SettingsStore } from '../src/settings.js';
+import { readUsagePruneState } from '../src/usage/prune-state.js';
+import { UsageRepository } from '../src/usage/repository.js';
 import { UsageRetention } from '../src/usage/retention.js';
 import { UsageRollups } from '../src/usage/rollups.js';
 
@@ -90,6 +92,85 @@ describe('UsageRetention', () => {
     expect(ids(db)).toEqual(['old']);
     expect(daily(db)).toEqual([]);
     expect(watermark(db)).toBe(0);
+    expect(readUsagePruneState(db)).toEqual({ ranAt: NOW, deletedRows: 0 });
+  });
+
+  it('reports no pass before the first run', () => {
+    const db = makeUsageDb();
+
+    expect(readUsagePruneState(db)).toBeNull();
+    expect(new UsageRepository(db).lastPrune()).toBeNull();
+  });
+
+  it('records the pass time and deleted count, and the latest pass wins', async () => {
+    const db = makeUsageDb();
+    seed(db, [{ id: 'old', createdAt: NOW - 100 * DAY }]);
+    const retention = new UsageRetention({ db, settings: makeStore(90), now: () => NOW });
+
+    await retention.runOnce();
+
+    expect(readUsagePruneState(db)).toEqual({ ranAt: NOW, deletedRows: 1 });
+    // A new repository instance reads the persisted row, not instance memory.
+    expect(new UsageRepository(db).lastPrune()).toEqual({ ranAt: NOW, deletedRows: 1 });
+
+    await retention.runOnce(NOW + DAY);
+
+    expect(readUsagePruneState(db)).toEqual({ ranAt: NOW + DAY, deletedRows: 0 });
+  });
+
+  it('records once when a caller joins the in-flight pass', async () => {
+    const db = makeUsageDb();
+    seedOld(db, 2500);
+    let stateWrites = 0;
+    const counting = {
+      prepare(sql: string) {
+        if (sql.includes('INSERT INTO usage_prune_state')) stateWrites += 1;
+        return db.prepare(sql);
+      },
+    } as unknown as Db;
+    const retention = new UsageRetention({
+      db: counting,
+      settings: makeStore(90),
+      now: () => NOW,
+      rollups: new UsageRollups(db),
+    });
+
+    const first = retention.runOnce();
+    const second = retention.runOnce();
+    expect(second).toBe(first);
+
+    await Promise.all([first, second]);
+    expect(stateWrites).toBe(1);
+    expect(readUsagePruneState(db)).toEqual({ ranAt: NOW, deletedRows: 2500 });
+  });
+
+  it('logs and survives a failed prune-state write', async () => {
+    const db = makeUsageDb();
+    seed(db, [{ id: 'old', createdAt: NOW - 100 * DAY }]);
+    const guarded = {
+      prepare(sql: string) {
+        if (sql.includes('INSERT INTO usage_prune_state')) {
+          throw new Error('database is busy');
+        }
+        return db.prepare(sql);
+      },
+    } as unknown as Db;
+    const errors = { error: vi.fn() };
+    const retention = new UsageRetention({
+      db: guarded,
+      settings: makeStore(90),
+      errors,
+      now: () => NOW,
+      rollups: new UsageRollups(db),
+    });
+
+    await expect(retention.runOnce()).resolves.toMatchObject({ deleted: 1 });
+    expect(ids(db)).toEqual([]);
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith('usage.prune_state', expect.any(Error), {
+      ranAt: NOW,
+      deletedRows: 1,
+    });
   });
 
   it('drains a backlog larger than one batch after one rollup chunk', async () => {

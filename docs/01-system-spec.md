@@ -462,6 +462,11 @@ nothing; a failed delete leaves the watermark and daily rows committed, so the n
 retries. Lowering the window prunes more; raising it cannot restore raw detail that was
 already rolled up and deleted.
 
+Every completed pass records its reference time and deleted-row count in
+`usage_prune_state`, including a disabled window (`0`), a missing ledger, and a pass that
+deleted nothing. A failed rollup or delete still records the pass with the count the job
+observed, so the timestamp answers "is the job running" rather than "did it succeed".
+
 ### `usage_daily`
 
 `day_start` (UTC midnight epoch ms), `scope`, `cell_id`, `request_id`, `model` (empty
@@ -479,12 +484,22 @@ boundary are authoritative; `usage_daily` rows before it are authoritative. Quer
 union of the two sources, so retention cannot double count or lose history. The state row
 starts at `0` and only moves forward.
 
-`GET /api/usage` reports `coverage.rolledThrough` (null before the first rollup) and
-`coverage.retentionDays` (the current `usage.retentionDays`, read per request) so the SPA
-can say which part of history is daily and how far back raw turns are kept without a
-second settings request. A rolled-up day that overlaps a requested
-`from`/`to` is included in full; day-aligned ranges such as all-time and UTC budget months
-are exact. Hourly buckets read raw rows only; totals still include daily rows.
+### `usage_prune_state`
+
+Singleton row `id = 1`, `last_run_at` (epoch ms of the most recent completed retention
+pass) and `last_deleted_rows` (raw rows that pass deleted). There is no seed row: absence
+means no pass has completed yet. Each completed pass replaces the row in place; there is
+no run history or cumulative total. The row survives restarts, so the Usage page can show
+that retention is running even before the next hourly tick.
+
+`GET /api/usage` reports `coverage.rolledThrough` (null before the first rollup),
+`coverage.retentionDays` (the current `usage.retentionDays`, read per request), and
+`coverage.lastPrune` (`{ranAt, deletedRows}`, or null before the first pass) so the SPA
+can say which part of history is daily, how far back raw turns are kept, and when
+retention last ran without a second settings request. A rolled-up day that overlaps a
+requested `from`/`to` is included in full; day-aligned ranges such as all-time and UTC
+budget months are exact. Hourly buckets read raw rows only; totals still include daily
+rows.
 
 ### `model_pricing`
 
@@ -609,7 +624,9 @@ object per line.
   `coverage.rolledThrough` is the exclusive raw/daily boundary, or null before the first
   rollup. `coverage.retentionDays` is the current raw retention window (`0` keeps raw
   turns forever) and is read per request, so the dashboard's coverage note never depends
-  on a config fetch. Bounds are epoch milliseconds (`from` inclusive, `to` exclusive);
+  on a config fetch. `coverage.lastPrune` is the persisted most recent pass
+  (`{ranAt, deletedRows}`, null before the first one) and is read per request from
+  `usage_prune_state`. Bounds are epoch milliseconds (`from` inclusive, `to` exclusive);
   raw rows are one millisecond wide and daily rows one UTC day, so a range overlapping a
   rolled day includes that day in full. Series buckets are UTC-aligned and zero-filled
   when both bounds are supplied; hourly series read raw rows only. A bounded request over

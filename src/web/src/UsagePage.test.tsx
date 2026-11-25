@@ -381,15 +381,81 @@ describe('UsagePage', () => {
         'Raw usage is kept for 90 days; older turns are pruned. All-time totals cover the retained window.',
       ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Retention last ran/)).not.toBeInTheDocument();
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(urls.some((url) => url === '/api/config')).toBe(false);
+  });
+
+  it('shows when retention last ran and how many rows it pruned', async () => {
+    const base = makeUsageResponse();
+    installFetch({
+      ...base,
+      coverage: {
+        rolledThrough: null,
+        retentionDays: 90,
+        lastPrune: { ranAt: Date.UTC(2026, 0, 2, 3, 4), deletedRows: 1204 },
+      },
+    });
+    renderUsage();
+
+    expect(await screen.findByText(/Raw usage is kept for 90 days/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Retention last ran .+ UTC and pruned 1,204 rows\./),
+    ).toBeInTheDocument();
+  });
+
+  it('uses the singular row label for one pruned row', async () => {
+    const base = makeUsageResponse();
+    installFetch({
+      ...base,
+      coverage: {
+        rolledThrough: null,
+        retentionDays: 90,
+        lastPrune: { ranAt: Date.UTC(2026, 0, 2, 3, 4), deletedRows: 1 },
+      },
+    });
+    renderUsage();
+
+    expect(await screen.findByText(/and pruned 1 row\./)).toBeInTheDocument();
+    expect(screen.queryByText(/and pruned 1 rows\./)).not.toBeInTheDocument();
+  });
+
+  it('reports a pass that pruned nothing', async () => {
+    const base = makeUsageResponse();
+    installFetch({
+      ...base,
+      coverage: {
+        rolledThrough: null,
+        retentionDays: 90,
+        lastPrune: { ranAt: Date.UTC(2026, 0, 2, 3, 4), deletedRows: 0 },
+      },
+    });
+    renderUsage();
+
+    expect(await screen.findByText(/and pruned 0 rows\./)).toBeInTheDocument();
+  });
+
+  it('hides the run evidence when retention is disabled', async () => {
+    const base = makeUsageResponse();
+    installFetch({
+      ...base,
+      coverage: {
+        rolledThrough: null,
+        retentionDays: 0,
+        lastPrune: { ranAt: Date.UTC(2026, 0, 2, 3, 4), deletedRows: 12 },
+      },
+    });
+    renderUsage();
+
+    expect(await screen.findByText('Usage history is kept indefinitely.')).toBeInTheDocument();
+    expect(screen.queryByText(/Retention last ran/)).not.toBeInTheDocument();
   });
 
   it('shows daily rollup coverage and finite retention', async () => {
     const base = makeUsageResponse();
     installFetch({
       ...base,
-      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 90 },
+      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 90, lastPrune: null },
     });
     renderUsage();
 
@@ -401,7 +467,7 @@ describe('UsagePage', () => {
     const base = makeUsageResponse();
     installFetch({
       ...base,
-      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0 },
+      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0, lastPrune: null },
     });
     renderUsage();
 
@@ -413,7 +479,7 @@ describe('UsagePage', () => {
     const base = makeUsageResponse();
     const fetchMock = installFetch({
       ...base,
-      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0 },
+      coverage: { rolledThrough: Date.UTC(2026, 0, 1), retentionDays: 0, lastPrune: null },
     });
     renderUsage();
 
@@ -426,7 +492,7 @@ describe('UsagePage', () => {
   it('says history is kept indefinitely when retention is disabled', async () => {
     installFetch({
       ...makeUsageResponse(),
-      coverage: { rolledThrough: null, retentionDays: 0 },
+      coverage: { rolledThrough: null, retentionDays: 0, lastPrune: null },
     });
     renderUsage();
 

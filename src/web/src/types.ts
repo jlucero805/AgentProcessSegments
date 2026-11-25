@@ -124,6 +124,7 @@ export type {
   UsageCoverage,
   UsageFilter,
   UsageGroup,
+  UsagePruneSummary,
   UsageResponse,
   UsageTotals,
 } from '../../server/src/usage/types';

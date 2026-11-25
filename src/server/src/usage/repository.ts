@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
+import { readUsagePruneState } from './prune-state.js';
 import {
   GROUP_ORDER_BY,
   USAGE_AGGREGATE,
@@ -14,6 +15,7 @@ import {
   type UsageEventInput,
   type UsageFilter,
   type UsageGroup,
+  type UsagePruneSummary,
   type UsageResponse,
   type UsageTotals,
 } from './types.js';
@@ -91,9 +93,10 @@ function bucket(row: BucketRow): UsageBucketRow {
 }
 
 /**
- * Query output before the HTTP boundary attaches settings-derived coverage.
- * Lets the repository stay free of the settings store while `UsageResponse`
- * exposes the full contract to the SPA.
+ * Query output before the HTTP boundary attaches coverage that comes from
+ * outside a single query: the settings-derived retention window and the
+ * persisted last-retention-pass summary. Lets the repository stay free of the
+ * settings store while `UsageResponse` exposes the full contract to the SPA.
  */
 export type UsageQueryResult = Omit<UsageResponse, 'coverage'> & {
   coverage: Pick<UsageCoverage, 'rolledThrough'>;
@@ -235,6 +238,11 @@ export class UsageRepository {
       byRequest: requestRows.map(group),
       coverage: { rolledThrough: includeDaily ? rawSince : null },
     };
+  }
+
+  /** Most recent completed retention pass, or null before the first one. */
+  lastPrune(): UsagePruneSummary | null {
+    return readUsagePruneState(this.db);
   }
 
   /** Exclusive boundary between daily rollups and raw rows; 0 means none. */

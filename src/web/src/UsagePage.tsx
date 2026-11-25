@@ -55,11 +55,12 @@ function rangeQuery(range: RangeKey): {
 }
 
 /**
- * Explain how much history is raw versus daily, and how far back raw rows are
- * kept. The coverage rides on the usage payload so a config outage cannot
- * hide the retention window.
+ * Explain how much history is raw versus daily, how far back raw rows are
+ * kept, and when the retention job last ran. The coverage rides on the usage
+ * payload so a config outage cannot hide the retention window.
  */
-function coverageNote({ rolledThrough, retentionDays }: UsageCoverage): string {
+function coverageNote({ rolledThrough, retentionDays, lastPrune }: UsageCoverage): string {
+  let base: string;
   if (rolledThrough !== null) {
     const day = new Date(rolledThrough).toLocaleDateString(undefined, {
       month: 'short',
@@ -67,15 +68,35 @@ function coverageNote({ rolledThrough, retentionDays }: UsageCoverage): string {
       year: 'numeric',
       timeZone: 'UTC',
     });
-    return retentionDays === 0
-      ? `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. All raw turns are kept indefinitely.`
-      : `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. Raw retention is ${retentionDays} days.`;
+    base =
+      retentionDays === 0
+        ? `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. All raw turns are kept indefinitely.`
+        : `Daily totals preserve history before ${day}; raw turns are kept from ${day} onward. Raw retention is ${retentionDays} days.`;
+  } else {
+    base =
+      retentionDays === 0
+        ? 'Usage history is kept indefinitely.'
+        : `Raw usage is kept for ${retentionDays} days; older turns are pruned. All-time totals cover the retained window.`;
   }
-  return retentionDays === 0
-    ? 'Usage history is kept indefinitely.'
-    : `Raw usage is kept for ${retentionDays} days; older turns are pruned. All-time totals cover the retained window.`;
+
+  // Nothing is pruned when retention is disabled, and there is no evidence to
+  // report before the first pass completes.
+  if (retentionDays === 0 || lastPrune === null) return base;
+  const when = new Date(lastPrune.ranAt).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  });
+  const rows = count.format(lastPrune.deletedRows);
+  return `${base} Retention last ran ${when} UTC and pruned ${rows} ${
+    lastPrune.deletedRows === 1 ? 'row' : 'rows'
+  }.`;
 }
 
+const count = new Intl.NumberFormat('en-US');
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
 function moneyLabel(value: number): string {

@@ -303,7 +303,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `usage_rollup_state` watermark, then deletes raw rows before the UTC-day-aligned cutoff
   in 1000-row batches. Queries merge daily and raw rows around the watermark, so all-time
   totals and monthly budgets survive pruning. It records `usage.rollup`/`usage.prune`
-  failures, joins overlapping runs, and stops during shutdown.
+  failures, joins overlapping runs, and stops during shutdown. Every completed pass
+  persists its reference time and deleted-row count in `usage_prune_state`; `/api/usage`
+  and the Usage page report the latest pass so operators can see the job is running.
 - Master activity retention: `retention.masterEventsDays` (default 90, `0` keeps activity
   forever) is edited on its own Config card and stored in `config.json`. A startup + hourly
   job deletes `master_events` older than the window in 1000-row batches. Activity is not
@@ -342,7 +344,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 895 vitest cases, all passing: 696 server across 46 files and 199 web across 24 files,
+- 907 vitest cases, all passing: 704 server across 47 files and 203 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

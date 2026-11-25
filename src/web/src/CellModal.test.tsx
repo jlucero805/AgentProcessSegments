@@ -4,6 +4,13 @@ import { CellModal } from './CellModal';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
 import type { CellDetail } from './types';
 
+// The modal debounces its draft sync by 300 ms and its own save can reject or
+// time out after 5 s. Testing Library's 1 s query default and Vitest's 5 s case
+// default leave too little slack when the host runs several suites or a build in
+// parallel, so give these cases and their queries room while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const CELL_MODAL_TEST_TIMEOUT_MS = 30_000;
+
 describe('CellModal', () => {
   const baseProcess = () => {
     const process = makeProcessResponse();
@@ -80,12 +87,19 @@ describe('CellModal', () => {
       <CellModal open cell={null} commands={[]} onClose={() => {}} onSaved={onSaved} onError={() => {}} />,
     );
 
-    expect(await screen.findByText('Cell process segments')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Cell process segments', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Setup assistant')).toBeInTheDocument();
-    expect(await screen.findByText('Model One')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Model One', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
     const modelSelect = screen.getByRole('combobox', { name: /default model/i });
-    await waitFor(() =>
-      expect(modelSelect).toHaveValue('opencode-go/deepseek-v4.1-flash'),
+    await waitFor(
+      () => expect(modelSelect).toHaveValue('opencode-go/deepseek-v4.1-flash'),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(screen.getByRole('spinbutton', { name: /auto-compact/i })).toHaveValue(80);
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
@@ -119,7 +133,9 @@ describe('CellModal', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(onSaved).toHaveBeenCalled(), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
     expect(created?.name).toBe('Work repo');
     expect(created?.masterIntervalMinutes).toBe(3);
     expect(created?.maxConcurrent).toBe(3);
@@ -132,7 +148,7 @@ describe('CellModal', () => {
     expect(created?.autocompactPercent).toBe(70);
     expect(created?.process?.segments).toHaveLength(6);
     if (draft) expect(draft).not.toHaveProperty('monthlyBudgetUsd');
-  });
+  }, CELL_MODAL_TEST_TIMEOUT_MS);
 
   it('switches the model catalog and effort control with the harness', async () => {
     const modelUrls: string[] = [];
@@ -254,6 +270,8 @@ describe('CellModal', () => {
 
   it('shows an inline error and Retry when the setup draft cannot sync', async () => {
     let draftAttempts = 0;
+    // The first PUT is debounced; wait for it explicitly so the budget below is
+    // not silently consumed by the debounce timer on a loaded host.
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -293,7 +311,12 @@ describe('CellModal', () => {
       />,
     );
 
-    expect(await screen.findByText('Could not start the setup chat.')).toBeInTheDocument();
+    await waitFor(() => expect(draftAttempts).toBe(1), { timeout: ASYNC_TIMEOUT_MS });
+    expect(
+      await screen.findByText('Could not start the setup chat.', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Starting setup chat…')).not.toBeInTheDocument();
     expect(screen.getByText(/draft rejected/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
@@ -301,10 +324,12 @@ describe('CellModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(
-      await screen.findByPlaceholderText('Ask how this cell should be configured…'),
+      await screen.findByPlaceholderText('Ask how this cell should be configured…', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
     ).toBeInTheDocument();
     expect(draftAttempts).toBe(2);
-  });
+  }, CELL_MODAL_TEST_TIMEOUT_MS);
 
   it('loads the current policy when editing an existing cell', async () => {
     const stale = baseProcess();

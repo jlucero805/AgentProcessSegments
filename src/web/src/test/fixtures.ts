@@ -88,7 +88,7 @@ export function makeUsageResponse(overrides: Partial<UsageResponse> = {}): Usage
   return {
     range: { from: null, to: null },
     totals: makeUsageTotals(),
-    coverage: { rolledThrough: null, retentionDays: 90 },
+    coverage: { rolledThrough: null, retentionDays: 90, lastPrune: null },
     series: [
       {
         bucketStart: 1,

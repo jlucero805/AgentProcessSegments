@@ -907,8 +907,12 @@ Queries read from a normalized union: raw rows at or after the watermark and dai
 before it, so the sources cannot overlap. Totals, day series, model/cell/request
 breakdowns, and the budget totals all use that merged view.
 `GET /api/usage` exposes `coverage.rolledThrough` so the Usage page can say which part of
-history is daily, and `coverage.retentionDays` so it can state the raw retention window
-from the same response instead of a separate settings request. Hourly series stay
+history is daily, `coverage.retentionDays` so it can state the raw retention window,
+and `coverage.lastPrune` (`{ranAt, deletedRows}`, null before the first pass) so it can
+show when retention last ran and how many raw rows it pruned. All three ride on the same
+response instead of a separate settings or status request. The pass evidence is persisted
+in `usage_prune_state` so a restart does not blank it; each completed pass, including a
+disabled window or a zero-row pass, replaces the singleton row. Hourly series stay
 raw-only; day-aligned ranges (all-time, UTC budget months) are exact, while a rolled day
 overlapping a custom range is included whole.
 `retentionDays = 0` deletes nothing and builds no rollups.

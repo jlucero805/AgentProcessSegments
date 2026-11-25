@@ -27,6 +27,9 @@ DETACH=0
 ALLOW_BUSY=0
 INTERNAL_RUN=0
 RUN_DIR_ARG=""
+KEEP_RUNS=10
+KEEP_DAYS=30
+NO_PRUNE=0
 
 OLD_UNIT="sandbox-harness"
 NEW_UNIT="agent-process-segments"
@@ -56,7 +59,17 @@ Options:
                         (default 1800). Zero means fail immediately if busy.
   --allow-busy          Do not wait for active turns. This kills in-flight work;
                         use only when the operator accepts that.
+  --keep-runs N         Keep the N newest cutover run directories (default 10).
+  --keep-days D         Keep run directories modified within D days (default 30).
+                        Zero disables the age rule.
+  --no-prune            Do not prune older run directories before or after the
+                        cutover. Use this when you schedule `npm run prune:cutover`
+                        yourself.
   --help                Show this help.
+
+A real cutover prunes older run directories under ~/.aps-cutover/runs before it
+starts and after it writes a terminal state, keeping the current run and the
+`latest` target. Use --keep-runs/--keep-days to tune it or --no-prune to opt out.
 
 The run writes ~/.aps-cutover/runs/<UTC>/ with cutover.log, before.json,
 after.json, config-before.json, state, and a backup of the old systemd unit.
@@ -81,6 +94,90 @@ write_state() {
   if [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]]; then
     printf '%s\n' "$1" >"$RUN_DIR/state"
   fi
+}
+
+pruner_path() {
+  local clone
+  if [[ -n "${NEW_CLONE:-}" && -d "${NEW_CLONE:-}" ]]; then
+    clone="$NEW_CLONE"
+  else
+    clone="$OLD_CLONE"
+  fi
+  printf '%s' "$clone/scripts/prune-cutover-runs.mjs"
+}
+
+check_pruner() {
+  local pruner
+  pruner="$(pruner_path)"
+  if [[ ! -f "$pruner" ]]; then
+    printf 'cutover pruner not found: %s; pull the clone or pass --no-prune\n' "$pruner" >&2
+    log "ERROR: cutover pruner not found: $pruner; pull the clone or pass --no-prune"
+    return 1
+  fi
+  printf '%s' "$pruner"
+}
+
+point_latest() {
+  [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
+  mkdir -p "$RUN_ROOT" || {
+    log "WARNING: could not create $RUN_ROOT; leaving $RUN_ROOT/latest unchanged"
+    return 1
+  }
+  ln -sfn "$RUN_DIR" "$RUN_ROOT/latest" || {
+    log "WARNING: could not point $RUN_ROOT/latest at $RUN_DIR"
+    return 1
+  }
+  return 0
+}
+
+post_run_prune() {
+  local phase="$1"
+  [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
+  point_latest || return 0
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    log "pruning skipped (--no-prune)"
+    return 0
+  fi
+  local pruner
+  pruner="$(pruner_path)"
+  if [[ ! -f "$pruner" ]]; then
+    log "WARNING: cutover pruner not found: $pruner; skipping post-$phase prune"
+    return 0
+  fi
+  local output status
+  if output="$(node "$pruner" --root "$RUN_ROOT" --keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS" 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+  log "prune $phase (--keep-runs $KEEP_RUNS --keep-days $KEEP_DAYS)"
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output" >>"$RUN_DIR/cutover.log"
+    printf '%s\n' "$output"
+  fi
+  if (( status != 0 )); then
+    log "WARNING: prune $phase failed (exit $status); older run directories may remain"
+  fi
+  return 0
+}
+
+pre_launch_prune() {
+  local buffer="$1"
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    return 0
+  fi
+  local pruner output status
+  pruner="$(check_pruner)" || exit 2
+  if output="$(node "$pruner" --root "$RUN_ROOT" --keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS" 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+  printf '%s\n' "$output" >"$buffer"
+  if (( status != 0 )); then
+    printf 'WARNING: prune before launch failed (exit %d)\n' "$status" >>"$buffer"
+  fi
+  return 0
 }
 
 require_cmd() {
@@ -418,20 +515,55 @@ plan() {
   log "plan: would install ${NEW_UNIT}.service and migrate the harness drop-in"
   log "plan: would start ${NEW_UNIT} and verify health, environment, database, and UI"
   log "plan: would restore master.enabled=${MASTER_ENABLED}"
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    log "plan: would skip pruning (--no-prune)"
+  else
+    local pruner preview status
+    pruner="$(check_pruner)" || exit 2
+    log "plan: would prune cutover runs (--keep-runs $KEEP_RUNS --keep-days $KEEP_DAYS)"
+    if preview="$(node "$pruner" --root "$RUN_ROOT" --keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS" --dry-run 2>&1)"; then
+      status=0
+    else
+      status=$?
+    fi
+    if [[ -n "$preview" ]]; then
+      printf '%s\n' "$preview"
+    fi
+    if (( status != 0 )); then
+      log "plan: WARNING: prune preview failed (exit $status)"
+    fi
+  fi
   log "plan: dry run complete; nothing was changed"
 }
 
 detach_cutover() {
+  local prune_buffer="$WORK_DIR/prune-before.log"
+  pre_launch_prune "$prune_buffer"
+
   RUN_DIR="${RUN_ROOT}/runs/$(date -u +%Y%m%dT%H%M%SZ)"
   mkdir -p "$RUN_DIR/backup/systemd"
   cp "$ORIGINAL_SCRIPT" "$RUN_DIR/cutover.sh"
   chmod +x "$RUN_DIR/cutover.sh"
   write_state launched
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    log "pruning skipped (--no-prune)"
+  else
+    log "prune before launch (--keep-runs $KEEP_RUNS --keep-days $KEEP_DAYS)"
+    if [[ -f "$prune_buffer" ]]; then
+      cat "$prune_buffer" >>"$RUN_DIR/cutover.log"
+      cat "$prune_buffer"
+    fi
+  fi
   log "launching detached cutover in $RUN_DIR"
   local unit="aps-cutover-$(date +%s)"
   local args=(--run --run-dir "$RUN_DIR" --home "$HOME" --old-clone "$OLD_CLONE" --new-clone "$NEW_CLONE" --wait-seconds "$WAIT_SECONDS")
   [[ -n "$REQUEST_ID" ]] && args+=(--request-id "$REQUEST_ID")
   [[ "$ALLOW_BUSY" -eq 1 ]] && args+=(--allow-busy)
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    args+=(--no-prune)
+  else
+    args+=(--keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS")
+  fi
   systemd-run --user --unit="$unit" --collect --property=Type=oneshot \
     --setenv=HOME="$HOME" --setenv=PATH="$PATH" --working-directory="$HOME" \
     /bin/bash "$RUN_DIR/cutover.sh" "${args[@]}"
@@ -814,6 +946,11 @@ rollback() {
   if [[ "$PAUSED" -eq 1 ]]; then
     api_patch_config "{\"master\":{\"enabled\":${MASTER_ENABLED}}}" >/dev/null 2>&1 || true
   fi
+  if [[ "$MOVED" -eq 1 || "$STOPPED" -eq 1 ]]; then
+    post_run_prune rolled-back || true
+  else
+    post_run_prune failed || true
+  fi
   log "rollback finished; backup: $RUN_DIR/backup"
   set -e
 }
@@ -835,6 +972,9 @@ on_signal() {
 }
 
 run_cutover() {
+  if [[ "$NO_PRUNE" -eq 0 ]]; then
+    check_pruner >/dev/null || exit 2
+  fi
   mkdir -p "$RUN_DIR/backup/systemd"
   touch "$RUN_DIR/cutover.log"
   write_state running
@@ -861,8 +1001,8 @@ run_cutover() {
       die "paths are migrated but $NEW_UNIT is not active; inspect the previous run and start it manually"
     fi
     write_state success
-    mkdir -p "$RUN_ROOT"
-    ln -sfn "$RUN_DIR" "$RUN_ROOT/latest"
+    trap - ERR INT TERM
+    post_run_prune success || true
     return 0
   fi
 
@@ -926,13 +1066,26 @@ run_cutover() {
   remove_old_unit
   SUCCESS=1
   write_state success
-  mkdir -p "$RUN_ROOT"
-  ln -sfn "$RUN_DIR" "$RUN_ROOT/latest"
   trap - ERR INT TERM
+  post_run_prune success || true
   log "cutover complete; state=$RUN_DIR/state log=$RUN_DIR/cutover.log"
 }
 
 # ---- argument parsing ----------------------------------------------------
+
+read_count() {
+  local flag="$1" value="$2" parsed
+  if [[ ! "$value" =~ ^[0-9]{1,6}$ ]]; then
+    printf '%s needs a non-negative integer (maximum 100000)\n' "$flag" >&2
+    exit 2
+  fi
+  parsed=$((10#$value))
+  if (( parsed > 100000 )); then
+    printf '%s must be at most 100000\n' "$flag" >&2
+    exit 2
+  fi
+  printf '%s' "$parsed"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -954,6 +1107,15 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { printf '%s\n' '--wait-seconds needs a non-negative integer' >&2; exit 2; }
       WAIT_SECONDS="$2"; shift 2 ;;
     --allow-busy) ALLOW_BUSY=1; shift ;;
+    --keep-runs)
+      [[ $# -ge 2 ]] || { printf '%s\n' '--keep-runs needs a value' >&2; exit 2; }
+      KEEP_RUNS="$(read_count --keep-runs "$2")"
+      shift 2 ;;
+    --keep-days)
+      [[ $# -ge 2 ]] || { printf '%s\n' '--keep-days needs a value' >&2; exit 2; }
+      KEEP_DAYS="$(read_count --keep-days "$2")"
+      shift 2 ;;
+    --no-prune) NO_PRUNE=1; shift ;;
     --run) INTERNAL_RUN=1; shift ;;
     --run-dir)
       [[ $# -ge 2 && -n "$2" ]] || { printf '%s\n' '--run-dir needs a directory' >&2; exit 2; }

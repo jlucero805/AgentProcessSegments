@@ -6,7 +6,9 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -37,6 +39,7 @@ interface FixtureOptions {
   failBuild?: boolean;
   failMv?: boolean;
   failNewEnable?: boolean;
+  pruner?: 'real' | 'stub' | 'none';
 }
 
 function writeExecutable(file: string, body: string): void {
@@ -211,6 +214,40 @@ function writeMvMock(bin: string, state: string): void {
   );
 }
 
+function writePruner(clone: string, state: string, kind: 'real' | 'stub' | 'none'): void {
+  if (kind === 'none') return;
+  const target = path.join(clone, 'scripts', 'prune-cutover-runs.mjs');
+  if (kind === 'real') {
+    cpSync(path.join(repoRoot, 'scripts/prune-cutover-runs.mjs'), target);
+    return;
+  }
+  writeFileSync(
+    target,
+    [
+      '#!/usr/bin/env node',
+      "import { appendFileSync } from 'node:fs';",
+      `const log = ${JSON.stringify(path.join(state, 'prune.log'))};`,
+      "appendFileSync(log, `${process.argv.slice(2).join(' ')}\\n`);",
+      "process.stdout.write(`stub prune ${process.argv.slice(2).join(' ')}\\n`);",
+      '',
+    ].join('\n'),
+  );
+}
+
+function writeSystemdRunMock(bin: string, state: string): void {
+  const statePath = shellQuote(state);
+  writeExecutable(
+    path.join(bin, 'systemd-run'),
+    [
+      '#!/usr/bin/env bash',
+      `state=${statePath}`,
+      'printf \'%s\\n\' "$*" >> "$state/systemd-run.log"',
+      'exit 0',
+      '',
+    ].join('\n'),
+  );
+}
+
 function initCommit(dir: string): void {
   execFileSync('git', ['init', '-b', 'main'], { cwd: dir });
   execFileSync('git', ['add', '.'], { cwd: dir });
@@ -269,6 +306,7 @@ function createFixture(options: FixtureOptions = {}): Fixture {
     path.join(repoRoot, 'scripts/migrate-paths.mjs'),
     path.join(oldClone, 'scripts/migrate-paths.mjs'),
   );
+  writePruner(oldClone, state, options.pruner ?? 'real');
   writeFileSync(
     path.join(oldClone, '.gitignore'),
     'node_modules/\nsrc/server/dist/\nsrc/web/dist/\n*.sqlite*\n',
@@ -315,6 +353,7 @@ function createFixture(options: FixtureOptions = {}): Fixture {
   writeCurlMock(bin, state);
   writeNpmMock(bin, state);
   writeMvMock(bin, state);
+  writeSystemdRunMock(bin, state);
 
   if (options.oldActive) markUnits(state, ['old']);
   if (options.newActive) markUnits(state, ['new']);
@@ -334,7 +373,7 @@ function createFixture(options: FixtureOptions = {}): Fixture {
   };
 }
 
-function createMigratedFixture(): Fixture {
+function createMigratedFixture(options: FixtureOptions = {}): Fixture {
   const root = tmpDir('cutover-test');
   const home = path.join(root, 'home');
   const oldClone = path.join(root, 'oldclone');
@@ -378,6 +417,7 @@ function createMigratedFixture(): Fixture {
     path.join(repoRoot, 'scripts/migrate-paths.mjs'),
     path.join(newClone, 'scripts/migrate-paths.mjs'),
   );
+  writePruner(newClone, state, options.pruner ?? 'real');
   writeFileSync(
     path.join(newClone, '.gitignore'),
     'node_modules/\nsrc/server/dist/\nsrc/web/dist/\n*.sqlite*\n',
@@ -388,6 +428,7 @@ function createMigratedFixture(): Fixture {
   writeExecutable(path.join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
   writeSystemctlMock(bin, state);
   writeCurlMock(bin, state);
+  writeSystemdRunMock(bin, state);
   markUnits(state, ['new']);
 
   return {
@@ -440,6 +481,25 @@ function readLines(file: string): string[] {
     .filter(Boolean);
 }
 
+function latestRunDir(home: string): string {
+  return readlinkSync(path.join(home, '.aps-cutover', 'latest'));
+}
+
+function makeRun(
+  home: string,
+  name: string,
+  state: string | null,
+  ageDays = 40,
+): string {
+  const dir = path.join(home, '.aps-cutover', 'runs', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'cutover.log'), 'old log\n');
+  if (state !== null) writeFileSync(path.join(dir, 'state'), `${state}\n`);
+  const seconds = Date.now() / 1000 - ageDays * 86_400;
+  utimesSync(dir, seconds, seconds);
+  return dir;
+}
+
 function systemctlCalls(fixture: Fixture): string {
   return readLines(path.join(fixture.state, 'systemctl.log')).join('\n');
 }
@@ -469,10 +529,13 @@ describe('deploy/cutover-vps.sh', () => {
     expect(output).toContain('would move data directory');
     expect(output).toContain('would repair registered git worktrees');
     expect(output).toContain('would install agent-process-segments');
+    expect(output).toContain('plan: would prune cutover runs');
+    expect(output).toContain('nothing to prune');
     expect(output).toContain('dry run complete; nothing was changed');
     expect(existsSync(fixture.newClone)).toBe(false);
     expect(existsSync(path.join(fixture.home, '.agent-process-segments'))).toBe(false);
     expect(existsSync(path.join(fixture.home, '.config', 'agent-process-segments'))).toBe(false);
+    expect(existsSync(path.join(fixture.home, '.aps-cutover'))).toBe(false);
     expect(readdirSync(path.join(fixture.home, '.sandbox-harness', 'requests'))).toEqual(before);
   });
 
@@ -557,7 +620,230 @@ describe('deploy/cutover-vps.sh', () => {
     expect(result.stdout).toContain('Usage: deploy/cutover-vps.sh');
     expect(result.stdout).toContain('--detach');
     expect(result.stdout).toContain('--allow-busy');
+    expect(result.stdout).toContain('--keep-runs');
+    expect(result.stdout).toContain('--keep-days');
+    expect(result.stdout).toContain('--no-prune');
+    expect(result.stdout).toContain('default 10');
+    expect(result.stdout).toContain('default 30');
   });
+
+  it('prints the prune plan during a dry run without changing runs', () => {
+    const fixture = createFixture();
+    const keep = makeRun(fixture.home, '20260102T000000Z', 'success');
+    const drop = makeRun(fixture.home, '20260101T000000Z', 'failed');
+    const result = spawnSync(
+      'bash',
+      [
+        script,
+        '--dry-run',
+        '--home',
+        fixture.home,
+        '--old-clone',
+        fixture.oldClone,
+        '--new-clone',
+        fixture.newClone,
+        '--keep-runs',
+        '0',
+        '--keep-days',
+        '0',
+      ],
+      { encoding: 'utf8', env: fixture.env },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+    expect(result.status).toBe(0);
+    expect(output).toContain('plan: would prune cutover runs');
+    expect(output).toContain('keep   20260102T000000Z');
+    expect(output).toContain('prune  20260101T000000Z');
+    expect(output).toContain('dry run: nothing removed');
+    expect(existsSync(keep)).toBe(true);
+    expect(existsSync(drop)).toBe(true);
+    expect(existsSync(path.join(fixture.home, '.aps-cutover', 'latest'))).toBe(false);
+  });
+
+  it('forwards prune options to the detached run and logs the pre-launch plan', () => {
+    const fixture = createFixture({ pruner: 'stub' });
+    const older = makeRun(fixture.home, '20260101T000000Z', 'success');
+    const result = spawnSync(
+      'bash',
+      [
+        script,
+        '--detach',
+        '--home',
+        fixture.home,
+        '--old-clone',
+        fixture.oldClone,
+        '--new-clone',
+        fixture.newClone,
+        '--keep-runs',
+        '3',
+        '--keep-days',
+        '7',
+      ],
+      { encoding: 'utf8', env: fixture.env },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+    expect(result.status).toBe(0);
+    const runDir = latestRunDir(fixture.home);
+    expect(readState(runDir)).toBe('launched');
+    expect(readRunLog(runDir)).toContain('prune before launch');
+    expect(readRunLog(runDir)).toContain('--keep-runs 3 --keep-days 7');
+    expect(readRunLog(runDir)).toContain('stub prune');
+    expect(output).toContain('stub prune');
+    const pruneCalls = readLines(path.join(fixture.state, 'prune.log')).join('\n');
+    expect(pruneCalls).toContain(`--root ${path.join(fixture.home, '.aps-cutover')}`);
+    expect(pruneCalls).toContain('--keep-runs 3 --keep-days 7');
+    const launch = readLines(path.join(fixture.state, 'systemd-run.log')).join('\n');
+    expect(launch).toContain('--run --run-dir');
+    expect(launch).toContain('--keep-runs 3 --keep-days 7');
+    expect(existsSync(older)).toBe(true);
+  });
+
+  it('skips pruning when --no-prune is set', () => {
+    const fixture = createFixture({ pruner: 'stub' });
+    const older = makeRun(fixture.home, '20260101T000000Z', 'success');
+    const result = spawnSync(
+      'bash',
+      [
+        script,
+        '--detach',
+        '--no-prune',
+        '--home',
+        fixture.home,
+        '--old-clone',
+        fixture.oldClone,
+        '--new-clone',
+        fixture.newClone,
+      ],
+      { encoding: 'utf8', env: fixture.env },
+    );
+    expect(result.status).toBe(0);
+    const runDir = latestRunDir(fixture.home);
+    expect(readState(runDir)).toBe('launched');
+    expect(readRunLog(runDir)).toContain('pruning skipped (--no-prune)');
+    expect(readLines(path.join(fixture.state, 'prune.log'))).toEqual([]);
+    expect(readLines(path.join(fixture.state, 'systemd-run.log')).join('\n')).toContain(
+      '--no-prune',
+    );
+    expect(existsSync(older)).toBe(true);
+  });
+
+  it('fails closed when the pruner is missing', () => {
+    const fixture = createFixture({ pruner: 'none' });
+    const result = spawnSync(
+      'bash',
+      [
+        script,
+        '--detach',
+        '--home',
+        fixture.home,
+        '--old-clone',
+        fixture.oldClone,
+        '--new-clone',
+        fixture.newClone,
+      ],
+      { encoding: 'utf8', env: fixture.env },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('cutover pruner not found');
+    expect(output).toContain('--no-prune');
+    expect(existsSync(path.join(fixture.home, '.aps-cutover', 'runs'))).toBe(false);
+  });
+
+  it('allows --no-prune without the pruner', () => {
+    const fixture = createFixture({ pruner: 'none' });
+    const result = spawnSync(
+      'bash',
+      [
+        script,
+        '--detach',
+        '--no-prune',
+        '--home',
+        fixture.home,
+        '--old-clone',
+        fixture.oldClone,
+        '--new-clone',
+        fixture.newClone,
+      ],
+      { encoding: 'utf8', env: fixture.env },
+    );
+    expect(result.status).toBe(0);
+    const runDir = latestRunDir(fixture.home);
+    expect(readState(runDir)).toBe('launched');
+    expect(readRunLog(runDir)).toContain('pruning skipped (--no-prune)');
+  });
+
+  it('fails a direct --run before creating the run directory when the pruner is missing', () => {
+    const fixture = createFixture({ pruner: 'none' });
+    const runDir = path.join(fixture.root, 'run');
+    const result = runCutover(fixture, liveArgs(fixture, runDir));
+    const output = `${result.stdout}${result.stderr}`;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('cutover pruner not found');
+    expect(existsSync(runDir)).toBe(false);
+  });
+
+  it('prunes older runs after an already-migrated success', () => {
+    const fixture = createMigratedFixture();
+    const oldSuccess = makeRun(fixture.home, '20260101T000000Z', 'success');
+    const oldFailed = makeRun(fixture.home, '20260102T000000Z', 'failed');
+    const runDir = path.join(fixture.home, '.aps-cutover', 'runs', '20260103T000000Z');
+    const result = runCutover(
+      fixture,
+      liveArgs(fixture, runDir, ['--keep-runs', '1', '--keep-days', '0']),
+    );
+    expect(result.status).toBe(0);
+    expect(readState(runDir)).toBe('success');
+    expect(latestRunDir(fixture.home)).toBe(runDir);
+    expect(existsSync(runDir)).toBe(true);
+    expect(existsSync(oldSuccess)).toBe(false);
+    expect(existsSync(oldFailed)).toBe(false);
+    expect(readRunLog(runDir)).toContain('prune success (--keep-runs 1 --keep-days 0)');
+  });
+
+  it(
+    'keeps latest and the rollback point after a failed cutover',
+    () => {
+      const fixture = createFixture({ failBuild: true });
+      const oldSuccess = makeRun(fixture.home, '20260101T000000Z', 'success');
+      const oldFailed = makeRun(fixture.home, '20260102T000000Z', 'failed');
+      const runDir = path.join(fixture.home, '.aps-cutover', 'runs', '20260103T000000Z');
+      const result = runCutover(
+        fixture,
+        liveArgs(fixture, runDir, ['--keep-runs', '0', '--keep-days', '0']),
+      );
+      expect(result.status).not.toBe(0);
+      expect(readState(runDir)).toBe('failed');
+      expect(latestRunDir(fixture.home)).toBe(runDir);
+      expect(existsSync(runDir)).toBe(true);
+      expect(existsSync(oldSuccess)).toBe(true);
+      expect(existsSync(oldFailed)).toBe(false);
+      expect(readRunLog(runDir)).toContain('prune failed (--keep-runs 0 --keep-days 0)');
+    },
+    TEST_TIMEOUT,
+  );
+
+  it(
+    'keeps latest and the rollback point after a rolled-back cutover',
+    () => {
+      const fixture = createFixture({ failMv: true });
+      const oldSuccess = makeRun(fixture.home, '20260101T000000Z', 'success');
+      const oldFailed = makeRun(fixture.home, '20260102T000000Z', 'failed');
+      const runDir = path.join(fixture.home, '.aps-cutover', 'runs', '20260103T000000Z');
+      const result = runCutover(
+        fixture,
+        liveArgs(fixture, runDir, ['--keep-runs', '0', '--keep-days', '0']),
+      );
+      expect(result.status).not.toBe(0);
+      expect(readState(runDir)).toBe('rolled-back');
+      expect(latestRunDir(fixture.home)).toBe(runDir);
+      expect(existsSync(runDir)).toBe(true);
+      expect(existsSync(oldSuccess)).toBe(true);
+      expect(existsSync(oldFailed)).toBe(false);
+      expect(readRunLog(runDir)).toContain('prune rolled-back (--keep-runs 0 --keep-days 0)');
+    },
+    TEST_TIMEOUT,
+  );
 
   it(
     'restores the master and reports failed when the drain times out',

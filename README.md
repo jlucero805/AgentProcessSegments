@@ -294,8 +294,12 @@ The script drains active turns, moves the clone and paths, repairs worktrees, ve
 the new unit, and rolls back in place on failure. See
 [`deploy/vps.md`](deploy/vps.md#cutting-over-a-live-self-hosted-brain).
 
-Each cutover leaves evidence and a rollback backup under `~/.aps-cutover/runs/`. Prune
-old runs with `npm run prune:cutover -- --dry-run` and then `npm run prune:cutover`; see
+Each cutover leaves evidence and a rollback backup under `~/.aps-cutover/runs/`. A real
+cutover prunes older runs before it starts and after it finishes; it keeps the newest 10
+runs and anything modified in the last 30 days by default, plus the current run, the
+`latest` target, and the newest successful rollback point. Pass `--no-prune` to opt out.
+You can still prune by hand with `npm run prune:cutover -- --dry-run` and then
+`npm run prune:cutover`; see
 [`deploy/vps.md`](deploy/vps.md#prune-cutover-run-directories-and-backups).
 
 Once the host is on the Agent Process Segments names, upgrade it with
@@ -500,7 +504,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 922 vitest cases: 712 server cases across 47 files (state machine,
+`npm test` runs 931 vitest cases: 721 server cases across 47 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

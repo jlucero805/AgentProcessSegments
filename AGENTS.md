@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 931 vitest cases: 721 server across 47 files and 210 web across 24 files, all green.
+- 945 vitest cases: 734 server across 47 files and 211 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -87,7 +87,8 @@ digests.
   destinations per scope, webhook/email per-scope routing, interactive acknowledgement,
   and pricing maintenance at scale such as bulk import, tiers, or non-USD currencies
   (scoped in `docs/09-backlog.md`). Usage retention with daily rollups is built.
-  Review/finalize automation is configurable per cell but finalize remains human-gated;
+  Review automation is configurable per cell, but Finalize is manual-only: the master
+  never schedules it and the human indexes into the KB;
   the CI workflow is not published yet and needs the
   `workflow` token scope.
 
@@ -98,7 +99,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 721 server + 210 web, plus the e2e env guard
+npm test                       # 734 server + 211 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -287,9 +288,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 11. **Process segments are data.** `process.json` is the global template. A cell can
     store its own snapshot in `cells.process_json` and an optional
     `master_interval_minutes`; its master uses that policy and ticker, or the global
-    template and interval when absent. The master evaluates enabled segments from the
-    right of the pipeline to the left (`finalize` first, `intake` last), uses the segment
-    prompt, and advances only on the exact marker through `canTransition`. Do
+    template and interval when absent. The master evaluates enabled schedulable segments
+    from the right of the pipeline to the left (`merge` first, `intake` last), uses the
+    segment prompt, and advances only on the exact marker through `canTransition`.
+    Finalize is manual-only and is never scheduled, whatever `finalize.enabled` says. Do
     not hardcode a prod/review rule in a route or UI.
 12. **Master chats and notes are per cell.** `masterSessionId(cellId)` returns
     `__master__:<cellId>`. Unassigned requests have no master and no chat; notes from a
@@ -309,7 +311,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     the cell-delete variant: cancel, wait for the `runTurn` continuation, then remove the
     reserved session directory and refuse new turns for that id.
 15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
-    into the KB is a human action. The Finalize column's **Index all** is an explicit
+    into the KB is a human action. The master never schedules a finalize turn, even when
+    an old policy says `finalize.enabled: true`; a person presses **Finalize** to propose
+    the digest. The Finalize column's **Index all** is an explicit
     human bulk action: keep it scoped to `finalize` and skip working requests or requests
     with no digest instead of closing them silently. Do not add an automatic finalize
     transition without an explicit indexing path.
@@ -323,9 +327,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     desktop-only; `APS_TERMINAL=0` disables creation.
 18. **Concurrency is per cell, and cycles are bounded.** The master counts `working`
     requests in the cell and stops starting turns at `max_concurrent` (default 3). Each
-    cycle selects at most that spare capacity, latest segments first and oldest request
-    first inside a segment; it must not scan or note every queue. Unassigned requests
-    are manual-only and never enter a bucket.
+    cycle selects at most that spare capacity, latest schedulable segments first and
+    oldest request first inside a segment; it must not scan or note every queue.
+    Unassigned requests are manual-only and never enter a bucket.
 19. **Cell model/effort are fallbacks.** A turn uses the request’s model/effort first,
     then the cell defaults; persist cell changes on the cell, not in memory.
 20. **Usage is recorded after completion; reported cost wins; retention and budgets are

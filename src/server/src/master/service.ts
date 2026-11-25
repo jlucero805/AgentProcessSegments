@@ -10,6 +10,7 @@ import type { ErrorSink } from '../logging/errors.js';
 import {
   SEGMENT_IDS,
   SEGMENT_STATES,
+  isSchedulableSegment,
   type ProcessConfig,
   type SegmentConfig,
   type SegmentId,
@@ -60,12 +61,15 @@ const SEGMENT_RANK = new Map<SegmentId, number>(
 /**
  * Later stages run first so a steady supply of planning work cannot starve
  * implementation, review, merge, or finalize. When the right side has nothing
- * due, the cycle falls through to the earlier segments.
+ * due, the cycle falls through to the earlier segments. Manual-only segments
+ * such as finalize are never candidates, no matter what the stored policy says.
  */
 function evaluationOrder(process: ProcessConfig): SegmentConfig[] {
-  return [...process.segments].sort(
-    (a, b) => (SEGMENT_RANK.get(b.id) ?? 0) - (SEGMENT_RANK.get(a.id) ?? 0),
-  );
+  return process.segments
+    .filter((segment) => isSchedulableSegment(segment.id))
+    .sort(
+      (a, b) => (SEGMENT_RANK.get(b.id) ?? 0) - (SEGMENT_RANK.get(a.id) ?? 0),
+    );
 }
 
 function emptyResult(now: number): MasterResult {
@@ -178,7 +182,7 @@ export class MasterService {
     if (capacity <= 0) return selection;
 
     for (const segment of evaluationOrder(process)) {
-      if (!segment.enabled) continue;
+      if (!segment.enabled || !isSchedulableSegment(segment.id)) continue;
       if (selection.candidates.length >= capacity) break;
       const selectedHere = selection.candidates.filter(
         (candidate) => candidate.segment.id === segment.id,

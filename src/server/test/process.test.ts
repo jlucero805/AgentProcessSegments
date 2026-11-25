@@ -8,7 +8,12 @@ import {
   processSchema,
   READY_FOR_IMPLEMENTATION,
 } from '../src/process/defaults.js';
-import { SEGMENT_IDS, SEGMENT_STATES, type ProcessConfig } from '../src/process/definition.js';
+import {
+  SEGMENT_IDS,
+  SEGMENT_STATES,
+  isSchedulableSegment,
+  type ProcessConfig,
+} from '../src/process/definition.js';
 import { parseFollowUps } from '../src/process/follow-ups.js';
 import { ProcessStore } from '../src/process/store.js';
 
@@ -54,6 +59,19 @@ describe('process definition', () => {
     const finalize = defaultProcess(DEFAULT_SETTINGS.master);
     segmentBy(finalize, 'finalize').advanceTo = 'done';
     expect(processSchema.safeParse(finalize).success).toBe(false);
+  });
+
+  it('keeps an enabled finalize segment loadable but treats it as manual', () => {
+    const config = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(config, 'finalize').enabled = true;
+    expect(processSchema.parse(config)).toEqual(config);
+    expect(isSchedulableSegment('finalize')).toBe(false);
+    expect(isSchedulableSegment('implement')).toBe(true);
+
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(config));
+    const loaded = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).get();
+    expect(segmentBy(loaded, 'finalize').enabled).toBe(true);
   });
 
   it('maps every segment to its request state', () => {

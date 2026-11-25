@@ -584,7 +584,9 @@ object per line.
 - `POST /api/requests/:id/clarify/start`, `POST /api/requests/:id/clarify/send {text}`
 - `POST /api/requests/:id/dispatch` (review kickoff: `clarify → dispatch` plus a "start
   building" turn)
-- `POST /api/requests/:id/finalize` (`review → finalize` plus a "propose KB digest" turn)
+- `POST /api/requests/:id/finalize` (`review → finalize` plus a "propose KB digest" turn).
+  Finalize is manual-only: the master never schedules a turn for a `finalize` request,
+  even when an old process policy says `finalize.enabled: true`.
 - `GET /api/requests/:id/clarify/stream` reattaches to an in-flight turn: it replays the
   event buffer, then streams live events, or returns `{active:false}` when idle
 - `GET /api/requests/:id/clarify` returns `{started, transcript[]}`

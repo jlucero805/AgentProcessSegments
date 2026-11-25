@@ -130,10 +130,12 @@ Each cell also has its own **ticker** and **master chat**:
 ```
 
 Every segment id must appear exactly once. The array order is the display and storage
-order; inside a cycle the master evaluates enabled segments by pipeline position from
-right to left: `finalize`, `merge`, `review`, `implement`, `plan`, then `intake`.
-Finishing work gets the first turns, and the earlier segments run when no later work is
-due, so a steady backlog of planning cannot starve the right side of the pipeline.
+order; inside a cycle the master evaluates enabled schedulable segments by pipeline
+position from right to left: `merge`, `review`, `implement`, `plan`, then `intake`.
+Finalize is manual-only: the master never schedules a turn there, so a digest backlog can
+never take the cell’s concurrency. Finishing work still gets the first turns, and the
+earlier segments run when no later work is due, so a steady backlog of planning cannot
+starve the right side of the pipeline.
 
 A cycle is bounded by the cell. It selects at most `maxConcurrent` minus the requests
 already working in that cell; the budget is filled from the latest segment first and,
@@ -150,11 +152,11 @@ master chat’s cycle notes small instead of enumerating every queue on every ti
 | `implement` | `dispatch` | prompt via `engine.send` | legal target, e.g. `review` |
 | `review` | `review` | prompt via `engine.send` | legal target, e.g. `merge`, `finalize`, or `dispatch` |
 | `merge` | `merge` | prompt via `engine.send` | legal target, e.g. `finalize` |
-| `finalize` | `finalize` | prompt via `engine.send` | none; the human still approves indexing |
+| `finalize` | `finalize` | none; a human runs Finalize to propose the digest | none; the human still approves indexing |
 
 A segment turn is eligible when:
 
-- the segment is `enabled`;
+- the segment is `enabled` and schedulable (`finalize` never is);
 - the request is in the segment’s view/state;
 - no turn is live and the request is not `working`;
 - `now - updated_at >= idleMinutes`;
@@ -176,7 +178,8 @@ the master carry work from an unplanned request through implementation:
 1. Enable `intake` with a short idle threshold.
 2. Enable `plan` and keep its `advanceTo` at `dispatch`.
 3. Keep `implement` enabled; review its prompt and marker.
-4. Optionally enable `review` and `finalize`.
+4. Enable `review` if you want the master to check completed work; leave `finalize` as
+   the manual gate. Enabling it in an old policy is harmless but ignored.
 
 Each cell’s ticker drives its own cycle; a cell interval overrides the global cadence.
 A cell has at most one dispatch cycle in flight: if a tick lands while that cell is
@@ -274,7 +277,8 @@ Recommended policy for a strict repo:
 2. Give it a prompt that rebases onto the target branch, resolves conflicts, runs tests,
    and pushes to origin.
 3. Set `readyMarker: READY TO FINALIZE` and `advanceTo: finalize`.
-4. Enable `finalize` only for digest generation; the human still indexes into the KB.
+4. Leave `finalize` disabled. The master never schedules it; press **Finalize** on the
+   request to propose a digest, then **Index and finalize** to close it.
 
 The merge prompt default already describes the single-worker rule. The cell-level
 concurrency cap still applies; the segment cap is an additional limit.

@@ -136,7 +136,11 @@ export type {
   SegmentConfig,
   SegmentId,
 } from '../../server/src/process/definition';
-export { SEGMENT_IDS, SEGMENT_STATES } from '../../server/src/process/definition';
+export {
+  SEGMENT_IDS,
+  SEGMENT_STATES,
+  isSchedulableSegment,
+} from '../../server/src/process/definition';
 export {
   KB_SESSION_ID,
   SETUP_SESSION_PREFIX,

@@ -7,6 +7,7 @@ import { loadConfig } from '../config.js';
 import { RequestRepository } from '../requests/repository.js';
 import {
   migrateRepo,
+  PRUNE_ACTIONS,
   ROW_MIGRATION_ACTIONS,
   type LegacyBranchRow,
   type MigrationEntry,
@@ -14,6 +15,7 @@ import {
 
 export interface CliOptions {
   apply: boolean;
+  pruneOrphans: boolean;
   repos: string[];
   db: string | null;
   help: boolean;
@@ -26,24 +28,35 @@ export interface CandidateGroup {
 
 export function usage(): string {
   return [
-    'Usage: npm run migrate:branches -- [--apply] [--repo DIR]... [--db FILE]',
+    'Usage: npm run migrate:branches -- [--apply] [--prune-orphans] [--repo DIR]... [--db FILE]',
     '',
     'Migrates legacy sbox/<request-id> branches to aps/<request-id> once the',
     'request is done or dropped. Dry run by default; nothing changes without --apply.',
     '',
-    '  --apply        rename/delete refs and rewrite requests.branch',
-    '  --repo DIR     limit work to this repository (repeatable; default: all',
-    '                 repositories referenced by legacy request rows)',
-    '  --db FILE      SQLite database (default: APS_DB or the configured default)',
-    '  --help, -h     show this text',
+    '  --apply          rename/delete refs and rewrite requests.branch',
+    '  --prune-orphans  with --apply, archive and delete local sbox/* refs that have',
+    '                   no request row in the database; the tip is first saved as',
+    '                   refs/sbox-pruned/<suffix>-<sha> (off by default; report-only)',
+    '  --repo DIR       limit work to this repository (repeatable; default: all',
+    '                   repositories referenced by legacy request rows)',
+    '  --db FILE        SQLite database (default: APS_DB or the configured default)',
+    '  --help, -h       show this text',
     '',
     'Safety: non-terminal requests, checked-out branches, and diverged',
-    'aps/sbox pairs are always skipped. Orphan sbox/* refs are report-only.',
+    'aps/sbox pairs are always skipped. Orphan refs are pruned only with',
+    '--prune-orphans, and checked-out orphans are never touched. The database is',
+    'the source of truth: point --db at the live brain database.',
   ].join('\n');
 }
 
 export function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = { apply: false, repos: [], db: null, help: false };
+  const options: CliOptions = {
+    apply: false,
+    pruneOrphans: false,
+    repos: [],
+    db: null,
+    help: false,
+  };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -51,6 +64,8 @@ export function parseArgs(argv: string[]): CliOptions {
       options.apply = true;
     } else if (arg === '--dry-run') {
       options.apply = false;
+    } else if (arg === '--prune-orphans') {
+      options.pruneOrphans = true;
     } else if (arg === '--repo' || arg === '--db') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error(`${arg} needs a path`);
@@ -70,7 +85,7 @@ export function parseArgs(argv: string[]): CliOptions {
 
 /**
  * Split legacy rows into per-repository buckets. Named repos are always
- * included, even with no rows, so their orphan `sbox/*` refs get reported.
+ * included, even with no rows, so their orphan `sbox/*` refs get scanned.
  */
 export function groupCandidates(rows: LegacyBranchRow[], repos: string[]): CandidateGroup[] {
   const named = [...new Set(repos.map((repo) => path.resolve(repo)))];
@@ -105,6 +120,8 @@ function describe(entry: MigrationEntry, apply: boolean): string {
       return `${entry.applied ? 'deleted        ' : 'would delete   '} ${entry.legacyBranch} (contained in ${entry.canonicalBranch})  ${repo}`;
     case 'repair-db':
       return `${apply ? 'repaired row   ' : 'would repair   '} request ${entry.requestId}: ${entry.legacyBranch} ref is gone, ${entry.canonicalBranch} exists  ${repo}`;
+    case 'prune-orphan':
+      return `${entry.applied ? 'pruned         ' : 'would prune    '} ${entry.legacyBranch} -> ${entry.backupRef ?? 'backup ref'}  ${repo}`;
     case 'skip-inflight':
       return `skip in-flight  request ${entry.requestId} (${entry.detail ?? 'not terminal'})  ${repo}`;
     case 'skip-checked-out':
@@ -115,6 +132,8 @@ function describe(entry: MigrationEntry, apply: boolean): string {
       return `skip missing    ${entry.legacyBranch} and ${entry.canonicalBranch} are both absent  ${repo}`;
     case 'skip-orphan':
       return `skip orphan     ${entry.legacyBranch} has no request row  ${repo}`;
+    case 'skip-orphan-checked-out':
+      return `skip checkout   orphan ${entry.legacyBranch} is checked out in a worktree  ${repo}`;
     case 'skip-no-repo':
       return `skip repo       ${repo} is not a git work tree`;
     case 'error':
@@ -125,7 +144,10 @@ function describe(entry: MigrationEntry, apply: boolean): string {
 function printEntries(entries: MigrationEntry[], apply: boolean): number {
   for (const entry of entries) console.log(describe(entry, apply));
 
-  const changes = entries.filter((entry) => ROW_MIGRATION_ACTIONS.includes(entry.action));
+  const changes = entries.filter(
+    (entry) =>
+      ROW_MIGRATION_ACTIONS.includes(entry.action) || PRUNE_ACTIONS.includes(entry.action),
+  );
   const errors = entries.filter((entry) => entry.action === 'error').length;
   const skipped = entries.filter((entry) => entry.action.startsWith('skip-')).length;
 
@@ -198,8 +220,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
 
     const repo = new RequestRepository(db);
-    const rows: LegacyBranchRow[] = repo
-      .list()
+    const allRows = repo.list();
+    const rows: LegacyBranchRow[] = allRows
       .filter((request) => request.targetRepo !== null && request.branch === legacyBranchName(request.id))
       .map((request) => ({
         id: request.id,
@@ -207,6 +229,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         targetRepo: request.targetRepo,
         branch: request.branch,
       }));
+    const knownRequestIds = allRows.map((request) => request.id);
 
     const groups = groupCandidates(rows, options.repos);
     if (groups.length === 0) {
@@ -219,6 +242,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const repoEntries = await migrateRepo({
         repoPath: group.repo,
         rows: group.rows,
+        knownRequestIds,
+        pruneOrphans: options.pruneOrphans,
         apply: options.apply,
       });
       entries.push(...repoEntries);

@@ -2,15 +2,17 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { branchName, legacyBranchName } from '../src/clarify/worktree.js';
 import { openDb } from '../src/db.js';
 import type { State } from '../src/domain/request.js';
-import { groupCandidates, parseArgs } from '../src/maintenance/legacy-branches-cli.js';
+import { groupCandidates, main, parseArgs } from '../src/maintenance/legacy-branches-cli.js';
 import {
   migrateRepo,
   parseWorktreeBranches,
+  PRUNE_ACTIONS,
   ROW_MIGRATION_ACTIONS,
+  type GitRunner,
   type LegacyBranchRow,
 } from '../src/maintenance/legacy-branches.js';
 import { RequestRepository } from '../src/requests/repository.js';
@@ -41,6 +43,16 @@ function branchTip(repo: string, branch: string): string | null {
     return null;
   }
 }
+
+function refTip(repo: string, ref: string): string | null {
+  try {
+    return git(repo, ['rev-parse', '--verify', '--quiet', ref]);
+  } catch {
+    return null;
+  }
+}
+
+const realGit: GitRunner = async (cwd, args) => git(cwd, args);
 
 function createBranch(repo: string, branch: string, from = 'HEAD'): void {
   git(repo, ['branch', branch, from]);
@@ -195,7 +207,7 @@ describe('legacy branch migration', () => {
     ]);
   });
 
-  it('reports orphan legacy refs but never deletes them', async () => {
+  it('reports orphan legacy refs but never deletes them by default', async () => {
     const repo = makeRepo();
     createBranch(repo, 'sbox/no-such-request');
 
@@ -205,6 +217,202 @@ describe('legacy branch migration', () => {
       expect.objectContaining({ action: 'skip-orphan', legacyBranch: 'sbox/no-such-request' }),
     ]);
     expect(branchTip(repo, 'sbox/no-such-request')).not.toBeNull();
+  });
+
+  it('plans an orphan prune without mutating refs in a dry run', async () => {
+    const repo = makeRepo();
+    createBranch(repo, 'sbox/no-such-request');
+    const tip = commitFile(repo, 'sbox/no-such-request', 'orphan.txt', 'orphan');
+    const backupRef = `refs/sbox-pruned/no-such-request-${tip}`;
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: false,
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({
+        action: 'prune-orphan',
+        applied: false,
+        legacyBranch: 'sbox/no-such-request',
+        backupRef,
+      }),
+    ]);
+    expect(branchTip(repo, 'sbox/no-such-request')).toBe(tip);
+    expect(refTip(repo, backupRef)).toBeNull();
+  });
+
+  it('archives and deletes an orphan ref only under apply', async () => {
+    const repo = makeRepo();
+    createBranch(repo, 'sbox/no-such-request');
+    const tip = commitFile(repo, 'sbox/no-such-request', 'orphan.txt', 'orphan');
+    const backupRef = `refs/sbox-pruned/no-such-request-${tip}`;
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: true,
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({ action: 'prune-orphan', applied: true, backupRef }),
+    ]);
+    expect(branchTip(repo, 'sbox/no-such-request')).toBeNull();
+    expect(refTip(repo, backupRef)).toBe(tip);
+
+    const second = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: true,
+    });
+    expect(second).toHaveLength(0);
+  });
+
+  it('does not prune a ref whose id still has any request row', async () => {
+    const repo = makeRepo();
+    const id = 'req-still-known';
+    createBranch(repo, legacyBranchName(id));
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [id],
+      pruneOrphans: true,
+      apply: true,
+    });
+
+    expect(entries).toHaveLength(0);
+    expect(branchTip(repo, legacyBranchName(id))).not.toBeNull();
+  });
+
+  it('skips an orphan ref checked out in a linked worktree', async () => {
+    const repo = makeRepo();
+    createBranch(repo, 'sbox/checked-out-orphan');
+    const linked = path.join(tempDir(), 'linked');
+    git(repo, ['worktree', 'add', '-q', linked, 'sbox/checked-out-orphan']);
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: true,
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({
+        action: 'skip-orphan-checked-out',
+        legacyBranch: 'sbox/checked-out-orphan',
+      }),
+    ]);
+    expect(branchTip(repo, 'sbox/checked-out-orphan')).not.toBeNull();
+  });
+
+  it('leaves the branch intact when archiving the orphan tip fails', async () => {
+    const repo = makeRepo();
+    createBranch(repo, 'sbox/no-such-request');
+    const tip = commitFile(repo, 'sbox/no-such-request', 'orphan.txt', 'orphan');
+    const failingGit: GitRunner = async (cwd, args) => {
+      if (args[0] === 'update-ref' && args[1] !== '-d') throw new Error('backup denied');
+      return realGit(cwd, args);
+    };
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: true,
+      git: failingGit,
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({
+        action: 'error',
+        applied: false,
+        detail: expect.stringContaining('backup denied'),
+      }),
+    ]);
+    expect(branchTip(repo, 'sbox/no-such-request')).toBe(tip);
+  });
+
+  it('keeps the archive when the orphan ref moves before deletion', async () => {
+    const repo = makeRepo();
+    createBranch(repo, 'sbox/no-such-request');
+    const tip = commitFile(repo, 'sbox/no-such-request', 'orphan.txt', 'orphan');
+    const backupRef = `refs/sbox-pruned/no-such-request-${tip}`;
+    const failingGit: GitRunner = async (cwd, args) => {
+      if (args[0] === 'update-ref' && args[1] === '-d') throw new Error('ref moved');
+      return realGit(cwd, args);
+    };
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: true,
+      git: failingGit,
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({ action: 'error', applied: false, backupRef }),
+    ]);
+    expect(branchTip(repo, 'sbox/no-such-request')).toBe(tip);
+    expect(refTip(repo, backupRef)).toBe(tip);
+  });
+
+  it('tolerates an existing identical backup ref and isolates prune failures', async () => {
+    const repo = makeRepo();
+    createBranch(repo, 'sbox/already-archived');
+    const archivedTip = commitFile(repo, 'sbox/already-archived', 'one.txt', 'one');
+    const archivedBackup = `refs/sbox-pruned/already-archived-${archivedTip}`;
+    git(repo, ['update-ref', archivedBackup, archivedTip]);
+
+    createBranch(repo, 'sbox/good-orphan');
+    const goodTip = commitFile(repo, 'sbox/good-orphan', 'good.txt', 'good');
+    createBranch(repo, 'sbox/bad-orphan');
+    const badTip = commitFile(repo, 'sbox/bad-orphan', 'bad.txt', 'bad');
+
+    const failingGit: GitRunner = async (cwd, args) => {
+      if (args[0] === 'update-ref' && args[1] !== '-d' && args[1].includes('/bad-orphan-')) {
+        throw new Error('backup denied');
+      }
+      return realGit(cwd, args);
+    };
+
+    const entries = await migrateRepo({
+      repoPath: repo,
+      rows: [],
+      knownRequestIds: [],
+      pruneOrphans: true,
+      apply: true,
+      git: failingGit,
+    });
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'prune-orphan', applied: true, legacyBranch: 'sbox/already-archived' }),
+        expect.objectContaining({ action: 'prune-orphan', applied: true, legacyBranch: 'sbox/good-orphan' }),
+        expect.objectContaining({ action: 'error', applied: false, legacyBranch: 'sbox/bad-orphan' }),
+      ]),
+    );
+    expect(branchTip(repo, 'sbox/already-archived')).toBeNull();
+    expect(branchTip(repo, 'sbox/good-orphan')).toBeNull();
+    expect(branchTip(repo, 'sbox/bad-orphan')).toBe(badTip);
+    expect(refTip(repo, `refs/sbox-pruned/good-orphan-${goodTip}`)).toBe(goodTip);
+  });
+
+  it('keeps PRUNE_ACTIONS separate from row migrations', () => {
+    expect(PRUNE_ACTIONS).toEqual(['prune-orphan']);
+    expect(ROW_MIGRATION_ACTIONS).not.toContain('prune-orphan');
   });
 
   it('ignores rows that do not store the matching legacy branch', async () => {
@@ -284,20 +492,40 @@ describe('request repository branch backfill', () => {
 });
 
 describe('legacy branch CLI helpers', () => {
-  it('defaults to a dry run and parses apply/repo/db/help', () => {
-    expect(parseArgs([])).toEqual({ apply: false, repos: [], db: null, help: false });
+  it('defaults to a dry run and parses apply/prune/repo/db/help', () => {
+    expect(parseArgs([])).toEqual({
+      apply: false,
+      pruneOrphans: false,
+      repos: [],
+      db: null,
+      help: false,
+    });
 
     const repoA = path.resolve('repo-a');
     const repoB = path.resolve('repo-b');
-    const parsed = parseArgs(['--repo', repoA, '--apply', '--repo', repoB, '--db', 'brain.sqlite']);
+    const parsed = parseArgs([
+      '--repo',
+      repoA,
+      '--apply',
+      '--prune-orphans',
+      '--repo',
+      repoB,
+      '--db',
+      'brain.sqlite',
+    ]);
     expect(parsed).toEqual({
       apply: true,
+      pruneOrphans: true,
       repos: [repoA, repoB],
       db: path.resolve('brain.sqlite'),
       help: false,
     });
 
     expect(parseArgs(['--dry-run']).apply).toBe(false);
+    expect(parseArgs(['--prune-orphans', '--dry-run'])).toMatchObject({
+      apply: false,
+      pruneOrphans: true,
+    });
     expect(parseArgs(['--help']).help).toBe(true);
   });
 
@@ -325,6 +553,56 @@ describe('legacy branch CLI helpers', () => {
       { repo: repoB, rows: [rows[1], rows[2]] },
       { repo: path.resolve('repo-missing'), rows: [] },
     ]);
+  });
+
+  it('protects a request id that is not a legacy candidate when pruning orphans', async () => {
+    const repoDir = makeRepo();
+    const dbPath = path.join(tempDir(), 'brain.sqlite');
+    const db = openDb(dbPath);
+    const requests = new RequestRepository(db);
+    const request = requests.create({ title: 'already migrated', targetRepo: repoDir });
+    requests.setBranch(request.id, branchName(request.id));
+    db.close();
+    createBranch(repoDir, legacyBranchName(request.id));
+    const legacyTip = git(repoDir, ['rev-parse', `refs/heads/${legacyBranchName(request.id)}`]);
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const code = await main([
+      '--apply',
+      '--prune-orphans',
+      '--repo',
+      repoDir,
+      '--db',
+      dbPath,
+    ]);
+    log.mockRestore();
+
+    expect(code).toBe(0);
+    expect(branchTip(repoDir, legacyBranchName(request.id))).toBe(legacyTip);
+    expect(refTip(repoDir, `refs/sbox-pruned/${request.id}-${legacyTip}`)).toBeNull();
+  });
+
+  it('archives and deletes an orphan through the CLI', async () => {
+    const repoDir = makeRepo();
+    const dbPath = path.join(tempDir(), 'brain.sqlite');
+    openDb(dbPath).close();
+    createBranch(repoDir, 'sbox/no-such-request');
+    const tip = commitFile(repoDir, 'sbox/no-such-request', 'orphan.txt', 'orphan');
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const code = await main([
+      '--apply',
+      '--prune-orphans',
+      '--repo',
+      repoDir,
+      '--db',
+      dbPath,
+    ]);
+    log.mockRestore();
+
+    expect(code).toBe(0);
+    expect(branchTip(repoDir, 'sbox/no-such-request')).toBeNull();
+    expect(refTip(repoDir, `refs/sbox-pruned/no-such-request-${tip}`)).toBe(tip);
   });
 });
 

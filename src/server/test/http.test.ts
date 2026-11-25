@@ -26,6 +26,7 @@ import { NotificationService, type FetchLike } from '../src/notifications/servic
 import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
+import { recordUsagePruneState } from '../src/usage/prune-state.js';
 import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
 import { budgetPeriod, type SpendPause } from '../src/domain/budget.js';
 import { masterSessionId, summarySessionId } from '../src/domain/sessions.js';
@@ -1727,7 +1728,7 @@ describe('http api', () => {
       byModel: [],
       byCell: [],
       byRequest: [],
-      coverage: { rolledThrough: null, retentionDays: 90 },
+      coverage: { rolledThrough: null, retentionDays: 90, lastPrune: null },
     });
 
     const base = Date.UTC(2026, 0, 1, 10);
@@ -1795,13 +1796,22 @@ describe('http api', () => {
     ).toBe(400);
 
     // The retention window rides on the usage payload, read per request.
+    recordUsagePruneState(h.db, { ranAt: base, deletedRows: 1234 });
+    expect((await call('GET', '/api/usage')).json().coverage.lastPrune).toEqual({
+      ranAt: base,
+      deletedRows: 1234,
+    });
+
     await call('PATCH', '/api/config', { usage: { retentionDays: 30 } });
     expect((await call('GET', '/api/usage')).json().coverage).toEqual({
       rolledThrough: null,
       retentionDays: 30,
+      lastPrune: { ranAt: base, deletedRows: 1234 },
     });
     await call('PATCH', '/api/config', { usage: { retentionDays: 0 } });
-    expect((await call('GET', '/api/usage')).json().coverage.retentionDays).toBe(0);
+    const disabled = (await call('GET', '/api/usage')).json().coverage;
+    expect(disabled.retentionDays).toBe(0);
+    expect(disabled.lastPrune).toEqual({ ranAt: base, deletedRows: 1234 });
   });
 
   it('manages effective-dated model pricing and estimates unreported usage', async () => {

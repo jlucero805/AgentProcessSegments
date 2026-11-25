@@ -1198,6 +1198,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       coverage: {
         ...result.coverage,
         retentionDays: settings.get().usage.retentionDays,
+        lastPrune: usage.lastPrune(),
       },
     };
   });

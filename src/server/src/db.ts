@@ -135,6 +135,12 @@ CREATE TABLE IF NOT EXISTS usage_rollup_state (
   rolled_through INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS usage_prune_state (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  last_run_at       INTEGER NOT NULL,
+  last_deleted_rows INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS budget_alerts (
   id                 TEXT PRIMARY KEY,
   scope              TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),

@@ -77,6 +77,14 @@ export interface UsageBucketRow extends UsageTotals {
   bucketStart: number;
 }
 
+/** Evidence from the most recent completed usage retention pass. */
+export interface UsagePruneSummary {
+  /** Epoch ms of the pass (the job's reference time when it ran). */
+  ranAt: number;
+  /** Raw usage rows deleted by that pass; 0 when none were eligible. */
+  deletedRows: number;
+}
+
 export interface UsageCoverage {
   /**
    * Exclusive boundary between daily rollups and raw rows. Raw rows exist at
@@ -90,6 +98,11 @@ export interface UsageCoverage {
    * "all time" covers without a second settings request.
    */
   retentionDays: number;
+  /**
+   * Most recent completed retention pass, or null before the first one.
+   * Persisted in `usage_prune_state` so a restart does not hide the evidence.
+   */
+  lastPrune: UsagePruneSummary | null;
 }
 
 export interface UsageResponse {

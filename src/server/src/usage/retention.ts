@@ -2,6 +2,7 @@ import type { Db } from '../db.js';
 import type { ErrorSink } from '../logging/errors.js';
 import { deleteInBatches } from '../retention/batches.js';
 import type { SettingsStore } from '../settings.js';
+import { recordUsagePruneState } from './prune-state.js';
 import { UsageRollups } from './rollups.js';
 import { USAGE_BUCKET_MS, usageBucketStart } from './types.js';
 
@@ -111,11 +112,31 @@ export class UsageRetention {
    */
   runOnce(now = this.clock()): Promise<UsagePruneResult> {
     if (this.inFlight) return this.inFlight;
-    const run = this.prune(now).finally(() => {
-      if (this.inFlight === run) this.inFlight = null;
-    });
+    const run = this.prune(now)
+      .then((result) => {
+        this.record(now, result);
+        return result;
+      })
+      .finally(() => {
+        if (this.inFlight === run) this.inFlight = null;
+      });
     this.inFlight = run;
     return run;
+  }
+
+  /**
+   * Persist the pass summary for the dashboard. Bookkeeping must never turn a
+   * completed prune into a rejected `runOnce` or block the next tick.
+   */
+  private record(now: number, result: UsagePruneResult): void {
+    try {
+      recordUsagePruneState(this.db, { ranAt: now, deletedRows: result.deleted });
+    } catch (error) {
+      this.errors?.error('usage.prune_state', error, {
+        ranAt: now,
+        deletedRows: result.deleted,
+      });
+    }
   }
 
   private async prune(now: number): Promise<UsagePruneResult> {

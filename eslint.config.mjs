@@ -19,7 +19,8 @@ export default tseslint.config(
           destructuredArrayIgnorePattern: '^_',
         },
       ],
-      // Explicit `any` shows up in test fixtures; keep it visible but not fatal.
+      // `npm run lint` uses --max-warnings=0, so a new explicit `any` fails the
+      // gate unless it carries a justified inline suppression.
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },

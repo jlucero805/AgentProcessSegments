@@ -892,7 +892,7 @@ carried in the `done` event:
 ## 9. Build, run, test
 
 ```bash
-npm install                 # workspaces
+npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for both
 npm test                    # vitest: server + web, plus the e2e env guard
@@ -900,10 +900,11 @@ npm run lint                # eslint over src, zero warnings
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 
-If the shell inherits `NODE_ENV=production` (the brain unit exports it), a plain
-`npm install` omits devDependencies and `npm run typecheck` fails with `tsc: not found`;
-install with `npm ci --include=dev`, or unset `NODE_ENV`. See the `AGENTS.md`
-environment-facts bullet.
+If the shell inherits `NODE_ENV=production` (the brain unit exports it), a bare
+`npm install` installs production dependencies only and `npm run typecheck` fails with
+`tsc: not found`; install with `npm ci --include=dev`, or `NODE_ENV=development npm ci`.
+See the `AGENTS.md` environment-facts bullet for the sibling failures and the re-prune
+warning.
 
 The original test suite covered the request repo and state machine, the cells repo,
 the KB repo, models, MCP grants parsing, worktree isolation, and an HTTP server test.

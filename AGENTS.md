@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 895 vitest cases: 696 server across 46 files and 199 web across 24 files, all green.
+- 900 vitest cases: 701 server across 46 files and 199 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -96,7 +96,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 696 server + 199 web, plus the e2e env guard
+npm test                       # 701 server + 199 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -465,6 +465,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     (`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`). Leftover
     `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
     a failed sweep is one `retention.artifacts` record, not a crash.
+39. **SQLite files are owner-only.** `openDb` forces the database, `-wal`, `-shm`, and
+    any `-journal` sidecar to `0600` on every open. The database is tightened before
+    `journal_mode=WAL` so SQLite creates new sidecars with the same private mode, and a
+    second pass repairs sidecars already on disk. A missing database parent is created
+    `0700`; an existing parent (usually the repo/cwd) is never chmodded. `:memory:` keeps
+    no files. A chmod failure propagates. This is not encryption at rest; root can still
+    read the files.
 
 ## Extension recipes
 

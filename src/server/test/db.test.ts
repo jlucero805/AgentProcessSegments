@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
@@ -8,6 +9,11 @@ function columns(db: Database.Database, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
     (column) => column.name,
   );
+}
+
+/** POSIX permission bits for a path. */
+function modeOf(target: string): number {
+  return statSync(target).mode & 0o777;
 }
 
 describe('db migrations', () => {
@@ -330,5 +336,104 @@ describe('db migrations', () => {
     };
     expect(row.agent_status).toBe('idle');
     db.close();
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'creates the database and its sidecars owner-only',
+    () => {
+      const file = path.join(tmpDir('db-private'), 'fresh.sqlite');
+
+      const db = openDb(file);
+      try {
+        expect(modeOf(file)).toBe(0o600);
+        expect(existsSync(`${file}-wal`)).toBe(true);
+        expect(existsSync(`${file}-shm`)).toBe(true);
+        expect(modeOf(`${file}-wal`)).toBe(0o600);
+        expect(modeOf(`${file}-shm`)).toBe(0o600);
+        expect(db.prepare('SELECT 1 AS ok').get()).toEqual({ ok: 1 });
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'repairs a loose database and sidecars when reopened',
+    () => {
+      const file = path.join(tmpDir('db-repair'), 'loose.sqlite');
+      const loose = new Database(file);
+      try {
+        loose.pragma('journal_mode = WAL');
+        loose.exec('CREATE TABLE note (value TEXT)');
+        loose.prepare('INSERT INTO note (value) VALUES (?)').run('keep');
+        for (const target of [file, `${file}-wal`, `${file}-shm`]) {
+          chmodSync(target, 0o644);
+        }
+
+        const db = openDb(file);
+        try {
+          expect(modeOf(file)).toBe(0o600);
+          expect(modeOf(`${file}-wal`)).toBe(0o600);
+          expect(modeOf(`${file}-shm`)).toBe(0o600);
+          expect(db.prepare('SELECT value FROM note').get()).toEqual({ value: 'keep' });
+        } finally {
+          db.close();
+        }
+      } finally {
+        loose.close();
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'chmods a leftover rollback journal when present',
+    () => {
+      const file = path.join(tmpDir('db-journal'), 'journal.sqlite');
+      openDb(file).close();
+
+      writeFileSync(`${file}-journal`, '');
+      chmodSync(`${file}-journal`, 0o644);
+
+      const db = openDb(file);
+      try {
+        expect(modeOf(`${file}-journal`)).toBe(0o600);
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'creates a missing database parent owner-only and leaves an existing parent alone',
+    () => {
+      const root = tmpDir('db-parent');
+      const existingParent = path.join(root, 'existing');
+      mkdirSync(existingParent, { mode: 0o755 });
+      chmodSync(existingParent, 0o755);
+
+      const existing = openDb(path.join(existingParent, 'existing.sqlite'));
+      try {
+        expect(modeOf(existingParent)).toBe(0o755);
+      } finally {
+        existing.close();
+      }
+
+      const missingParent = path.join(root, 'missing', 'nested');
+      const created = openDb(path.join(missingParent, 'created.sqlite'));
+      try {
+        expect(modeOf(missingParent)).toBe(0o700);
+      } finally {
+        created.close();
+      }
+    },
+  );
+
+  it('keeps an in-memory database working', () => {
+    const db = openDb(':memory:');
+    try {
+      expect(db.prepare('SELECT 1 AS ok').get()).toEqual({ ok: 1 });
+    } finally {
+      db.close();
+    }
   });
 });

@@ -14,6 +14,11 @@ export function ensurePrivateDir(dir: string): void {
   chmodSync(dir, 0o700);
 }
 
+/** Force an existing file to owner-only; a missing path is ignored. */
+export function ensurePrivateFile(file: string): void {
+  if (existsSync(file)) chmodSync(file, 0o600);
+}
+
 /**
  * Write a file atomically with owner-only permissions.
  *

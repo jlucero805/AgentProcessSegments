@@ -124,7 +124,9 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
 SQLite with WAL and `foreign_keys=ON`. `db.ts` creates tables and runs idempotent
 additive migrations, with an `addColumn` guard per column. Boot reconcile sets
 `agent_status='idle'` where it was persisted as `working`, because no child survives a
-restart.
+restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftover
+`-journal` at `0600`, repairing a loose install on every open. A missing database parent
+is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
 
 ### `requests`
 

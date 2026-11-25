@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 959 vitest cases: 747 server across 48 files and 212 web across 24 files, all green.
+- 964 vitest cases: 752 server across 48 files and 212 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -98,7 +98,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 747 server + 212 web, plus the e2e env guard
+npm test                       # 752 server + 212 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -490,6 +490,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     suppressions fatal), and the CI lint step are guarded by
     `src/server/test/lint-gate.test.ts`. Do not weaken any of them without updating the
     guard and this invariant.
+40. **SQLite files are owner-only.** `openDb` forces the database, `-wal`, `-shm`, and
+    any `-journal` sidecar to `0600` on every open. The database is tightened before
+    `journal_mode=WAL` so SQLite creates new sidecars with the same private mode, and a
+    second pass repairs sidecars already on disk. A missing database parent is created
+    `0700`; an existing parent (usually the repo/cwd) is never chmodded. `:memory:` keeps
+    no files. A chmod failure propagates. This is not encryption at rest; root can still
+    read the files.
 
 ## Extension recipes
 

@@ -1121,8 +1121,8 @@ propagates, matching `settings.ts` and `process/store.ts`. Mode tests skip on Wi
 product targets Linux/systemd.
 
 **Cost.** This is not encryption at rest, and root can still read the files. The SQLite
-database and other data-dir artifacts are separate work, as is a bulk repair of old,
-terminal workdirs that are not written again.
+database is covered by D73; other data-dir artifacts are separate work, as is a bulk
+repair of old, terminal workdirs that are not written again.
 
 ## D59. Harness-reported error results fail the turn visibly
 
@@ -1541,3 +1541,28 @@ pairs are logged, never resolved automatically, and there is no disable setting.
 a legacy branch; canonical rows do no git work. A persistent divergence logs once per
 hourly sweep until a human resolves it. Orphan `sbox/*` refs have a separate opt-in
 `--prune-orphans` path, and canonical-branch pruning remains separate work.
+
+## D73. SQLite database and sidecars are owner-only
+
+**Context.** `openDb` created the database parent with the default mode and let SQLite
+create the database, `-wal`, and `-shm` files at SQLite's default `0644` under the usual
+`umask 022`. The database holds every request, KB entry (derived from transcripts),
+digest, budget alert, usage row, and scorecard, so any local account could read the whole
+brain state. SQLite copies the database file's mode to newly created WAL/SHM sidecars,
+but a sidecar that already exists is opened as-is, so repairing only the main file is not
+enough.
+
+**Decision.** `openDb` tightens the database with `ensurePrivateFile` before opening it,
+so SQLite creates new `-wal`/`-shm` sidecars at `0600`. After `journal_mode=WAL` is set,
+a second sweep forces the database, `-wal`, `-shm`, and any leftover `-journal` to
+`0600`; that repairs an older install on every startup. A missing database parent is
+created `0700`, but an existing parent is never chmodded because the default parent is
+the repo/cwd. `:memory:` skips every filesystem call. A chmod failure propagates (fail
+closed), matching `writePrivateFile`, `settings.ts`, and `process/store.ts`; the POSIX
+mode tests skip on Windows.
+
+**Cost.** This is not encryption at rest, and root can still read the files. The
+maintenance `legacy-branches-cli.ts` opens the database directly and the deploy
+`upgrade-vps.sh` snapshot uses `VACUUM INTO`; both are separate work. Until the CLI path
+is hardened, a direct CLI run can leave a loose sidecar that the next brain startup
+repairs.

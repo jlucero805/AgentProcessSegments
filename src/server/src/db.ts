@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { ensurePrivateFile } from './util/files.js';
 
 export type Db = Database.Database;
 
@@ -341,10 +342,22 @@ export function reconcile(db: Db): number {
 }
 
 export function openDb(dbPath: string): Db {
-  if (dbPath !== ':memory:') mkdirSync(path.dirname(dbPath), { recursive: true });
+  const inMemory = dbPath === ':memory:';
+  if (!inMemory) {
+    mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
+    // Tighten the database before SQLite opens it so new -wal/-shm sidecars
+    // inherit its mode; the second pass repairs sidecars already on disk.
+    ensurePrivateFile(dbPath);
+  }
   const db = new Database(dbPath);
+  if (!inMemory) ensurePrivateFile(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  if (!inMemory) {
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
+      ensurePrivateFile(`${dbPath}${suffix}`);
+    }
+  }
   migrate(db);
   reconcile(db);
   return db;

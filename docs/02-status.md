@@ -7,7 +7,8 @@ built and vended by the brain; real-CLI verification is still pending.
 ## Built
 
 - `db.ts`: schema, WAL, `foreign_keys=ON`, additive column guards, indexes created
-  after `cell_id` is added, and the stale `working` to `idle` boot reconcile.
+  after `cell_id` is added, the stale `working` to `idle` boot reconcile, and owner-only
+  `0600` database/WAL/SHM sidecars repaired on every open.
 - Domain: seven states including the optional Merge step, the transition table as data,
   terminal states, agent statuses,
   effort levels, `isIntake`, and the transcript and NDJSON event types.
@@ -351,7 +352,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 959 vitest cases, all passing: 747 server across 48 files and 212 web across 24 files,
+- 964 vitest cases, all passing: 752 server across 48 files and 212 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

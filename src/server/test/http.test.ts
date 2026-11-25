@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -174,6 +175,27 @@ async function call(
     text,
     json: () => (text === '' ? null : JSON.parse(text)),
   };
+}
+
+function gitRepo(): string {
+  const dir = tmpDir('http-git');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  execFileSync(
+    'git',
+    ['-C', dir, '-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init'],
+    { cwd: dir },
+  );
+  return dir;
+}
+
+function branchTip(repo: string, branch: string): string | null {
+  try {
+    return execFileSync('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return null;
+  }
 }
 
 function seedDelivery(
@@ -2166,6 +2188,27 @@ describe('http api', () => {
     expect(h.kb.getByRequest(request.id)?.content).toBe('The decision we keep');
   });
 
+  it('retires a legacy branch when indexing closes a request', async () => {
+    const { h } = await makeApp();
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Index legacy work', targetRepo: repo });
+    execFileSync('git', ['-C', repo, 'branch', `sbox/${request.id}`]);
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+    h.repo.transition(request.id, 'dispatch');
+    h.repo.transition(request.id, 'review');
+    h.repo.transition(request.id, 'finalize');
+
+    const indexed = await call('POST', `/api/requests/${request.id}/index`, {
+      digest: 'Keep the legacy work',
+    });
+
+    expect(indexed.status).toBe(200);
+    expect(indexed.json().state).toBe('done');
+    expect(branchTip(repo, `sbox/${request.id}`)).toBeNull();
+    expect(branchTip(repo, `aps/${request.id}`)).not.toBeNull();
+    expect(h.repo.require(request.id).branch).toBe(`aps/${request.id}`);
+  });
+
   it('indexes and closes the eligible Finalize requests in a cell', async () => {
     const { h } = await makeApp();
     const alpha = h.cells.create('Alpha');
@@ -2255,6 +2298,22 @@ describe('http api', () => {
     const dropped = await call('POST', `/api/requests/${request.id}/drop`);
     expect(dropped.status).toBe(200);
     expect(dropped.json().state).toBe('dropped');
+  });
+
+  it('retires a legacy branch when a request is dropped', async () => {
+    const { h } = await makeApp();
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Drop legacy work', targetRepo: repo });
+    execFileSync('git', ['-C', repo, 'branch', `sbox/${request.id}`]);
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+
+    const dropped = await call('POST', `/api/requests/${request.id}/drop`);
+
+    expect(dropped.status).toBe(200);
+    expect(dropped.json().state).toBe('dropped');
+    expect(branchTip(repo, `sbox/${request.id}`)).toBeNull();
+    expect(branchTip(repo, `aps/${request.id}`)).not.toBeNull();
+    expect(h.repo.require(request.id).branch).toBe(`aps/${request.id}`);
   });
 
   it('lists plugins and commands and maps plugin errors', async () => {

@@ -127,9 +127,11 @@ built and vended by the brain; real-CLI verification is still pending.
   `error` event. OpenCode error events follow the same engine path.
 - Worktrees: `aps/<id>` branch per request (legacy `sbox/<id>` reused when it is the
   only ref), reuse of an existing checkout, branch kept on removal, scratch fallback
-  when git is unavailable. `npm run migrate:branches` retires finished requests'
-  legacy refs; it renames a lone `sbox/<id>`, deletes one already contained in
-  `aps/<id>`, and never touches live, checked-out, or diverged branches.
+  when git is unavailable. A terminal transition retires a legacy `sbox/<id>` after the
+  checkout is removed; a startup/hourly sweep catches older terminal rows. Both rename
+  a lone legacy ref, delete one already contained in `aps/<id>`, repair a stored branch
+  whose legacy ref is gone, and never touch live, checked-out, or diverged branches.
+  `npm run migrate:branches` remains the dry-run/manual recovery command.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -347,7 +349,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 931 vitest cases, all passing: 721 server across 47 files and 210 web across 24 files,
+- 947 vitest cases, all passing: 737 server across 48 files and 210 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

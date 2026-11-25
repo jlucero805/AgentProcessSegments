@@ -88,9 +88,11 @@ prefix, and an existing checkout reports the branch it is actually on. `removeWo
 removes the checkout and keeps the branch.
 
 **Cost.** The branch and its commits outlive the request by design. Legacy
-`sbox/<id>` branches may coexist with new `aps/<id>` branches until an operator retires
-them. `npm run migrate:branches` does that: dry run by default, `--apply` renames a lone
-legacy ref, deletes it only when it is already contained in `aps/<id>`, and rewrites the
+`sbox/<id>` branches may coexist with new `aps/<id>` branches until the request becomes
+terminal. A terminal transition then retires the legacy ref after `dispose` removes the
+worktree, and a startup/hourly sweep catches older terminal rows; `npm run
+migrate:branches` remains the dry-run/manual recovery command. Both paths rename a lone
+legacy ref, delete it only when it is already contained in `aps/<id>`, and rewrite the
 terminal request's stored branch without touching `updated_at` (which would reorder
 history and reset the master's idle clock). Non-terminal requests, checked-out branches,
 and diverged pairs are always skipped; orphan `sbox/*` refs are reported but never
@@ -1514,3 +1516,26 @@ non-path setting keep their semantics.
 **Cost.** A blank XDG base now runs on the default or legacy location instead of failing
 fast, and the only signal is the startup warning. `HOME` has no such guard; a blank
 `HOME` still makes the fallback bases relative and is separate work.
+
+## D72. Terminal transitions retire legacy branches automatically
+
+**Context.** D7 kept every branch on worktree removal and left legacy `sbox/<id>` refs
+for an operator running `npm run migrate:branches`. That made the rebrand's cleanup a
+manual chore, and terminal requests could keep a legacy ref indefinitely.
+
+**Decision.** `Engine.dispose` runs the per-row retirement after `removeWorktree`, so
+every terminal path (`done` through index/finalize or transition, and `dropped` through
+transition/drop) uses one hook. The helper reuses the CLI's conservative decisions:
+rename a lone legacy ref, delete it only when contained in `aps/<id>`, repair a row
+whose legacy ref is gone, and skip non-terminal, checked-out, missing, and diverged
+rows. DB updates reuse the guarded `migrateLegacyBranch` and preserve `updated_at`. A
+separate `LegacyBranchSweeper` runs at startup and hourly to cover rows that were
+already terminal and to retry transient git failures; it is not folded into
+`ArtifactRetention` because that service is disabled when `requestArtifactsDays` is 0.
+Automation applies directly because its dispositions cannot lose commits. Diverged
+pairs are logged, never resolved automatically, and there is no disable setting.
+
+**Cost.** A terminal transition now performs a few git probes when the row still stores
+a legacy branch; canonical rows do no git work. A persistent divergence logs once per
+hourly sweep until a human resolves it. Orphan `sbox/*` refs and canonical-branch
+pruning remain separate work.

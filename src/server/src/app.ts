@@ -16,6 +16,7 @@ import { legacyEnvNames, legacyEnvWarning } from './env.js';
 import { buildServer } from './http/server.js';
 import { KbRepository } from './kb/repository.js';
 import { ErrorLogger } from './logging/errors.js';
+import { LegacyBranchSweeper } from './maintenance/legacy-branch-sweeper.js';
 import { MasterEventRepository } from './master/events.js';
 import { MasterScheduler } from './master/scheduler.js';
 import { MasterService } from './master/service.js';
@@ -166,6 +167,11 @@ export async function main(): Promise<void> {
       errors,
       isBusy: (id) => engine.hasLive(id),
     });
+    const legacyBranchSweeper = new LegacyBranchSweeper({
+      repo,
+      errors,
+      isBusy: (id) => engine.hasLive(id),
+    });
 
     const app = await buildServer({
       repo,
@@ -199,10 +205,12 @@ export async function main(): Promise<void> {
     usageRetention.start();
     dataRetention.start();
     artifactRetention.start();
+    legacyBranchSweeper.start();
     budgets.start();
     notifications.start();
 
     const shutdown = async () => {
+      legacyBranchSweeper.stop();
       artifactRetention.stop();
       dataRetention.stop();
       usageRetention.stop();

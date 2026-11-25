@@ -716,11 +716,14 @@ defaults.
   that is the only ref that exists, via `ensureWorktree`,
   `removeWorktree`, and `branchName`. It falls back to the scratch workdir when there is
   no target repo or git fails. Transcript, session, and MCP config stay in the scratch
-  workdir, out of the repo. `dispose(id)` kills the child and removes the worktree on
-  terminal transitions. `retention.requestArtifactsDays` later sweeps leftover checkouts
-  for terminal or row-less requests; it never touches a non-terminal request and keeps
-  the branch. Once a request is terminal, `npm run migrate:branches` retires its legacy
-  `sbox/<id>` ref (`src/server/src/maintenance/legacy-branches.ts`).
+  workdir, out of the repo. `dispose(id)` kills the child, removes the worktree, and
+  then retires a legacy `sbox/<id>` ref once the checkout is gone.
+  `retention.requestArtifactsDays` later sweeps leftover checkouts for terminal or
+  row-less requests; it never touches a non-terminal request and keeps the branch. A
+  startup/hourly sweeper catches terminal rows left by older builds or a transient git
+  failure. The transition hook, the sweeper, and `npm run migrate:branches` share the
+  conservative rules in `src/server/src/maintenance/legacy-branches.ts`; the CLI remains
+  the dry-run/manual recovery command.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config
   (`mcp-config.json` or `opencode/opencode.json`). The `requests/` parent and each
@@ -945,7 +948,7 @@ interface Request {
   agentStatus: AgentStatus;
   unchecked: boolean;            // agent finished, human has not opened it since
   hcRunIds: string[];            // provenance (dormant)
-  branch: string | null;         // aps/<id>; legacy sbox/<id> until migrate:branches
+  branch: string | null;         // aps/<id>; legacy sbox/<id> until a terminal cleanup
   crUrl: string | null;
   cellId: string | null;         // at most one cell; null means the unfiltered floor
   harness: HarnessId | null;     // explicit override; null inherits cell then brain

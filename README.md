@@ -264,7 +264,16 @@ To move an existing install to the new names:
    `systemctl --user enable --now agent-process-segments`.
 
 Worktree branches created before the rebrand are named `sbox/<id>`. They stay valid
-until the request finishes; once nothing is in flight, retire them with:
+until the request finishes. The brain retires them automatically when a request reaches
+`done`/`dropped` (after removing its worktree), and its startup/hourly sweep catches
+terminal rows left by an older build, so an upgrade needs no operator run. The sweep
+renames a lone `sbox/<id>` to `aps/<id>`, deletes the legacy ref when it is already
+contained in `aps/<id>`, and repairs a stored branch whose legacy ref is gone. It never
+touches a branch for a request that is not `done`/`dropped`, a branch checked out in any
+worktree, or a diverged `sbox`/`aps` pair (those are logged for manual review). Orphan
+`sbox/*` refs with no request row are report-only.
+
+The same rules are available as a manual dry run or recovery command:
 
 ```
 npm run build                       # the command runs from dist
@@ -272,12 +281,7 @@ npm run migrate:branches -- --dry-run
 npm run migrate:branches -- --apply
 ```
 
-The command renames a lone `sbox/<id>` to `aps/<id>`, deletes the legacy ref when it is
-already contained in `aps/<id>`, and repairs a stored branch whose legacy ref is gone.
-It never touches a branch for a request that is not `done`/`dropped`, a branch checked
-out in any worktree, or a diverged `sbox`/`aps` pair (those are reported for manual
-review). Orphan `sbox/*` refs with no request row are report-only. Pass `--repo DIR` to
-limit the run and `--db FILE` to point at a non-default database.
+Pass `--repo DIR` to limit the run and `--db FILE` to point at a non-default database.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -448,6 +452,8 @@ src/server/src
   clarify/prompts.ts  seed, dispatch, finalize, and KB briefs
   clarify/worktree.ts per-request git worktree on branch aps/<id> (legacy sbox/<id> reused)
   clarify/models.ts   model catalog with a cached probe and harness fallback
+  maintenance/legacy-branches.ts  safe sbox -> aps decisions shared by dispose, sweep, CLI
+  maintenance/legacy-branch-sweeper.ts  startup/hourly cleanup for leftover terminal refs
   settings.ts         XDG scheduler settings, zod validation, atomic write
   docs/service.ts     explicit Help manifest, Markdown reads, screenshot assets
   process/            six segment definitions (incl. Merge), defaults, store, follow-up parser
@@ -504,7 +510,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 931 vitest cases: 721 server cases across 47 files (state machine,
+`npm test` runs 947 vitest cases: 737 server cases across 48 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

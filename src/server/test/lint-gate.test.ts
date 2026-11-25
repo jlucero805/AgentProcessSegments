@@ -14,18 +14,34 @@ const eslintConfig = readFileSync(path.join(repoRoot, 'eslint.config.mjs'), 'utf
 const workflow = readFileSync(path.join(repoRoot, 'deploy/ci-workflow.yml'), 'utf8');
 
 describe('zero-warning lint gate', () => {
-  it('runs ESLint over src with warnings treated as failures', () => {
-    expect(packageJson.scripts?.['lint']).toBe('eslint src --max-warnings=0');
+  it('runs ESLint over the repo and bash -n over the deploy scripts', () => {
+    expect(packageJson.scripts?.['lint']).toBe(
+      'npm run --silent lint:js && npm run --silent lint:sh',
+    );
+    expect(packageJson.scripts?.['lint:js']).toBe('eslint . --max-warnings=0');
+    expect(packageJson.scripts?.['lint:sh']).toBe(
+      'for f in deploy/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done',
+    );
   });
 
   it('keeps the ESLint toolchain as root devDependencies', () => {
-    for (const dependency of ['eslint', 'typescript-eslint', 'eslint-plugin-react-hooks']) {
+    for (const dependency of [
+      'eslint',
+      '@eslint/js',
+      'globals',
+      'typescript-eslint',
+      'eslint-plugin-react-hooks',
+    ]) {
       expect(packageJson.devDependencies?.[dependency], dependency).toBeDefined();
     }
   });
 
-  it('scopes the flat config to src and keeps unused suppressions fatal', () => {
-    expect(eslintConfig).toContain("files: ['src/**/*.{ts,tsx}']");
+  it('scopes the flat config to src, scripts, and .opencode and keeps unused suppressions fatal', () => {
+    expect(eslintConfig).toContain("files: ['**/*.{js,mjs,cjs}']");
+    expect(eslintConfig).toContain(
+      "files: ['src/**/*.{ts,tsx}', '.opencode/**/*.{ts,mts,cts}']",
+    );
+    expect(eslintConfig).toContain("files: ['scripts/screenshots.mjs', 'scripts/ui-smoke.mjs']");
     expect(eslintConfig).toContain("'**/dist/**'");
     expect(eslintConfig).toContain("'**/node_modules/**'");
     expect(eslintConfig).toContain("reportUnusedDisableDirectives: 'error'");

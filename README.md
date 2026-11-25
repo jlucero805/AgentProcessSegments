@@ -534,9 +534,11 @@ assertion. A crashed or killed run can still leave a root behind; run
 `node scripts/clean-test-tmp.mjs` to preview stale `sbox-*`/`aps-*` temp dirs older than
 an hour, and add `--apply` to delete them.
 
-`npm run lint` runs ESLint 10 over `src/**/*.{ts,tsx}` from one flat config
-(`eslint.config.mjs`) in both workspaces, with the classic React hook rules for the SPA,
-and fails on any warning.
+`npm run lint` runs ESLint 10 from one flat config (`eslint.config.mjs`) over the
+TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.opencode`
+plugin sources when present, with the classic React hook rules for the SPA. It also runs
+`bash -n` over `deploy/*.sh` and `scripts/smoke.sh`, and fails on any warning. The shell
+check needs `bash`, which the deploy runbooks already require.
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, proves a tool call persists through the API into

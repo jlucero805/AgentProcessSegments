@@ -96,7 +96,7 @@ digests.
 npm ci --include=dev           # keeps devDependencies under an inherited NODE_ENV=production;
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web, must print nothing
-npm run lint                   # eslint over src, zero warnings allowed
+npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
 npm test                       # 704 server + 203 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
@@ -475,12 +475,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     (`__kb__`, `__master__:*`, `__summary__:*`, `__setup__:*`). Leftover
     `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
     a failed sweep is one `retention.artifacts` record, not a crash.
-39. **The lint gate is zero-warning and guarded.** `npm run lint` is
-    `eslint src --max-warnings=0`, so a warning fails the gate just like an error. The
-    script, root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}`,
-    `dist`/`node_modules` ignored, unused suppressions fatal), and the CI lint step are
-    guarded by `src/server/test/lint-gate.test.ts`. Do not weaken any of them without
-    updating the guard and this invariant.
+39. **The lint gate is zero-warning and guarded.** `npm run lint` composes
+    `eslint . --max-warnings=0` with `bash -n` over `deploy/*.sh` and `scripts/*.sh`, so
+    a warning or a shell syntax error fails the gate just like an error. The scripts,
+    root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}` plus JS/MJS/CJS
+    tooling and `.opencode` plugin sources, `dist`/`node_modules` ignored, unused
+    suppressions fatal), and the CI lint step are guarded by
+    `src/server/test/lint-gate.test.ts`. Do not weaken any of them without updating the
+    guard and this invariant.
 
 ## Extension recipes
 

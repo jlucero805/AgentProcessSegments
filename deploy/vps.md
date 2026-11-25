@@ -254,6 +254,9 @@ systemctl --user restart agent-process-segments
 journalctl --user -u agent-process-segments -n 50 --no-pager
 ```
 
+Then tighten request workdirs left by an older version: preview with
+`npm run repair:permissions`, then apply with `npm run repair:permissions -- --apply`.
+
 Requests, transcripts, and agent session ids are on disk. A restart loses no request
 state; the engine resumes the agent session from `session.json` on the next turn.
 
@@ -342,6 +345,10 @@ git -C ~/agent-process-segments log --oneline -1
 The script also probes a route added in the target build (currently
 `/api/notifications/status`, which returns 404 on older builds) so a green `/health`
 alone cannot hide a restart on the previous binary.
+
+Then run the one-time workdir repair: `npm run repair:permissions` to preview and
+`npm run repair:permissions -- --apply` to change modes. It is not part of the upgrade
+script yet.
 
 ## Upgrade from Sandbox Harness
 

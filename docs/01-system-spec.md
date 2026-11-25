@@ -733,7 +733,9 @@ defaults.
   (`mcp-config.json` or `opencode/opencode.json`). The `requests/` parent and each
   `<id>` workdir are created `0700`; `transcript.json` and `session.json` are written
   atomically with mode `0600`. A loose workdir or file left by an older version is
-  repaired on the next write. Terminal workdirs older than
+  repaired on the next write. Existing installs can repair every workdir at once with
+  `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
+  artifacts and never recurses into `cwd/` checkouts. Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
   below. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That

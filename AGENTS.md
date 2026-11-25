@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 964 vitest cases: 752 server across 48 files and 212 web across 24 files, all green.
+- 977 vitest cases: 765 server across 49 files and 212 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -98,7 +98,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 752 server + 212 web, plus the e2e env guard
+npm test                       # 765 server + 212 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -118,6 +118,7 @@ npm run migrate:paths           # move legacy paths; refuses while a brain unit 
 npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs;
                                 # terminal transitions retire them automatically.
                                 # --prune-orphans also retires refs with no request row
+npm run repair:permissions      # tighten old request workdirs (dry run first)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
                                 # prunes older runs by default; --no-prune opts out
 npm run upgrade:vps -- --dry-run  # pull + rebuild + restart; --detach inside the brain
@@ -467,9 +468,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
-    workdir or file left by an older version is repaired on the next write. Never write
-    conversation state with a bare `writeFileSync`; transcripts can contain tool output
-    and secrets.
+    workdir or file left by an older version is repaired on the next write. Existing
+    installs are repaired in bulk with `npm run repair:permissions` (dry run by default;
+    `--apply` to change); it tightens only the known `requests/` artifacts and never
+    recurses into `cwd/` checkouts. Never write conversation state with a bare
+    `writeFileSync`; transcripts can contain tool output and secrets.
 37. **A harness-reported error result fails the turn once, visibly.** A parser `error`
     event sets `turn.failure` (first one wins), broadcasts one `error`, persists one
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it

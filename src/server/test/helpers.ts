@@ -24,6 +24,9 @@ import { PricingRepository } from '../src/pricing/repository.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { UsageRepository } from '../src/usage/repository.js';
 
+/** Test-only config overrides; `defaultModel` is shorthand for the effective harness. */
+export type ConfigOverrides = Partial<Config> & { defaultModel?: string | null };
+
 export function testConfig(): Config {
   const base = tmpDir('test');
   return {
@@ -44,13 +47,13 @@ export function testConfig(): Config {
  * Apply a test's config overrides on top of a fresh config. `defaultModel` is a
  * convenience for the effective harness only, matching `APS_DEFAULT_MODEL`.
  */
-function withConfigOverrides(base: Config, overrides: Partial<Config>): Config {
-  const merged: Config = { ...base, ...overrides };
-  if (overrides.defaultModel !== undefined) {
-    merged.defaultModels = { ...merged.defaultModels, [merged.harness]: overrides.defaultModel };
+function withConfigOverrides(base: Config, overrides: ConfigOverrides): Config {
+  const { defaultModel, ...rest } = overrides;
+  const merged: Config = { ...base, ...rest };
+  if (defaultModel !== undefined) {
+    merged.defaultModels = { ...merged.defaultModels, [merged.harness]: defaultModel };
   }
-  // Keep the scalar alias in step with the per-harness map.
-  return { ...merged, defaultModel: merged.defaultModels[merged.harness] };
+  return merged;
 }
 
 export function line(value: unknown): string {
@@ -224,7 +227,7 @@ export function createHarness(
     | null,
   spendCap?: (cellId: string | null) => SpendPause | null,
   errors?: ErrorSink,
-  configOverrides: Partial<Config> = {},
+  configOverrides: ConfigOverrides = {},
   onUsageRecorded?: () => void,
   onTurnFailure?: (event: TurnFailureNotification) => void,
 ): Harness {

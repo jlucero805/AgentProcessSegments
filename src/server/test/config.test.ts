@@ -49,7 +49,7 @@ describe('harness config', () => {
       claude: null,
       opencode: 'opencode-go/deepseek-v4.1-flash',
     });
-    expect(config.defaultModel).toBeNull();
+    expect(config.defaultModels[config.harness]).toBeNull();
   });
 
   it('accepts OpenCode as the process default', () => {
@@ -58,7 +58,7 @@ describe('harness config', () => {
 
     expect(config.harness).toBe('opencode');
     expect(config.harnessBin).toBe('opencode');
-    expect(config.defaultModel).toBe('opencode-go/deepseek-v4.1-flash');
+    expect(config.defaultModels[config.harness]).toBe('opencode-go/deepseek-v4.1-flash');
   });
 
   it('rejects an unknown harness instead of silently choosing Claude', () => {
@@ -578,7 +578,7 @@ describe('loadConfig environment precedence', () => {
     expect(config.errorLogPath).toBe('/legacy/errors.log');
     expect(config.errorLogMaxBytes).toBe(4096);
     expect(config.turnTimeoutMs).toBe(5000);
-    expect(config.defaultModel).toBeNull();
+    expect(config.defaultModels[config.harness]).toBeNull();
     expect(config.terminalEnabled).toBe(false);
     expect(config.terminalCwd).toBe('/legacy/terminal');
   });
@@ -604,7 +604,7 @@ describe('loadConfig environment precedence', () => {
     expect(config.port).toBe(2000);
     expect(config.harness).toBe('claude');
     expect(config.harnessBin).toBe('claude');
-    expect(config.defaultModel).toBeNull();
+    expect(config.defaultModels[config.harness]).toBeNull();
     expect(config.terminalEnabled).toBe(true);
   });
 

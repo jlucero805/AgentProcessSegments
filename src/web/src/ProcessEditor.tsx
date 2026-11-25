@@ -3,6 +3,7 @@ import {
   SEGMENT_STATES,
   STATES,
   canTransition,
+  isSchedulableSegment,
   type ProcessConfig,
   type SegmentConfig,
 } from './types';
@@ -93,150 +94,171 @@ export function ProcessEditor({
       </div>
 
       <div className="space-y-2">
-        {process.segments.map((segment) => (
-          <SegmentDetails key={segment.id} open={segment.enabled}>
-            <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2">
-              <span className="text-sm font-medium text-zinc-200">{segment.label}</span>
-              <Badge tone={segment.enabled ? 'green' : 'neutral'}>
-                {segment.enabled ? 'on' : 'off'}
-              </Badge>
-              <span className="text-[11px] text-zinc-500">
-                {segment.idleMinutes}m idle · {segment.advanceTo ? `→ ${segment.advanceTo}` : 'stays'}
-                {segment.maxConcurrent !== null ? ` · max ${segment.maxConcurrent}` : ''}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-600">
-                {segment.purpose}
-              </span>
-            </summary>
+        {process.segments.map((segment) => {
+          const schedulable = isSchedulableSegment(segment.id);
+          return (
+            <SegmentDetails key={segment.id} open={schedulable && segment.enabled}>
+              <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2">
+                <span className="text-sm font-medium text-zinc-200">{segment.label}</span>
+                <Badge
+                  tone={schedulable && segment.enabled ? 'green' : 'neutral'}
+                >
+                  {schedulable ? (segment.enabled ? 'on' : 'off') : 'Manual'}
+                </Badge>
+                <span className="text-[11px] text-zinc-500">
+                  {schedulable
+                    ? `${segment.idleMinutes}m idle · ${segment.advanceTo ? `→ ${segment.advanceTo}` : 'stays'}${
+                        segment.maxConcurrent !== null ? ` · max ${segment.maxConcurrent}` : ''
+                      }`
+                    : 'never scheduled'}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-600">
+                  {segment.purpose}
+                </span>
+              </summary>
 
-            <div className="space-y-4 border-t border-zinc-800 p-3">
-              <Checkbox
-                label={`Automate ${segment.label}`}
-                checked={segment.enabled}
-                onChange={(event) => onChange(segment.id, 'enabled', event.target.checked)}
-              />
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Field label="Idle threshold (minutes)">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={segment.idleMinutes}
-                    onChange={(event) =>
-                      onChange(segment.id, 'idleMinutes', Number(event.target.value))
-                    }
-                  />
-                </Field>
-                <Field label="Max per cycle">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={segment.maxPerCycle}
-                    onChange={(event) =>
-                      onChange(segment.id, 'maxPerCycle', Number(event.target.value))
-                    }
-                  />
-                </Field>
-                <Field label="Segment concurrency" hint="empty uses cell cap">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={segment.maxConcurrent ?? ''}
-                    placeholder="cell cap"
-                    onChange={(event) =>
-                      onChange(
-                        segment.id,
-                        'maxConcurrent',
-                        event.target.value === '' ? null : Number(event.target.value),
-                      )
-                    }
-                  />
-                </Field>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Label">
-                  <Input
-                    value={segment.label}
-                    onChange={(event) => onChange(segment.id, 'label', event.target.value)}
-                  />
-                </Field>
-                <Field label="Advance to" hint="on ready marker">
-                  <Select
-                    value={segment.advanceTo ?? ''}
-                    onChange={(event) =>
-                      onChange(
-                        segment.id,
-                        'advanceTo',
-                        event.target.value === ''
-                          ? null
-                          : (event.target.value as SegmentConfig['advanceTo']),
-                      )
-                    }
-                  >
-                    <option value="">Stay in this segment</option>
-                    {advanceOptions(segment).map((state) => (
-                      <option key={state} value={state}>
-                        {state}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
-
-              <Field label="Purpose">
-                <Textarea
-                  rows={2}
-                  value={segment.purpose}
-                  onChange={(event) => onChange(segment.id, 'purpose', event.target.value)}
-                />
-              </Field>
-
-              <Field label="Ready marker" hint="exact line that advances">
-                <Input
-                  value={segment.readyMarker ?? ''}
-                  placeholder="e.g. READY FOR REVIEW"
-                  onChange={(event) =>
-                    onChange(segment.id, 'readyMarker', event.target.value || null)
-                  }
-                />
-              </Field>
-
-              <Field label="Agent prompt" hint="empty uses the built-in default">
-                <Textarea
-                  rows={5}
-                  value={segment.prompt}
-                  onChange={(event) => onChange(segment.id, 'prompt', event.target.value)}
-                />
-              </Field>
-
-              <div className="space-y-2">
-                {segment.id !== 'intake' && segment.id !== 'finalize' ? (
+              <div className="space-y-4 border-t border-zinc-800 p-3">
+                {schedulable ? null : (
+                  <p className="text-xs text-zinc-500">
+                    Finalize is manual. The master never schedules a turn here; run
+                    Finalize on the request to propose a digest, then index it.
+                  </p>
+                )}
+                <fieldset
+                  disabled={!schedulable}
+                  className={schedulable ? 'space-y-4' : 'space-y-4 opacity-60'}
+                >
                   <Checkbox
-                    label={`Create follow-up requests from ${segment.label} callouts`}
-                    checked={segment.followUps.enabled}
+                    label={`Automate ${segment.label}`}
+                    checked={schedulable && segment.enabled}
                     onChange={(event) =>
-                      onFollowUp(segment.id, 'enabled', event.target.checked)
+                      onChange(segment.id, 'enabled', event.target.checked)
                     }
                   />
-                ) : null}
-                {segment.followUps.enabled && segment.id !== 'intake' && segment.id !== 'finalize' ? (
-                  <Field label="Follow-up marker">
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Field label="Idle threshold (minutes)">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={segment.idleMinutes}
+                        onChange={(event) =>
+                          onChange(segment.id, 'idleMinutes', Number(event.target.value))
+                        }
+                      />
+                    </Field>
+                    <Field label="Max per cycle">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={segment.maxPerCycle}
+                        onChange={(event) =>
+                          onChange(segment.id, 'maxPerCycle', Number(event.target.value))
+                        }
+                      />
+                    </Field>
+                    <Field label="Segment concurrency" hint="empty uses cell cap">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={segment.maxConcurrent ?? ''}
+                        placeholder="cell cap"
+                        onChange={(event) =>
+                          onChange(
+                            segment.id,
+                            'maxConcurrent',
+                            event.target.value === '' ? null : Number(event.target.value),
+                          )
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Label">
+                      <Input
+                        value={segment.label}
+                        onChange={(event) => onChange(segment.id, 'label', event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Advance to" hint="on ready marker">
+                      <Select
+                        value={segment.advanceTo ?? ''}
+                        onChange={(event) =>
+                          onChange(
+                            segment.id,
+                            'advanceTo',
+                            event.target.value === ''
+                              ? null
+                              : (event.target.value as SegmentConfig['advanceTo']),
+                          )
+                        }
+                      >
+                        <option value="">Stay in this segment</option>
+                        {advanceOptions(segment).map((state) => (
+                          <option key={state} value={state}>
+                            {state}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+
+                  <Field label="Purpose">
+                    <Textarea
+                      rows={2}
+                      value={segment.purpose}
+                      onChange={(event) => onChange(segment.id, 'purpose', event.target.value)}
+                    />
+                  </Field>
+
+                  <Field label="Ready marker" hint="exact line that advances">
                     <Input
-                      value={segment.followUps.marker}
+                      value={segment.readyMarker ?? ''}
+                      placeholder="e.g. READY FOR REVIEW"
                       onChange={(event) =>
-                        onFollowUp(segment.id, 'marker', event.target.value)
+                        onChange(segment.id, 'readyMarker', event.target.value || null)
                       }
                     />
                   </Field>
-                ) : null}
+
+                  <Field label="Agent prompt" hint="empty uses the built-in default">
+                    <Textarea
+                      rows={5}
+                      value={segment.prompt}
+                      onChange={(event) => onChange(segment.id, 'prompt', event.target.value)}
+                    />
+                  </Field>
+
+                  <div className="space-y-2">
+                    {segment.id !== 'intake' && segment.id !== 'finalize' ? (
+                      <Checkbox
+                        label={`Create follow-up requests from ${segment.label} callouts`}
+                        checked={segment.followUps.enabled}
+                        onChange={(event) =>
+                          onFollowUp(segment.id, 'enabled', event.target.checked)
+                        }
+                      />
+                    ) : null}
+                    {segment.followUps.enabled && segment.id !== 'intake' && segment.id !== 'finalize' ? (
+                      <Field label="Follow-up marker">
+                        <Input
+                          value={segment.followUps.marker}
+                          onChange={(event) =>
+                            onFollowUp(segment.id, 'marker', event.target.value)
+                          }
+                        />
+                      </Field>
+                    ) : null}
+                  </div>
+                </fieldset>
               </div>
-            </div>
-          </SegmentDetails>
-        ))}
+            </SegmentDetails>
+          );
+        })}
       </div>
 
       {showPath && path ? (

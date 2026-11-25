@@ -397,10 +397,11 @@ master uses that policy, while cells without one inherit the global default. Eac
 also has `master_interval_minutes` (null inherits the global cadence), its own timer, and
 its own reserved chat session (`__master__:<cellId>`). Each segment has a label, purpose,
 enabled flag, idle threshold, per-cycle cap, prompt, exact ready marker, legal target
-state, and follow-up marker. The master evaluates enabled segments by pipeline position
-from right to left (`finalize` first, `intake` last), not in stored array order, so
-finishing work is not starved by a backlog of planning. `intake` uses `engine.start`;
-other segments use `engine.send` with the configured prompt. A marker
+state, and follow-up marker. The master evaluates enabled schedulable segments by
+pipeline position from right to left (`merge` first, `intake` last), not in stored array
+order, so finishing work is not starved by a backlog of planning. Finalize is manual-only
+and never scheduled, whatever its stored `enabled` flag says. `intake` uses
+`engine.start`; other segments use `engine.send` with the configured prompt. A marker
 advances only through a legal transition. `intake` and `finalize` cannot auto-advance.
 Follow-up lines create requests in the same cell and are deduplicated per source request
 in `master_events`.
@@ -1707,3 +1708,26 @@ Alert rows and delivery rows are no longer transactionally coupled after enqueue
 orphan sweep is the guard against sending a deleted alert. Migrated rows whose alert was
 already gone get safe default snapshot values; current installs cannot have that state
 because the old cascade removed them first. Resends remain unattributed.
+## D79. Finalize is a manual-only segment
+
+**Context.** When a cell enabled the Finalize segment, the master prodded every idle
+request in `finalize` each `idleMinutes`. Cycles evaluate right-to-left and fill the
+cell's spare `maxConcurrent` from the latest segment first, so those digest-proposal turns
+took the whole bucket and starved `plan`, `implement`, `review`, and `merge` until the
+operator indexed. The digest is also the one step that closes a request into the KB, so
+turning it into an automatic loop contradicts the human gate.
+
+**Decision.** `isSchedulableSegment` in `process/definition.ts` excludes `finalize`; the
+master filters evaluation and candidate selection through it, so no stored policy can
+make Finalize a candidate. Existing `process.json` files with `finalize.enabled: true`
+still load and are accepted by `PATCH /api/process`; the flag is ignored rather than
+migrated or rejected. The process editor shows Finalize as a “Manual” segment with its
+schedule controls disabled. Review and Merge still advance a request into `finalize` on
+`READY TO FINALIZE`, and the manual route (`POST /api/requests/:id/finalize`,
+`finishRequest`, `index-all`) is unchanged.
+
+**Cost.** A request that reaches Finalize no longer gets an automatic digest proposal, so
+**Index all** skips it as `no_digest` until the human presses Finalize or writes the
+digest. The finalize segment entry and its schema fields remain for config compatibility,
+but its prompt, idle threshold, caps, and enable flag no longer affect any turn. The
+master no longer converts a finalize backlog into queued work; that is intentional.

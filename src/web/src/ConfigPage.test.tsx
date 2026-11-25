@@ -1124,6 +1124,21 @@ describe('ConfigPage', () => {
     ).toBe(true);
   });
 
+  it('shows finalize as a manual-only segment', async () => {
+    installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const finalize = await screen.findByRole(
+      'checkbox',
+      { name: 'Automate Finalize', hidden: true },
+    );
+    expect(finalize).toBeDisabled();
+    expect(finalize).not.toBeChecked();
+    expect(screen.getByText('Manual')).toBeInTheDocument();
+    expect(screen.getByText('never scheduled')).toBeInTheDocument();
+    expect(screen.getByText(/Finalize is manual/)).toBeInTheDocument();
+  });
+
   it('lists configured model prices with their source', async () => {
     const price = makePrice();
     installFetch(budgetView, [event], [price]);

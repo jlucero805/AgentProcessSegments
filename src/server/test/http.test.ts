@@ -1707,17 +1707,26 @@ describe('http api', () => {
     const intake = segments.find((segment) => segment.id === 'intake');
     expect(intake).toBeDefined();
     intake!.enabled = true;
+    const finalize = segments.find((segment) => segment.id === 'finalize');
+    expect(finalize).toBeDefined();
+    finalize!.enabled = true;
 
     const patched = await call('PATCH', '/api/process', { segments });
     expect(patched.status).toBe(200);
     expect(patched.json().segments.find((segment: { id: string }) => segment.id === 'intake').enabled).toBe(
       true,
     );
+    expect(
+      patched.json().segments.find((segment: { id: string }) => segment.id === 'finalize').enabled,
+    ).toBe(true);
 
     const after = await call('GET', '/api/process');
     expect(after.json().segments.find((segment: { id: string }) => segment.id === 'intake').enabled).toBe(
       true,
     );
+    expect(
+      after.json().segments.find((segment: { id: string }) => segment.id === 'finalize').enabled,
+    ).toBe(true);
 
     const bad = await call('PATCH', '/api/process', {
       segments: [{ id: 'intake' }, { id: 'intake' }],

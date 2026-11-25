@@ -11,6 +11,16 @@ export const SEGMENT_IDS = [
 ] as const;
 export type SegmentId = (typeof SEGMENT_IDS)[number];
 
+/**
+ * Segments the master may schedule. Finalize is a human gate: a person runs the
+ * digest turn and indexes, so the master never prods a request in that state.
+ */
+const MANUAL_ONLY_SEGMENTS: ReadonlySet<SegmentId> = new Set(['finalize']);
+
+export function isSchedulableSegment(id: SegmentId): boolean {
+  return !MANUAL_ONLY_SEGMENTS.has(id);
+}
+
 /** The request state each segment operates on. Intake and Plan share clarify. */
 export const SEGMENT_STATES: Record<SegmentId, State> = {
   intake: 'clarify',
@@ -65,8 +75,8 @@ export const SEGMENT_FLOW_GUIDE = [
   'implement: advanceTo "review".',
   'review: advanceTo "merge", "finalize", or "dispatch".',
   'merge: advanceTo "finalize".',
-  'finalize: leave advanceTo null; a human indexes the result.',
-  'Enabling a segment is separate from setting advanceTo: enable every step the master should run.',
+  'finalize: leave advanceTo null; the master never schedules it, and a human runs the digest turn and indexes the result.',
+  'Enabling a segment is separate from setting advanceTo: enable every step the master should run (never finalize).',
   'Any non-null advanceTo requires a non-empty readyMarker. Keep every segment exactly once and preserve fields you are not changing.',
 ].join('\n');
 

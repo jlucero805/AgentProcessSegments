@@ -561,6 +561,58 @@ describe('MasterService', () => {
     expect(fixture.events.list().some((event) => event.action === 'advance')).toBe(true);
   });
 
+  it('never prods finalize even when the segment is enabled', async () => {
+    const process = processFor((config) => {
+      segment(config, 'implement').enabled = false;
+      const finalize = segment(config, 'finalize');
+      finalize.enabled = true;
+      finalize.idleMinutes = 1;
+      finalize.maxPerCycle = 10;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Finalize gate');
+    const first = requestInState(fixture, 'Index me', 'finalize', cell.id);
+    const second = requestInState(fixture, 'Index me too', 'finalize', cell.id);
+
+    const result = await runEnabledCells(fixture);
+
+    expect(result).toMatchObject({ dispatch: 0, prodded: 0, started: 0 });
+    expect(fixture.turns).toEqual([]);
+    expect(fixture.sent).toEqual([]);
+    expect(fixture.started).toEqual([]);
+    expect(fixture.events.list().filter((event) => event.requestId !== null)).toEqual([]);
+    expect(fixture.engine.note).not.toHaveBeenCalled();
+    expect(fixture.repo.require(first.id).state).toBe('finalize');
+    expect(fixture.repo.require(second.id).state).toBe('finalize');
+  });
+
+  it('does not let an enabled finalize backlog take the cell concurrency', async () => {
+    const process = processFor((config) => {
+      const implement = segment(config, 'implement');
+      implement.enabled = true;
+      implement.idleMinutes = 1;
+      implement.readyMarker = null;
+      implement.advanceTo = null;
+      const finalize = segment(config, 'finalize');
+      finalize.enabled = true;
+      finalize.idleMinutes = 1;
+      finalize.maxPerCycle = 10;
+    });
+    const fixture = setup({}, process);
+    const cell = fixture.cells.create('Gate and build', null, null, { maxConcurrent: 1 });
+    const waitingToIndex = requestInState(fixture, 'Index first', 'finalize', cell.id);
+    const implementing = dispatchRequest(fixture, 'Build now', cell.id);
+
+    const result = await runEnabledCells(fixture);
+
+    expect(result).toMatchObject({ dispatch: 1, prodded: 1 });
+    expect(fixture.sent.map((call) => call.id)).toEqual([implementing.id]);
+    expect(
+      fixture.events.list().filter((event) => event.requestId === waitingToIndex.id),
+    ).toEqual([]);
+    expect(fixture.repo.require(waitingToIndex.id).state).toBe('finalize');
+  });
+
   it('runs finishing segments before planning and intake work', async () => {
     const process = processFor((config) => {
       for (const id of ['intake', 'plan', 'implement'] as const) {

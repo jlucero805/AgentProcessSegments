@@ -28,10 +28,12 @@ scheduler ticks once and applies each cell’s policy to that cell’s requests.
    - **Implement**: continue/build work and advance to Review.
    - **Review**: check the result; optionally create a draft change request.
    - **Merge**: optional single-worker bucket; rebase, test, push, then advance.
-   - **Finalize**: produce the digest; the human still approves KB indexing.
+   - **Finalize**: manual gate; a human runs the digest turn and approves KB indexing.
+     The master never schedules this segment.
 7. For each segment set the enabled switch, idle threshold, per-cycle cap, optional
    segment concurrency (Merge defaults to 1), prompt, ready marker, legal target, and
-   follow-up rule.
+   follow-up rule. Finalize is manual-only: its controls are disabled and its Enable
+   setting is ignored.
 8. Press **Create cell**. The policy is stored on the cell as a snapshot.
 9. Later, press **Process** on the cell in Config or the pencil in the sidebar to edit it.
 
@@ -245,10 +247,11 @@ last five.
 3. When satisfied, press **Send to merge** if the cell has a Merge segment. The master
    allows only one merge worker at a time (`maxConcurrent: 1`), draining the bucket one
    rebase/test/push at a time. Each success advances to Finalize.
-4. Press **Finalize** (or let the Merge marker advance it). The finalize turn proposes a digest.
+4. Press **Finalize** to propose a digest. Review/Merge can advance the request into
+   Finalize, but the master never runs the finalize turn itself.
 5. Review the digest and press **Index and finalize**. This is the normal per-request
-   path that writes the KB entry and closes the request; the master cannot auto-advance
-   Finalize.
+   path that writes the KB entry and closes the request; the master never prods Finalize
+   and cannot auto-advance it.
 6. To close several at once, press **Index all** beside the Finalize column title. It is
    scoped to the cards under the current cell filter and asks for a second click within
    four seconds. Each ready request is indexed and closed. Requests that are still working

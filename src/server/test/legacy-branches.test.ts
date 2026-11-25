@@ -6,14 +6,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { branchName, legacyBranchName } from '../src/clarify/worktree.js';
 import { openDb } from '../src/db.js';
 import type { State } from '../src/domain/request.js';
-import { groupCandidates, main, parseArgs } from '../src/maintenance/legacy-branches-cli.js';
+import { main, parseArgs } from '../src/maintenance/legacy-branches-cli.js';
 import {
+  applyMigrationEntries,
+  groupCandidates,
   migrateRepo,
   parseWorktreeBranches,
   PRUNE_ACTIONS,
+  retireLegacyBranch,
   ROW_MIGRATION_ACTIONS,
   type GitRunner,
   type LegacyBranchRow,
+  type MigrationEntry,
 } from '../src/maintenance/legacy-branches.js';
 import { RequestRepository } from '../src/requests/repository.js';
 
@@ -431,6 +435,51 @@ describe('legacy branch migration', () => {
   });
 });
 
+describe('single-row legacy branch retirement', () => {
+  it('renames a lone legacy ref for a terminal row', async () => {
+    const repo = makeRepo();
+    const id = 'req-single';
+    createBranch(repo, legacyBranchName(id));
+    const tip = commitFile(repo, legacyBranchName(id), 'work.txt', 'legacy');
+
+    const entry = await retireLegacyBranch({
+      repoPath: repo,
+      row: row(id, 'done', repo),
+      apply: true,
+    });
+
+    expect(entry).toMatchObject({ action: 'rename', applied: true });
+    expect(branchTip(repo, legacyBranchName(id))).toBeNull();
+    expect(branchTip(repo, branchName(id))).toBe(tip);
+  });
+
+  it('ignores a row that no longer stores the legacy branch', async () => {
+    const repo = makeRepo();
+    const id = 'req-canonical-single';
+    createBranch(repo, legacyBranchName(id));
+
+    const entry = await retireLegacyBranch({
+      repoPath: repo,
+      row: row(id, 'done', repo, branchName(id)),
+      apply: true,
+    });
+
+    expect(entry).toBeNull();
+    expect(branchTip(repo, legacyBranchName(id))).not.toBeNull();
+  });
+
+  it('reports a missing repo without throwing', async () => {
+    const absent = path.join(tempDir(), 'missing');
+    const entry = await retireLegacyBranch({
+      repoPath: absent,
+      row: row('req-absent', 'done', absent),
+      apply: true,
+    });
+
+    expect(entry).toMatchObject({ action: 'skip-no-repo', requestId: 'req-absent' });
+  });
+});
+
 describe('request repository branch backfill', () => {
   function makeRequest(repo: RequestRepository, state: State): { id: string; updatedAt: number } {
     const request = repo.create({ title: 't' });
@@ -484,6 +533,76 @@ describe('request repository branch backfill', () => {
       const request = makeRequest(repo, 'dropped');
 
       expect(repo.migrateLegacyBranch(request.id, 'sbox/someone-else', branchName(request.id))).toBe(false);
+      expect(repo.require(request.id).branch).toBe(legacyBranchName(request.id));
+    } finally {
+      db.close();
+    }
+  });
+
+  it('applies rename and repair entries but skips non-row actions', () => {
+    const db = openDb(':memory:');
+    try {
+      const repo = new RequestRepository(db);
+      const renamed = makeRequest(repo, 'dropped');
+      const repaired = makeRequest(repo, 'done');
+      const diverged = makeRequest(repo, 'done');
+
+      const entries: MigrationEntry[] = [
+        {
+          requestId: renamed.id,
+          repo: '/repo',
+          legacyBranch: legacyBranchName(renamed.id),
+          canonicalBranch: branchName(renamed.id),
+          action: 'rename',
+          applied: true,
+        },
+        {
+          requestId: repaired.id,
+          repo: '/repo',
+          legacyBranch: legacyBranchName(repaired.id),
+          canonicalBranch: branchName(repaired.id),
+          action: 'repair-db',
+          applied: false,
+        },
+        {
+          requestId: diverged.id,
+          repo: '/repo',
+          legacyBranch: legacyBranchName(diverged.id),
+          canonicalBranch: branchName(diverged.id),
+          action: 'skip-diverged',
+          applied: false,
+        },
+      ];
+
+      const missed: MigrationEntry[] = [];
+      expect(applyMigrationEntries(repo, entries, (entry) => missed.push(entry))).toBe(2);
+      expect(repo.require(renamed.id).branch).toBe(branchName(renamed.id));
+      expect(repo.require(repaired.id).branch).toBe(branchName(repaired.id));
+      expect(repo.require(diverged.id).branch).toBe(legacyBranchName(diverged.id));
+      expect(missed).toEqual([]);
+      expect(repo.require(renamed.id).updatedAt).toBe(renamed.updatedAt);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('reports a row that lost the guarded update race', () => {
+    const db = openDb(':memory:');
+    try {
+      const repo = new RequestRepository(db);
+      const request = makeRequest(repo, 'dropped');
+      const stale: MigrationEntry = {
+        requestId: request.id,
+        repo: '/repo',
+        legacyBranch: 'sbox/someone-else',
+        canonicalBranch: branchName(request.id),
+        action: 'rename',
+        applied: true,
+      };
+
+      const missed: MigrationEntry[] = [];
+      expect(applyMigrationEntries(repo, [stale], (entry) => missed.push(entry))).toBe(0);
+      expect(missed).toEqual([stale]);
       expect(repo.require(request.id).branch).toBe(legacyBranchName(request.id));
     } finally {
       db.close();

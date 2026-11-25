@@ -21,6 +21,7 @@ import {
   summaryCellId,
 } from '../domain/sessions.js';
 import type { ErrorSink } from '../logging/errors.js';
+import { retireLegacyBranchForRequest } from '../maintenance/legacy-branches.js';
 import type { RequestRepository } from '../requests/repository.js';
 import type { UsageRepository } from '../usage/repository.js';
 import { SpendCapError, spendPauseInterruptMessage } from '../usage/spend-cap.js';
@@ -934,5 +935,23 @@ export class Engine {
       dataDir: this.config.dataDir,
       scratchDir: requestDir(this.config, id),
     });
+
+    if (request) {
+      try {
+        await retireLegacyBranchForRequest({
+          repo: this.repo,
+          row: {
+            id: request.id,
+            state: request.state,
+            targetRepo: request.targetRepo,
+            branch: request.branch,
+          },
+          errors: this.deps.errors,
+        });
+      } catch (error) {
+        // Cleanup is best-effort: the state transition is already committed.
+        this.deps.errors?.error('maintenance.legacy-branches', error, { requestId: id });
+      }
+    }
   }
 }

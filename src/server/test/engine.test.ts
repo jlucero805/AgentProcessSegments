@@ -1506,3 +1506,125 @@ describe('request worktree branches', () => {
     );
   });
 });
+
+describe('terminal legacy branch cleanup', () => {
+  function errorSink(): { errors: ErrorSink; calls: Array<Record<string, unknown>> } {
+    const calls: Array<Record<string, unknown>> = [];
+    return {
+      calls,
+      errors: {
+        error: (source, error, context) =>
+          calls.push({ source, error, ...(context ?? {}) }),
+      },
+    };
+  }
+
+  function commitOn(repo: string, parent: string, text: string): string {
+    const tree = execFileSync('git', ['-C', repo, 'rev-parse', `${parent}^{tree}`], {
+      encoding: 'utf8',
+    }).trim();
+    return execFileSync(
+      'git',
+      [
+        '-C',
+        repo,
+        '-c',
+        'user.email=a@b',
+        '-c',
+        'user.name=t',
+        'commit-tree',
+        tree,
+        '-p',
+        parent,
+        '-m',
+        text,
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+  }
+
+  it('renames a legacy branch after a terminal dispose removes the worktree', async () => {
+    const h = fresh(defaultScript);
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Finish legacy work', targetRepo: repo });
+    execFileSync('git', ['-C', repo, 'branch', `sbox/${request.id}`]);
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+    const dir = path.join(h.config.dataDir, 'worktrees', request.id);
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+    expect(existsSync(dir)).toBe(true);
+
+    h.repo.transition(request.id, 'dropped');
+    const updatedAt = h.repo.require(request.id).updatedAt;
+    await h.engine.dispose(request.id);
+
+    expect(existsSync(dir)).toBe(false);
+    expect(gitBranches(repo)).not.toContain(`sbox/${request.id}`);
+    expect(gitBranches(repo)).toContain(`aps/${request.id}`);
+    const stored = h.repo.require(request.id);
+    expect(stored.branch).toBe(`aps/${request.id}`);
+    expect(stored.updatedAt).toBe(updatedAt);
+  });
+
+  it('leaves a legacy branch alone when dispose is not terminal', async () => {
+    const h = fresh(defaultScript);
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Still in flight', targetRepo: repo });
+    execFileSync('git', ['-C', repo, 'branch', `sbox/${request.id}`]);
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+    const dir = path.join(h.config.dataDir, 'worktrees', request.id);
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+    await h.engine.dispose(request.id);
+
+    expect(existsSync(dir)).toBe(false);
+    expect(gitBranches(repo)).toContain(`sbox/${request.id}`);
+    expect(gitBranches(repo)).not.toContain(`aps/${request.id}`);
+    expect(h.repo.require(request.id).branch).toBe(`sbox/${request.id}`);
+  });
+
+  it('logs a diverged pair and leaves both refs for manual review', async () => {
+    const { errors, calls } = errorSink();
+    const h = freshWithErrors(defaultScript, errors);
+    const repo = gitRepo();
+    const request = h.repo.create({ title: 'Diverged work', targetRepo: repo });
+    const base = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', repo, 'branch', `sbox/${request.id}`, commitOn(repo, base, 'legacy')]);
+    execFileSync('git', ['-C', repo, 'branch', `aps/${request.id}`, commitOn(repo, base, 'canonical')]);
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+    h.repo.transition(request.id, 'dropped');
+
+    await h.engine.dispose(request.id);
+
+    expect(gitBranches(repo)).toContain(`sbox/${request.id}`);
+    expect(gitBranches(repo)).toContain(`aps/${request.id}`);
+    expect(h.repo.require(request.id).branch).toBe(`sbox/${request.id}`);
+    expect(calls).toEqual([
+      expect.objectContaining({
+        source: 'maintenance.legacy-branches',
+        requestId: request.id,
+        action: 'skip-diverged',
+        phase: 'transition',
+      }),
+    ]);
+  });
+
+  it('treats a missing target repo as a silent no-op', async () => {
+    const { errors, calls } = errorSink();
+    const h = freshWithErrors(defaultScript, errors);
+    const absent = path.join(h.config.dataDir, 'missing-repo');
+    const request = h.repo.create({ title: 'No checkout', targetRepo: absent });
+    h.repo.setBranch(request.id, `sbox/${request.id}`);
+    h.repo.transition(request.id, 'dropped');
+
+    await expect(h.engine.dispose(request.id)).resolves.toBeUndefined();
+    expect(calls).toEqual([]);
+    expect(h.repo.require(request.id).branch).toBe(`sbox/${request.id}`);
+  });
+});

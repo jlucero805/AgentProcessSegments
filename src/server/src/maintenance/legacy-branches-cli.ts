@@ -6,6 +6,8 @@ import { legacyBranchName } from '../clarify/worktree.js';
 import { loadConfig } from '../config.js';
 import { RequestRepository } from '../requests/repository.js';
 import {
+  applyMigrationEntries,
+  groupCandidates,
   migrateRepo,
   PRUNE_ACTIONS,
   ROW_MIGRATION_ACTIONS,
@@ -19,11 +21,6 @@ export interface CliOptions {
   repos: string[];
   db: string | null;
   help: boolean;
-}
-
-export interface CandidateGroup {
-  repo: string;
-  rows: LegacyBranchRow[];
 }
 
 export function usage(): string {
@@ -83,34 +80,6 @@ export function parseArgs(argv: string[]): CliOptions {
   return options;
 }
 
-/**
- * Split legacy rows into per-repository buckets. Named repos are always
- * included, even with no rows, so their orphan `sbox/*` refs get scanned.
- */
-export function groupCandidates(rows: LegacyBranchRow[], repos: string[]): CandidateGroup[] {
-  const named = [...new Set(repos.map((repo) => path.resolve(repo)))];
-  if (named.length > 0) {
-    return named.map((repo) => ({
-      repo,
-      rows: rows.filter(
-        (row) => row.targetRepo !== null && path.resolve(row.targetRepo) === repo,
-      ),
-    }));
-  }
-
-  const groups = new Map<string, LegacyBranchRow[]>();
-  for (const row of rows) {
-    if (row.targetRepo === null) continue;
-    const repo = path.resolve(row.targetRepo);
-    const bucket = groups.get(repo);
-    if (bucket) bucket.push(row);
-    else groups.set(repo, [row]);
-  }
-  return [...groups]
-    .map(([repo, bucket]) => ({ repo, rows: bucket }))
-    .sort((a, b) => a.repo.localeCompare(b.repo));
-}
-
 function describe(entry: MigrationEntry, apply: boolean): string {
   const repo = `[${entry.repo}]`;
   switch (entry.action) {
@@ -158,30 +127,6 @@ function printEntries(entries: MigrationEntry[], apply: boolean): number {
   );
   if (!apply && changes.length > 0) console.log('Re-run with --apply to make these changes.');
   return errors;
-}
-
-/** Apply every row update in one transaction; returns how many rows changed. */
-function updateRows(
-  repo: RequestRepository,
-  db: Database.Database,
-  entries: MigrationEntry[],
-): number {
-  const pending = entries.filter((entry) => ROW_MIGRATION_ACTIONS.includes(entry.action));
-  const run = db.transaction(() => {
-    let changed = 0;
-    for (const entry of pending) {
-      if (entry.requestId === null || entry.canonicalBranch === null) continue;
-      if (repo.migrateLegacyBranch(entry.requestId, entry.legacyBranch, entry.canonicalBranch)) {
-        changed += 1;
-      } else {
-        console.error(
-          `warning: request ${entry.requestId} was not updated; its row changed during the run`,
-        );
-      }
-    }
-    return changed;
-  });
-  return run();
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -252,7 +197,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     let failures = printEntries(entries, options.apply);
     if (options.apply) {
       try {
-        updateRows(repo, db, entries);
+        const run = db.transaction(() =>
+          applyMigrationEntries(repo, entries, (entry) => {
+            console.error(
+              `warning: request ${entry.requestId} was not updated; its row changed during the run`,
+            );
+          }),
+        );
+        run();
       } catch (error) {
         console.error(
           `database update failed: ${error instanceof Error ? error.message : String(error)}`,

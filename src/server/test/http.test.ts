@@ -28,7 +28,15 @@ import type { EmailSendLike } from '../src/usage/budget-email.js';
 import { BudgetService } from '../src/usage/budgets.js';
 import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
 import { recordUsagePruneState } from '../src/usage/prune-state.js';
-import { createHarness, initLine, resultLine, settle, textLine, type Harness } from './helpers.js';
+import {
+  createHarness,
+  initLine,
+  resultLine,
+  settle,
+  textLine,
+  type ConfigOverrides,
+  type Harness,
+} from './helpers.js';
 import { budgetPeriod, type SpendPause } from '../src/domain/budget.js';
 import { masterSessionId, summarySessionId } from '../src/domain/sessions.js';
 import type { ErrorSink } from '../src/logging/errors.js';
@@ -44,7 +52,7 @@ interface Open {
 let open: Open | null = null;
 
 async function makeApp(
-  config: Partial<Harness['config']> = {},
+  config: ConfigOverrides = {},
   script?: (text: string) => string[],
   send?: FetchLike,
   sendEmail?: EmailSendLike,

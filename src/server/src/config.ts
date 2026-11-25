@@ -42,8 +42,6 @@ export interface Config {
   errorLogMaxBytes: number;
   /** Hard ceiling for one agent turn; a silent child is killed with an error. */
   turnTimeoutMs: number;
-  /** Model used by the process-default harness when nothing else names one. */
-  defaultModel: string | null;
   /** Default model per adapter; APS_DEFAULT_MODEL only overrides the default adapter. */
   defaultModels: Record<HarnessId, string | null>;
   terminalEnabled: boolean;
@@ -233,7 +231,6 @@ export function loadConfig(
       const value = Number(readEnv(env, 'TURN_TIMEOUT_MS') ?? 10 * 60 * 1000);
       return Number.isFinite(value) && value > 0 ? value : 10 * 60 * 1000;
     })(),
-    defaultModel: defaultModels[harness],
     defaultModels,
     // The browser terminal is a direct shell, separate from agent sessions.
     // Disable with APS_TERMINAL=0 when the brain is exposed beyond loopback.

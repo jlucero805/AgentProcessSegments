@@ -720,8 +720,10 @@ describe('ClarifyChat reload during a live turn', () => {
     await waitFor(() => expect(sendBodies).toHaveLength(1));
     expect(await screen.findByText('1 queued')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(window.localStorage.getItem('aps-queue:req-race')).toBe(
-      JSON.stringify(['race text']),
+    await waitFor(() =>
+      expect(window.localStorage.getItem('aps-queue:req-race')).toBe(
+        JSON.stringify(['race text']),
+      ),
     );
 
     await act(async () => {
@@ -731,7 +733,9 @@ describe('ClarifyChat reload during a live turn', () => {
 
     await waitFor(() => expect(sendBodies).toHaveLength(2));
     expect(sendBodies[1]).toMatchObject({ text: 'race text' });
-    expect(window.localStorage.getItem('aps-queue:req-race')).toBeNull();
+    await waitFor(() =>
+      expect(window.localStorage.getItem('aps-queue:req-race')).toBeNull(),
+    );
   });
 
   it('treats a spend-cap 409 as an error instead of requeueing', async () => {
@@ -759,6 +763,8 @@ describe('ClarifyChat reload during a live turn', () => {
     expect(await screen.findByText('Spend cap reached')).toBeInTheDocument();
     expect(sendBodies).toHaveLength(1);
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
-    expect(window.localStorage.getItem('aps-queue:req-cap')).toBeNull();
+    await waitFor(() =>
+      expect(window.localStorage.getItem('aps-queue:req-cap')).toBeNull(),
+    );
   });
 });

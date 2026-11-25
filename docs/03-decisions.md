@@ -1119,8 +1119,8 @@ propagates, matching `settings.ts` and `process/store.ts`. Mode tests skip on Wi
 product targets Linux/systemd.
 
 **Cost.** This is not encryption at rest, and root can still read the files. The SQLite
-database and other data-dir artifacts are separate work, as is a bulk repair of old,
-terminal workdirs that are not written again.
+database and other data-dir artifacts are separate work. A bulk repair of old, terminal
+workdirs that are not written again is `npm run repair:permissions` (D72).
 
 ## D59. Harness-reported error results fail the turn visibly
 
@@ -1516,3 +1516,26 @@ non-path setting keep their semantics.
 **Cost.** A blank XDG base now runs on the default or legacy location instead of failing
 fast, and the only signal is the startup warning. `HOME` has no such guard; a blank
 `HOME` still makes the fallback bases relative and is separate work.
+
+## D72. Existing request workdirs are repaired explicitly, not recursively
+
+**Context.** D58 repairs a session when the engine writes it again, but terminal
+requests and reserved sessions are never rewritten, and artifact retention never prunes
+reserved sessions. A live install can therefore keep `0755` session dirs and `0644`
+transcripts indefinitely, even after the owner-only change ships.
+
+**Decision.** Add `npm run repair:permissions`, a built maintenance CLI
+(`src/server/src/maintenance/repair-permissions.ts` plus `repair-permissions-cli.ts`). It
+is a dry run by default and changes modes only with `--apply`. It scans
+`$APS_DATA_DIR/requests`, each direct child session dir, and the known artifacts
+(`cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
+`opencode/opencode.json`), setting dirs `0700` and files `0600`. It uses `stat` for the
+top-level `requests/` path and `lstat` for children, skips symlinks and non-regular
+entries, treats `ENOENT` as a skip, continues after other failures, and exits 1 when any
+entry fails. It never recurses into `cwd/`, never touches the data-dir root, plugins,
+worktrees, SQLite, the error log, or unrelated siblings, and never opens the database.
+
+**Cost.** The repair is an explicit post-upgrade step, not automatic. It is not
+encryption at rest and root can still read the files. A boot-time recursive repair is
+rejected because `cwd/` contains unrelated git checkouts and repository files. The
+automatic post-upgrade hook and the error-log/data-root modes are separate work.

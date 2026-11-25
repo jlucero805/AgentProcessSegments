@@ -287,6 +287,20 @@ row at all. List backups with `git for-each-ref refs/sbox-pruned/` and restore o
 `git branch <name> <ref>`. Pass `--repo DIR` to limit the run and `--db FILE` to point
 at a non-default database.
 
+Request workdirs created before the owner-only change keep their old modes until they
+are written again. After upgrading and restarting, preview and apply the one-time repair:
+
+```bash
+npm run build
+npm run repair:permissions              # preview
+npm run repair:permissions -- --apply   # tighten old request workdirs
+```
+
+The command only tightens the known `requests/` artifacts (`requests/`, each session
+dir, `cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
+`opencode/opencode.json`). It never rewrites transcripts, never recurses into `cwd/`
+checkouts, and is safe while the brain runs.
+
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
 git reports them at the old path, run `git worktree repair` in the target repo or remove
@@ -512,7 +526,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 943 vitest cases: 731 server cases across 47 files (state machine,
+`npm test` runs 956 vitest cases: 744 server cases across 48 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

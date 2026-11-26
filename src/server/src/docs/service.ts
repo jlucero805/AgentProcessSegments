@@ -110,6 +110,13 @@ const MANIFEST: ManifestEntry[] = [
     description: 'Autonomous choices, alternatives, and review notes.',
     source: 'docs/04-design-liberties.md',
   },
+  {
+    slug: '14-webhook-payloads',
+    title: 'Webhook payloads',
+    group: 'Reference',
+    description: 'Receiver-facing JSON bodies for budget alerts and event notifications.',
+    source: 'docs/14-webhook-payloads.md',
+  },
 ];
 
 const ASSET_TYPES: Record<string, string> = {

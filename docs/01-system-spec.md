@@ -475,7 +475,9 @@ of this retention window; the canceled live turns are allowed to settle before r
 `NotificationService` owns a 60-second `unref()`'d timer and enqueues one delivery row per
 enabled alert/destination, deduped by `(alert_id, destination_id)`. Webhook attempts post
 JSON as the v1 event (alert fields plus `periodEnd` and `text`), or the text-only
-Slack/Discord bodies. Email attempts send a plain-text message whose subject names the
+Slack/Discord bodies; the field-level contract for budget and event notification bodies is
+in [Webhook payloads](14-webhook-payloads.md). Email attempts send a plain-text message
+whose subject names the
 scope and threshold and whose body carries the alert sentence, UTC period, and alert id,
 with alert/delivery headers and a stable `Message-ID`; one nodemailer transport is opened
 per send, TLS verification stays on, and it is closed on success, failure, or abort. Slack

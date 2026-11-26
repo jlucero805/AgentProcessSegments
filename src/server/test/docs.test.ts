@@ -20,6 +20,7 @@ const EXPECTED = [
   '02-status',
   '03-decisions',
   '04-design-liberties',
+  '14-webhook-payloads',
 ];
 
 describe('docs service', () => {

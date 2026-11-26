@@ -1573,10 +1573,9 @@ closed), matching `writePrivateFile`, `settings.ts`, and `process/store.ts`; the
 mode tests skip on Windows.
 
 **Cost.** This is not encryption at rest, and root can still read the files. The
-maintenance `legacy-branches-cli.ts` opens the database directly and the deploy
-`upgrade-vps.sh` snapshot uses `VACUUM INTO`; both are separate work. Until the CLI path
-is hardened, a direct CLI run can leave a loose sidecar that the next brain startup
-repairs.
+maintenance `legacy-branches-cli.ts` opens the database directly and is separate work.
+The deploy `upgrade-vps.sh` snapshot is covered by D86. Until the CLI path is hardened, a
+direct CLI run can leave a loose sidecar that the next brain startup repairs.
 
 ## D74. Existing request workdirs are repaired explicitly, not recursively
 
@@ -1929,3 +1928,32 @@ re-export the type without pulling `node:fs` into its bundle.
 **Cost.** One pure contract module, a store accumulator, two additive response fields, and
 one Config card. No change to validation, recovery, backup, redaction, or which blocks
 exist.
+
+## D86. Upgrade run directories and database snapshots are owner-only
+
+**Context.** `deploy/upgrade-vps.sh` wrote its `VACUUM INTO` snapshot to
+`~/.aps-cutover/upgrades/<UTC>/db-backup.sqlite` inside a directory created with a bare
+`mkdir -p`. Under the usual `umask 022` the run directory was `0755` and the snapshot
+`0644`, so any local account could read the full brain state (every request, KB entry,
+digest, budget alert, usage row, and scorecard) from the pre-upgrade snapshot. The run
+directory also holds `upgrade.log`, `state`, the before/after JSON evidence, and the
+dist/node_modules rollback trees. The snapshot is especially sensitive because an operator
+may copy it out before a manual restore.
+
+**Decision.** Every run directory is created owner-only: `prepare_run_dir` runs
+`mkdir -p` under a local `umask 077` and then forces the directory to `0700`. The same
+helper runs on the internal `--run --run-dir` path, so a retried run tightens a directory
+left at `0755`. A missing `~/.aps-cutover`/`upgrades` ancestor chain is created `0700`; an
+existing ancestor is never chmodded, matching D73's parent-directory rule. The `node`
+subprocess that runs `VACUUM INTO` also runs under `umask 077`, so the destination and any
+`-wal`/`-shm` sidecars created on the live database by that direct open are private; the
+snapshot is then explicitly forced to `0600`. Both chmods fail closed through the existing
+`set -Eeuo pipefail`/`on_error` path. The snapshot is taken before any clone mutation, so a
+mode failure fails the run with the service and clone unchanged. No global umask is set;
+the rest of the run keeps its current behavior.
+
+**Cost.** One shell helper, two call sites, one extra `umask` line, and one `chmod`. The
+snapshot contents, timing, `VACUUM INTO`, retention, and manual restore path are unchanged.
+This is not encryption at rest, and root can still read the files. Run directories and
+snapshots left by an earlier version are not repaired retroactively; that remains separate
+upkeep. `cutover-vps.sh` uses its own duplicated helper set and is also separate work.

@@ -258,6 +258,7 @@ Reusing their thresholds is small, observable, and avoids a second source of tru
 Token/usage accounting is separate and already built. Cost: Claude cannot
 raise its built-in threshold, so cell values above that default collapse to Claude's
 default; a global default and per-request overrides remain follow-ups if operators ask.
+
 ## 19. Pricing is an empty operator-maintained table
 
 **Chosen.** Ship `model_pricing` empty and expose a Config page editor plus `/api/pricing`

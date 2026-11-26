@@ -102,10 +102,10 @@ digests.
 ```bash
 npm ci --include=dev           # keeps devDependencies under an inherited NODE_ENV=production;
                                # use npm install --include=dev when the lockfile changes
-# The root dev commands preflight project-local tsc/vitest/eslint; a missing
+# The root dev commands preflight project-local tsc/vitest/eslint/markdownlint-cli2; a missing
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
-npm run lint                   # eslint + bash -n + shellcheck + actionlint + systemd unit gates, zero warnings
+npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
 npm test                       # 884 server + 256 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -563,19 +563,21 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
     a failed sweep is one `retention.artifacts` record, not a crash.
 39. **The lint gate is zero-warning and guarded.** `npm run lint` composes
-    `eslint . --max-warnings=0` with `bash -n` plus `shellcheck --severity=warning`
-    over `deploy/*.sh` and `scripts/*.sh`, `actionlint deploy/ci-workflow.yml`, and
-    `systemd-analyze verify` over `deploy/agent-process-segments.service`, so an ESLint
-    warning, a ShellCheck warning, a shell syntax error, a workflow error, a non-zero
-    verify exit, or any verify diagnostic naming the unit fails the gate just like an
-    error. The unit check treats diagnostics as fatal because `systemd-analyze` exits 0
-    for unknown keys and invalid values; it is skipped with a visible line on non-Linux
-    hosts and fails on Linux when the tool is missing. The scripts, root ESLint
-    devDependencies, flat-config scope (`src/**/*.{ts,tsx}` plus JS/MJS/CJS tooling and
-    `.opencode` plugin sources, `dist`/`node_modules` ignored, unused suppressions
-    fatal), the pinned actionlint CI install (v1.7.12 release with a SHA-256 check; a
-    missing local binary fails closed), the unit wrapper and parser test, and the CI lint
-    step are guarded by `src/server/test/lint-gate.test.ts`,
+    `eslint . --max-warnings=0`, `bash -n` plus `shellcheck --severity=warning` over
+    `deploy/*.sh` and `scripts/*.sh`, `actionlint deploy/ci-workflow.yml`,
+    `systemd-analyze verify` over `deploy/agent-process-segments.service`, and
+    `markdownlint-cli2 "**/*.md"`, so an ESLint or ShellCheck warning, a shell syntax
+    error, a workflow error, a non-zero verify exit, any verify diagnostic naming the
+    unit, or a Markdown finding fails the gate just like an error. The unit check treats
+    diagnostics as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
+    values; it is skipped with a visible line on non-Linux hosts and fails on Linux when
+    the tool is missing. The scripts, root lint devDependencies, flat-config scope
+    (`src/**/*.{ts,tsx}` plus JS/MJS/CJS tooling and `.opencode` plugin sources,
+    `dist`/`node_modules` ignored, unused suppressions fatal), the Markdown config
+    (`.markdownlint-cli2.jsonc`: a 120-column prose cap with tables, fences, and headings
+    exempt from MD013), the pinned actionlint CI install (v1.7.12 release with a SHA-256
+    check; a missing local binary fails closed), the unit wrapper and parser test, and the
+    CI lint step are guarded by `src/server/test/lint-gate.test.ts`,
     `src/server/test/dev-preflight.test.ts`, and `scripts/verify-systemd-unit.test.mjs`.
     Do not weaken any of them without updating the guards and this invariant.
 40. **SQLite files are owner-only.** `openDb` forces the database, `-wal`, `-shm`, and

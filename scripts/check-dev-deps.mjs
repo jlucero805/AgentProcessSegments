@@ -17,7 +17,10 @@ const CHECKS = {
     { tool: 'vitest', workspace: 'src/server' },
     { tool: 'vitest', workspace: 'src/web' },
   ],
-  lint: [{ tool: 'eslint', workspace: null }],
+  lint: [
+    { tool: 'eslint', workspace: null },
+    { tool: 'markdownlint-cli2', workspace: null },
+  ],
 };
 
 const USAGE =

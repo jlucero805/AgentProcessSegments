@@ -161,12 +161,14 @@ built and vended by the brain; real-CLI verification is still pending.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules, merging in the CLI's local > project > user precedence
-  with the winning entry used whole; OpenCode merges `mcp` entries from its config and
-  runs with `--auto`. Read-only KB sessions exclude user servers and plugins. The bundled
-  `aps` key is reserved: a user entry with that name is replaced by the bundled server,
-  with a one-time warning naming its config file and scope. A missing config file stays silent;
-  one that exists but is unreadable or malformed is named once on stderr and in the
-  `harness.mcpConfig` error-log record, and the session continues without those servers.
+  with the winning entry used whole; OpenCode merges `mcp` entries from
+  `opencode.json`/`opencode.jsonc`, both read as JSONC (comments and trailing commas
+  accepted, JSON5 not), and runs with `--auto`. Read-only KB sessions exclude user
+  servers and plugins. The bundled `aps` key is reserved: a user entry with that name is
+  replaced by the bundled server, with a one-time warning naming its config file and
+  scope. A missing config file stays silent; one that exists but is unreadable or
+  malformed is named once on stderr and in the `harness.mcpConfig` error-log record, and
+  the session continues without those servers.
 - Installed plugins reach OpenCode too: `commands/**/*.md` become `commands` templates
   and `skills/*/SKILL.md` become skill paths in the generated config, with plugin-prefixed
   names that match `/api/commands`. Verified end to end (`/demo-plugin:hello` →
@@ -391,7 +393,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1105 vitest cases (one environmental root-skip): 864 server across 50 files and 241 web across 26 files,
+- 1117 vitest cases (one environmental root-skip): 876 server across 51 files and 241 web across 26 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

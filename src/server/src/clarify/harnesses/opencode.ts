@@ -7,6 +7,7 @@ import type { ClarifyEvent, TranscriptMsg } from '../../domain/request.js';
 import type { ErrorSink } from '../../logging/errors.js';
 import { MCP_SERVER_KEY } from '../../mcp/identity.js';
 import { isRecord } from '../../util/json.js';
+import { parseJsonc } from '../../util/jsonc.js';
 import { warnOnce } from '../../util/warn-once.js';
 import {
   HARNESS_MCP_SERVER,
@@ -81,7 +82,7 @@ export function readOpencodeConfig(
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(raw);
+      parsed = parseJsonc(raw);
     } catch {
       // Never include the parser message: recent Node versions quote the input.
       issues.push({ path: file, reason: 'invalid JSON' });

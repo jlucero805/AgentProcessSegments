@@ -42,7 +42,8 @@ the upgrade path.
 `<cwd>/.mcp.json`, merges them into the generated config in the CLI's precedence order
 (local > project > user, each winning entry used whole), and adds `mcp__<server>__*`
 allow rules. The reserved-key `aps` warning names the winning file and scope. OpenCode
-merges `mcp` entries from its config. KB sessions exclude user
+merges `mcp` entries from `opencode.json` or `opencode.jsonc`, both read as JSONC
+(comments and trailing commas are accepted; JSON5 is not). KB sessions exclude user
 servers entirely. A missing file is silent; a file that exists but cannot be read or
 interpreted is skipped with a one-time stderr warning and a `harness.mcpConfig`
 error-log record naming the path and a short reason.

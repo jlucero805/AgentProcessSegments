@@ -851,7 +851,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   }
 
   function setEventRoute(
-    kind: 'failedTurns' | 'masterErrors',
+    kind: 'failedTurns' | 'masterErrors' | 'summaryFailures',
     channel: 'webhook' | 'email',
     value: boolean,
   ): void {
@@ -1784,9 +1784,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         <div>
           <SectionTitle>Event notifications</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
-            Send failed request turns and master errors to the same webhook and email
-            channels. Events include ids and a failure classification, never prompts,
-            transcripts, or raw error text.
+            Send failed request turns, master errors, and scorecard failures to the same
+            webhook and email channels. Events include ids and a failure classification,
+            never prompts, transcripts, or raw error text.
           </p>
         </div>
 
@@ -1795,6 +1795,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
             [
               ['failedTurns', 'Failed turns'],
               ['masterErrors', 'Master errors'],
+              ['summaryFailures', 'Scorecard failures'],
             ] as const
           ).map(([kind, label]) => (
             <div
@@ -1832,7 +1833,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[11px] text-zinc-600">
             {notificationStatus?.events
-              ? `${notificationStatus.events.pending} pending · ${notificationStatus.events.failed} failed · turns ${notificationStatus.events.byKind['turn.failed'].pending} pending / ${notificationStatus.events.byKind['turn.failed'].failed} failed · master ${notificationStatus.events.byKind['master.error'].pending} pending / ${notificationStatus.events.byKind['master.error'].failed} failed`
+              ? `${notificationStatus.events.pending} pending · ${notificationStatus.events.failed} failed · turns ${notificationStatus.events.byKind['turn.failed'].pending} pending / ${notificationStatus.events.byKind['turn.failed'].failed} failed · master ${notificationStatus.events.byKind['master.error'].pending} pending / ${notificationStatus.events.byKind['master.error'].failed} failed · scorecard ${notificationStatus.events.byKind['summary.failed'].pending} pending / ${notificationStatus.events.byKind['summary.failed'].failed} failed`
               : 'No event deliveries yet.'}
           </p>
           <div className="flex items-center justify-end gap-2">

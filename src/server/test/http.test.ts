@@ -1146,6 +1146,7 @@ describe('http api', () => {
         byKind: {
           'turn.failed': { pending: 0, failed: 0 },
           'master.error': { pending: 0, failed: 0 },
+          'summary.failed': { pending: 0, failed: 0 },
         },
       },
     });
@@ -1158,15 +1159,22 @@ describe('http api', () => {
     expect(before.json().notifications.events).toEqual({
       failedTurns: { webhook: false, email: false },
       masterErrors: { webhook: false, email: false },
+      summaryFailures: { webhook: false, email: false },
     });
 
     const patched = await call('PATCH', '/api/config', {
-      notifications: { events: { failedTurns: { webhook: true } } },
+      notifications: {
+        events: {
+          failedTurns: { webhook: true },
+          summaryFailures: { email: true },
+        },
+      },
     });
     expect(patched.status).toBe(200);
     expect(patched.json().notifications.events).toEqual({
       failedTurns: { webhook: true, email: false },
       masterErrors: { webhook: false, email: false },
+      summaryFailures: { webhook: false, email: true },
     });
 
     const further = await call('PATCH', '/api/config', {
@@ -1175,6 +1183,7 @@ describe('http api', () => {
     expect(further.json().notifications.events).toEqual({
       failedTurns: { webhook: true, email: false },
       masterErrors: { webhook: false, email: true },
+      summaryFailures: { webhook: false, email: true },
     });
     expect(new SettingsStore(h.config.configPath).get().notifications.events).toEqual(
       further.json().notifications.events,

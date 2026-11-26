@@ -61,6 +61,7 @@ function sentinelSettings(): typeof DEFAULT_SETTINGS {
   saved.notifications.events = {
     failedTurns: { webhook: true, email: false },
     masterErrors: { webhook: false, email: true },
+    summaryFailures: { webhook: false, email: false },
   };
   return saved;
 }
@@ -696,6 +697,7 @@ describe('SettingsStore', () => {
     expect(store.get().notifications.events).toEqual({
       failedTurns: { webhook: false, email: false },
       masterErrors: { webhook: false, email: false },
+      summaryFailures: { webhook: false, email: false },
     });
 
     store.patch({
@@ -706,7 +708,10 @@ describe('SettingsStore', () => {
           format: 'discord',
           secret: '0123456789abcdef',
         },
-        events: { failedTurns: { webhook: true } },
+        events: {
+          failedTurns: { webhook: true },
+          summaryFailures: { email: true },
+        },
       },
     });
     const first = store.patch({
@@ -715,6 +720,7 @@ describe('SettingsStore', () => {
     expect(first.notifications.events).toEqual({
       failedTurns: { webhook: true, email: true },
       masterErrors: { webhook: false, email: false },
+      summaryFailures: { webhook: false, email: true },
     });
     expect(first.notifications.webhook).toMatchObject({
       enabled: true,
@@ -728,6 +734,11 @@ describe('SettingsStore', () => {
 
     expect(() =>
       store.patch({ notifications: { events: { failedTurns: { webhook: 'yes' } } } }),
+    ).toThrow();
+    expect(() =>
+      store.patch({
+        notifications: { events: { summaryFailures: { email: 'yes' } } },
+      }),
     ).toThrow();
   });
 

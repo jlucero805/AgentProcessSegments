@@ -1365,8 +1365,8 @@ events; disabling a route marks pending rows `skipped`. Failures use error sourc
 
 **Cost.** A second small outbox table and a new Config card, no migration of existing
 budget rows and no new dependency. Event history/resend is not part of the existing budget
-history view; that, summary-generation events, bot event routes, and configurable
-coalescing windows remain follow-ups.
+history view; that, bot event routes, and configurable coalescing windows remain
+follow-ups. D80 later adds scorecard failures as a third event kind.
 
 ## D67. Strict unknown-cost caps fail closed on unpriced turns
 
@@ -1731,3 +1731,32 @@ schedule controls disabled. Review and Merge still advance a request into `final
 digest. The finalize segment entry and its schema fields remain for config compatibility,
 but its prompt, idle threshold, caps, and enable flag no longer affect any turn. The
 master no longer converts a finalize backlog into queued work; that is intentional.
+
+## D80. Scorecard failures reuse the operational event outbox
+
+**Context.** D66 added `turn.failed` and `master.error` to the signed webhook/SMTP-event
+outbox, but scorecard generation failures still reached only the scheduler's per-cell
+`lastError`, the scorecard card, and the local `summary.generate` log. An unattended cell
+could stop producing scorecards without an operator watching the UI, even though the same
+webhook/email channels were already configured for other operational failures.
+
+**Decision.** Add `summary.failed` as a third kind under
+`notifications.events.summaryFailures`, with independent webhook/email flags defaulting
+false. `SummaryService` emits once per failed generation through the existing
+`NotificationService.observeSummaryFailure` path: an engine result/exit/timeout/turn maps
+to `summary.result|exit|timeout|turn` with the engine's safe reason; empty model output is
+`summary.empty`; a write failure is `summary.store`; an unexpected start/turn error is
+`summary.turn`. A cap stop, the already-running guard, and a cell deleted mid-run are not
+failures and do not notify. The v1 `summary` envelope carries only cell id, classification,
+safe reason, and timestamp; raw failure text stays in the transcript and `summary.generate`.
+The dedupe key is cell+source+safe reason+UTC hour, so a failing scheduler retries produce
+at most one message per channel per hour. Delivery reuses D66's destination hashes, signing,
+timeout, retry, `Retry-After`, crash recovery, and 400-day prune; event routes remain
+webhook/email only. SQLite cannot alter the existing `kind` CHECK, so `migrate()` performs
+a one-time table rebuild that preserves every delivery row and the unique key.
+
+**Cost.** One small setting, one Config row, one SummaryService callback, and one guarded
+table rebuild. Event delivery history/resend, bot event routes, per-cell routing, and
+configurable coalescing windows remain out of scope. A scorecard failure emits after the
+generation has already rejected, so the hook is advisory and cannot change scheduler
+backoff or an HTTP response.

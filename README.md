@@ -418,15 +418,16 @@ share the same outbox and retry schedule but dedupe per destination, so disablin
 re-pointing one channel never cancels the others. A saved password or bot token is
 redacted from the API and only cleared when the operator asks.
 
-The independent **Event notifications** card can send two operational events to the same
+The independent **Event notifications** card can send three operational events to the same
 webhook and email channels: **failed request turns** (a harness error result, non-zero
-agent exit, or timeout) and **master errors** (a failed master turn or scheduler cycle).
-Each event kind has its own webhook and email checkboxes; the channel must also be enabled
-above. Event bodies carry ids, the request title/state, and a failure classification only,
-never a prompt, transcript, diff, stderr block, or raw error text. Repeated failures with
-the same signature are coalesced to one message per UTC hour per channel, and enabling a
-route never backfills old events. Event deliveries use the same durable retry, signing,
-timeout, and destination-rotation rules as budget alerts.
+agent exit, or timeout), **master errors** (a failed master turn or scheduler cycle), and
+**scorecard failures** (a failed summary generation). Each event kind has its own webhook
+and email checkboxes; the channel must also be enabled above. Event bodies carry ids, the
+request title/state or cell, and a failure classification only, never a prompt, transcript,
+diff, stderr block, or raw error text. A cap-stopped scorecard is a pause, not a failure.
+Repeated failures with the same signature are coalesced to one message per UTC hour per
+channel, and enabling a route never backfills old events. Event deliveries use the same
+durable retry, signing, timeout, and destination-rotation rules as budget alerts.
 
 `GET /api/notifications/status` shows per-channel and per-destination queue, failure, and
 last-delivery state, plus aggregate and per-kind event counts. `POST /api/notifications/{webhook,email,slack,discord}/test` sends a
@@ -551,7 +552,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1006 vitest cases: 792 server cases across 49 files (state machine,
+`npm test` runs 1013 vitest cases: 799 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

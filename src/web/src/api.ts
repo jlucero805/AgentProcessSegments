@@ -369,6 +369,7 @@ export const api = {
       events?: {
         failedTurns?: Partial<EventChannelSettings>;
         masterErrors?: Partial<EventChannelSettings>;
+        summaryFailures?: Partial<EventChannelSettings>;
       };
     };
   }): Promise<ConfigResponse> {

@@ -311,6 +311,9 @@ const eventsSchema: z.ZodType<EventNotificationSettings, unknown> = z.object({
   masterErrors: eventChannelSchema.default(() => ({
     ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors,
   })),
+  summaryFailures: eventChannelSchema.default(() => ({
+    ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures,
+  })),
 });
 
 const notificationsSchema: z.ZodType<NotificationsSettings, unknown> = z.object({
@@ -321,6 +324,7 @@ const notificationsSchema: z.ZodType<NotificationsSettings, unknown> = z.object(
   events: eventsSchema.default(() => ({
     failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
     masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+    summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
   })),
 });
 
@@ -363,6 +367,7 @@ const eventChannelPatchSchema = z.object({
 const eventsPatchSchema = z.object({
   failedTurns: eventChannelPatchSchema.optional(),
   masterErrors: eventChannelPatchSchema.optional(),
+  summaryFailures: eventChannelPatchSchema.optional(),
 });
 
 
@@ -417,6 +422,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     events: {
       failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
       masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+      summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
     },
   },
 };
@@ -466,6 +472,7 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
       events: {
         failedTurns: { ...settings.notifications.events.failedTurns },
         masterErrors: { ...settings.notifications.events.masterErrors },
+        summaryFailures: { ...settings.notifications.events.summaryFailures },
       },
     },
   };
@@ -689,6 +696,10 @@ export class SettingsStore {
           masterErrors: {
             ...current.notifications.events.masterErrors,
             ...(parsed.notifications?.events?.masterErrors ?? {}),
+          },
+          summaryFailures: {
+            ...current.notifications.events.summaryFailures,
+            ...(parsed.notifications?.events?.summaryFailures ?? {}),
           },
         },
       },

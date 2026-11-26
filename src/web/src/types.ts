@@ -228,7 +228,7 @@ export interface EventNotificationStatus {
   lastDeliveryAt: number | null;
   lastDeliveryStatus: DeliveryStatus | null;
   lastError: string | null;
-  byKind: Record<'turn.failed' | 'master.error', EventKindStatus>;
+  byKind: Record<'turn.failed' | 'master.error' | 'summary.failed', EventKindStatus>;
 }
 
 export interface NotificationStatusResponse {

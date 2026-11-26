@@ -112,6 +112,7 @@ const emptyChat: ChatView = {
 const eventSettings = {
   failedTurns: { webhook: false, email: false },
   masterErrors: { webhook: false, email: false },
+  summaryFailures: { webhook: false, email: false },
 };
 
 const notificationStatus = {
@@ -163,6 +164,7 @@ const notificationStatus = {
     byKind: {
       'turn.failed': { pending: 1, failed: 1 },
       'master.error': { pending: 1, failed: 0 },
+      'summary.failed': { pending: 0, failed: 0 },
     },
   },
 };
@@ -293,6 +295,7 @@ interface Captured {
       events?: {
         failedTurns?: { webhook?: boolean; email?: boolean };
         masterErrors?: { webhook?: boolean; email?: boolean };
+        summaryFailures?: { webhook?: boolean; email?: boolean };
       };
     };
   };
@@ -405,6 +408,10 @@ function installFetch(
       const patchedEvents = {
         failedTurns: { ...eventSettings.failedTurns, ...(eventsPatch?.failedTurns ?? {}) },
         masterErrors: { ...eventSettings.masterErrors, ...(eventsPatch?.masterErrors ?? {}) },
+        summaryFailures: {
+          ...eventSettings.summaryFailures,
+          ...(eventsPatch?.summaryFailures ?? {}),
+        },
       };
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
@@ -921,20 +928,26 @@ describe('ConfigPage', () => {
     const masterEmail = screen.getByRole('checkbox', {
       name: /master errors by email/i,
     });
+    const summaryWebhook = screen.getByRole('checkbox', {
+      name: /scorecard failures by webhook/i,
+    });
     expect(failedWebhook).not.toBeChecked();
     fireEvent.click(failedWebhook);
     fireEvent.click(masterEmail);
+    fireEvent.click(summaryWebhook);
     fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
 
     await waitFor(() =>
       expect(captured.config?.notifications?.events).toEqual({
         failedTurns: { webhook: true, email: false },
         masterErrors: { webhook: false, email: true },
+        summaryFailures: { webhook: true, email: false },
       }),
     );
     expect(captured.config?.notifications?.webhook).toBeUndefined();
     expect(screen.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
+    expect(screen.getByText(/scorecard 0 pending \/ 0 failed/)).toBeInTheDocument();
   });
 
   it('clears a saved webhook secret only on request', async () => {

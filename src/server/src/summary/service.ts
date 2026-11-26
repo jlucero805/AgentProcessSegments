@@ -1,5 +1,10 @@
 import type { CellRepository } from '../cells/repository.js';
-import type { Engine } from '../clarify/engine.js';
+import type { Engine, LiveTurn } from '../clarify/engine.js';
+import {
+  type SummaryFailureNotification,
+  type SummaryFailureSource,
+  type TurnFailureSource,
+} from '../domain/notifications.js';
 import { summarySessionId } from '../domain/sessions.js';
 import {
   AGENT_STATUSES,
@@ -160,6 +165,21 @@ export interface SummaryServiceDeps {
   events: MasterEventRepository;
   summaries: SummaryRepository;
   errors?: ErrorSink;
+  /** Advisory notification for a failed scorecard generation. Never changes the outcome. */
+  onSummaryFailure?: (event: SummaryFailureNotification) => void;
+}
+
+export function summaryFailureSource(source: TurnFailureSource): SummaryFailureSource {
+  switch (source) {
+    case 'engine.result':
+      return 'summary.result';
+    case 'engine.exit':
+      return 'summary.exit';
+    case 'engine.timeout':
+      return 'summary.timeout';
+    case 'engine.turn':
+      return 'summary.turn';
+  }
 }
 
 /** Gathers facts, asks the read-only summary session for narrative, and stores it. */
@@ -209,14 +229,29 @@ export class SummaryService {
       settings.summary.prompt.trim(),
     ].join('\n');
 
-    const turn = await this.deps.engine.startSummary(prompt, sessionId, context);
-    await turn.promise;
+    let turn: LiveTurn;
+    try {
+      turn = await this.deps.engine.startSummary(prompt, sessionId, context);
+      await turn.promise;
+    } catch (error) {
+      if (error instanceof SpendCapError) throw error;
+      this.notifyFailure(cellId, 'summary.turn', 'engine error');
+      throw error;
+    }
     // finishTurn persists the transcript one tick after the promise settles.
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     // A cap stop is a pause, not a failed scorecard: no row and no error log.
     if (turn.stoppedBy) throw new SpendCapError(turn.stoppedBy);
-    if (turn.failure) return this.fail(cellId, new Error(turn.failure));
+    if (turn.failure) {
+      const failure = turn.failureEvent;
+      this.notifyFailure(
+        cellId,
+        failure ? summaryFailureSource(failure.source) : 'summary.turn',
+        failure?.reason ?? 'engine error',
+      );
+      return this.fail(cellId, new Error(turn.failure));
+    }
     const body = this.deps.engine
       .transcript(sessionId)
       .slice(before)
@@ -226,6 +261,7 @@ export class SummaryService {
       .join('\n\n')
       .trim();
     if (body === '') {
+      this.notifyFailure(cellId, 'summary.empty', 'scorecard returned no text');
       return this.fail(cellId, new Error('the scorecard model returned no text'));
     }
     // The cell can be deleted while the model is running. Do not leave an
@@ -238,14 +274,39 @@ export class SummaryService {
       ? body
       : `${body}\n\n_${SUMMARY_DERIVED_NOTE}_`;
 
-    return this.deps.summaries.record({
-      cellId,
-      windowStart: stats.windowStart,
-      windowEnd: stats.windowEnd,
-      windowMinutes: stats.windowMinutes,
-      content,
-      stats,
-    });
+    try {
+      return this.deps.summaries.record({
+        cellId,
+        windowStart: stats.windowStart,
+        windowEnd: stats.windowEnd,
+        windowMinutes: stats.windowMinutes,
+        content,
+        stats,
+      });
+    } catch (error) {
+      this.notifyFailure(cellId, 'summary.store', 'could not save scorecard');
+      throw error;
+    }
+  }
+
+  private notifyFailure(
+    cellId: string,
+    source: SummaryFailureSource,
+    reason: string,
+  ): void {
+    try {
+      this.deps.onSummaryFailure?.({
+        cellId,
+        source,
+        reason,
+        occurredAt: Date.now(),
+      });
+    } catch (error) {
+      this.deps.errors?.error('notifications.event', error, {
+        kind: 'summary.failed',
+        cellId,
+      });
+    }
   }
 
   private fail(cellId: string, error: Error): never {

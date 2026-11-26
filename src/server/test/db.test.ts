@@ -194,6 +194,58 @@ describe('db migrations', () => {
     db.close();
   });
 
+  it('rebuilds a two-kind event table so summary failures can be enqueued', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE notification_event_deliveries (
+      id               TEXT PRIMARY KEY,
+      dedupe_key       TEXT NOT NULL,
+      kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error')),
+      channel          TEXT NOT NULL,
+      format           TEXT NOT NULL,
+      destination_hash TEXT NOT NULL,
+      payload_json     TEXT NOT NULL,
+      status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+      attempts         INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at  INTEGER NOT NULL,
+      last_error       TEXT,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL,
+      delivered_at     INTEGER,
+      UNIQUE(dedupe_key, channel)
+    )`);
+    db.prepare(
+      `INSERT INTO notification_event_deliveries
+         (id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES ('old', 'turn:r1:engine.exit:exit_1:1', 'turn.failed', 'webhook', 'json',
+               'hash', '{}', 'delivered', 1, 10, NULL, 10, 10, 10)`,
+    ).run();
+
+    migrate(db);
+    migrate(db);
+
+    expect(
+      db.prepare('SELECT id, kind, status FROM notification_event_deliveries').get(),
+    ).toEqual({ id: 'old', kind: 'turn.failed', status: 'delivered' });
+    const insert = db.prepare(
+      `INSERT INTO notification_event_deliveries
+         (id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES (?, ?, ?, ?, 'json', 'hash', '{}', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+    );
+    insert.run('new', 'summary:cell-1:summary.exit:exit_1:1', 'summary.failed', 'webhook');
+    expect(() =>
+      insert.run('dup', 'summary:cell-1:summary.exit:exit_1:1', 'summary.failed', 'webhook'),
+    ).toThrow();
+    const indexes = (
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{
+        name: string;
+      }>
+    ).map((row) => row.name);
+    expect(indexes).toContain('idx_notification_event_deliveries_due');
+    db.close();
+  });
+
   it('keeps delivery history when the alert is deleted', () => {
     const db = openDb(':memory:');
     db.prepare(

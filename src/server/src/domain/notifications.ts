@@ -6,7 +6,11 @@
 import type { HarnessId } from './harness.js';
 import type { State } from './request.js';
 
-export const EVENT_NOTIFICATION_KINDS = ['turn.failed', 'master.error'] as const;
+export const EVENT_NOTIFICATION_KINDS = [
+  'turn.failed',
+  'master.error',
+  'summary.failed',
+] as const;
 export type NotificationEventKind = (typeof EVENT_NOTIFICATION_KINDS)[number];
 
 export type TurnFailureSource =
@@ -39,6 +43,22 @@ export interface MasterErrorNotification {
   occurredAt: number;
 }
 
+export type SummaryFailureSource =
+  | 'summary.result'
+  | 'summary.exit'
+  | 'summary.timeout'
+  | 'summary.turn'
+  | 'summary.empty'
+  | 'summary.store';
+
+/** One failed scorecard generation. Contains classifications, never raw errors. */
+export interface SummaryFailureNotification {
+  cellId: string;
+  source: SummaryFailureSource;
+  reason: string;
+  occurredAt: number;
+}
+
 export interface TurnFailedEnvelope {
   version: 1;
   event: 'turn.failed';
@@ -59,7 +79,20 @@ export interface MasterErrorEnvelope {
   master: MasterErrorNotification;
 }
 
-export type NotificationEventEnvelope = TurnFailedEnvelope | MasterErrorEnvelope;
+export interface SummaryFailedEnvelope {
+  version: 1;
+  event: 'summary.failed';
+  severity: 'error';
+  title: string;
+  occurredAt: number;
+  text: string;
+  summary: SummaryFailureNotification;
+}
+
+export type NotificationEventEnvelope =
+  | TurnFailedEnvelope
+  | MasterErrorEnvelope
+  | SummaryFailedEnvelope;
 
 const MAX_TITLE_LENGTH = 200;
 
@@ -131,6 +164,30 @@ export function masterErrorEnvelope(
   };
 }
 
+export function summaryFailedText(
+  summary: SummaryFailureNotification,
+  cellName: string | null,
+): string {
+  const cell = cellName ?? 'Deleted cell';
+  return `Scorecard generation failed for cell "${cell}": ${summary.reason}.`;
+}
+
+export function summaryFailedEnvelope(
+  summary: SummaryFailureNotification,
+  cellName: string | null,
+): SummaryFailedEnvelope {
+  const cell = cellName ?? 'Deleted cell';
+  return {
+    version: 1,
+    event: 'summary.failed',
+    severity: 'error',
+    title: `Scorecard failed: ${cell}`,
+    occurredAt: summary.occurredAt,
+    text: summaryFailedText(summary, cellName),
+    summary,
+  };
+}
+
 export function notificationEventSubject(
   event: NotificationEventEnvelope,
   cellName: string | null,
@@ -138,7 +195,9 @@ export function notificationEventSubject(
   const title =
     event.event === 'turn.failed'
       ? turnFailedEnvelope(event.turn, cellName).title
-      : masterErrorEnvelope(event.master, cellName).title;
+      : event.event === 'master.error'
+        ? masterErrorEnvelope(event.master, cellName).title
+        : summaryFailedEnvelope(event.summary, cellName).title;
   return `[APS] ${title}`;
 }
 
@@ -149,7 +208,9 @@ export function notificationEventEmailText(
   const text =
     event.event === 'turn.failed'
       ? turnFailedText(event.turn, cellName)
-      : masterErrorText(event.master, cellName);
+      : event.event === 'master.error'
+        ? masterErrorText(event.master, cellName)
+        : summaryFailedText(event.summary, cellName);
   const lines = [
     text,
     '',
@@ -165,12 +226,18 @@ export function notificationEventEmailText(
       `Source: ${event.turn.source}`,
       `Reason: ${event.turn.reason}`,
     );
-  } else {
+  } else if (event.event === 'master.error') {
     lines.push(
       `Cell: ${event.master.cellId}`,
       `Source: ${event.master.source}`,
       `Request: ${event.master.requestId ?? 'none'}`,
       `Segment: ${event.master.segment ?? 'none'}`,
+    );
+  } else {
+    lines.push(
+      `Cell: ${event.summary.cellId}`,
+      `Source: ${event.summary.source}`,
+      `Reason: ${event.summary.reason}`,
     );
   }
   return lines.join('\n');

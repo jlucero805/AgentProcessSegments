@@ -209,13 +209,15 @@ last five.
     **Budget alert retention** window (default 400 days; `0` keeps it forever), the
     current UTC month is always kept, and clearing a budget, changing its threshold, or
     deleting a cell removes its unacknowledged rows.
-12. The **Event notifications** card can send failed request turns and master turn/cycle
-    errors. Check Webhook and/or Email per event kind, then **Save event notifications**;
-    each selected channel must also be enabled above. Notifications contain the request
-    title/state or cell, ids, and a failure classification only, never prompts,
-    transcripts, or raw error text. Repeat failures with the same signature are coalesced
-    to one message per hour per channel; enabling a route does not replay old events. The
-    card shows aggregate and per-kind pending/failed counts.
+12. The **Event notifications** card can send failed request turns, master turn/cycle
+    errors, and scorecard failures. Check Webhook and/or Email per event kind, then
+    **Save event notifications**; each selected channel must also be enabled above.
+    Notifications contain the request title/state or cell, ids, and a failure
+    classification only, never prompts, transcripts, or raw error text. A cap-stopped
+    scorecard is a pause and does not notify; the full error remains in the scorecard
+    warning and `summary.generate` log. Repeat failures with the same signature are
+    coalesced to one message per hour per channel; enabling a route does not replay old
+    events. The card shows aggregate and per-kind pending/failed counts.
 
 ## 4d. Read spend and maintain model prices
 

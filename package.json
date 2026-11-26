@@ -8,10 +8,13 @@
   ],
   "scripts": {
     "build": "npm run build --workspace src/web && npm run build --workspace src/server",
+    "pretypecheck": "node scripts/check-dev-deps.mjs typecheck",
     "typecheck": "npm run typecheck --workspace src/server && npm run typecheck --workspace src/web",
+    "prelint": "node scripts/check-dev-deps.mjs lint",
     "lint": "npm run --silent lint:js && npm run --silent lint:sh",
     "lint:js": "eslint . --max-warnings=0",
     "lint:sh": "for f in deploy/*.sh scripts/*.sh; do bash -n \"$f\" || exit 1; done",
+    "pretest": "node scripts/check-dev-deps.mjs test",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",
     "test:e2e-env": "node --test scripts/e2e/env.test.mjs scripts/e2e/claude-bin.test.mjs scripts/e2e/puppeteer.test.mjs scripts/screenshots.test.mjs scripts/webhook-receiver-example.test.mjs",
     "e2e": "npm run build && node scripts/e2e.mjs",

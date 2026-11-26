@@ -39,6 +39,27 @@ export interface MasterErrorNotification {
   occurredAt: number;
 }
 
+/**
+ * The safe, read-only projection of one event delivery row. It contains only
+ * classifications and ids already sent outbound; never the raw payload.
+ */
+export interface EventDeliverySnapshot {
+  kind: NotificationEventKind;
+  /** Envelope title without the `[APS] ` email prefix. */
+  title: string;
+  /** Safe outbound human text, or '' when the payload is unreadable. */
+  text: string;
+  /** Engine/master failure source, or null for an unreadable payload. */
+  source: string | null;
+  reason: string | null;
+  cellId: string | null;
+  cellName: string | null;
+  requestId: string | null;
+  turnId: string | null;
+  segment: string | null;
+  occurredAt: number | null;
+}
+
 export interface TurnFailedEnvelope {
   version: 1;
   event: 'turn.failed';

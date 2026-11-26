@@ -392,6 +392,9 @@ export function migrate(db: Db): void {
        ON notification_event_deliveries(status, next_attempt_at)`,
   );
   db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_notification_event_deliveries_created ON notification_event_deliveries(created_at)',
+  );
+  db.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_spend_cap_overrides_active
        ON spend_cap_overrides(scope, scope_id, period_start)
        WHERE revoked_at IS NULL`,

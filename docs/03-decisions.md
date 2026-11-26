@@ -1023,8 +1023,9 @@ cascade. The secret is never returned by `GET/PATCH /api/config`; failures go to
 `budget.notify` with ids and a short reason only.
 
 **Cost.** A generic webhook plus Slack/Discord text bodies covers external delivery
-without SMTP or bot credentials. Email, native chat apps, delivery history/resend, and
-general event notifications remain separate requests. The outbox adds one small table and
+without SMTP or bot credentials. Email (D57), native chat apps (D64), delivery
+history/resend (D63/D80), and general event notifications (D66) were later built as
+separate changes. The outbox adds one small table and
 one `unref()`'d timer; delivery is advisory and never changes budgets, turns, or the HTTP
 response path. `destination_hash` is a one-way hash stored only in the local database and
 is never logged. D64 later replaces the `(alert_id, channel)` identity with
@@ -1103,8 +1104,8 @@ status, and `POST /api/notifications/email/test` exercises the sender without wr
 handling, provider APIs, or OAuth2; those are separate work. The password lives in
 `config.json` (mode `0600`) because the brain has no keyring. A recipient list is capped at
 ten. D64 later broadens the outbox key; email rows keep `destination_id = "email"`.
-Delivery history/resend and non-budget events remain separate requests. The dependency is
-one runtime package with its own types and no transitive dependencies.
+Delivery history/resend and non-budget events were later built as D63/D80 and D66. The
+dependency is one runtime package with its own types and no transitive dependencies.
 
 ## D58. Request workdirs are owner-only
 
@@ -1259,8 +1260,9 @@ flush. For chat, the current route must still resolve to the row's destination i
 **Cost.** No schema change, migration, new dependency, or background job. The audit is an
 ops list bounded by monthly alerts, two channels, and the configurable budget-alert
 retention window (D77). D78 later replaces the join with an alert snapshot so history
-survives alert deletion. Resends are not attributed to an operator because the app has no
-user identity.
+survives alert deletion, and D80 extends the same read model and resend route to
+operational event deliveries. Resends are not attributed to an operator because the app
+has no user identity.
 ## D64. Budget alerts also deliver through native Slack and Discord bots
 
 **Context.** The webhook channel can post Slack/Discord-shaped text to an incoming
@@ -1364,9 +1366,9 @@ events; disabling a route marks pending rows `skipped`. Failures use error sourc
 `notifications.event` with ids and a short reason.
 
 **Cost.** A second small outbox table and a new Config card, no migration of existing
-budget rows and no new dependency. Event history/resend is not part of the existing budget
-history view; that, summary-generation events, bot event routes, and configurable
-coalescing windows remain follow-ups.
+budget rows and no new dependency. Event history/resend initially remained outside the
+budget history view; D80 folds it in. Summary-generation events, bot event routes, and
+configurable coalescing windows remain follow-ups.
 
 ## D67. Strict unknown-cost caps fail closed on unpriced turns
 
@@ -1707,7 +1709,9 @@ and can differ from the latest alert or budget; that is the intended audit seman
 Alert rows and delivery rows are no longer transactionally coupled after enqueue, so the
 orphan sweep is the guard against sending a deleted alert. Migrated rows whose alert was
 already gone get safe default snapshot values; current installs cannot have that state
-because the old cascade removed them first. Resends remain unattributed.
+because the old cascade removed them first. Resends remain unattributed. D80 later adds
+event rows to the same history and resend view without changing this budget snapshot.
+
 ## D79. Finalize is a manual-only segment
 
 **Context.** When a cell enabled the Finalize segment, the master prodded every idle
@@ -1731,3 +1735,42 @@ schedule controls disabled. Review and Merge still advance a request into `final
 digest. The finalize segment entry and its schema fields remain for config compatibility,
 but its prompt, idle threshold, caps, and enable flag no longer affect any turn. The
 master no longer converts a finalize backlog into queued work; that is intentional.
+
+## D80. Delivery history and resend cover operational events
+
+**Context.** D63/D78 built a read-only audit and guarded manual resend for budget-alert
+deliveries only. D66 added a sibling `notification_event_deliveries` outbox for
+`turn.failed` and `master.error`, but the Config page exposed only aggregate event
+pending/failed counts. An operator could not see which event failed, why, or re-queue a
+failed/skipped event row without editing SQLite.
+
+**Decision.** `GET /api/notifications/deliveries` reads both outboxes and returns one
+newest-first list with a `source` discriminator. Budget rows keep `alertId` and their
+immutable alert snapshot; event rows carry a safe `event` projection built with the same
+pure envelope builders used outbound: kind, title, human text, failure source/reason,
+turn/request/cell ids, segment, and occurrence time. Event history never returns
+`destination_hash`, a URL, credentials, recipients, raw payload JSON, stderr, prompts,
+transcripts, diffs, or model output. An unreadable payload renders a fallback label
+instead of hiding or throwing. The merge is `(created_at DESC, id DESC)`; `total` is the
+sum of matching per-source counts, and `limit`/`offset` apply to the merged list. Filters
+add `source` (`budget|event`) and `kind` (`turn.failed|master.error`); the two are
+mutually exclusive, `alertId` is budget-only, and incompatible combinations are `400`.
+Channel, status, and the `[from, to)` window apply to both sources.
+
+`POST /api/notifications/deliveries/:id/resend` looks up the budget row first and then the
+event row. Event resend re-queues only `failed`/`skipped` rows and requires both the
+kind/channel event flag and the channel to be enabled/configured. A disabled route is
+`409 event_disabled`, rather than overloading `channel_disabled`, so an operator's
+per-event opt-out is never bypassed. The row is reused (`attempts` reset,
+`next_attempt_at` now, `delivered_at` cleared, `format`/`destination_hash` re-stamped,
+`last_error` preserved) and drained by the normal notifier. `pending`/`delivering` remains
+an idempotent no-op, `delivered` remains immutable, and unknown ids remain `404`.
+`idx_notification_event_deliveries_created` supports the audit sort and retention scan.
+
+**Cost.** No table rebuild, new route, or dependency. Merged pagination fetches
+`offset + limit` from each included source and merges in the service; the existing
+100-row page cap bounds it. Event history remains webhook/email only because event routes
+do, and event rows keep their hardcoded 400-day notifier-start prune until the separate
+retention follow-up lands. The event projection is read-time: a renamed or deleted cell
+shows its current name or `Deleted cell`, and malformed legacy payloads show a safe
+fallback rather than their raw body.

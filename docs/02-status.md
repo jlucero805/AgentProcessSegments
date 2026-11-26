@@ -283,11 +283,13 @@ built and vended by the brain; real-CLI verification is still pending.
   alert leaves its snapshotted delivery history until the delivery row itself expires. The
   Config page edits and tests all four channels, and
   `GET /api/notifications/status` reports per-channel and per-destination queue state. A
-  **Delivery history** card lists recent attempts with filters, pagination, sanitized
-  errors, and a guarded Resend for failed/skipped current-month rows; delivered rows are
-  immutable, a chat row is resendable only while its destination still matches, and a row
-  whose alert was deleted is history-only and returns `alert_deleted`. Resend and history
-  never return a destination or payload.
+  **Delivery history** card lists recent budget and event attempts with type/channel/status
+  filters, pagination, sanitized errors, and a guarded Resend; delivered rows are
+  immutable, a chat row is resendable only while its destination still matches, a budget
+  row whose alert was deleted is history-only and returns `alert_deleted`, and an event
+  row requires its kind/channel route to remain enabled (`event_disabled`). Budget and
+  event rows are merged newest-first; event rows expose only the safe classification
+  fields, never the payload. Resend and history never return a destination or payload.
   An opt-in **Event notifications** card routes failed request turns and master
   turn/cycle errors to the same webhook/email channels, per event kind and channel;
   `notification_event_deliveries` dedupes by a one-hour signature, sends
@@ -369,7 +371,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1005 vitest cases, all passing: 791 server across 49 files and 214 web across 24 files,
+- 1018 vitest cases, all passing: 803 server across 49 files and 215 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -525,8 +527,8 @@ POST   /api/budgets/alerts/:id/ack
 POST   /api/budgets/overrides             {scope, cellId?, minutes, note?}
 DELETE /api/budgets/overrides/:id
 GET    /api/notifications/status          per-channel/per-destination and per-event-kind queue/last-delivery state
-GET    /api/notifications/deliveries      read-only audit, filters + limit/offset, canResend
-POST   /api/notifications/deliveries/:id/resend  guarded resend for failed/skipped rows
+GET    /api/notifications/deliveries      merged budget+event audit; source/kind/channel/status filters, limit/offset, canResend
+POST   /api/notifications/deliveries/:id/resend  guarded resend for failed/skipped budget or event rows
 POST   /api/notifications/webhook/test    synthetic test event; 400 without a URL, 502 on rejection
 POST   /api/notifications/email/test      synthetic test email; 400 unconfigured, 502 on rejection
 POST   /api/notifications/slack/test      synthetic chat test; optional channelId, 400/502

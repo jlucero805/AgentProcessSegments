@@ -2,6 +2,10 @@
  * Spend-budget contract shared by the server and the SPA. Keep this module free
  * of Node-only imports so `src/web/src/types.ts` can re-export it for Vite.
  */
+import type {
+  EventDeliverySnapshot,
+  NotificationEventKind,
+} from './notifications.js';
 import type { UsageTotals } from '../usage/types.js';
 
 export const BUDGET_SCOPES = ['overall', 'cell'] as const;
@@ -392,10 +396,11 @@ export interface DeliveryAlertSnapshot {
   acknowledgedAt: number | null;
 }
 
-/** One safe delivery-history row: no destination, secret, recipient, or payload. */
-export interface DeliveryHistoryItem {
+export type DeliveryHistorySource = 'budget' | 'event';
+
+interface DeliveryHistoryBase {
   id: string;
-  alertId: string;
+  source: DeliveryHistorySource;
   channel: DeliveryChannel;
   format: DeliveryFormat;
   status: DeliveryStatus;
@@ -406,10 +411,25 @@ export interface DeliveryHistoryItem {
   updatedAt: number;
   deliveredAt: number | null;
   canResend: boolean;
+}
+
+export interface BudgetDeliveryHistoryItem extends DeliveryHistoryBase {
+  source: 'budget';
+  alertId: string;
   alert: DeliveryAlertSnapshot;
 }
 
+export interface EventDeliveryHistoryItem extends DeliveryHistoryBase {
+  source: 'event';
+  event: EventDeliverySnapshot;
+}
+
+/** One safe delivery-history row: no destination, secret, recipient, or payload. */
+export type DeliveryHistoryItem = BudgetDeliveryHistoryItem | EventDeliveryHistoryItem;
+
 export interface DeliveryHistoryQuery {
+  source?: DeliveryHistorySource;
+  kind?: NotificationEventKind;
   channel?: DeliveryChannel;
   status?: DeliveryStatus;
   alertId?: string;
@@ -433,6 +453,7 @@ export type ResendBlockReason =
   | 'alert_deleted'
   | 'alert_acknowledged'
   | 'not_current_period'
+  | 'event_disabled'
   | 'channel_disabled'
   | 'channel_unconfigured';
 
@@ -460,6 +481,27 @@ export function resendBlockReason(input: ResendGuardInput): ResendBlock | null {
   if (!input.alertExists) return 'alert_deleted';
   if (input.acknowledgedAt !== null) return 'alert_acknowledged';
   if (input.periodStart !== input.currentPeriodStart) return 'not_current_period';
+  if (!input.channelEnabled) return 'channel_disabled';
+  if (!input.channelConfigured) return 'channel_unconfigured';
+  return null;
+}
+
+export interface EventResendGuardInput {
+  status: DeliveryStatus;
+  eventEnabled: boolean;
+  channelEnabled: boolean;
+  channelConfigured: boolean;
+}
+
+/**
+ * Decide whether a failed or skipped operational-event delivery may be resent.
+ * The event route is checked as well as the channel so a resend cannot bypass
+ * an operator's per-kind opt-out.
+ */
+export function eventResendBlockReason(input: EventResendGuardInput): ResendBlock | null {
+  if (input.status === 'delivered') return 'already_delivered';
+  if (input.status === 'pending' || input.status === 'delivering') return 'in_flight';
+  if (!input.eventEnabled) return 'event_disabled';
   if (!input.channelEnabled) return 'channel_disabled';
   if (!input.channelConfigured) return 'channel_unconfigured';
   return null;

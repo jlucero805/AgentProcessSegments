@@ -42,6 +42,51 @@ export interface EventDeliveryStatusSummary {
   lastError: string | null;
 }
 
+export interface EventHistoryFilter {
+  kind?: NotificationEventKind;
+  channel?: DeliveryChannel;
+  status?: DeliveryStatus;
+  /** Inclusive created-at lower bound in epoch milliseconds. */
+  from?: number;
+  /** Exclusive created-at upper bound in epoch milliseconds. */
+  to?: number;
+  limit: number;
+  offset: number;
+}
+
+/** Fixed SQL fragments; every value stays a bound parameter. */
+function historyWhere(filter: EventHistoryFilter): {
+  sql: string;
+  params: Array<string | number>;
+} {
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  if (filter.kind !== undefined) {
+    clauses.push('kind = ?');
+    params.push(filter.kind);
+  }
+  if (filter.channel !== undefined) {
+    clauses.push('channel = ?');
+    params.push(filter.channel);
+  }
+  if (filter.status !== undefined) {
+    clauses.push('status = ?');
+    params.push(filter.status);
+  }
+  if (filter.from !== undefined) {
+    clauses.push('created_at >= ?');
+    params.push(filter.from);
+  }
+  if (filter.to !== undefined) {
+    clauses.push('created_at < ?');
+    params.push(filter.to);
+  }
+  return {
+    sql: clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`,
+    params,
+  };
+}
+
 interface EventDeliveryRow {
   id: string;
   dedupe_key: string;
@@ -145,6 +190,50 @@ export class NotificationEventDeliveryRepository {
       )
       .all(channel, now, destinationHash, limit) as EventDeliveryRow[];
     return rows.map(toRecord);
+  }
+
+  listFiltered(filter: EventHistoryFilter): EventDeliveryRecord[] {
+    const where = historyWhere(filter);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM notification_event_deliveries${where.sql}
+          ORDER BY created_at DESC, id DESC
+          LIMIT ? OFFSET ?`,
+      )
+      .all(...where.params, filter.limit, filter.offset) as EventDeliveryRow[];
+    return rows.map(toRecord);
+  }
+
+  countFiltered(filter: EventHistoryFilter): number {
+    const where = historyWhere(filter);
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS total FROM notification_event_deliveries${where.sql}`)
+      .get(...where.params) as { total: number };
+    return row.total;
+  }
+
+  /**
+   * Put one failed or skipped event row back in the queue under the current
+   * destination. Returns null when the row is not in a resendable state.
+   */
+  resetForResend(
+    id: string,
+    input: { format: DeliveryFormat; destinationHash: string; now: number },
+  ): EventDeliveryRecord | null {
+    const result = this.db
+      .prepare(
+        `UPDATE notification_event_deliveries
+            SET status = 'pending',
+                attempts = 0,
+                next_attempt_at = ?,
+                updated_at = ?,
+                delivered_at = NULL,
+                format = ?,
+                destination_hash = ?
+          WHERE id = ? AND status IN ('failed', 'skipped')`,
+      )
+      .run(input.now, input.now, input.format, input.destinationHash, id);
+    return result.changes > 0 ? this.get(id) : null;
   }
 
   markDelivering(id: string, now: number): EventDeliveryRecord | null {

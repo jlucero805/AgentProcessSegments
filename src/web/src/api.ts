@@ -397,6 +397,8 @@ export const api = {
   ): Promise<DeliveryHistoryResponse> {
     return request(
       withQuery('/api/notifications/deliveries', {
+        source: query.source,
+        kind: query.kind,
         channel: query.channel,
         status: query.status,
         alertId: query.alertId,

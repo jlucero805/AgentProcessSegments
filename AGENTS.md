@@ -78,7 +78,8 @@ digests.
   script (`deploy/upgrade-vps.sh`,
   `npm run upgrade:vps`) that detaches, drains, fast-forwards, rebuilds, restarts,
   verifies, rolls back in place, and prunes older `~/.aps-cutover/upgrades/` evidence
-  with `--keep-runs`/`--keep-days`/`--no-prune`, with owner-only `0700` run directories
+  with `--keep-runs`/`--keep-days`/`--no-prune` or on demand with
+  `npm run prune:upgrades`, with owner-only `0700` run directories
   for both scripts and a `0600` upgrade snapshot, a harness seam with `claude` and
   `opencode` adapters,
   OpenCode plugin parity (skills and slash commands), chat slash-menu skill discovery
@@ -140,8 +141,10 @@ npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs
                                 # --prune-orphans also retires refs with no request row
 npm run repair:permissions      # tighten old request workdirs (dry run first)
 npm run repair:upgrades         # tighten old upgrade run dirs/snapshots (dry run first)
-npm run prune:upgrades -- --dry-run  # prune old upgrade runs by hand; keeps
-                                     # latest, newest success, newest 10, 30 days
+npm run prune:cutover -- --dry-run  # prune old cutover runs by hand; keeps
+                                    # latest, newest success, newest 10, 30 days
+npm run prune:upgrades -- --dry-run # prune old upgrade runs by hand; keeps
+                                    # latest, newest success, newest 10, 30 days
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
                                 # prunes older runs by default; --no-prune opts out
 npm run upgrade:vps -- --dry-run  # pull + rebuild + restart; --detach inside the brain

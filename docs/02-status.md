@@ -350,7 +350,11 @@ built and vended by the brain; real-CLI verification is still pending.
   beside the banner so the operator can find and delete the original.
   `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
-  cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
+  cell policy when present. A missing, unreadable, or invalid `process.json` falls back to
+  the derived policy until a valid save; loading never writes, and the first save after an
+  unusable load copies the exact bytes to a sibling `process.json.invalid-<UTC>`
+  (owner-only, never overwriting) or refuses the save with `process.backupFailed`. The
+  legacy `idleMinutes`, `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. This host runs `agent-process-segments.service` from
   `$HOME/agent-process-segments`; its `config.json` and `process.json` live at
@@ -402,7 +406,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1155 vitest cases (one environmental root-skip): 896 server across 51 files and 259 web across 27 files,
+- 1162 vitest cases (one environmental root-skip): 903 server across 51 files and 259 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

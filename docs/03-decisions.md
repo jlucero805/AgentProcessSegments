@@ -2015,3 +2015,30 @@ restarts.
 the page or server reloads, and a restarted process does not rediscover earlier copies.
 The Config page gains one small state field, one response field on each endpoint, and one
 card; copying, opening, or pruning the file remains separate work.
+
+## D89. An unusable process file is preserved before the first overwrite
+
+**Context.** D76 preserved an unusable `config.json` before the first save, but explicitly
+left `src/server/src/process/store.ts` alone even though it had the same
+invalid-then-overwrite shape. `ProcessStore` falls back to a policy derived from the
+master settings and leaves the file untouched while loading; the next
+`PATCH /api/process` then replaces it, destroying the operator's prompts and policy
+without a copy.
+
+**Decision.** A load that cannot use the file marks `ProcessStore`: a non-`ENOENT` read
+error, invalid JSON, or a `normalizeProcess`/`processSchema` failure. Before the first
+save after such a load, the store re-reads the file and copies its exact bytes to a
+sibling `process.json.invalid-<UTC stamp>` (with `:` and `.` replaced by `-`, and a
+numeric suffix if that name exists). The copy uses `writePrivateFile` (`0600`) and never
+overwrites an earlier copy. Loading still never writes; a clean or missing file never
+creates a copy, the flag clears after one copy, and a corrected or removed file at save
+time produces no copy. `patch()` loads before writing so a save that is the first
+operation still preserves. A failed copy reports `process.backupFailed` and refuses the
+save. Success warns once with both paths only; the process editor does not yet show the
+copy path (D88 is settings-only).
+
+**Cost.** Copies accumulate until an operator deletes them; bounding them is separate
+work, as it is for `config.json`. The snapshot is not encrypted, is never read back, and
+is not repaired automatically. A file edited on disk after the process loaded it follows
+the latest load attempt, so the copy is always the bytes being replaced. The process
+editor still has no equivalent of D88's `preservedPath` notice.

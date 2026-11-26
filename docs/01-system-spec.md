@@ -151,7 +151,8 @@ with `npm run repair:upgrades` (dry run first), which scans only
 `~/.aps-cutover/upgrades` and never follows symlinks. Maintenance paths that must not
 migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair without schema or reconcile
-work.
+work. A dry run passes `{ readonly: true }`, so SQLite does not write content or
+recover/checkpoint the WAL; `--apply` opens read-write.
 
 ### `requests`
 
@@ -883,8 +884,9 @@ defaults.
   conservative rules in `src/server/src/maintenance/legacy-branches.ts`; the CLI remains
   the dry-run/manual recovery command. It opens the live database through
   `openExistingDb` without migrating or reconciling it, and keeps the database and
-  sidecars `0600`. The same command also reports orphan `sbox/*`
-  refs with no request row, and with `--prune-orphans` archives their tips under
+  sidecars `0600`. Its dry run opens read-only and never checkpoints or recovers the WAL;
+  `--apply` opens it read-write for the row updates. The same command also reports orphan
+  `sbox/*` refs with no request row, and with `--prune-orphans` archives their tips under
   `refs/sbox-pruned/` before deleting the branch.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,
   `session.json` (`{harness, sessionId}`), and the harness-specific config

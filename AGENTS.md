@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1236 vitest cases: 960 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
+- 1238 vitest cases: 962 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -112,7 +112,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 960 server + 276 web, plus the e2e env guard
+npm test                       # 962 server + 276 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -607,8 +607,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     second pass repairs sidecars already on disk. A missing database parent is created
     `0700`; an existing parent (usually the repo/cwd) is never chmodded. `:memory:` keeps
     no files. A chmod failure propagates. Maintenance paths that must not migrate use
-    `openExistingDb`, which applies the same sweep before and after opening. This is not
-    encryption at rest; root can still read the files.
+    `openExistingDb`, which applies the same sweep before and after opening. A dry run
+    passes `{ readonly: true }`, so SQLite cannot write content or recover/checkpoint the
+    WAL; the mode sweep still applies. This is not encryption at rest; root can still
+    read the files.
 41. **Never overwrite conversation state you could not parse.** A missing
     `session.json` or `transcript.json` is empty state. A file that exists but cannot be
     read (`EACCES`, `EISDIR`, ...), is invalid JSON, or has the wrong root shape is
@@ -635,7 +637,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     import `better-sqlite3` or construct `new Database(...)`. Production calls `openDb`;
     maintenance paths that must not migrate or reconcile a live brain call
     `openExistingDb`, which hardens the database and sidecars without touching schema or
-    request state. Test fixtures and the proof scripts are exempt because they use
+    request state; `openExistingDb(dbPath, { readonly: true })` is the non-mutating open
+    for dry runs. Test fixtures and the proof scripts are exempt because they use
     throwaway temp roots. `src/server/test/db.test.ts` guards the rule.
 44. **The runtime dependency audit is high-severity and guarded.** CI runs
     `npm audit --omit=dev --audit-level=high` after `npm ci` and before lint, so a high

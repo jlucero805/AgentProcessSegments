@@ -1995,16 +1995,16 @@ sidecar files at `0644`.
 tightens the database before SQLite opens it so new sidecars inherit `0600`, opens with
 `{ fileMustExist: true }`, and sweeps again to repair sidecars already on disk. The helper
 sets no pragmas and never migrates or reconciles, so maintenance cannot change a live
-brain's schema or request state. The CLI calls it and keeps its own `busy_timeout` and
-`query_only` ordering. A chmod failure propagates (fail closed). `src/server/src` may
-contain `better-sqlite3`/`new Database` only in `db.ts`; a source-scan test in
-`test/db.test.ts` enforces it. Test fixtures and the proof scripts are exempt because they
-run on throwaway temp roots.
+brain's schema or request state. The CLI calls it and keeps its own `busy_timeout`; it
+selects the read-only open for a dry run (D95). A chmod failure propagates (fail closed).
+`src/server/src` may contain `better-sqlite3`/`new Database` only in `db.ts`; a
+source-scan test in `test/db.test.ts` enforces it. Test fixtures and the proof scripts are
+exempt because they run on throwaway temp roots.
 
 **Cost.** One more exported open path and a source-scan guard that must be updated
 deliberately if a future maintenance command needs a different open mode. The dry run
-still opens read-write and only then sets `query_only`; making it truly read-only is
-separate work. This is not encryption at rest, and root can still read the files.
+uses the read-only option (D95); `--apply` still opens read-write. This is not encryption
+at rest, and root can still read the files.
 
 ## D88. The Config page names the preserved settings file
 
@@ -2197,3 +2197,26 @@ unchanged. This is not encryption at rest, and root can still read the files. Ru
 directories left by an earlier version are not repaired retroactively; a dry-run-first
 `npm run repair:runs` follow-up owns that, including old ancestors, symlinks, and
 per-entry failures.
+
+## D95. The legacy-branch dry run opens SQLite read-only
+
+**Context.** D87 routed the maintenance `migrate:branches` CLI through
+`openExistingDb`, but the dry run still opened the live database read-write and only then
+set `query_only = ON`. A read-write WAL open can replay or checkpoint the WAL and needs
+write access, so the default dry run was not non-mutating.
+
+**Decision.** `openExistingDb` takes an options object with `readonly?: boolean`; the
+default is unchanged read-write. It passes `readonly: true` to `better-sqlite3` (SQLite's
+own read-only flag) rather than using `immutable=1`, which assumes no concurrent writer
+and would be wrong for a live brain. `legacy-branches-cli.ts` opens with
+`{ readonly: !options.apply }`, keeps `busy_timeout = 5000`, and drops `query_only`. The
+owner-only `ensurePrivateFile`/`hardenDbFiles` sweep still runs in both modes, and a chmod
+failure still aborts (fail closed). The guarantee is no database-content mutation: a
+read-only WAL connection may still create an empty `-wal`/`-shm` or update `-shm` locks
+through the wal-index, so it needs the same filesystem access as before. A database that
+needs rollback-journal recovery now fails closed with SQLite's read-only-recovery error
+instead of being mutated; operators can run `--apply` or open it once normally.
+
+**Cost.** One option on the existing helper and one call-site branch. `--apply` keeps the
+read-write open and remains the only path that writes `requests.branch`. Making a dry run
+work without ownership/chmod is separate work, and this is not encryption at rest.

@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -727,6 +734,48 @@ describe('legacy branch CLI helpers', () => {
     expect(code).toBe(0);
     expect(branchTip(repoDir, 'sbox/no-such-request')).toBeNull();
     expect(refTip(repoDir, `refs/sbox-pruned/no-such-request-${tip}`)).toBe(tip);
+  });
+
+  it('opens a dry run read-only and leaves a pending WAL untouched', async () => {
+    const repoDir = makeRepo();
+    const dbPath = path.join(tempDir(), 'brain.sqlite');
+    const snapshot = path.join(tempDir(), 'brain-snapshot.sqlite');
+    const seed = openDb(dbPath);
+    const requests = new RequestRepository(seed);
+    const request = requests.create({ title: 'legacy work', targetRepo: repoDir });
+    requests.transition(request.id, 'dropped');
+    requests.setBranch(request.id, legacyBranchName(request.id));
+    createBranch(repoDir, legacyBranchName(request.id));
+
+    // Copy the database and WAL while the seed connection is open, so the
+    // snapshot keeps committed frames in -wal and has no -shm (an interrupted
+    // run). The request row is visible through those WAL frames.
+    copyFileSync(dbPath, snapshot);
+    copyFileSync(`${dbPath}-wal`, `${snapshot}-wal`);
+    seed.close();
+
+    const walBefore = readFileSync(`${snapshot}-wal`);
+    const lines: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((line?: unknown) => {
+      lines.push(String(line ?? ''));
+    });
+    const code = await main(['--db', snapshot]);
+    log.mockRestore();
+
+    expect(code).toBe(0);
+    expect(lines.join('\n')).toContain('would rename');
+    // A read-write open would recover the WAL and remove the sidecars on close.
+    expect(existsSync(`${snapshot}-wal`)).toBe(true);
+    expect(readFileSync(`${snapshot}-wal`).equals(walBefore)).toBe(true);
+
+    const check = openExistingDb(snapshot);
+    try {
+      expect(check.prepare('SELECT state FROM requests WHERE id = ?').get(request.id)).toEqual({
+        state: 'dropped',
+      });
+    } finally {
+      check.close();
+    }
   });
 
   it.skipIf(process.platform === 'win32')(

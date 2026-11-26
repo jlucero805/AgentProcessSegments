@@ -1,5 +1,13 @@
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpDir } from './tmp.js';
@@ -824,10 +832,49 @@ describe('database open paths', () => {
     },
   );
 
+  it('opens an existing database read-only without recovering the WAL', () => {
+    const dir = tmpDir('db-readonly');
+    const live = path.join(dir, 'live.sqlite');
+    const snapshot = path.join(dir, 'snapshot.sqlite');
+    const seed = new Database(live);
+    try {
+      seed.pragma('journal_mode = WAL');
+      seed.exec('CREATE TABLE note (value TEXT)');
+      seed.prepare('INSERT INTO note (value) VALUES (?)').run('committed');
+
+      // Copy the database and WAL while the writer is still open: the snapshot
+      // keeps committed frames in -wal and has no -shm, like an interrupted run.
+      copyFileSync(live, snapshot);
+      copyFileSync(`${live}-wal`, `${snapshot}-wal`);
+    } finally {
+      seed.close();
+    }
+
+    const walBefore = readFileSync(`${snapshot}-wal`);
+    const db = openExistingDb(snapshot, { readonly: true });
+    try {
+      expect(db.prepare('SELECT value FROM note').get()).toEqual({ value: 'committed' });
+      expect(() => db.prepare('INSERT INTO note (value) VALUES (?)').run('nope')).toThrow(
+        /readonly/i,
+      );
+      if (process.platform !== 'win32') {
+        expect(modeOf(snapshot)).toBe(0o600);
+        expect(modeOf(`${snapshot}-wal`)).toBe(0o600);
+      }
+    } finally {
+      db.close();
+    }
+
+    // A read-write open would recover the WAL and remove the sidecars on close.
+    expect(existsSync(`${snapshot}-wal`)).toBe(true);
+    expect(readFileSync(`${snapshot}-wal`).equals(walBefore)).toBe(true);
+  });
+
   it('refuses a missing database without creating it', () => {
     const file = path.join(tmpDir('db-missing'), 'missing.sqlite');
 
     expect(() => openExistingDb(file)).toThrow();
+    expect(() => openExistingDb(file, { readonly: true })).toThrow();
     expect(existsSync(file)).toBe(false);
   });
 });

@@ -2,8 +2,9 @@
 // One-time move from the legacy Sandbox Harness runtime names to Agent Process
 // Segments. The brain never runs this automatically: moving a live data directory
 // can break git worktree metadata and an open SQLite database, so the script
-// refuses while a known brain unit is active or a visible process is using the
-// planned paths. Use --allow-running only when the operator accepts that risk.
+// refuses while a known brain unit is active, a visible process is using the
+// planned paths, or a brain answers its health endpoint. Use --allow-running only
+// when the operator accepts that risk.
 // Re-running is safe; existing destinations are never overwritten.
 import { spawnSync } from 'node:child_process';
 import {
@@ -25,10 +26,12 @@ const BRAIN_UNITS = [
 ];
 
 const PROC_ROOT = '/proc';
+const DEFAULT_BRAIN_PORT = 7391;
+const BRAIN_PROBE_TIMEOUT_MS = 2000;
 
 function usage() {
   return [
-    'Usage: node scripts/migrate-paths.mjs [--dry-run] [--allow-running] [--home DIR] [--cwd DIR]',
+    'Usage: node scripts/migrate-paths.mjs [--dry-run] [--allow-running] [--brain-url URL] [--home DIR] [--cwd DIR]',
     '',
     'Moves the default legacy locations to the APS names:',
     '  ~/.sandbox-harness                 -> ~/.agent-process-segments',
@@ -38,7 +41,8 @@ function usage() {
     '',
     'Options:',
     '  --dry-run        Print the planned moves; change nothing.',
-    '  --allow-running  Move even when a brain unit or process is using the paths (unsafe).',
+    '  --allow-running  Move even when a brain unit, process, or health endpoint is active (unsafe).',
+    '  --brain-url URL  Probe this http(s) base URL instead of http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>.',
     '  --home DIR       Home directory that owns the XDG defaults.',
     '  --cwd DIR        Directory that holds the SQLite database.',
     '  --help           Show this help.',
@@ -47,10 +51,31 @@ function usage() {
   ].join('\n');
 }
 
+function normalizeBrainUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('--brain-url needs an http(s) URL');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('--brain-url needs an http(s) URL');
+  }
+  if (!parsed.hostname) throw new Error('--brain-url needs a host');
+  if (parsed.username || parsed.password) {
+    throw new Error('--brain-url must not contain credentials');
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error('--brain-url must be a base URL without a query or fragment');
+  }
+  return value.replace(/\/+$/, '');
+}
+
 function parseArgs(argv) {
   const options = {
     dryRun: false,
     allowRunning: false,
+    brainUrl: null,
     home: os.homedir(),
     cwd: process.cwd(),
     help: false,
@@ -62,6 +87,11 @@ function parseArgs(argv) {
       options.dryRun = true;
     } else if (arg === '--allow-running') {
       options.allowRunning = true;
+    } else if (arg === '--brain-url') {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--brain-url needs an http(s) URL');
+      options.brainUrl = normalizeBrainUrl(value);
+      index += 1;
     } else if (arg === '--home' || arg === '--cwd') {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error(`${arg} needs a directory`);
@@ -228,7 +258,61 @@ function processBlocker(match) {
     : `pid ${match.pid} (${match.comm}) has ${match.path} open`;
 }
 
-function checkRunningBrain(options, planned) {
+function brainProbeUrl(options) {
+  if (options.brainUrl) return `${options.brainUrl}/health`;
+
+  const raw = process.env.APS_PORT ?? process.env.SBOX_PORT;
+  if (raw === undefined) return `http://127.0.0.1:${DEFAULT_BRAIN_PORT}/health`;
+
+  const port = Number(raw);
+  if (raw.trim() === '' || !Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error(
+      'note: cannot derive the brain port from APS_PORT/SBOX_PORT; pass --brain-url to probe it',
+    );
+    return null;
+  }
+  return `http://127.0.0.1:${port}/health`;
+}
+
+function probeErrorReason(error) {
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return 'timed out';
+  }
+  return error?.cause?.code ?? (error instanceof Error ? error.name : 'request failed');
+}
+
+/**
+ * A live brain answers its own /health endpoint, which is reachable even when the
+ * process lives in another PID/mount namespace or on another host. A 2xx JSON
+ * `{ok:true}` is the existing health contract, so an older brain is caught too.
+ */
+async function probeBrain(url) {
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { accept: 'application/json' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(BRAIN_PROBE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    return { state: 'unreachable', reason: probeErrorReason(error) };
+  }
+
+  if (response.ok) {
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      return { state: 'unrelated', status: response.status };
+    }
+    if (body !== null && typeof body === 'object' && body.ok === true) {
+      return { state: 'brain' };
+    }
+  }
+  return { state: 'unrelated', status: response.status };
+}
+
+async function checkRunningBrain(options, planned) {
   const { active, unavailable } = activeBrainUnits();
   if (unavailable) {
     console.error('note: could not query systemd; cannot verify that a brain unit is stopped');
@@ -248,7 +332,20 @@ function checkRunningBrain(options, planned) {
     );
   }
 
-  if (active.length === 0 && matches.length === 0) return true;
+  const probeUrl = brainProbeUrl(options);
+  const probe = probeUrl === null ? null : await probeBrain(probeUrl);
+  if (probe?.state === 'unrelated') {
+    console.error(
+      `note: ${probeUrl} answered HTTP ${probe.status} but is not an APS health endpoint; continuing`,
+    );
+  } else if (probe?.state === 'unreachable' && options.brainUrl) {
+    console.error(
+      `note: could not reach the brain at ${probeUrl} (${probe.reason}); a brain reachable only from another namespace or host may go undetected`,
+    );
+  }
+  const brain = probe?.state === 'brain';
+
+  if (active.length === 0 && matches.length === 0 && !brain) return true;
 
   const names = active.map(unitLabel).join(', ');
 
@@ -276,6 +373,17 @@ function checkRunningBrain(options, planned) {
         );
       }
     }
+    if (brain) {
+      if (options.allowRunning) {
+        console.error(
+          `warning: a brain is answering at ${probeUrl}; a real run with --allow-running would move files under a live brain`,
+        );
+      } else {
+        console.error(
+          `warning: a brain is answering at ${probeUrl}; a real run would refuse. Stop it or pass --allow-running.`,
+        );
+      }
+    }
     return true;
   }
 
@@ -288,6 +396,11 @@ function checkRunningBrain(options, planned) {
     if (matches.length > 0) {
       console.error(
         `warning: ${matches.length} process(es) using the planned paths; moving files under a live brain can corrupt the database, sessions, and worktrees`,
+      );
+    }
+    if (brain) {
+      console.error(
+        `warning: a brain is answering at ${probeUrl}; moving files under a live brain can corrupt the database, sessions, and worktrees`,
       );
     }
     return true;
@@ -308,11 +421,19 @@ function checkRunningBrain(options, planned) {
     console.error('or re-run with --allow-running to move files under a live brain (unsafe).');
   }
 
+  if (brain) {
+    console.error(`refusing to migrate: a brain is answering at ${probeUrl}`);
+    console.error(
+      'stop the brain, container, unit, or tunnel that publishes this address, then retry.',
+    );
+    console.error('or re-run with --allow-running to move files under a live brain (unsafe).');
+  }
+
   process.exitCode = 1;
   return false;
 }
 
-function main(argv) {
+async function main(argv) {
   const options = parseArgs(argv);
   if (options.help) {
     console.log(usage());
@@ -399,7 +520,7 @@ function main(argv) {
     return;
   }
 
-  if (!checkRunningBrain(options, planned)) return;
+  if (!(await checkRunningBrain(options, planned))) return;
 
   if (options.dryRun) {
     for (const item of planned) {
@@ -436,7 +557,7 @@ function main(argv) {
 }
 
 try {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   console.error(usage());

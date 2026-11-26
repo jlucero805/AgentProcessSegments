@@ -920,6 +920,105 @@ describe('http api', () => {
     expect(slow.events.map((event) => event.t)).toEqual(['paused', 'done']);
   });
 
+  it('stops a live turn when its covering override expires at the next evaluation', async () => {
+    await makeApp({}, () => []);
+    const start = Date.UTC(2026, 10, 15, 12);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      const patched = await call('PATCH', '/api/config', {
+        budget: { monthlyUsd: 1, alertAtPercent: 80, pauseOnExceeded: true },
+      });
+      expect(patched.status).toBe(200);
+
+      const granted = await call('POST', '/api/budgets/overrides', {
+        scope: 'overall',
+        minutes: 1,
+      });
+      expect(granted.status).toBe(201);
+      const override = (granted.json() as { override: { id: string; expiresAt: number } })
+        .override;
+      expect(override.expiresAt).toBe(start + 60_000);
+
+      const h = open!.h;
+      h.usage.record({
+        turnId: 'expiry-spend',
+        sessionId: 'expiry-session',
+        scope: 'request',
+        cellId: null,
+        requestId: null,
+        model: null,
+        effort: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: 2,
+        createdAt: start,
+      });
+
+      const request = await call('POST', '/api/requests', { title: 'Live' });
+      const requestId = (request.json() as { id: string }).id;
+      const turn = await h.engine.send(requestId, 'work');
+      await settle();
+      const proc = h.harness.process;
+
+      // The 60-second budget timer calls evaluate() with no argument.
+      open!.budgets.evaluate();
+      expect(turn.stoppedBy).toBeNull();
+      expect(proc?.killed).toBe(false);
+      expect(h.engine.liveTurns().map((live) => live.id)).toContain(requestId);
+      expect(turn.events).toEqual([]);
+      expect(
+        h.engine.transcript(requestId).some((message) => message.text.startsWith('⏸')),
+      ).toBe(false);
+      expect(h.repo.require(requestId).agentStatus).toBe('working');
+
+      const covered = (await call('GET', '/api/budgets')).json() as {
+        statuses: Array<{ scope: string; paused: boolean; overrideId: string | null }>;
+        overrides: Array<{ id: string }>;
+      };
+      expect(covered.statuses[0]).toMatchObject({
+        scope: 'overall',
+        paused: true,
+        overrideId: override.id,
+      });
+      expect(covered.overrides).toContainEqual(expect.objectContaining({ id: override.id }));
+
+      clock.mockReturnValue(start + 60_000);
+      open!.budgets.evaluate();
+
+      // Cancellation runs synchronously from evaluation. Assert before awaiting
+      // the turn so a missed stop fails here instead of hanging on the promise.
+      expect(turn.stoppedBy).toMatchObject({ scope: 'overall' });
+      expect(proc?.killed).toBe(true);
+
+      await turn.promise;
+      await settle();
+
+      expect(h.repo.require(requestId).agentStatus).toBe('idle');
+      expect(
+        h.engine.transcript(requestId).filter((message) => message.text.startsWith('⏸')),
+      ).toHaveLength(1);
+      expect(turn.events.map((event) => event.t)).toEqual(['paused', 'done']);
+
+      const expired = (await call('GET', '/api/budgets')).json() as {
+        statuses: Array<{ scope: string; paused: boolean; overrideId: string | null }>;
+        pauses: unknown[];
+        overrides: Array<{ id: string }>;
+      };
+      expect(expired.statuses[0]).toMatchObject({
+        scope: 'overall',
+        paused: true,
+        overrideId: null,
+      });
+      expect(expired.pauses).toHaveLength(1);
+      expect(expired.overrides).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('stops a live turn when a cell patch enables its cap', async () => {
     await makeApp({}, () => []);
     const cell = await call('POST', '/api/cells', {

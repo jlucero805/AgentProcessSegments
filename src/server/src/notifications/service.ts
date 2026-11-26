@@ -257,6 +257,18 @@ function formatBody(webhook: WebhookSettings, event: BudgetAlertEvent): string {
   return JSON.stringify(event);
 }
 
+/** HMAC-SHA256 over the versioned signature's timestamp and exact body. */
+export function webhookSignatureV2(
+  secret: string,
+  timestamp: number,
+  body: string,
+): string {
+  return createHmac('sha256', secret)
+    .update(`${timestamp}.`)
+    .update(body)
+    .digest('hex');
+}
+
 function headersFor(
   body: string,
   webhook: WebhookSettings,
@@ -273,6 +285,8 @@ function headersFor(
   if (webhook.secret !== null) {
     const signature = createHmac('sha256', webhook.secret).update(body).digest('hex');
     headers['x-aps-signature'] = `sha256=${signature}`;
+    headers['x-aps-signature-v2'] =
+      `t=${timestamp},v2=${webhookSignatureV2(webhook.secret, timestamp, body)}`;
   }
   return headers;
 }

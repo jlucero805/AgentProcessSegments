@@ -17,7 +17,12 @@ import type {
 } from '../src/domain/notifications.js';
 import type { ErrorSink } from '../src/logging/errors.js';
 import { NotificationEventDeliveryRepository } from '../src/notifications/event-deliveries.js';
-import { NotificationService, destinationHash, type FetchLike } from '../src/notifications/service.js';
+import {
+  NotificationService,
+  destinationHash,
+  webhookSignatureV2,
+  type FetchLike,
+} from '../src/notifications/service.js';
 import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
@@ -618,10 +623,13 @@ describe('notification event deliveries', () => {
     expect(headers['user-agent']).toBe('aps-notify/1');
     expect(headers['content-type']).toBe('application/json');
     expect(headers['idempotency-key']).toMatch(/^turn:req-1:engine\.exit:/);
+    const rawBody = String(sent.init.body);
     expect(headers['x-aps-signature']).toBe(
-      `sha256=${createHmac('sha256', '0123456789abcdef')
-        .update(String(sent.init.body))
-        .digest('hex')}`,
+      `sha256=${createHmac('sha256', '0123456789abcdef').update(rawBody).digest('hex')}`,
+    );
+    expect(headers['x-aps-timestamp']).toBe(String(NOW));
+    expect(headers['x-aps-signature-v2']).toBe(
+      `t=${NOW},v2=${webhookSignatureV2('0123456789abcdef', NOW, rawBody)}`,
     );
     expect(sent.init.redirect).toBe('manual');
 

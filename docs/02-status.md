@@ -287,8 +287,9 @@ built and vended by the brain; real-CLI verification is still pending.
   it blocked again; revokes and pre-authorized under-budget grants are silent, as is an
   expiry still covered by another override.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
-  unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
-  Discord text format. An independent SMTP channel in `notifications.email` sends the
+  unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed with the legacy
+  body-only header and the timestamped `X-APS-Signature-V2`), Slack, or Discord text
+  format. An independent SMTP channel in `notifications.email` sends the
   same alerts to up to ten recipients with implicit TLS or required STARTTLS, optional
   credentials, a redacted password, and a plain-text body. Native bot channels in
   `notifications.slack` and `notifications.discord` post to one default channel per
@@ -416,7 +417,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1179 vitest cases (one environmental root-skip): 919 server across 51 files and 260 web across 27 files,
+- 1183 vitest cases (one environmental root-skip): 923 server across 51 files and 260 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

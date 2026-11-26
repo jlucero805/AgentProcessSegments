@@ -25,6 +25,7 @@ import { NotificationEventDeliveryRepository } from '../src/notifications/event-
 import {
   NotificationService,
   destinationHash,
+  webhookSignatureV2,
   type FetchLike,
 } from '../src/notifications/service.js';
 import { chatDestinationHash } from '../src/usage/budget-chat.js';
@@ -304,7 +305,7 @@ describe('NotificationService', () => {
     });
   });
 
-  it('signs JSON bodies with HMAC-SHA256 when a secret is set', async () => {
+  it('signs JSON bodies with legacy and timestamped V2 HMAC-SHA256', async () => {
     const secret = '0123456789abcdef';
     const fake = sender(() => ok());
     const context = setup({ send: fake.send, webhook: { secret } });
@@ -319,6 +320,95 @@ describe('NotificationService', () => {
     const headers = new Headers(sent.init.headers);
     expect(headers.get('x-aps-signature')).toBe(`sha256=${expected}`);
     expect(headers.get('x-aps-timestamp')).toBe(String(NOW));
+    expect(headers.get('x-aps-signature-v2')).toBe(
+      `t=${NOW},v2=${webhookSignatureV2(secret, NOW, body)}`,
+    );
+  });
+
+  it('omits signature headers when no secret is set', async () => {
+    const fake = sender(() => ok());
+    const context = setup({ send: fake.send });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    const headers = new Headers(fake.calls[0]!.init.headers);
+    expect(headers.get('x-aps-signature')).toBeNull();
+    expect(headers.get('x-aps-signature-v2')).toBeNull();
+    expect(headers.get('x-aps-timestamp')).toBe(String(NOW));
+  });
+
+  it('signs Slack and Discord text bodies with V2', async () => {
+    const secret = '0123456789abcdef';
+    const fake = sender(() => ok());
+    const context = setup({ send: fake.send, webhook: { secret, format: 'slack' } });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+
+    const slackBody = String(fake.calls[0]!.init.body);
+    const slackHeaders = new Headers(fake.calls[0]!.init.headers);
+    expect(slackHeaders.get('x-aps-signature-v2')).toBe(
+      `t=${NOW},v2=${webhookSignatureV2(secret, NOW, slackBody)}`,
+    );
+
+    context.settings.patch({ notifications: { webhook: { format: 'discord' } } });
+    const second = context.alerts.upsert(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD.start,
+        threshold: 'exceeded',
+        alertAtPercent: 80,
+        budgetUsd: 100,
+        spendUsd: 110,
+        unknownCostTurns: 0,
+      },
+      NOW,
+    );
+    context.notifier.observe([asAlert(second)]);
+    await context.notifier.flush();
+
+    const discordBody = String(fake.calls[1]!.init.body);
+    const discordHeaders = new Headers(fake.calls[1]!.init.headers);
+    expect(discordHeaders.get('x-aps-signature-v2')).toBe(
+      `t=${NOW},v2=${webhookSignatureV2(secret, NOW, discordBody)}`,
+    );
+  });
+
+  it('re-signs each retry with a fresh timestamp', async () => {
+    const secret = '0123456789abcdef';
+    const fake = sender((_sent, call) =>
+      call === 1 ? new Response(null, { status: 500 }) : ok(),
+    );
+    const context = setup({ send: fake.send, webhook: { secret } });
+    const record = addAlert(context.alerts);
+
+    context.notifier.observe([asAlert(record)]);
+    await context.notifier.flush();
+    context.clock.advance(5 * 60_000);
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(2);
+    const second = fake.calls[1]!;
+    const body = String(second.init.body);
+    const headers = new Headers(second.init.headers);
+    expect(headers.get('x-aps-timestamp')).toBe(String(NOW + 5 * 60_000));
+    expect(headers.get('x-aps-signature-v2')).toBe(
+      `t=${NOW + 5 * 60_000},v2=${webhookSignatureV2(secret, NOW + 5 * 60_000, body)}`,
+    );
+  });
+
+  it('matches the documented V2 signature vector', () => {
+    expect(
+      webhookSignatureV2(
+        '0123456789abcdef',
+        1_700_000_000_000,
+        '{"event":"budget.test","alert":{"id":"alert-1"}}',
+      ),
+    ).toBe('5037b77de9c5a0e8df3aa6d3e6fdbe31d1c11354d50b3ea8075b0378ff68f49f');
   });
 
   it('retries 5xx on the backoff schedule', async () => {

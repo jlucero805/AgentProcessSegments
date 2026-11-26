@@ -441,13 +441,15 @@ durable: `budget_alert_deliveries` stores one row per alert and destination, ret
 transient failures at 60 s, 5 min, 30 min, and 2 h up to five attempts, honors
 `Retry-After`, and never blocks budgets, turns, or the in-app banner. Acknowledging an
 alert, changing the budget or threshold, or changing the destination skips pending
-deliveries. When a signing secret is set, every webhook request carries
-`X-APS-Signature: sha256=<hex>` — an HMAC-SHA256 over the exact raw body — and every
-request carries an `X-APS-Timestamp` (milliseconds since epoch; informational and
-not covered by the HMAC). Slack and Discord receivers ignore both headers. See
-[Verify webhook signatures](docs/08-user-workflows.md#verify-webhook-signatures) for
-a runnable raw-body receiver, the constant-time check, and the response/retry and
-replay rules.
+deliveries. When a signing secret is set, every webhook request carries the legacy
+`X-APS-Signature: sha256=<hex>` over the exact raw body and the timestamped
+`X-APS-Signature-V2: t=<ms>,v2=<hex>` over the exact raw body plus that timestamp; the
+signature covers the body for every format, and `X-APS-Timestamp` is always sent. A
+receiver that checks only the legacy header cannot prove freshness. Slack and Discord
+receivers ignore both signature headers. See
+[Verify webhook signatures](docs/08-user-workflows.md#verify-webhook-signatures) for a
+runnable V2 receiver, the freshness window, the constant-time check, and the
+response/retry and replay rules.
 
 The **Slack alerts** and **Discord alerts** cards add authenticated bot delivery. Paste a
 bot token, add one or more channel IDs, choose a default destination, and optionally route
@@ -618,7 +620,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1179 vitest cases: 919 server cases across 51 files (state machine,
+`npm test` runs 1183 vitest cases: 923 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

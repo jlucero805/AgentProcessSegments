@@ -111,6 +111,7 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(file, errors).get()).toEqual(DEFAULT_SETTINGS);
     expect(errors.error).toHaveBeenCalledWith('settings.unreadable', expect.any(Error), {
       path: file,
+      reason: 'invalid-json',
     });
 
     writeFileSync(file, JSON.stringify({ master: { intervalMinutes: 0 } }));
@@ -123,6 +124,43 @@ describe('SettingsStore', () => {
     });
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('redacts a parser snippet from the unreadable report', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    const secret = 'SUPERSECRET-webhook-token';
+    writeFileSync(file, `{"notifications":{"webhook":{"secret":"${secret}"}},`);
+
+    const errors = { error: vi.fn() };
+    const parse = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+      throw new SyntaxError(`Unexpected token 'S', "${secret}" is not valid JSON`);
+    });
+
+    try {
+      const store = new SettingsStore(file, errors);
+      expect(store.get()).toEqual(DEFAULT_SETTINGS);
+
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      const [source, error, context] = errors.error.mock.calls[0]!;
+      expect(source).toBe('settings.unreadable');
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toMatch(
+        /^invalid JSON(?: at position \d+(?: \(line \d+ column \d+\))?)?$/,
+      );
+      expect(error.message).not.toContain(secret);
+      expect(error.stack).not.toContain(secret);
+      expect(context).toEqual({ path: file, reason: 'invalid-json' });
+      expect(JSON.stringify(context)).not.toContain(secret);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('Unexpected token');
+      expect(store.warnings()).toEqual([
+        { block: null, message: 'is not valid JSON; all settings loaded as defaults' },
+      ]);
+    } finally {
+      parse.mockRestore();
+      warn.mockRestore();
+    }
   });
 
   it('loads defaults for a missing file without reporting an error', () => {

@@ -1514,8 +1514,11 @@ fails validation is replaced with that unit's `DEFAULT_SETTINGS` value, reported
 unchanged. An unreadable, unparseable, or non-object file still falls back to all
 defaults (`settings.unreadable`, or `settings.invalid` with `reason: 'not-an-object'`),
 and a final whole-object parse keeps a future block from slipping through unnoticed.
-Loading never writes; the next successful patch persists the recovered default. D76
-preserves the file's original bytes before that patch rewrites it.
+A parse failure is reported as `invalid JSON` plus the parser's position when available
+(`reason: 'invalid-json'`); the raw V8 message is never logged, because it can quote the
+input and `config.json` can hold credentials. Loading never writes; the next successful
+patch persists the recovered default. D76 preserves the file's original bytes before
+that patch rewrites it.
 Notification channels are separate units because they hold separate credentials: a bad
 email port must not reset a webhook secret.
 

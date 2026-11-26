@@ -40,7 +40,8 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | Source | When |
 | --- | --- |
 | `app.startup` | The brain fails to start |
-| `settings.invalid` / `settings.unreadable` | `config.json` has an invalid block or notification channel (`context.block`; `reason: not-an-object` when the file is not a JSON object), or is unreadable/not JSON. The same units are returned as `warnings` by `GET/PATCH /api/config` and shown on the Config page until the next successful save. |
+| `settings.invalid` | `config.json` has an invalid block or notification channel (`context.block`; `reason: not-an-object` when the file is not a JSON object). The same units are returned as `warnings` by `GET/PATCH /api/config` and shown on the Config page until the next successful save. |
+| `settings.unreadable` | `config.json` cannot be read or parsed. A parse failure includes `reason: invalid-json` and a position-only message (`invalid JSON at position N`, with optional line/column); it never includes raw parser text or file contents. The whole-file warning is returned by `GET/PATCH /api/config` and shown on the Config page until the next successful save. |
 | `settings.backupFailed` | Copying an unusable `config.json` aside before a save failed; the save was refused. Includes the config path only. |
 | `process.invalid` / `process.unreadable` | `process.json` is invalid or unreadable |
 | `process.backupFailed` | Copying an unusable `process.json` aside before a save failed; the save was refused. Includes the process path only. |

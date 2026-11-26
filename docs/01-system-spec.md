@@ -133,6 +133,8 @@ additive migrations, with an `addColumn` guard per column. Boot reconcile sets
 restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftover
 `-journal` at `0600`, repairing a loose install on every open. A missing database parent
 is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
+Maintenance paths that must not migrate a live brain open through `openExistingDb`,
+which applies the same owner-only repair without schema or reconcile work.
 
 ### `requests`
 
@@ -837,7 +839,9 @@ defaults.
   startup/hourly sweeper catches terminal rows left by older builds or a transient git
   failure. The transition hook, the sweeper, and `npm run migrate:branches` share the
   conservative rules in `src/server/src/maintenance/legacy-branches.ts`; the CLI remains
-  the dry-run/manual recovery command. The same command also reports orphan `sbox/*`
+  the dry-run/manual recovery command. It opens the live database through
+  `openExistingDb` without migrating or reconciling it, and keeps the database and
+  sidecars `0600`. The same command also reports orphan `sbox/*`
   refs with no request row, and with `--prune-orphans` archives their tips under
   `refs/sbox-pruned/` before deleting the branch.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,

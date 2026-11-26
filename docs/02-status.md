@@ -8,7 +8,10 @@ built and vended by the brain; real-CLI verification is still pending.
 
 - `db.ts`: schema, WAL, `foreign_keys=ON`, additive column guards, indexes created
   after `cell_id` is added, the stale `working` to `idle` boot reconcile, and owner-only
-  `0600` database/WAL/SHM sidecars repaired on every open.
+  `0600` database/WAL/SHM sidecars repaired on every open. Maintenance paths that must
+  not migrate or reconcile use `openExistingDb`, which applies the same owner-only
+  repair before and after opening; only `db.ts` may open SQLite directly under
+  `src/server/src`.
 - Domain: seven states including the optional Merge step, the transition table as data,
   terminal states, agent statuses,
   effort levels, `isIntake`, and the transcript and NDJSON event types.
@@ -134,7 +137,9 @@ built and vended by the brain; real-CLI verification is still pending.
   checkout is removed; a startup/hourly sweep catches older terminal rows. Both rename
   a lone legacy ref, delete one already contained in `aps/<id>`, repair a stored branch
   whose legacy ref is gone, and never touch live, checked-out, or diverged branches.
-  `npm run migrate:branches` remains the dry-run/manual recovery command. With
+  `npm run migrate:branches` remains the dry-run/manual recovery command. It opens the
+  live database through `openExistingDb` without migrating or reconciling it, and keeps
+  the database and sidecars owner-only. With
   `--prune-orphans` it also archives orphan `sbox/*` refs under `refs/sbox-pruned/`
   before deleting them; checked-out orphans are skipped.
 - Request workdirs: `npm run repair:permissions` tightens existing `requests/` dirs to
@@ -391,7 +396,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1105 vitest cases (one environmental root-skip): 864 server across 50 files and 241 web across 26 files,
+- 1109 vitest cases (one environmental root-skip): 868 server across 50 files and 241 web across 26 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

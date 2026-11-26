@@ -1570,11 +1570,10 @@ the repo/cwd. `:memory:` skips every filesystem call. A chmod failure propagates
 closed), matching `writePrivateFile`, `settings.ts`, and `process/store.ts`; the POSIX
 mode tests skip on Windows.
 
-**Cost.** This is not encryption at rest, and root can still read the files. The
-maintenance `legacy-branches-cli.ts` opens the database directly and the deploy
-`upgrade-vps.sh` snapshot uses `VACUUM INTO`; both are separate work. Until the CLI path
-is hardened, a direct CLI run can leave a loose sidecar that the next brain startup
-repairs.
+**Cost.** This is not encryption at rest, and root can still read the files. The deploy
+`upgrade-vps.sh` snapshot still uses `VACUUM INTO` and is separate work. The maintenance
+`legacy-branches-cli.ts` now opens through `openExistingDb`, so a direct CLI run also
+repairs loose files (D86).
 
 ## D74. Existing request workdirs are repaired explicitly, not recursively
 
@@ -1927,3 +1926,27 @@ re-export the type without pulling `node:fs` into its bundle.
 **Cost.** One pure contract module, a store accumulator, two additive response fields, and
 one Config card. No change to validation, recovery, backup, redaction, or which blocks
 exist.
+
+## D86. Maintenance opens share the owner-only database path
+
+**Context.** D73 hardened `openDb` but left `src/server/src/maintenance/legacy-branches-cli.ts`
+opening SQLite directly, because `openDb`'s `migrate`/`reconcile` would write to a live
+brain and reset a `working` request to `idle`. That direct open never chmodded the
+database or its sidecars, so a CLI run against an older store could leave the database or
+sidecar files at `0644`.
+
+**Decision.** `db.ts` owns a private `hardenDbFiles` sweep for `''`, `-wal`, `-shm`, and
+`-journal`, reused by `openDb` after WAL is enabled. It also exports `openExistingDb`, which
+tightens the database before SQLite opens it so new sidecars inherit `0600`, opens with
+`{ fileMustExist: true }`, and sweeps again to repair sidecars already on disk. The helper
+sets no pragmas and never migrates or reconciles, so maintenance cannot change a live
+brain's schema or request state. The CLI calls it and keeps its own `busy_timeout` and
+`query_only` ordering. A chmod failure propagates (fail closed). `src/server/src` may
+contain `better-sqlite3`/`new Database` only in `db.ts`; a source-scan test in
+`test/db.test.ts` enforces it. Test fixtures and the proof scripts are exempt because they
+run on throwaway temp roots.
+
+**Cost.** One more exported open path and a source-scan guard that must be updated
+deliberately if a future maintenance command needs a different open mode. The dry run
+still opens read-write and only then sets `query_only`; making it truly read-only is
+separate work. This is not encryption at rest, and root can still read the files.

@@ -1,9 +1,13 @@
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
-import { migrate, openDb, reconcile } from '../src/db.js';
+import { migrate, openDb, openExistingDb, reconcile } from '../src/db.js';
+import { walkFiles } from '../src/util/files.js';
+
+const repoRoot = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 
 function columns(db: Database.Database, table: string): string[] {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
@@ -772,5 +776,58 @@ describe('db migrations', () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe('database open paths', () => {
+  it('opens SQLite directly only in db.ts', () => {
+    const sourceDir = path.join(repoRoot, 'src/server/src');
+    const directOpen =
+      /new\s+Database\s*\(|from\s+['"]better-sqlite3['"]|import\s*\(\s*['"]better-sqlite3['"]\s*\)/;
+    // Test fixtures and the proof scripts open throwaway databases under temp
+    // roots; production code must go through openDb()/openExistingDb().
+    const offenders = walkFiles(sourceDir)
+      .filter((file) => file.endsWith('.ts'))
+      .filter((file) => directOpen.test(readFileSync(path.join(sourceDir, file), 'utf8')));
+
+    expect(
+      offenders,
+      'direct better-sqlite3 use must live in db.ts; call openDb() or openExistingDb() instead',
+    ).toEqual(['db.ts']);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'repairs a loose database and sidecars without reconciling it',
+    () => {
+      const file = path.join(tmpDir('db-existing'), 'loose.sqlite');
+      const seed = new Database(file);
+      try {
+        seed.pragma('journal_mode = WAL');
+        seed.exec('CREATE TABLE note (value TEXT)');
+        seed.prepare('INSERT INTO note (value) VALUES (?)').run('keep');
+        for (const target of [file, `${file}-wal`, `${file}-shm`]) {
+          chmodSync(target, 0o644);
+        }
+
+        const db = openExistingDb(file);
+        try {
+          expect(modeOf(file)).toBe(0o600);
+          expect(modeOf(`${file}-wal`)).toBe(0o600);
+          expect(modeOf(`${file}-shm`)).toBe(0o600);
+          expect(db.prepare('SELECT value FROM note').get()).toEqual({ value: 'keep' });
+        } finally {
+          db.close();
+        }
+      } finally {
+        seed.close();
+      }
+    },
+  );
+
+  it('refuses a missing database without creating it', () => {
+    const file = path.join(tmpDir('db-missing'), 'missing.sqlite');
+
+    expect(() => openExistingDb(file)).toThrow();
+    expect(existsSync(file)).toBe(false);
   });
 });

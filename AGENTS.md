@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1105 vitest cases: 864 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
+- 1109 vitest cases: 868 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -105,7 +105,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 864 server + 241 web, plus the e2e env guard
+npm test                       # 868 server + 241 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -568,8 +568,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `journal_mode=WAL` so SQLite creates new sidecars with the same private mode, and a
     second pass repairs sidecars already on disk. A missing database parent is created
     `0700`; an existing parent (usually the repo/cwd) is never chmodded. `:memory:` keeps
-    no files. A chmod failure propagates. This is not encryption at rest; root can still
-    read the files.
+    no files. A chmod failure propagates. Maintenance paths that must not migrate use
+    `openExistingDb`, which applies the same sweep before and after opening. This is not
+    encryption at rest; root can still read the files.
 41. **Never overwrite conversation state you could not parse.** A missing
     `session.json` or `transcript.json` is empty state. A file that exists but cannot be
     read (`EACCES`, `EISDIR`, ...), is invalid JSON, or has the wrong root shape is
@@ -582,6 +583,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     not log file contents, prompts, or raw parser text: transcripts can contain secrets.
     The bulk `npm run repair:permissions` scan stays exact-name and does not include
     quarantine files.
+42. **Only `db.ts` opens SQLite directly.** Under `src/server/src`, no other module may
+    import `better-sqlite3` or construct `new Database(...)`. Production calls `openDb`;
+    maintenance paths that must not migrate or reconcile a live brain call
+    `openExistingDb`, which hardens the database and sidecars without touching schema or
+    request state. Test fixtures and the proof scripts are exempt because they use
+    throwaway temp roots. `src/server/test/db.test.ts` guards the rule.
 
 ## Extension recipes
 

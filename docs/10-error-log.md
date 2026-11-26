@@ -45,7 +45,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `settings.backupFailed` | Copying an unusable `config.json` aside before a save failed; the save was refused. Includes the config path only. |
 | `process.invalid` / `process.unreadable` | `process.json` is invalid or unreadable |
 | `process.backupFailed` | Copying an unusable `process.json` aside before a save failed; the save was refused. Includes the process path only. |
-| `harness.mcpConfig` | A user MCP/OpenCode config file exists but cannot be read or interpreted; includes `harness`, `path`, and a short `reason` only—never file contents, environment values, or raw parser text. OpenCode accepts JSONC comments and trailing commas before deciding a file is invalid. Missing files are silent, and each file is recorded once per process. |
+| `harness.mcpConfig` | A user MCP/OpenCode config file exists but cannot be read or interpreted; includes `harness`, `path`, and a short `reason` only—never file contents, environment values, or raw parser text. OpenCode accepts JSONC comments and trailing commas before deciding a file is invalid. Missing files are silent, and each file is recorded once per process. Ignored `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` env overrides warn once on stderr and are not recorded here. |
 | `http.request` | An unexpected 5xx from the HTTP layer (includes request id/method/URL) |
 | `engine.turn` | An agent turn throws or fails |
 | `engine.result` | The harness reports an error result or parser error event; includes `session`, `harness`, and `request` when present. The message is the capped result text, never the transcript. |

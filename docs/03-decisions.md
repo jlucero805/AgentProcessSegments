@@ -2099,11 +2099,11 @@ operation still preserves. A failed copy reports `process.backupFailed` and refu
 save. Success warns once with both paths only; the process editor does not yet show the
 copy path (D88 is settings-only).
 
-**Cost.** Copies accumulate until an operator deletes them; bounding them is separate
-work, as it is for `config.json`. The snapshot is not encrypted, is never read back, and
-is not repaired automatically. A file edited on disk after the process loaded it follows
-the latest load attempt, so the copy is always the bytes being replaced. The process
-editor still has no equivalent of D88's `preservedPath` notice.
+**Cost.** D97 bounds the preserved copies to the five newest; before that they
+accumulated until an operator deleted them. The snapshot is not encrypted, is never read
+back, and is not repaired automatically. A file edited on disk after the process loaded
+it follows the latest load attempt, so the copy is always the bytes being replaced. The
+process editor still has no equivalent of D88's `preservedPath` notice.
 
 ## D91. Webhook signatures version the timestamp with the body
 
@@ -2269,3 +2269,28 @@ are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do n
 The security review needs systemd 250 or newer, so older Linux hosts fail `npm run lint`
 (a documented, fail-closed choice). Existing installs must copy the new unit by hand
 because `upgrade-vps.sh` refuses target commits that change it.
+
+## D97. Preserved process copies are bounded to the five newest
+
+**Context.** D90 copied an unusable `process.json` aside before the first save, and its
+cost left the copies unbounded. Repeated invalid loads and saves could fill the config
+directory with owner-only snapshots, and a stale backlog could outlive the invalid file
+that produced it.
+
+**Decision.** After every successful `process.json` write, `ProcessStore` lists the
+process file's directory for regular files whose names start with
+`<process-basename>.invalid-` and keeps the newest five, deleting older ones oldest
+first. Ordering parses the embedded UTC stamp and numeric suffix, so `-10` is newer than
+`-2` even when several copies share a millisecond. The copy just written is always
+retained, even if a clock change gives it an older-looking name. Directories, symlinks,
+the live file, `config.json` copies, and unrelated names are never candidates. Pruning
+runs only after the replacement file is written, so a failed copy or save deletes
+nothing, and the same pass cleans a backlog left by an earlier version. A failed listing
+or unlink is best-effort: it reports `process.pruneFailed` with the process path (and
+failed copy path) and the save still succeeds. Loading still never writes; no startup
+prune, setting, or UI is added.
+
+**Cost.** Only the five newest forensic copies are kept; older originals are deleted
+without review on the next successful save. An undeletable copy can leave the count above
+five until a later save retries, and the error log is the only diagnostic. This is not
+encryption, and `config.json` copies remain governed by D76 and D88.

@@ -38,7 +38,9 @@ Each cell also has its own **ticker** and **master chat**:
 - Loading never writes. If an existing file is unusable — unreadable, not JSON, or
   failing validation — the first successful save copies its exact bytes to a sibling
   `process.json.invalid-<UTC>` (owner-only, never overwriting an earlier copy) before
-  replacing it. A failed copy refuses the save and reports `process.backupFailed`.
+  replacing it. A failed copy refuses the save and reports `process.backupFailed`. At
+  most five preserved copies are kept; after a successful save, older matching copies are
+  pruned and a failed prune reports `process.pruneFailed` without refusing the save.
 - Missing or invalid files fall back to a conservative policy derived from
   `config.json`’s `master` section until you save a valid process.
 - Once the file exists, it is authoritative. The legacy `master.idleMinutes`,

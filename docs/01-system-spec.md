@@ -135,7 +135,10 @@ once and is ignored.
   back to the policy derived from `master` until a valid patch saves one. Loading never
   writes the file. Before the first save replaces an unusable file, its exact bytes are
   copied to a sibling `process.json.invalid-<UTC>` (owner-only, never overwriting an
-  earlier copy); a failed copy refuses the save and reports `process.backupFailed`.
+  earlier copy); a failed copy refuses the save and reports `process.backupFailed`. At
+  most five preserved copies are kept per process file; after every successful save,
+  older matching copies are pruned oldest first, and a failed prune reports
+  `process.pruneFailed` without refusing the save.
 
 ---
 

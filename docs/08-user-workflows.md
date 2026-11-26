@@ -458,4 +458,6 @@ such a file, the raw bytes are copied to a sibling `config.json.invalid-<UTC>`
 Config page shows the copy's path, so an operator can review and delete the original
 without reading the server log. The same preserve-before-overwrite rule applies to an
 invalid `process.json`; the process editor does not yet show the copy path, so read the
-server warning or error log to find it.
+server warning or error log to find it. Preserved process copies are bounded to the five
+newest: older matching copies are deleted after a successful save, and a failed prune is
+logged as `process.pruneFailed` without blocking the save.

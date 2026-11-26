@@ -27,11 +27,12 @@ function segmentBy(config: ProcessConfig, id: string) {
   return segment;
 }
 
-/** Names of preserved copies for `file`, oldest first. */
+/** Names of preserved copy files for `file`, oldest first. */
 function backupNames(file: string): string[] {
   const prefix = `${path.basename(file)}.invalid-`;
-  return readdirSync(path.dirname(file))
-    .filter((name) => name.startsWith(prefix))
+  return readdirSync(path.dirname(file), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+    .map((entry) => entry.name)
     .sort();
 }
 
@@ -261,6 +262,8 @@ describe('ProcessStore', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = tempFile();
     mkdirSync(file);
+    const preserved = `${file}.invalid-2026-01-01T00-00-00-000Z`;
+    writeFileSync(preserved, 'keep\n');
 
     const errors = { error: vi.fn() };
     const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
@@ -274,7 +277,10 @@ describe('ProcessStore', () => {
     });
     expect(statSync(file).isDirectory()).toBe(true);
     expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
-    expect(readdirSync(path.dirname(file))).toEqual([path.basename(file)]);
+    expect(readdirSync(path.dirname(file)).sort()).toEqual(
+      [path.basename(file), path.basename(preserved)].sort(),
+    );
+    expect(readFileSync(preserved, 'utf8')).toBe('keep\n');
     warn.mockRestore();
   });
 
@@ -309,6 +315,172 @@ describe('ProcessStore', () => {
       warn.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  it('keeps only the five newest preserved copies', () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const next = defaultProcess(DEFAULT_SETTINGS.master);
+      const originals: string[] = [];
+      for (let index = 0; index < 6; index += 1) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 0, 1, 0, 0, index)));
+        const original = `{bad-${index}\n`;
+        writeFileSync(file, original);
+        new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).patch({
+          segments: next.segments,
+        });
+        originals.push(original);
+      }
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(5);
+      expect(names.map((name) => readFileSync(backupFile(file, name), 'utf8'))).toEqual(
+        originals.slice(1),
+      );
+      expect(JSON.parse(readFileSync(file, 'utf8')).segments).toHaveLength(6);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('orders same-timestamp preserved copies by numeric suffix', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const next = defaultProcess(DEFAULT_SETTINGS.master);
+      const prefix = `${file}.invalid-2026-01-02T00-00-00-000Z`;
+      for (let suffix = 0; suffix <= 12; suffix += 1) {
+        writeFileSync(suffix === 0 ? prefix : `${prefix}-${suffix}`, `old-${suffix}\n`);
+      }
+      writeFileSync(file, '{bad\n');
+      new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).patch({
+        segments: next.segments,
+      });
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(5);
+      for (const suffix of [9, 10, 11, 12, 13]) {
+        expect(names).toContain(`${path.basename(prefix)}-${suffix}`);
+      }
+      for (const suffix of [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
+        expect(names).not.toContain(
+          suffix === 0 ? path.basename(prefix) : `${path.basename(prefix)}-${suffix}`,
+        );
+      }
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('never prunes the copy it just created', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      for (let index = 0; index < 5; index += 1) {
+        writeFileSync(`${file}.invalid-2026-01-01T00-00-0${index}-000Z`, `future-${index}\n`);
+      }
+      writeFileSync(file, '{bad\n');
+      new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).patch({
+        segments: defaultProcess(DEFAULT_SETTINGS.master).segments,
+      });
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(5);
+      expect(names).toContain(`${path.basename(file)}.invalid-2025-01-01T00-00-00-000Z`);
+      expect(names).not.toContain(`${path.basename(file)}.invalid-2026-01-01T00-00-00-000Z`);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('prunes only matching preserved copy files', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-03T00:00:00.000Z'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const dir = path.dirname(file);
+      const configCopy = path.join(dir, 'config.json.invalid-2026-01-01T00-00-00-000Z');
+      const otherCopy = path.join(dir, 'other.json.invalid-2026-01-01T00-00-00-000Z');
+      const temp = path.join(dir, 'process.json.tmp-keep');
+      writeFileSync(configCopy, 'config bytes\n');
+      writeFileSync(otherCopy, 'other bytes\n');
+      writeFileSync(temp, 'temp bytes\n');
+      for (let index = 0; index < 6; index += 1) {
+        writeFileSync(`${file}.invalid-2026-01-01T00-00-0${index}-000Z`, `old-${index}\n`);
+      }
+
+      writeFileSync(file, '{bad\n');
+      new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).patch({
+        segments: defaultProcess(DEFAULT_SETTINGS.master).segments,
+      });
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(5);
+      expect(names).not.toContain(`${path.basename(file)}.invalid-2026-01-01T00-00-00-000Z`);
+      expect(names).not.toContain(`${path.basename(file)}.invalid-2026-01-01T00-00-01-000Z`);
+      expect(names).toContain(`${path.basename(file)}.invalid-2026-01-03T00-00-00-000Z`);
+      expect(readFileSync(configCopy, 'utf8')).toBe('config bytes\n');
+      expect(readFileSync(otherCopy, 'utf8')).toBe('other bytes\n');
+      expect(readFileSync(temp, 'utf8')).toBe('temp bytes\n');
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores non-file entries with a preserved name', () => {
+    const file = tempFile();
+    const dir = path.dirname(file);
+    const next = defaultProcess(DEFAULT_SETTINGS.master);
+    writeFileSync(file, JSON.stringify(next));
+    const preservedDir = path.join(
+      dir,
+      `${path.basename(file)}.invalid-2026-01-01T00-00-00-000Z`,
+    );
+    mkdirSync(preservedDir);
+    for (let index = 1; index <= 6; index += 1) {
+      writeFileSync(`${file}.invalid-2026-01-01T00-00-0${index}-000Z`, `old-${index}\n`);
+    }
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    store.patch({ segments: next.segments });
+
+    expect(backupNames(file)).toHaveLength(5);
+    expect(statSync(preservedDir).isDirectory()).toBe(true);
+    expect(errors.error).not.toHaveBeenCalled();
+  });
+
+  it('bounds an existing backlog on a successful save', () => {
+    const file = tempFile();
+    const next = defaultProcess(DEFAULT_SETTINGS.master);
+    writeFileSync(file, JSON.stringify(next));
+    const backups = Array.from(
+      { length: 8 },
+      (_, index) => `${file}.invalid-2026-01-01T00-00-0${index}-000Z`,
+    );
+    for (const [index, backup] of backups.entries()) {
+      writeFileSync(backup, `old-${index}\n`);
+    }
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    store.patch({ segments: next.segments });
+
+    expect(backupNames(file)).toEqual(
+      backups.slice(3).map((backup) => path.basename(backup)),
+    );
+    expect(errors.error).not.toHaveBeenCalled();
   });
 });
 

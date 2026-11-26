@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellNotFoundError } from '../src/cells/repository.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { defaultProcess } from '../src/process/defaults.js';
@@ -156,11 +156,17 @@ describe('knowledge base', () => {
     expect(kb.search('deploy missing').length).toBe(0);
   });
 
-  it('breaks relevance ties by recency and honours the limit', async () => {
+  it('breaks relevance ties by recency and honours the limit', () => {
     const { kb } = fresh();
-    kb.store({ requestId: 'old', title: 'Same', content: 'hit' });
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    kb.store({ requestId: 'new', title: 'Same', content: 'hit' });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.UTC(2026, 0, 1));
+      kb.store({ requestId: 'old', title: 'Same', content: 'hit' });
+      vi.setSystemTime(Date.UTC(2026, 0, 1, 0, 0, 1));
+      kb.store({ requestId: 'new', title: 'Same', content: 'hit' });
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(kb.search('hit').map((entry) => entry.requestId)).toEqual(['new', 'old']);
     expect(kb.search('hit', 1).map((entry) => entry.requestId)).toEqual(['new']);

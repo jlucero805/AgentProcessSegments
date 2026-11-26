@@ -153,6 +153,7 @@ async function startBrain(
 
 async function waitForHolder(child: ChildProcess): Promise<void> {
   await new Promise<void>((resolve, reject) => {
+    // Fail fast if the placeholder process never signals readiness.
     const timer = setTimeout(() => {
       reject(new Error('holder process did not become ready'));
     }, HOLDER_READY_TIMEOUT_MS);

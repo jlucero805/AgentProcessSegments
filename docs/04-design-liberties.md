@@ -41,7 +41,8 @@ the upgrade path.
 **Chosen.** Claude reads user and local scopes from `~/.claude.json` plus project
 `<cwd>/.mcp.json`, merges them into the generated config in the CLI's precedence order
 (local > project > user, each winning entry used whole), and adds `mcp__<server>__*`
-allow rules. OpenCode merges `mcp` entries from its config. KB sessions exclude user
+allow rules. The reserved-key `aps` warning names the winning file and scope. OpenCode
+merges `mcp` entries from its config. KB sessions exclude user
 servers entirely. A missing file is silent; a file that exists but cannot be read or
 interpreted is skipped with a one-time stderr warning and a `harness.mcpConfig`
 error-log record naming the path and a short reason.
@@ -280,7 +281,7 @@ transcripts in the database.
 reserved key mirrors the old `harness` precedence and avoids a hard failure in a turn.
 Normalizing only at render time keeps stored history auditable and needs no migration.
 Cost: a user MCP server named `aps` is replaced by the bundled server, and the brain logs
-one warning naming the user's config file. The stored transcript still contains the old
+one warning naming the winning config file and scope. The stored transcript still contains the old
 prefix, so raw exports show the historical name.
 
 ## Open items for review

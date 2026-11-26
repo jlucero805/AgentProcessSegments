@@ -190,7 +190,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **Claude allow rules support MCP wildcards.** User servers merged from
   `~/.claude.json` and `<cwd>/.mcp.json` are allowed with `mcp__<server>__*`, alongside
   the explicit harness tools. Merge order follows Claude's local > project > user
-  precedence; a same-named server keeps the highest-precedence entry whole.
+  precedence; a same-named server keeps the highest-precedence entry whole, and the
+  reserved-`aps` warning names the winning file and scope.
 - **Pin a child's `PWD` to its cwd.** OpenCode resolves its project root from `PWD`; an
   inherited value points it at the brain's directory and breaks per-request config and
   commands. Both harness adapters set it on spawn.

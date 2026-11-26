@@ -88,10 +88,20 @@ export async function probeClaudeModels(bin: string): Promise<ModelOption[] | nu
   }
 }
 
+/** Claude Code's MCP scopes, in the order they are merged. */
+export type ClaudeMcpScope = 'user' | 'project' | 'local';
+
+export interface McpServerSource {
+  /** The config file that supplied the winning definition. */
+  file: string;
+  /** The scope that supplied the winning definition. */
+  scope: ClaudeMcpScope;
+}
+
 export interface ClaudeUserMcpServers {
   servers: McpServerMap;
-  /** The config file that defined each server, after scope precedence. */
-  sources: Map<string, string>;
+  /** The file and scope that defined each server, after scope precedence. */
+  sources: Map<string, McpServerSource>;
   /** Files that exist but could not be read or interpreted. */
   issues: McpConfigIssue[];
 }
@@ -123,7 +133,8 @@ function readJsonFile(file: string): JsonFile {
  * Servers Claude Code already knows about, read from the files the CLI writes:
  * user/local scope in `~/.claude.json`, project scope in `<cwd>/.mcp.json`.
  * Merge order follows the CLI's local > project > user precedence, so a later
- * merge replaces an earlier definition whole and `sources` names the winner.
+ * merge replaces an earlier definition whole and `sources` names the winning
+ * file and scope.
  * Unreadable files are skipped and reported through `issues`.
  */
 export function claudeUserMcpServers(
@@ -155,10 +166,14 @@ export function claudeUserMcpServers(
     return null;
   };
 
-  const merge = (raw: Record<string, unknown>, file: string): void => {
+  const merge = (
+    raw: Record<string, unknown>,
+    file: string,
+    scope: ClaudeMcpScope,
+  ): void => {
     for (const [name, definition] of Object.entries(pickServers(raw))) {
       loaded.servers[name] = definition;
-      loaded.sources.set(name, file);
+      loaded.sources.set(name, { file, scope });
     }
   };
 
@@ -166,21 +181,21 @@ export function claudeUserMcpServers(
   const user = read(userFile);
   if (user) {
     const userServers = serversIn(user, 'mcpServers', userFile);
-    if (userServers) merge(userServers, userFile);
+    if (userServers) merge(userServers, userFile, 'user');
   }
 
   const projectFile = path.join(cwd, '.mcp.json');
   const project = read(projectFile);
   if (project) {
     const projectServers = serversIn(project, 'mcpServers', projectFile);
-    if (projectServers) merge(projectServers, projectFile);
+    if (projectServers) merge(projectServers, projectFile, 'project');
   }
 
   if (user && isRecord(user['projects'])) {
     const localProject = user['projects'][cwd];
     if (isRecord(localProject)) {
       const localServers = serversIn(localProject, 'mcpServers', userFile);
-      if (localServers) merge(localServers, userFile);
+      if (localServers) merge(localServers, userFile, 'local');
     }
   }
 
@@ -217,8 +232,8 @@ export class ClaudeHarness implements AgentHarness {
       const source = loaded.sources.get(MCP_SERVER_KEY);
       if (source) {
         warnOnce(
-          `mcp-reserved:${source}`,
-          `ignoring user MCP server "${MCP_SERVER_KEY}" from ${source}: ` +
+          `mcp-reserved:${source.file}`,
+          `ignoring ${source.scope} MCP server "${MCP_SERVER_KEY}" from ${source.file}: ` +
             `the bundled "${MCP_SERVER_KEY}" server takes precedence`,
         );
       }

@@ -474,6 +474,21 @@ function assertCell(cells: CellRepository, cellId: string | null | undefined): v
   if (cellId) cells.require(cellId);
 }
 
+function clientErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const candidate =
+    (error as { statusCode?: unknown }).statusCode ??
+    (error as { status?: unknown }).status;
+  if (typeof candidate !== 'number' || !Number.isInteger(candidate)) return undefined;
+  return candidate >= 400 && candidate < 500 ? candidate : undefined;
+}
+
+const CLIENT_ERROR_BODIES: Readonly<Record<number, { error: string; message: string }>> = {
+  400: { error: 'bad_request', message: 'Bad Request' },
+  403: { error: 'forbidden', message: 'Forbidden' },
+  404: { error: 'not_found', message: 'Not Found' },
+};
+
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const {
     repo,
@@ -570,6 +585,14 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
         periodStart: error.pause.periodStart,
         periodEnd: error.pause.periodEnd,
       });
+    }
+    const clientStatus = clientErrorStatus(error);
+    if (clientStatus !== undefined) {
+      const body = CLIENT_ERROR_BODIES[clientStatus] ?? {
+        error: 'client_error',
+        message: 'Request rejected',
+      };
+      return reply.code(clientStatus).send(body);
     }
     app.log.error(error);
     errorLog?.error('http.request', error, {

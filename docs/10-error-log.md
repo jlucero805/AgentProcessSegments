@@ -65,9 +65,9 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `cells.cleanup` | A deleted cell’s reserved master or summary session directory cannot be removed; includes the cell id and session id only |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |
 
-Expected client errors (400 validation, 404, 409 transitions) are **not** written to this
-file. They are returned to the caller and remain visible in the UI. Normal lifecycle
-events stay in `master_events` and transcripts.
+Expected client errors (400 validation or malformed bodies, 403 rejected paths, 404, 409
+transitions) are **not** written to this file. They are returned to the caller and remain
+visible in the UI. Normal lifecycle events stay in `master_events` and transcripts.
 
 ## Reading it
 

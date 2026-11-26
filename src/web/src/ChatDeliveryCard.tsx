@@ -64,15 +64,22 @@ export function ChatDeliveryCard({
   const [enabled, setEnabled] = useState(settings.enabled);
   const [token, setToken] = useState('');
   const [clearToken, setClearToken] = useState(false);
-  const [destinations, setDestinations] = useState<ChatDestination[]>([]);
-  const [defaultChannelId, setDefaultChannelId] = useState('');
-  const [routes, setRoutes] = useState<ChatRoute[]>([]);
+  const [destinations, setDestinations] = useState<ChatDestination[]>(() =>
+    settings.destinations.map((destination) => ({ ...destination })),
+  );
+  const [defaultChannelId, setDefaultChannelId] = useState(
+    settings.defaultChannelId ?? '',
+  );
+  const [routes, setRoutes] = useState<ChatRoute[]>(() =>
+    settings.routes.map((route) => ({ ...route })),
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [testingChannel, setTestingChannel] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
-  // Re-seed the editable form when the saved settings object changes. This is a
-  // guarded render-phase adjustment, so the form never depends on an effect.
+  // Re-seed the editable form when the saved settings object changes. The
+  // initializers above seed the first render, so this guarded render-phase
+  // adjustment only runs after a save replaces the settings object.
   const [syncedSettings, setSyncedSettings] = useState(settings);
   if (syncedSettings !== settings) {
     setSyncedSettings(settings);
@@ -265,7 +272,7 @@ export function ChatDeliveryCard({
   }
 
   return (
-    <Card className="space-y-4 p-4">
+    <Card className="space-y-4 p-4" testId={`${provider}-delivery-card`}>
       <div>
         <SectionTitle>{label} alerts</SectionTitle>
         <p className="mt-1 text-sm text-zinc-500">

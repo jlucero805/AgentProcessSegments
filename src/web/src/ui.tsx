@@ -103,9 +103,20 @@ export function Badge({
   );
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
+export function Card({
+  className,
+  children,
+  testId,
+}: {
+  className?: string;
+  children: ReactNode;
+  testId?: string;
+}) {
   return (
-    <div className={cn('rounded-xl border border-zinc-800 bg-zinc-900/50', className)}>
+    <div
+      data-testid={testId}
+      className={cn('rounded-xl border border-zinc-800 bg-zinc-900/50', className)}
+    >
       {children}
     </div>
   );

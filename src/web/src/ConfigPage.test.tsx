@@ -767,6 +767,12 @@ function stubConfigWarnings(warnings: SettingsWarning[] | null): void {
   );
 }
 
+// The Config page fetches several resources before it renders its cards, and the
+// Slack cases drive several controlled fields. Give their queries and whole-case
+// budgets room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const SLACK_TEST_TIMEOUT_MS = 30_000;
+
 describe('ConfigPage', () => {
   it('loads settings, saves a patch, and shows the path', async () => {
     const captured = installFetch();
@@ -1409,97 +1415,147 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('HTTP 500')).toBeInTheDocument();
   });
 
-  it('configures, routes, saves, and tests a Slack bot', async () => {
-    const captured = installFetch();
-    render(<ConfigPage onError={() => {}} />);
+  it(
+    'configures, routes, saves, and tests a Slack bot',
+    async () => {
+      const captured = installFetch();
+      render(<ConfigPage onError={() => {}} />);
 
-    const toggle = await screen.findByRole('checkbox', {
-      name: /deliver budget alerts to a Slack bot/i,
-    });
-    fireEvent.click(toggle);
-    fireEvent.change(screen.getByLabelText(/Slack bot token/i), {
-      target: { value: 'xoxb-0123456789abcdef' },
-    });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add destination' })[0]!);
-    fireEvent.change(screen.getByLabelText(/Slack destination 1 channel ID/i), {
-      target: { value: 'C0123456789' },
-    });
-    fireEvent.change(screen.getByLabelText(/Slack destination 1 label/i), {
-      target: { value: 'Ops' },
-    });
-    fireEvent.change(screen.getByLabelText(/Slack default destination/i), {
-      target: { value: 'C0123456789' },
-    });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add route' })[0]!);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save Slack delivery' }));
-
-    await waitFor(() =>
-      expect(captured.config?.notifications?.slack).toEqual({
-        enabled: true,
-        botToken: 'xoxb-0123456789abcdef',
-        destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
-        defaultChannelId: 'C0123456789',
-        routes: [{ cellId: 'c1', channelId: 'C0123456789' }],
-      }),
-    );
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('xoxb-0123456789abcdef')).not.toBeInTheDocument();
-
-    const sendTest = screen.getAllByRole('button', { name: 'Send test' });
-    fireEvent.click(sendTest[sendTest.length - 1]!);
-    expect(await screen.findByText(/Test delivered \(HTTP 200\)/)).toBeInTheDocument();
-  });
-
-  it('validates a Slack channel before saving and clears a saved token', async () => {
-    const errors: string[] = [];
-    const captured = installFetch();
-    const first = render(<ConfigPage onError={(message) => errors.push(message)} />);
-
-    fireEvent.click(
-      await screen.findByRole('checkbox', {
+      const card = await screen.findByTestId('slack-delivery-card');
+      const slack = within(card);
+      const toggle = slack.getByRole('checkbox', {
         name: /deliver budget alerts to a Slack bot/i,
-      }),
-    );
-    fireEvent.change(screen.getByLabelText(/Slack bot token/i), {
-      target: { value: 'xoxb-0123456789abcdef' },
-    });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Add destination' })[0]!);
-    fireEvent.change(screen.getByLabelText(/Slack destination 1 channel ID/i), {
-      target: { value: 'not-a-channel' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save Slack delivery' }));
-    await waitFor(() => expect(errors.join(' ')).toMatch(/Slack channel ID/));
-    expect(captured.config?.notifications?.slack).toBeUndefined();
-    first.unmount();
+      });
+      expect(toggle).not.toBeChecked();
+      fireEvent.click(toggle);
+      expect(toggle).toBeChecked();
+      fireEvent.change(slack.getByLabelText(/Slack bot token/i), {
+        target: { value: 'xoxb-0123456789abcdef' },
+      });
+      fireEvent.click(slack.getByRole('button', { name: 'Add destination' }));
+      fireEvent.change(slack.getByLabelText(/Slack destination 1 channel ID/i), {
+        target: { value: 'C0123456789' },
+      });
+      fireEvent.change(slack.getByLabelText(/Slack destination 1 label/i), {
+        target: { value: 'Ops' },
+      });
+      fireEvent.change(slack.getByLabelText(/Slack default destination/i), {
+        target: { value: 'C0123456789' },
+      });
+      fireEvent.click(slack.getByRole('button', { name: 'Add route' }));
 
-    const cleared = installFetch(
-      budgetView,
-      [event],
-      [],
-      undefined,
-      undefined,
-      webhook,
-      email,
-      undefined,
-      deliveryHistory,
-      200,
-      {
-        ...emptyChat,
-        enabled: true,
-        botTokenSet: true,
-        destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
-        defaultChannelId: 'C0123456789',
-      },
-    );
-    render(<ConfigPage onError={() => {}} />);
-    expect(await screen.findByText('A bot token is saved.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear token' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save Slack delivery' }));
-    await waitFor(() =>
-      expect(cleared.config?.notifications?.slack).toMatchObject({ botToken: null }),
-    );
-  });
+      fireEvent.click(slack.getByRole('button', { name: 'Save Slack delivery' }));
+
+      await waitFor(
+        () =>
+          expect(captured.config?.notifications?.slack).toEqual({
+            enabled: true,
+            botToken: 'xoxb-0123456789abcdef',
+            destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+            defaultChannelId: 'C0123456789',
+            routes: [{ cellId: 'c1', channelId: 'C0123456789' }],
+          }),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+      expect(
+        await slack.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+      expect(slack.queryByDisplayValue('xoxb-0123456789abcdef')).not.toBeInTheDocument();
+
+      fireEvent.click(slack.getByRole('button', { name: 'Send test' }));
+      expect(
+        await slack.findByText(/Test delivered \(HTTP 200\)/, undefined, {
+          timeout: ASYNC_TIMEOUT_MS,
+        }),
+      ).toBeInTheDocument();
+    },
+    SLACK_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'validates a Slack channel before saving and clears a saved token',
+    async () => {
+      const errors: string[] = [];
+      const captured = installFetch();
+      const first = render(<ConfigPage onError={(message) => errors.push(message)} />);
+
+      const firstCard = await screen.findByTestId('slack-delivery-card');
+      const firstSlack = within(firstCard);
+      fireEvent.click(
+        firstSlack.getByRole('checkbox', {
+          name: /deliver budget alerts to a Slack bot/i,
+        }),
+      );
+      fireEvent.change(firstSlack.getByLabelText(/Slack bot token/i), {
+        target: { value: 'xoxb-0123456789abcdef' },
+      });
+      fireEvent.click(firstSlack.getByRole('button', { name: 'Add destination' }));
+      fireEvent.change(firstSlack.getByLabelText(/Slack destination 1 channel ID/i), {
+        target: { value: 'not-a-channel' },
+      });
+      fireEvent.click(firstSlack.getByRole('button', { name: 'Save Slack delivery' }));
+      await waitFor(() => expect(errors.join(' ')).toMatch(/Slack channel ID/), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      expect(captured.config?.notifications?.slack).toBeUndefined();
+      first.unmount();
+
+      const cleared = installFetch(
+        budgetView,
+        [event],
+        [],
+        undefined,
+        undefined,
+        webhook,
+        email,
+        undefined,
+        deliveryHistory,
+        200,
+        {
+          ...emptyChat,
+          enabled: true,
+          botTokenSet: true,
+          destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+          defaultChannelId: 'C0123456789',
+          routes: [{ cellId: 'c1', channelId: 'C0123456789' }],
+        },
+      );
+      render(<ConfigPage onError={() => {}} />);
+      const card = await screen.findByTestId('slack-delivery-card');
+      const slack = within(card);
+      expect(
+        await slack.findByText('A bot token is saved.', undefined, {
+          timeout: ASYNC_TIMEOUT_MS,
+        }),
+      ).toBeInTheDocument();
+
+      // Saved destinations, default, and routes must be visible on first load;
+      // an empty form here silently wipes them on the next save.
+      expect(slack.getByLabelText(/Slack destination 1 channel ID/i)).toHaveValue(
+        'C0123456789',
+      );
+      expect(slack.getByLabelText(/Slack destination 1 label/i)).toHaveValue('Ops');
+      expect(slack.getByLabelText(/Slack default destination/i)).toHaveValue(
+        'C0123456789',
+      );
+      expect(slack.getByLabelText(/Slack route 1 cell/i)).toHaveValue('c1');
+
+      fireEvent.click(slack.getByRole('button', { name: 'Clear token' }));
+      fireEvent.click(slack.getByRole('button', { name: 'Save Slack delivery' }));
+      await waitFor(
+        () =>
+          expect(cleared.config?.notifications?.slack).toEqual({
+            enabled: false,
+            botToken: null,
+            destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+            defaultChannelId: 'C0123456789',
+            routes: [{ cellId: 'c1', channelId: 'C0123456789' }],
+          }),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+    },
+    SLACK_TEST_TIMEOUT_MS,
+  );
 
   it('does not render an all-unpriced budget as measured zero', async () => {
     installFetch({

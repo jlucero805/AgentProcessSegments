@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1072 vitest cases: 841 server across 49 files (one environmental root-skip) and 231 web across 25 files, all green.
+- 1077 vitest cases: 841 server across 49 files (one environmental root-skip) and 236 web across 26 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -55,7 +55,8 @@ digests.
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
-  polling scheduler with catch-up and backoff), a cell creation flow that
+  polling scheduler with catch-up and backoff, and a dedicated page for browsing
+  reports per cell), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight
@@ -101,7 +102,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server src + tests, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 841 server + 231 web, plus the e2e env guard
+npm test                       # 841 server + 236 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)

@@ -107,7 +107,9 @@ in [`docs/08-user-workflows.md`](docs/08-user-workflows.md).
 
 The board is the main loop: five process segments, cell filters, agent status, and
 unchecked-work markers. The drawer is the selected cell’s master: status, cron loop,
-prompts, scorecard, activity, and chat.
+prompts, scorecard, activity, and chat. The **Usage** page totals tokens and cost by
+model, cell, and request, and the **Scorecards** page collects each cell’s persisted
+reports with its earlier history.
 
 These screenshots use a staged demo board in an isolated temp database, not live data.
 Regenerate them against the built SPA with the optional Puppeteer tool:
@@ -562,6 +564,8 @@ src/web
   src/docs.ts         help slugs, relative link/image rewriting, heading anchors
   src/Board.tsx       six columns, drag-to-advance, agent badges
   src/UsagePage.tsx   overall/cell usage dashboard, reported/estimated cost chart
+  src/ScorecardsPage.tsx per-cell persisted scorecard reports with history
+  src/Scorecard.tsx   shared markdown renderer for one report
   src/usageFormat.ts  token/cost formatters with exact/≈/≥ cost distinction
   src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, usage, digest
   src/ClarifyChat.tsx    per-request chat, reattach on mount
@@ -588,7 +592,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1072 vitest cases: 841 server cases across 49 files (state machine,
+`npm test` runs 1077 vitest cases: 841 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -603,13 +607,13 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 231 web cases across 25 files (shared contract re-exports, NDJSON)
+real socket) and 236 web cases across 26 files (shared contract re-exports, NDJSON)
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot
 routing, delivery history, and spend-cap overrides, budget banner, master detail and
-scorecard, the usage page and formatters, and the app shell with the drawer and chat
-mounted under jsdom).
+scorecard, the usage page and formatters, the scorecards page, and the app shell with the
+drawer and chat mounted under jsdom).
 
 Those totals are collected Vitest cases, so skipped cases still count toward them.
 When a case or test file is added or removed, refresh all five numbers from

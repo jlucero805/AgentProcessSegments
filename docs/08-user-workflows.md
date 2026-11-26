@@ -116,6 +116,10 @@ last five.
 
 - **Run scorecard now** generates one immediately. It is allowed even when automatic
   scorecards are disabled.
+- The sidebar's **Scorecards** page browses the same persisted reports: with **All
+  cells** selected it lists every cell that has a report, newest cell first, and with a
+  cell selected it shows only that cell's history. Each cell's latest report is expanded
+  and the older ones are collapsed under **Earlier scorecards**.
 - Old reports expire under the Config page's **Scorecard retention** window
   (`retention.cellSummariesDays`, default 90 days, `0` keeps history). The newest report
   per cell is always kept, so **Earlier scorecards** and the next scheduled run stay

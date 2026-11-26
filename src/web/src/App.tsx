@@ -448,6 +448,7 @@ export function App() {
           {page === 'config' ? (
             <ConfigPage
               onError={setError}
+              reloadBudgets={budgetFeed.reload}
               onEditCell={(cell) => {
                 setEditingCell(cell);
                 setCellModalOpen(true);

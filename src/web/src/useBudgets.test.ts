@@ -121,6 +121,76 @@ describe('useBudgets', () => {
     });
   });
 
+  it('forces a reload past an in-flight refresh and ignores the stale response', async () => {
+    let releaseStale!: (response: Response) => void;
+    let releaseFresh!: (response: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async () => jsonResponse(payload()))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseStale = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseFresh = resolve;
+          }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useBudgets(vi.fn()));
+    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+
+    let stale!: Promise<void>;
+    let reloaded!: Promise<BudgetsResponse | null>;
+    act(() => {
+      stale = result.current.refresh();
+      reloaded = result.current.reload();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      releaseStale(jsonResponse(payload({ alerts: [alert({ id: 'stale' })] })));
+      await stale;
+    });
+    expect(result.current.budgets?.alerts).toHaveLength(0);
+
+    await act(async () => {
+      releaseFresh(jsonResponse(payload({ alerts: [alert({ id: 'fresh' })] })));
+      await reloaded;
+    });
+
+    const snapshot = await reloaded;
+    expect(snapshot?.alerts.map((item) => item.id)).toEqual(['fresh']);
+    expect(result.current.budgets?.alerts.map((item) => item.id)).toEqual(['fresh']);
+  });
+
+  it('returns the applied snapshot from reload and null on failure', async () => {
+    const fetchMock = stubBudgets(() => payload({ alerts: [alert({ id: 'good' })] }));
+    const { result } = renderHook(() => useBudgets(vi.fn()));
+    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1));
+
+    let reloaded!: Promise<BudgetsResponse | null>;
+    await act(async () => {
+      reloaded = result.current.reload();
+      await reloaded;
+    });
+    expect((await reloaded)?.alerts.map((item) => item.id)).toEqual(['good']);
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    let failedReload!: Promise<BudgetsResponse | null>;
+    await act(async () => {
+      failedReload = result.current.reload();
+      await failedReload;
+    });
+
+    expect(await failedReload).toBeNull();
+    expect(result.current.error).toBe('offline');
+    expect(result.current.budgets?.alerts.map((item) => item.id)).toEqual(['good']);
+  });
+
   it('picks up a new alert on the next poll', async () => {
     let alerts: BudgetAlert[] = [];
     stubBudgets(() => payload({ alerts }));

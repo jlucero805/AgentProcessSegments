@@ -211,6 +211,51 @@ const budgetView: BudgetsResponse = {
   overrides: [],
 };
 
+function pausedBudgetView(): BudgetsResponse {
+  return {
+    ...budgetView,
+    statuses: [
+      {
+        ...budgetView.statuses[0]!,
+        spendUsd: 100,
+        remainingUsd: 0,
+        percentUsed: 100,
+        state: 'exceeded',
+        capSpendUsd: 100,
+        paused: true,
+      },
+    ],
+  };
+}
+
+function overriddenBudgetView(): BudgetsResponse {
+  const paused = pausedBudgetView();
+  return {
+    ...paused,
+    statuses: [
+      {
+        ...paused.statuses[0]!,
+        overrideId: 'o1',
+        overrideExpiresAt: Date.UTC(2026, 10, 15, 13),
+      },
+    ],
+    overrides: [
+      {
+        id: 'o1',
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        periodStart: Date.UTC(2026, 10, 1),
+        createdAt: Date.UTC(2026, 10, 15, 12),
+        updatedAt: Date.UTC(2026, 10, 15, 12),
+        expiresAt: Date.UTC(2026, 10, 15, 13),
+        note: null,
+        revokedAt: null,
+      },
+    ],
+  };
+}
+
 const deliveryRow: DeliveryHistoryItem = {
   id: 'd1',
   source: 'budget',
@@ -907,6 +952,73 @@ describe('ConfigPage', () => {
       screen.getByRole('button', { name: 'End override for overall spend' }),
     );
     await waitFor(() => expect(second.revokedOverrideId).toBe('o1'));
+  });
+
+  it('refreshes the shared budget view after snoozing', async () => {
+    installFetch(pausedBudgetView());
+    const reloadBudgets = vi.fn(async () => overriddenBudgetView());
+    render(<ConfigPage onError={() => {}} reloadBudgets={reloadBudgets} />);
+
+    expect(await screen.findByText('paused')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+
+    await waitFor(() => expect(reloadBudgets).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('snoozed')).toBeInTheDocument();
+    expect(
+      screen.getByText(/an override is admitting new work until/),
+    ).toBeInTheDocument();
+  });
+
+  it('refreshes the shared budget view after ending an override', async () => {
+    installFetch(overriddenBudgetView());
+    const reloadBudgets = vi.fn(async () => pausedBudgetView());
+    render(<ConfigPage onError={() => {}} reloadBudgets={reloadBudgets} />);
+
+    expect(await screen.findByText('snoozed')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'End override for overall spend' }),
+    );
+
+    await waitFor(() => expect(reloadBudgets).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('paused')).toBeInTheDocument();
+    expect(
+      screen.getByText(/New work is paused and in-flight turns were stopped/),
+    ).toBeInTheDocument();
+  });
+
+  it('refreshes the shared budget view after saving a budget', async () => {
+    installFetch();
+    const reloadBudgets = vi.fn(async () => budgetView);
+    render(<ConfigPage onError={() => {}} reloadBudgets={reloadBudgets} />);
+
+    const save = await screen.findByRole('button', { name: 'Save budgets' });
+    fireEvent.click(save);
+
+    await waitFor(() => expect(reloadBudgets).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('does not refresh the shared view when snoozing fails', async () => {
+    installFetch(pausedBudgetView());
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === '/api/budgets/overrides' && init?.method === 'POST') {
+          return jsonResponse({ message: 'cap not configured' }, 409);
+        }
+        return baseFetch(input, init);
+      }),
+    );
+    const reloadBudgets = vi.fn(async () => overriddenBudgetView());
+    const onError = vi.fn();
+    render(<ConfigPage onError={onError} reloadBudgets={reloadBudgets} />);
+
+    expect(await screen.findByText('paused')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('cap not configured'));
+    expect(reloadBudgets).not.toHaveBeenCalled();
   });
 
   it('explains a strict unknown-cost pause that an override is admitting', async () => {

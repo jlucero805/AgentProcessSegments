@@ -66,6 +66,76 @@ function makeBudgetAlert(overrides: Partial<BudgetAlert> = {}): BudgetAlert {
   };
 }
 
+function makePausedBudgetView(overridden = false) {
+  const periodStart = Date.UTC(2026, 10, 1);
+  const periodEnd = Date.UTC(2026, 11, 1);
+  return {
+    periodStart,
+    periodEnd,
+    alertAtPercent: 80,
+    statuses: [
+      {
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        label: 'Overall',
+        periodStart,
+        periodEnd,
+        budgetUsd: 100,
+        spendUsd: 100,
+        remainingUsd: 0,
+        percentUsed: 100,
+        pricedTurns: 3,
+        unknownCostTurns: 0,
+        spendIsLowerBound: false,
+        state: 'exceeded',
+        pauseOnExceeded: true,
+        pauseOnUnknownCost: false,
+        capSpendUsd: 100,
+        capSpendIsLowerBound: false,
+        unpricedTurns: 0,
+        paused: true,
+        pauseReason: 'cap_reached',
+        overrideId: overridden ? 'o1' : null,
+        overrideExpiresAt: overridden ? Date.UTC(2026, 10, 15, 13) : null,
+      },
+    ],
+    alerts: [],
+    pauses: [
+      {
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        label: 'Overall',
+        reason: 'cap_reached',
+        periodStart,
+        periodEnd,
+        budgetUsd: 100,
+        spendUsd: 100,
+        spendIsLowerBound: false,
+        unpricedTurns: 0,
+        percentUsed: 100,
+      },
+    ],
+    overrides: overridden
+      ? [
+          {
+            id: 'o1',
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            periodStart,
+            createdAt: Date.UTC(2026, 10, 15, 12),
+            updatedAt: Date.UTC(2026, 10, 15, 12),
+            expiresAt: Date.UTC(2026, 10, 15, 13),
+            note: null,
+            revokedAt: null,
+          },
+        ]
+      : [],
+  };
+}
+
 function installFetch(
   request: Request,
   transcript: unknown[] = [],
@@ -383,6 +453,42 @@ describe('App', () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.queryByText(/Overall spend reached 80%/)).not.toBeInTheDocument();
+  });
+
+  it('refreshes the banner after snoozing a pause from Config', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+    const baseFetch = globalThis.fetch;
+    let overridden = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/budgets/overrides' && init?.method === 'POST') {
+          overridden = true;
+          return jsonResponse({ override: { id: 'o1' }, created: true }, 201);
+        }
+        if (url === '/api/budgets') return jsonResponse(makePausedBudgetView(overridden));
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    expect(await screen.findByText(/Overall spend hard cap reached/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Config'));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Snooze overall spend' }),
+      ).toHaveLength(2),
+    );
+
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Snooze overall spend' })[1]!,
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0),
+    );
   });
 
   it('opens the config page and records it in the URL', async () => {

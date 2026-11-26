@@ -12,6 +12,8 @@ export const DEFAULT_BUDGET_ALERTS_RETENTION_DAYS = 400;
 export const MAX_BUDGET_ALERTS_RETENTION_DAYS = 3650;
 export const DEFAULT_NOTIFICATION_EVENTS_RETENTION_DAYS = 400;
 export const MAX_NOTIFICATION_EVENTS_RETENTION_DAYS = 3650;
+export const DEFAULT_SPEND_CAP_OVERRIDES_RETENTION_DAYS = 400;
+export const MAX_SPEND_CAP_OVERRIDES_RETENTION_DAYS = 3650;
 
 export interface RetentionSettings {
   /** Master activity older than this many days is pruned. 0 keeps it forever. */
@@ -24,4 +26,6 @@ export interface RetentionSettings {
   budgetAlertsDays: number;
   /** Terminal operational-event delivery rows older than this are pruned. 0 keeps them. */
   notificationEventsDays: number;
+  /** Override rows in UTC budget months older than this are pruned. 0 keeps them. */
+  spendCapOverridesDays: number;
 }

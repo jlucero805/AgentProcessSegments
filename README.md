@@ -248,6 +248,16 @@ window in batches; `pending` and `delivering` rows are never pruned. An event de
 row is the idempotency record for its epoch-anchored coalescing window, so removing a
 terminal row older than the window cannot re-send a duplicate.
 
+Spend cap override retention lives in `config.json` as
+`retention.spendCapOverridesDays`, also editable from the Config page. The default is
+400 days; `0` keeps override history forever. The same startup/hourly job deletes
+`spend_cap_overrides` rows by `period_start`: a UTC budget month is kept whole, and a
+period is pruned only once its month starts before the month containing the cutoff. With
+the default this is exactly the old 400-day budget-evaluation prune. The current month is
+never pruned, and an active override can only exist in the current period, so live
+snoozes are never removed. `idx_spend_cap_overrides_period` serves the scan; history is
+not rolled up.
+
 Request artifact retention lives in `config.json` as `retention.requestArtifactsDays`,
 also editable from the Config page. The default is 30 days; `0` keeps request folders and
 worktrees forever. A startup/hourly job deletes the whole
@@ -446,9 +456,11 @@ snoozes across UTC months. It shows the scope, state (`active`, `revoked`, or `e
 budget period, grant time, any later-expiry extensions, final expiry, revocation time, and
 the optional note, with scope/state filters and pagination. It is an audit view: it does
 not raise a budget, clear an alert, change pause state, or resume a stopped turn. History
-is kept for 400 days; an active row means its window is still open, not that the scope is
-currently paused or still configured as a hard cap. There is no operator identity or
-per-event audit; the optional note is the only context recorded.
+follows the Config page's **Spend cap override retention** window (default 400 days;
+`0` keeps it forever), pruned by whole UTC budget month so the current month is always
+kept; an active row means its window is still open, not that the scope is currently
+paused or still configured as a hard cap. There is no operator identity or per-event
+audit; the optional note is the only context recorded.
 
 ## Alert delivery
 
@@ -643,7 +655,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1242 vitest cases: 966 server cases across 55 files (state machine,
+`npm test` runs 1250 vitest cases: 973 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -658,7 +670,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 276 web cases across 27 files (shared contract re-exports, NDJSON
+real socket) and 277 web cases across 27 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab chat queue claim, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

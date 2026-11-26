@@ -21,6 +21,7 @@ import {
   MAX_MASTER_EVENTS_RETENTION_DAYS,
   MAX_NOTIFICATION_EVENTS_RETENTION_DAYS,
   MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
+  MAX_SPEND_CAP_OVERRIDES_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
   MIN_EVENT_COALESCE_MINUTES,
   WEBHOOK_FORMATS,
@@ -250,6 +251,8 @@ export function ConfigPage({
   const [budgetAlertsSaved, setBudgetAlertsSaved] = useState(false);
   const [notificationEventsSaving, setNotificationEventsSaving] = useState(false);
   const [notificationEventsSaved, setNotificationEventsSaved] = useState(false);
+  const [spendCapOverridesSaving, setSpendCapOverridesSaving] = useState(false);
+  const [spendCapOverridesSaved, setSpendCapOverridesSaved] = useState(false);
   const [requestArtifactsSaving, setRequestArtifactsSaving] = useState(false);
   const [requestArtifactsSaved, setRequestArtifactsSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
@@ -525,6 +528,13 @@ export function ConfigPage({
     setNotificationEventsSaved(false);
   };
 
+  const setSpendCapOverridesDays = (days: number) => {
+    setRetentionSettings((current) =>
+      current ? { ...current, spendCapOverridesDays: days } : current,
+    );
+    setSpendCapOverridesSaved(false);
+  };
+
   const setSegment = <K extends keyof SegmentConfig>(
     id: SegmentConfig['id'],
     key: K,
@@ -659,6 +669,23 @@ export function ConfigPage({
       onError(describeError(error));
     } finally {
       setNotificationEventsSaving(false);
+    }
+  }
+
+  async function saveSpendCapOverrides() {
+    if (!retention) return;
+    setSpendCapOverridesSaving(true);
+    try {
+      const config = await api.patchConfig({
+        retention: { spendCapOverridesDays: retention.spendCapOverridesDays },
+      });
+      setRetentionSettings(config.retention);
+      applyConfigMeta(config);
+      setSpendCapOverridesSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setSpendCapOverridesSaving(false);
     }
   }
 
@@ -1498,6 +1525,46 @@ export function ConfigPage({
               onClick={() => void saveNotificationEvents()}
             >
               {notificationEventsSaving ? <Spinner /> : 'Save notification event retention'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Spend cap override retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Retained spend-cap override rows are pruned in the background. The current UTC
+          budget month is kept whole, so an active snooze and its history are never pruned.
+        </p>
+        <Field
+          label="Spend cap override retention (days)"
+          hint="0 keeps override history forever"
+        >
+          <Input
+            type="number"
+            aria-label="Spend cap override retention (days)"
+            min={0}
+            max={MAX_SPEND_CAP_OVERRIDES_RETENTION_DAYS}
+            step={1}
+            value={retention.spendCapOverridesDays}
+            onChange={(event) => setSpendCapOverridesDays(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. Pruning is by whole UTC budget month;
+            the current month is never removed.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {spendCapOverridesSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={spendCapOverridesSaving}
+              onClick={() => void saveSpendCapOverrides()}
+            >
+              {spendCapOverridesSaving ? <Spinner /> : 'Save spend cap override retention'}
             </Button>
           </div>
         </div>

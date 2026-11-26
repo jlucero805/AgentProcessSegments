@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1242 vitest cases: 966 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
+- 1250 vitest cases: 973 server across 55 files (one environmental root-skip) and 277 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -85,7 +85,8 @@ digests.
   per-cell/per-segment cost and wall-clock/active cycle time, and
   request-level card, configurable master-activity retention for `master_events`,
   configurable scorecard-history retention for `cell_summaries`, configurable
-  budget-alert and delivery-outbox retention, cell-delete cleanup for
+  budget-alert and delivery-outbox retention, configurable spend-cap override retention,
+  cell-delete cleanup for
   activity and reserved master/summary session directories,
   configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
@@ -110,7 +111,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 966 server + 276 web, plus the e2e env guard
+npm test                       # 973 server + 277 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -503,6 +504,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `spend_cap_overrides.expiry_handled_at` on the next evaluation; a later extension
     clears it. The overall-scope event is not cell-filtered by event routes. This is
     advisory only: it never changes budgets, alerts, pauses, admission, or the banner.
+    Retained override rows are pruned by the startup/hourly `DataRetention` pass under
+    `retention.spendCapOverridesDays` (default 400, `0` = forever): delete by
+    `period_start` in whole UTC budget months, never prune the current month, and rely on
+    `idx_spend_cap_overrides_period` rather than adding a `created_at` index.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

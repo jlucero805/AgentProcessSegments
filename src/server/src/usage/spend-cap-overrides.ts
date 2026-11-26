@@ -272,10 +272,4 @@ export class SpendCapOverrideRepository {
       .run(now, now, id);
     return this.get(id);
   }
-
-  pruneBefore(periodStartCutoff: number): number {
-    return this.db
-      .prepare('DELETE FROM spend_cap_overrides WHERE period_start < ?')
-      .run(periodStartCutoff).changes;
-  }
 }

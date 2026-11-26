@@ -295,8 +295,9 @@ built and vended by the brain; real-CLI verification is still pending.
   stopped summary is not a failure. The Config page also shows a read-only **Spend cap
   override history** card with active, revoked, and expired rows across retained months,
   granted/extended/expires/revoked timestamps, the optional note, scope/state filters,
-  and pagination. It is an audit view and does not change the budget, pause state, or
-  alerts; a per-event ledger is not built. The **Spend cap overrides** event route can
+  and pagination; history follows the **Spend cap override retention** window and is
+  pruned by whole UTC budget month. It is an audit view and does not change the budget,
+  pause state, or alerts; a per-event ledger is not built. The **Spend cap overrides** event route can
   deliver a grant or extension while the cap is still blocking and an expiry that leaves
   it blocked again; revokes and pre-authorized under-budget grants are silent, as is an
   expiry still covered by another override.
@@ -342,7 +343,8 @@ built and vended by the brain; real-CLI verification is still pending.
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
   retention (`masterEventsDays`), scorecard retention (`cellSummariesDays`), budget
   alert retention (`budgetAlertsDays`), notification event retention
-  (`notificationEventsDays`), request
+  (`notificationEventsDays`), spend-cap override retention (`spendCapOverridesDays`),
+  request
   artifact retention (`requestArtifactsDays`), spend budget (`monthlyUsd`,
   `alertAtPercent`, `pauseOnExceeded`, `pauseOnUnknownCost`), webhook delivery (`enabled`, `url`, `format`,
   `secret`), email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`,
@@ -409,6 +411,13 @@ built and vended by the brain; real-CLI verification is still pending.
   dedupe record for its epoch-anchored window, which is at most one day, so an expired
   terminal row cannot re-send a duplicate. A failed table reports one `retention.prune`
   record without blocking the other table.
+- Spend cap override retention: `retention.spendCapOverridesDays` (default 400, `0`
+  keeps override history forever) is edited on its own Config card and stored in
+  `config.json`. The same startup + hourly job deletes old `spend_cap_overrides` rows in
+  1000-row batches by `period_start`: the month containing the cutoff is kept whole, the
+  current UTC budget month is never pruned, and every state in an old period is removed.
+  An active override can only exist in the current period. A failed table reports one
+  `retention.prune` record without blocking the other table.
 - Request artifact retention: `retention.requestArtifactsDays` (default 30, `0` keeps
   request artifacts forever) is edited on its own Config card. A startup + hourly job
   deletes the whole `requests/<id>/` workdir (transcripts, session id, generated config,
@@ -431,7 +440,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1242 vitest cases (one environmental root-skip): 966 server across 55 files and 276 web across 27 files,
+- 1250 vitest cases (one environmental root-skip): 973 server across 55 files and 277 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

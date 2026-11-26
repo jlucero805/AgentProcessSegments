@@ -30,6 +30,7 @@ import {
 } from '../src/domain/budget.js';
 import type { SpendCapOverrideNotification } from '../src/domain/notifications.js';
 import type { ErrorSink } from '../src/logging/errors.js';
+import { DataRetention } from '../src/retention/service.js';
 import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetService } from '../src/usage/budgets.js';
@@ -43,6 +44,7 @@ import { UsageRollups } from '../src/usage/rollups.js';
 
 const NOW = Date.UTC(2026, 10, 15, 12, 0, 0);
 const PERIOD = budgetPeriod(NOW);
+const DAY = 86_400_000;
 
 function emptyTotals(): BudgetUsageTotals {
   return {
@@ -1348,6 +1350,51 @@ describe('budgets', () => {
     settings.patch({ budget: { monthlyUsd: 50 } });
     expect(service.statuses(NOW).alerts[0]?.budgetUsd).toBe(50);
     service.stop();
+  });
+
+  it('leaves override retention to the hourly job', async () => {
+    const db = openDb(':memory:');
+    const cells = new CellRepository(db);
+    const settings = makeStore();
+    const alerts = new BudgetAlertRepository(db);
+    const overrides = new SpendCapOverrideRepository(db);
+    const errors = { error: vi.fn() };
+    const periodStart = budgetPeriod(NOW - 420 * DAY).start;
+    const { record } = overrides.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart,
+        expiresAt: periodStart + 7 * DAY,
+        note: null,
+      },
+      periodStart,
+    );
+
+    const service = new BudgetService({
+      usage: new FakeUsageSource(),
+      cells,
+      settings,
+      alerts,
+      overrides,
+      errors,
+      now: () => NOW,
+    });
+    service.evaluate(NOW);
+
+    expect(overrides.get(record.id)).not.toBeNull();
+    expect(errors.error).not.toHaveBeenCalledWith(
+      'usage.budgets',
+      expect.anything(),
+      expect.objectContaining({ phase: 'override-prune' }),
+    );
+
+    const retention = new DataRetention({ db, settings, now: () => NOW });
+    const result = await retention.runOnce();
+
+    expect(result.spendCapOverrides.deleted).toBe(1);
+    expect(overrides.get(record.id)).toBeNull();
+    db.close();
   });
 });
 

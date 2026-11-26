@@ -254,9 +254,11 @@ evaluation that observed the expiry transition). One non-revoked row per
 `updated_at` instead of inserting, and increments `extension_count`/sets `extended_at`
 only when the stored expiry moves later. `idx_spend_cap_overrides_period` covers
 `(period_start, expires_at)`. An override is active while `revoked_at IS NULL`,
-`expires_at > now`, and its period is current. Rows older than 400 days are pruned during
-budget evaluation. There is no cell FK, so deleting a cell leaves an inert row that
-expires naturally; history resolves the cell name live and falls back to `Deleted cell`.
+`expires_at > now`, and its period is current. Retention is bounded by
+`retention.spendCapOverridesDays` and run by the hourly retention job; see
+`### Spend cap override retention`. There is no cell FK, so deleting a cell leaves an
+inert row that expires naturally; history resolves the cell name live and falls back to
+`Deleted cell`.
 History derives `revoked`/`expired`/`active` at read time from `revoked_at`/`expires_at`
 without requiring the row to be in the current period. `expiry_handled_at` is set once by
 budget evaluation after the window ends and is cleared by a later-expiry extension; it is
@@ -466,6 +468,22 @@ row old enough to prune cannot be the dedupe record for an open window. `pending
 `delivering` rows on start. Each table prunes independently; a failure reports one
 `retention.prune` record with the table, cutoff, and deleted count. History is not rolled
 up and the job never runs `VACUUM`.
+
+### Spend cap override retention
+
+`retention.spendCapOverridesDays` in `config.json` (editable from the Config page) bounds
+retained `spend_cap_overrides` rows: default 400 days, `0` keeps override history forever.
+The same startup/hourly job deletes rows whose `period_start` is strictly before the
+start of the UTC budget month containing `now - spendCapOverridesDays`, in batches of 1000
+with an event-loop yield between batches; `idx_spend_cap_overrides_period` serves the
+scan. Pruning is by whole UTC budget month, not an exact age: the month containing the
+cutoff is kept whole, so effective history is `spendCapOverridesDays` to
+`spendCapOverridesDays + 31` days. The current month is never pruned, and an active
+override can only exist in the current period. Every row in an old period is deleted
+regardless of `revoked_at` or `expiry_handled_at`, matching the old budget-evaluation
+prune; the default 400 deletes exactly the rows the hardcoded prune used to. Each table
+prunes independently; a failure reports one `retention.prune` record with the table,
+cutoff, and deleted count. History is not rolled up and the job never runs `VACUUM`.
 
 ### Request artifact retention
 

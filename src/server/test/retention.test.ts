@@ -7,12 +7,15 @@ import { SettingsStore } from '../src/settings.js';
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 0, 31, 12);
+/** Start of the UTC month containing `NOW - 90 days`. */
+const OVERRIDE_CUTOFF_90 = Date.UTC(2025, 10, 1);
 
 function makeStore(
   days = 90,
   summaryDays = 90,
   budgetDays = 90,
   eventDays = 90,
+  overrideDays = 90,
 ): SettingsStore {
   const dir = tmpDir('activity-retention');
   const store = new SettingsStore(path.join(dir, 'config.json'));
@@ -22,6 +25,7 @@ function makeStore(
       cellSummariesDays: summaryDays,
       budgetAlertsDays: budgetDays,
       notificationEventsDays: eventDays,
+      spendCapOverridesDays: overrideDays,
     },
   });
   return store;
@@ -140,6 +144,45 @@ function eventDeliveryIds(db: Db): string[] {
   ).map((row) => row.id);
 }
 
+function seedOverrides(
+  db: Db,
+  rows: Array<{
+    id: string;
+    periodStart: number;
+    createdAt?: number;
+    revokedAt?: number | null;
+    expiryHandledAt?: number | null;
+  }>,
+): void {
+  const insert = db.prepare(
+    `INSERT INTO spend_cap_overrides
+       (id, scope, scope_id, period_start, expires_at, note, created_at, updated_at,
+        revoked_at, extended_at, extension_count, expiry_handled_at)
+     VALUES (?, 'overall', ?, ?, ?, NULL, ?, ?, ?, NULL, 0, ?)`,
+  );
+  for (const row of rows) {
+    const createdAt = row.createdAt ?? row.periodStart;
+    insert.run(
+      row.id,
+      row.id,
+      row.periodStart,
+      row.periodStart + 7 * DAY,
+      createdAt,
+      createdAt,
+      row.revokedAt ?? null,
+      row.expiryHandledAt ?? null,
+    );
+  }
+}
+
+function overrideIds(db: Db): string[] {
+  return (
+    db.prepare('SELECT id FROM spend_cap_overrides ORDER BY id').all() as Array<{
+      id: string;
+    }>
+  ).map((row) => row.id);
+}
+
 function seedSummaries(
   db: Db,
   rows: Array<{ id: string; cellId: string; createdAt: number }>,
@@ -187,6 +230,7 @@ describe('DataRetention', () => {
       cellSummaries: { deleted: 0, cutoff: boundary },
       budgetAlertDeliveries: { deleted: 0, cutoff: boundary },
       budgetAlerts: { deleted: 0, cutoff: boundary },
+      spendCapOverrides: { deleted: 0, cutoff: OVERRIDE_CUTOFF_90 },
       notificationEventDeliveries: { deleted: 0, cutoff: boundary },
     });
     expect(ids(db)).toEqual(['boundary', 'recent']);
@@ -202,9 +246,10 @@ describe('DataRetention', () => {
       { id: 'old-delivery', alertId: 'old-alert', createdAt: NOW - 1000 * DAY },
     ]);
     seedEventDeliveries(db, [{ id: 'old-event', createdAt: NOW - 1000 * DAY }]);
+    seedOverrides(db, [{ id: 'old-override', periodStart: Date.UTC(2025, 0, 1) }]);
     const retention = new DataRetention({
       db,
-      settings: makeStore(0, 0, 0, 0),
+      settings: makeStore(0, 0, 0, 0, 0),
       now: () => NOW,
     });
 
@@ -215,12 +260,14 @@ describe('DataRetention', () => {
       cellSummaries: { deleted: 0, cutoff: null },
       budgetAlertDeliveries: { deleted: 0, cutoff: null },
       budgetAlerts: { deleted: 0, cutoff: null },
+      spendCapOverrides: { deleted: 0, cutoff: null },
       notificationEventDeliveries: { deleted: 0, cutoff: null },
     });
     expect(ids(db)).toEqual(['old']);
     expect(alertIds(db)).toEqual(['old-alert']);
     expect(deliveryIds(db)).toEqual(['old-delivery']);
     expect(eventDeliveryIds(db)).toEqual(['old-event']);
+    expect(overrideIds(db)).toEqual(['old-override']);
   });
 
   it('never prunes follow-up rows, because they are the dedupe key', async () => {
@@ -239,6 +286,7 @@ describe('DataRetention', () => {
       cellSummaries: { deleted: 0, cutoff: NOW - 90 * DAY },
       budgetAlertDeliveries: { deleted: 0, cutoff: NOW - 90 * DAY },
       budgetAlerts: { deleted: 0, cutoff: NOW - 90 * DAY },
+      spendCapOverrides: { deleted: 0, cutoff: OVERRIDE_CUTOFF_90 },
       notificationEventDeliveries: { deleted: 0, cutoff: NOW - 90 * DAY },
     });
     expect(ids(db)).toEqual(['followup']);
@@ -298,6 +346,10 @@ describe('DataRetention', () => {
     expect(first.cellSummaries.deleted).toBe(1);
     expect(first.budgetAlertDeliveries).toEqual({ deleted: 0, cutoff: null });
     expect(first.budgetAlerts).toEqual({ deleted: 0, cutoff: null });
+    expect(first.spendCapOverrides).toEqual({
+      deleted: 0,
+      cutoff: OVERRIDE_CUTOFF_90,
+    });
     expect(ids(db)).toEqual(['old-activity']);
     expect(summaryIds(db)).toEqual(['s-keep']);
 
@@ -477,6 +529,150 @@ describe('DataRetention', () => {
     expect(second.notificationEventDeliveries.deleted).toBe(1);
     expect(errors.error).toHaveBeenCalledTimes(1);
     expect(eventDeliveryIds(db)).toEqual([]);
+  });
+
+  it('prunes whole UTC budget months before the cutoff', async () => {
+    const db = makeDb();
+    seedOverrides(db, [
+      { id: 'previous-month', periodStart: Date.UTC(2025, 9, 1) },
+      { id: 'cutoff-month', periodStart: OVERRIDE_CUTOFF_90 },
+      { id: 'current-month', periodStart: Date.UTC(2026, 0, 1) },
+    ]);
+    const retention = new DataRetention({ db, settings: makeStore(90), now: () => NOW });
+
+    const result = await retention.runOnce();
+
+    expect(result.spendCapOverrides).toEqual({
+      deleted: 1,
+      cutoff: OVERRIDE_CUTOFF_90,
+    });
+    expect(overrideIds(db)).toEqual(['current-month', 'cutoff-month']);
+  });
+
+  it('deletes old override rows in every state', async () => {
+    const db = makeDb();
+    const oldPeriod = Date.UTC(2025, 9, 1);
+    seedOverrides(db, [
+      { id: 'old-expired', periodStart: oldPeriod, expiryHandledAt: oldPeriod + DAY },
+      { id: 'old-unhandled', periodStart: oldPeriod },
+      { id: 'old-revoked', periodStart: oldPeriod, revokedAt: oldPeriod + DAY },
+      {
+        id: 'kept-revoked',
+        periodStart: OVERRIDE_CUTOFF_90,
+        revokedAt: OVERRIDE_CUTOFF_90 + DAY,
+      },
+      { id: 'kept-unhandled', periodStart: OVERRIDE_CUTOFF_90 },
+    ]);
+    const retention = new DataRetention({ db, settings: makeStore(90), now: () => NOW });
+
+    const result = await retention.runOnce();
+
+    expect(result.spendCapOverrides.deleted).toBe(3);
+    expect(overrideIds(db)).toEqual(['kept-revoked', 'kept-unhandled']);
+  });
+
+  it('keeps every override row when its window is disabled', async () => {
+    const db = makeDb();
+    seedOverrides(db, [{ id: 'old', periodStart: Date.UTC(2025, 0, 1) }]);
+    const retention = new DataRetention({
+      db,
+      settings: makeStore(0, 0, 0, 0, 0),
+      now: () => NOW,
+    });
+
+    const result = await retention.runOnce();
+
+    expect(result.spendCapOverrides).toEqual({ deleted: 0, cutoff: null });
+    expect(overrideIds(db)).toEqual(['old']);
+  });
+
+  it('prunes overrides from their own window', async () => {
+    const db = makeDb();
+    const cutoff = Date.UTC(2025, 11, 1);
+    seedOverrides(db, [
+      { id: 'o-old', periodStart: Date.UTC(2025, 9, 1) },
+      { id: 'o-keep', periodStart: cutoff },
+    ]);
+    const retention = new DataRetention({
+      db,
+      settings: makeStore(0, 0, 0, 0, 60),
+      now: () => NOW,
+    });
+
+    const result = await retention.runOnce();
+
+    expect(result.spendCapOverrides).toEqual({ deleted: 1, cutoff });
+    expect(result.masterEvents).toEqual({ deleted: 0, cutoff: null });
+    expect(result.notificationEventDeliveries).toEqual({ deleted: 0, cutoff: null });
+    expect(overrideIds(db)).toEqual(['o-keep']);
+  });
+
+  it('drains an override backlog larger than one batch', async () => {
+    const db = makeDb();
+    const count = 1200;
+    seedOverrides(
+      db,
+      Array.from({ length: count }, (_, index) => ({
+        id: `o${String(index).padStart(5, '0')}`,
+        periodStart: Date.UTC(2025, 0, 1),
+      })),
+    );
+    const retention = new DataRetention({
+      db,
+      settings: makeStore(90),
+      now: () => NOW,
+      batchSize: 1000,
+    });
+
+    const result = await retention.runOnce();
+
+    expect(result.spendCapOverrides.deleted).toBe(count);
+    expect(overrideIds(db)).toEqual([]);
+    await expect(retention.runOnce()).resolves.toMatchObject({
+      spendCapOverrides: { deleted: 0 },
+    });
+  });
+
+  it('isolates a spend-cap override failure from other tables', async () => {
+    const db = makeDb();
+    seed(db, [{ id: 'old-activity', createdAt: NOW - 100 * DAY }]);
+    seedOverrides(db, [{ id: 'old-override', periodStart: Date.UTC(2025, 0, 1) }]);
+    let fail = true;
+    const guarded = {
+      prepare(sql: string) {
+        if (fail && sql.includes('DELETE FROM spend_cap_overrides')) {
+          throw new Error('database is busy');
+        }
+        return db.prepare(sql);
+      },
+    } as unknown as Db;
+    const errors = { error: vi.fn() };
+    const retention = new DataRetention({
+      db: guarded,
+      settings: makeStore(90),
+      errors,
+      now: () => NOW,
+    });
+
+    const first = await retention.runOnce();
+    expect(first.masterEvents.deleted).toBe(1);
+    expect(first.spendCapOverrides).toEqual({
+      deleted: 0,
+      cutoff: OVERRIDE_CUTOFF_90,
+    });
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith(
+      'retention.prune',
+      expect.any(Error),
+      expect.objectContaining({ table: 'spend_cap_overrides', deleted: 0 }),
+    );
+    expect(overrideIds(db)).toEqual(['old-override']);
+
+    fail = false;
+    const second = await retention.runOnce();
+    expect(second.spendCapOverrides.deleted).toBe(1);
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(overrideIds(db)).toEqual([]);
   });
 
   it('prunes acknowledged budget alerts without removing their delivery history', async () => {
@@ -779,6 +975,7 @@ describe('DataRetention', () => {
 
     await expect(first).resolves.toMatchObject({
       masterEvents: { deleted: 2500 },
+      spendCapOverrides: { deleted: 0, cutoff: OVERRIDE_CUTOFF_90 },
       notificationEventDeliveries: { deleted: 0, cutoff: NOW - 90 * DAY },
     });
     expect(ids(db)).toEqual([]);

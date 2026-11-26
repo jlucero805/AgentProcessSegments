@@ -191,7 +191,9 @@ last five.
    use **Config → Spend cap override history**: each row shows the scope, state
    (`active`, `revoked`, or `expired`), budget month, grant time, later-expiry extensions,
    final expiry, revocation time, and note. Filter by scope or state and page through the
-   retained 400 days. The card is read-only and does not change a budget, alert, or pause.
+   retained UTC budget months; the **Spend cap override retention** card sets that window
+   (default 400 days; `0` keeps it forever). The card is read-only and does not change a
+   budget, alert, or pause.
    An `active` row means its window is still open; the Spend budgets status above shows
    whether the scope is currently paused or covered.
 7. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
@@ -239,8 +241,10 @@ last five.
     month is always kept, and clearing a budget, changing its threshold, or deleting a
     cell removes its unacknowledged rows. Event rows follow the Config **Notification
     event retention** window (default 400 days; `0` keeps them forever), and pending or
-    in-flight rows are never pruned. Full failure text remains in the request transcript
-    and error log, not in the history payload.
+    in-flight rows are never pruned. Spend-cap override rows follow the Config **Spend cap
+    override retention** window (default 400 days; `0` keeps them forever), pruned by
+    whole UTC budget month so the current month is always kept. Full failure text remains
+    in the request transcript and error log, not in the history payload.
 13. The **Event notifications** card can send failed request turns, master turn/cycle
     errors, scorecard failures, and spend-cap override grants/extensions/expiries. Check
     Webhook and/or Email per event kind, choose a coalescing window (default 60 minutes;
@@ -439,6 +443,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |
 | Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and destination, with a self-contained alert snapshot; terminal rows expire under `retention.budgetAlertsDays` |
 | Event delivery outbox | `notification_event_deliveries` in SQLite, one row per signature and channel, with the safe classification payload; terminal rows expire under `retention.notificationEventsDays` |
+| Spend cap override history | `spend_cap_overrides` in SQLite; rows expire by whole UTC budget month under `retention.spendCapOverridesDays` |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |

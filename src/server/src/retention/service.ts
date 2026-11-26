@@ -88,6 +88,20 @@ const NOTIFICATION_EVENT_DELIVERIES_DELETE_SQL = `
   )
 `;
 
+// Overrides are keyed and browsed by UTC budget month (`period_start`). A row in
+// an old period cannot be active, and `idx_spend_cap_overrides_period` serves the
+// scan. The cutoff is aligned to its own period start, so the month holding the
+// cutoff is kept whole and `created_at` needs no extra index.
+const SPEND_CAP_OVERRIDES_DELETE_SQL = `
+  DELETE FROM spend_cap_overrides
+  WHERE id IN (
+    SELECT id FROM spend_cap_overrides
+    WHERE period_start < ?
+    ORDER BY period_start
+    LIMIT ?
+  )
+`;
+
 export interface TablePruneResult {
   deleted: number;
   /** Null when retention is disabled, so there is no cutoff to report. */
@@ -99,6 +113,7 @@ export interface RetentionRunResult {
   cellSummaries: TablePruneResult;
   budgetAlertDeliveries: TablePruneResult;
   budgetAlerts: TablePruneResult;
+  spendCapOverrides: TablePruneResult;
   notificationEventDeliveries: TablePruneResult;
 }
 
@@ -117,15 +132,16 @@ type PruneTable =
   | 'cell_summaries'
   | 'budget_alert_deliveries'
   | 'budget_alerts'
+  | 'spend_cap_overrides'
   | 'notification_event_deliveries';
 
 /**
  * Deletes raw `master_events` rows, old `cell_summaries` reports, terminal
- * budget-alert deliveries, acknowledged budget alerts, and terminal operational
- * event deliveries outside their configured retention windows. Runs once at
- * startup, hourly after that, and again whenever settings change. Each table
- * prunes independently: one failure is reported and retried on the next tick
- * without blocking the other tables.
+ * budget-alert deliveries, acknowledged budget alerts, old `spend_cap_overrides`
+ * periods, and terminal operational event deliveries outside their configured
+ * retention windows. Runs once at startup, hourly after that, and again whenever
+ * settings change. Each table prunes independently: one failure is reported and
+ * retried on the next tick without blocking the other tables.
  */
 export class DataRetention {
   private readonly db: Db;
@@ -217,6 +233,20 @@ export class DataRetention {
       BUDGET_ALERTS_DELETE_SQL,
       budgetCutoff,
     );
+    // Overrides are grouped by UTC budget month, so align the cutoff to the
+    // start of the month containing `now - spendCapOverridesDays`. Reusing the
+    // `maxCutoff` cap keeps the whole cutoff month, and no active override can
+    // exist outside the current period.
+    const overridesCutoff = budgetPeriod(
+      now - retention.spendCapOverridesDays * DAY_MS,
+    ).start;
+    const spendCapOverrides = await this.pruneTable(
+      now,
+      'spend_cap_overrides',
+      retention.spendCapOverridesDays,
+      SPEND_CAP_OVERRIDES_DELETE_SQL,
+      overridesCutoff,
+    );
     const notificationEventDeliveries = await this.pruneTable(
       now,
       'notification_event_deliveries',
@@ -228,6 +258,7 @@ export class DataRetention {
       cellSummaries,
       budgetAlertDeliveries,
       budgetAlerts,
+      spendCapOverrides,
       notificationEventDeliveries,
     };
   }
@@ -241,8 +272,9 @@ export class DataRetention {
   ): Promise<TablePruneResult> {
     if (days <= 0) return { deleted: 0, cutoff: null };
 
-    // `maxCutoff` caps the age window at the current UTC period start for the
-    // budget tables, so the current month is never pruned.
+    // `maxCutoff` caps the age window: budget tables pass the current UTC period
+    // start so the current month is never pruned, and override pruning passes the
+    // start of the month containing its own cutoff so whole periods are kept.
     const cutoff = Math.min(now - days * DAY_MS, maxCutoff);
     let deleted = 0;
     try {

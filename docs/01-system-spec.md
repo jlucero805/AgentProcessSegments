@@ -70,9 +70,9 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   plus a hand-rolled shadcn-style kit (`ui.tsx`).
 - **Monorepo:** npm workspaces (`src/server`, `src/web`). Root scripts: `build` (web
   then server), `typecheck`, `test` (server + web + the e2e env guard), `lint` (eslint
-  over `src`, the JS tooling, and `.opencode` plugin sources, plus `bash -n` and
-  `shellcheck --severity=warning` over the deploy and `scripts/` shell scripts; zero
-  warnings), `dev` (both).
+  over `src`, the JS tooling, and `.opencode` plugin sources, `bash -n` and
+  `shellcheck --severity=warning` over the deploy and `scripts/` shell scripts, and
+  `markdownlint-cli2` over every tracked `*.md`; zero warnings), `dev` (both).
 
 ---
 
@@ -502,7 +502,6 @@ title/state, harness/model, amounts/expiry, and a safe classification only; raw 
 stays in the transcript and error log. Event failures go to `notifications.event` with
 kind/delivery ids and a short reason only.
 
-
 `GET /api/notifications/status` reports per-channel enabled/configured, pending, failed,
 and the latest delivery (webhook also reports format), plus an `events` block with
 aggregate and per-kind pending/failed counts and the latest event delivery. Slack and Discord add a
@@ -527,8 +526,9 @@ error, timestamps, and `canResend`, so a delivery whose alert was deleted is sti
 visible. Event rows return only `kind`, title/text, failure source/reason, ids, resolved
 cell name (`Deleted cell` fallback), segment, occurrence time, lifecycle fields, and
 `canResend` (scorecard rows have no request or segment); an unreadable payload renders a
-fallback title with null details. Neither shape includes `destination_hash`, a URL, credentials, recipients, or the raw payload
-JSON. History is read-only and newest-first by `(created_at, id)`.
+fallback title with null details. Neither shape includes `destination_hash`, a URL,
+credentials, recipients, or the raw payload JSON. History is read-only and newest-first
+by `(created_at, id)`.
 
 `POST /api/notifications/deliveries/:id/resend` looks up a budget row first and then an
 event row. It re-queues only a `failed` or `skipped` row whose route and channel are
@@ -893,7 +893,7 @@ otherwise has no model default.
 **Current family** (id, tier, when to pick it, first-party USD per million in and out):
 
 | Model id | Tier | $/1M | Pick for |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `claude-fable-5-2` | Most capable | 8 → 40 | Hardest reasoning and long-horizon agentic work; only when Opus is not enough |
 | `claude-opus-5-5` | Flagship | 4 → 20 | Default for correctness-sensitive work: implementation, verification, tricky planning |
 | `claude-sonnet-5-5` | Balanced | 2 → 10 | Everyday coding, interactive grooming, digests |
@@ -909,7 +909,7 @@ agentic work repays `high` or `xhigh`; chat, classification, and bulk work do we
 **Recommended default per workflow segment** (tune on real traffic):
 
 | Segment | Model | Effort | Why |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Auto-research and follow-up questions | haiku | low to medium | Mechanical, high volume, fast |
 | Plan and clarify | sonnet | medium | Interactive; judgment, not correctness |
 | Implement | opus | high or xhigh | Correctness matters; agentic coding |
@@ -941,8 +941,10 @@ mapped to our NDJSON:
 
 - `{type:'system', subtype:'init', session_id}` captures the session id for `--resume`.
 - `{type:'stream_event', event:{type:'content_block_delta', delta:{type:'text_delta', text}}}` becomes `{t:'text', text}`.
-- `{type:'assistant', message:{content:[{type:'tool_use', id, name, input}]}}` becomes `{t:'tool', id, name, input}`.
-- `{type:'user', message:{content:[{type:'tool_result', tool_use_id, content, is_error}]}}` becomes `{t:'tool_result', id, text, isError}`.
+- `{type:'assistant', message:{content:[{type:'tool_use', id, name, input}]}}` becomes
+  `{t:'tool', id, name, input}`.
+- `{type:'user', message:{content:[{type:'tool_result', tool_use_id, content, is_error}]}}`
+  becomes `{t:'tool_result', id, text, isError}`.
 - `{type:'result'}` completes the turn; the engine then emits `{t:'done', …}`.
 
 Input to the child is written to stdin as
@@ -1043,7 +1045,7 @@ npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for server src + tests + vitest config and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
-npm run lint                # eslint over src + JS tooling; bash -n + shellcheck over shell scripts
+npm run lint                # eslint + shell gate + markdownlint, zero warnings
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 

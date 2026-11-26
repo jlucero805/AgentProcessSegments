@@ -514,7 +514,8 @@ cell creation wizard also needs a way to build that policy conversationally.
 **Decision.** Add a built-in `merge` state and optional segment between Review and
 Finalize, plus `maxConcurrent` on every segment. The master enforces the cell cap first,
 then a segment cap for working requests in that state. Merge defaults to
-`maxConcurrent: 1`, `maxPerCycle: 10`, `READY TO FINALIZE`, and advances to Finalize. The wizard keeps a server-side draft per modal. Its `__setup__:<draftId>` chat gets
+`maxConcurrent: 1`, `maxPerCycle: 10`, `READY TO FINALIZE`, and advances to Finalize.
+The wizard keeps a server-side draft per modal. Its `__setup__:<draftId>` chat gets
 draft read/update plus `Read`, so the agent can edit segments, prompts, markers, and
 limits without touring the board/KB; the form refreshes on turn completion and the draft
 is discarded on close.
@@ -793,6 +794,7 @@ rollback to an older binary needs a unit or drop-in that passes the migrated pat
 the `SBOX_*` names. The startup warning stays for at least the next release after it
 ships; removing `SBOX_*` support requires that warning plus updated upgrade and rollback
 notes in this file, `README.md`, and `deploy/vps.md`.
+
 ## D47. Budgets are advisory, monthly, and read the usage ledger
 
 **Context.** Operators need to see whether a cell or the whole brain is approaching its
@@ -817,8 +819,9 @@ stop in-flight turns.
 **Cost.** Budget status is shown on Config, the Usage page, and the app banner. The unique
 alert identity includes REAL budget amounts, which is acceptable for operator-entered
 dollar values. Advisory alerts never pause work; opt-in hard caps are D54/D65. External
-delivery remains separate work; usage retention uses D45, daily rollups are added by D52. A retention window shorter than the month makes spend
-a lower bound, which the docs and UI say explicitly.
+delivery remains separate work; usage retention uses D45, daily rollups are added by
+D52. A retention window shorter than the month makes spend a lower bound, which the docs
+and UI say explicitly.
 
 ## D48. A request can override its cell's harness
 
@@ -845,6 +848,7 @@ the same helper, so the SPA cannot drift.
 fails visibly rather than falling back. A harness change discards the provider session
 id. Direct API callers that set `harness` and a model in one patch remain responsible for
 choosing a compatible model.
+
 ## D49. Unreported cost is estimated from effective-dated prices
 
 **Context.** Harnesses sometimes omit a cost even when they report tokens. Operators can
@@ -1014,6 +1018,7 @@ pause flag adds an additive cell column and one optional budget field. This also
 `SettingsStore.load()`, which previously dropped the saved budget block on restart, because
 the new overall flag must persist. External delivery remains separate; D67 adds the strict
 unknown-cost option and D68 adds a bounded operator snooze for a paused scope.
+
 ## D55. Budget alerts are delivered by a durable, signed webhook outbox
 
 **Context.** Advisory budget alerts were in-app only (D47). Operators need them to reach a
@@ -1163,7 +1168,6 @@ failure text is provider-facing and capped at the existing 8,000-char tool limit
 the only new error-log content and never includes a prompt or transcript. Classifying
 provider errors and retrying them remain separate work.
 
-
 ## D60. Terminal request artifacts and worktrees expire on one window
 
 **Context.** Every request gets `$APS_DATA_DIR/requests/<id>/` for `transcript.json`,
@@ -1217,6 +1221,7 @@ every such cell. Keeping one row per cell is bounded by the cell count.
 **Cost.** Up to one retained row per cell regardless of the window, and a correlated
 keep-latest subquery inside each batch (backed by the two cell_summaries indexes). No
 route, env var, column, or table changes.
+
 ## D62. Deleting a cell removes its activity and reserved sessions
 
 **Context.** `DELETE /api/cells/:id` detached the cell's requests and deleted
@@ -1275,6 +1280,7 @@ retention window (D77). D78 later replaces the join with an alert snapshot so hi
 survives alert deletion, and D81 extends the same read model and resend route to
 operational event deliveries. Resends are not attributed to an operator because the app
 has no user identity.
+
 ## D64. Budget alerts also deliver through native Slack and Discord bots
 
 **Context.** The webhook channel can post Slack/Discord-shaped text to an incoming

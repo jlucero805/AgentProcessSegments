@@ -1,0 +1,15 @@
+{
+  // Markdown gate for every tracked *.md. Prose is capped at 120 rather than
+  // reflowing the docs; tables, fences, and headings are exempt from MD013.
+  "ignores": ["**/node_modules/**", "**/dist/**"],
+  "config": {
+    "MD013": {
+      "line_length": 120,
+      "heading_line_length": 120,
+      "code_block_line_length": 120,
+      "tables": false,
+      "code_blocks": false,
+      "headings": false
+    }
+  }
+}

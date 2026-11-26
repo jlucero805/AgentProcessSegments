@@ -11,37 +11,40 @@ const packageJson = JSON.parse(
   devDependencies?: Record<string, string>;
 };
 const eslintConfig = readFileSync(path.join(repoRoot, 'eslint.config.mjs'), 'utf8');
+const markdownConfig = readFileSync(path.join(repoRoot, '.markdownlint-cli2.jsonc'), 'utf8');
 const workflow = readFileSync(path.join(repoRoot, 'deploy/ci-workflow.yml'), 'utf8');
 const tsconfigTest = JSON.parse(
   readFileSync(path.join(repoRoot, 'src/server/tsconfig.test.json'), 'utf8'),
 ) as { include?: string[] };
 
 describe('zero-warning lint gate', () => {
-  it('runs ESLint plus the bash and ShellCheck shell gate', () => {
+  it('runs ESLint, the bash/ShellCheck shell gate, and markdownlint', () => {
     expect(packageJson.scripts?.['lint']).toBe(
-      'npm run --silent lint:js && npm run --silent lint:sh',
+      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:md',
     );
     expect(packageJson.scripts?.['lint:js']).toBe('eslint . --max-warnings=0');
     expect(packageJson.scripts?.['lint:sh']).toBe(
       'for f in deploy/*.sh scripts/*.sh; do bash -n "$f" || exit 1; shellcheck --severity=warning "$f" || exit 1; done',
     );
     expect(packageJson.scripts?.['lint:sh']).toContain('shellcheck --severity=warning');
+    expect(packageJson.scripts?.['lint:md']).toBe('markdownlint-cli2 "**/*.md"');
     expect(workflow).toContain('make g++ python3 shellcheck');
   });
 
-  it('keeps the ESLint toolchain as root devDependencies', () => {
+  it('keeps the lint toolchain as root devDependencies', () => {
     for (const dependency of [
       'eslint',
       '@eslint/js',
       'globals',
       'typescript-eslint',
       'eslint-plugin-react-hooks',
+      'markdownlint-cli2',
     ]) {
       expect(packageJson.devDependencies?.[dependency], dependency).toBeDefined();
     }
   });
 
-  it('pins the lint and typecheck scope for src, scripts, .opencode, and the vitest config', () => {
+  it('pins the lint and typecheck scope for src, scripts, .opencode, Markdown, and the vitest config', () => {
     expect(eslintConfig).toContain("files: ['**/*.{js,mjs,cjs}']");
     expect(eslintConfig).toContain(
       "files: ['src/**/*.{ts,tsx,mts,cts}', '.opencode/**/*.{ts,mts,cts}']",
@@ -59,6 +62,12 @@ describe('zero-warning lint gate', () => {
       "extends: [reactHooks.configs.flat['recommended-latest']]",
     );
     expect(eslintConfig).not.toContain("'react-hooks/rules-of-hooks': 'error'");
+    expect(markdownConfig).toContain('"**/node_modules/**"');
+    expect(markdownConfig).toContain('"**/dist/**"');
+    expect(markdownConfig).toContain('"line_length": 120');
+    expect(markdownConfig).toContain('"tables": false');
+    expect(markdownConfig).toContain('"code_blocks": false');
+    expect(markdownConfig).toContain('"headings": false');
   });
 
   it('runs the gate in CI before typecheck', () => {

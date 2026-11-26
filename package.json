@@ -11,9 +11,10 @@
     "pretypecheck": "node scripts/check-dev-deps.mjs typecheck",
     "typecheck": "npm run typecheck --workspace src/server && npm run typecheck --workspace src/web",
     "prelint": "node scripts/check-dev-deps.mjs lint",
-    "lint": "npm run --silent lint:js && npm run --silent lint:sh",
+    "lint": "npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:md",
     "lint:js": "eslint . --max-warnings=0",
     "lint:sh": "for f in deploy/*.sh scripts/*.sh; do bash -n \"$f\" || exit 1; shellcheck --severity=warning \"$f\" || exit 1; done",
+    "lint:md": "markdownlint-cli2 \"**/*.md\"",
     "pretest": "node scripts/check-dev-deps.mjs test",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",
     "test:e2e-env": "node --test scripts/e2e/env.test.mjs scripts/e2e/claude-bin.test.mjs scripts/e2e/puppeteer.test.mjs scripts/e2e/signal-cleanup.test.mjs scripts/screenshots.test.mjs scripts/ui-smoke.test.mjs scripts/webhook-receiver-example.test.mjs",
@@ -34,6 +35,7 @@
     "eslint": "^10.15.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
+    "markdownlint-cli2": "^0.24.2",
     "typescript-eslint": "^8.73.0"
   }
 }

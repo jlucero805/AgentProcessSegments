@@ -206,8 +206,9 @@ creates a second row for that destination.
 `payload_json`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
 `next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
 `UNIQUE(dedupe_key, channel)` is the event idempotency key;
-`idx_notification_event_deliveries_due` covers `(status, next_attempt_at)`. The row has no
-alert foreign key, so it survives request/cell deletion and carries a self-contained,
+`idx_notification_event_deliveries_due` covers `(status, next_attempt_at)` and
+`idx_notification_event_deliveries_created` serves history and retention cutoffs. The row
+has no alert foreign key, so it survives request/cell deletion and carries a self-contained,
 sanitized payload. `dedupe_key` is a request+source+reason+UTC-hour signature for a failed
 turn, a cell+source+segment+UTC-hour signature for a master error, or a
 cell+source+reason+UTC-hour signature for a failed scorecard. Rows older than 400 days are
@@ -459,23 +460,34 @@ They require a configured destination, write no alert or delivery rows, and retu
 or `502`.
 
 `GET /api/notifications/deliveries` is a read-only, offset-paginated audit over both
-channels. Filters are `channel`, `status`, `alertId`, `from` (inclusive), and `to`
-(exclusive) on the delivery `created_at`, with `limit` 1–100 (default 25) and `offset`.
-Rows return the snapshotted alert scope/cell, threshold, budget/spend, attempts, next
-attempt, sanitized error, timestamps, and `canResend`, so a delivery whose alert was
-deleted is still visible; they never include `destination_hash`, a URL, credentials,
-recipients, or a payload body. History is newest-first by `(created_at, id)`.
+outboxes. Filters are `source` (`budget|event`), `kind` (`turn.failed|master.error`),
+`channel`, `status`, `alertId`, `from` (inclusive), and `to` (exclusive) on the delivery
+`created_at`, with `limit` 1–100 (default 25) and `offset`. `source` and `kind` are
+mutually exclusive; `alertId` is budget-only and cannot combine with an event filter.
+Incompatible or unknown values return `400`. Both sources are merged newest-first by
+`(created_at, id)` before `limit`/`offset` are applied; `total` is the sum of matching
+budget and event rows. Every row has a `source` discriminator. Budget rows return the
+snapshotted alert scope/cell, threshold, budget/spend, attempts, next attempt, sanitized
+error, timestamps, and `canResend`, so a delivery whose alert was deleted is still
+visible. Event rows return only `kind`, title/text, failure source/reason, ids, resolved
+cell name (`Deleted cell` fallback), segment, occurrence time, lifecycle fields, and
+`canResend`; an unreadable payload renders a fallback title with null details. Neither
+shape includes `destination_hash`, a URL, credentials, recipients, or the raw payload
+JSON. History is read-only and newest-first by `(created_at, id)`.
 
-`POST /api/notifications/deliveries/:id/resend` re-queues only a `failed` or `skipped`
-row whose alert is unacknowledged in the current UTC month and whose channel is enabled
-and configured. It resets `attempts` to zero, `next_attempt_at` to now, clears
-`delivered_at`, re-stamps `format`/`destination_hash` to the current route, preserves
-`last_error`, and kicks the notifier. `pending`/`delivering` is an idempotent no-op;
-delivered rows return `409 already_delivered`; a row whose alert was deleted returns
-`409 alert_deleted`; acknowledged, prior-month, disabled, and unconfigured cases return
-the matching `409`. Orphaned pending rows are marked `skipped` by the notifier drain and
-are never sent. Unknown ids return `404`. The one row per
-`(alert_id, channel)` remains the dedupe record; a delivered alert is never resent.
+`POST /api/notifications/deliveries/:id/resend` looks up a budget row first and then an
+event row. It re-queues only a `failed` or `skipped` row whose route and channel are
+still enabled and configured. Budget rows additionally require an unacknowledged alert in
+the current UTC month. Event rows require the event kind/channel flag. It resets
+`attempts` to zero, `next_attempt_at` to now, clears `delivered_at`, re-stamps
+`format`/`destination_hash` to the current route, preserves `last_error`, and kicks the
+notifier. `pending`/`delivering` is an idempotent no-op; delivered rows return
+`409 already_delivered`; a deleted alert returns `409 alert_deleted`; event opt-out
+returns `409 event_disabled`; acknowledged, prior-month, channel-disabled, and
+unconfigured cases return the matching `409`. Orphaned pending rows are marked `skipped`
+by the notifier drain and are never sent. Unknown ids return `404`. The budget row per
+`(alert_id, destination_id)` and the event row per `(dedupe_key, channel)` remain the
+dedupe records; a delivered notification is never resent.
 
 ### `kb_entries`
 

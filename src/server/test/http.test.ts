@@ -243,6 +243,42 @@ function seedDelivery(
   return { alert, row, alerts, deliveries };
 }
 
+let eventSeed = 0;
+
+function seedEvent(status: 'pending' | 'delivered' | 'failed' = 'failed') {
+  if (!open) throw new Error('no server');
+  const now = Date.now();
+  const events = new NotificationEventDeliveryRepository(open.h.db);
+  const requestId = `req-event-${++eventSeed}`;
+  const row = events.enqueue({
+    dedupeKey: `turn:${requestId}:engine.exit:process_exited_with_code_1:1`,
+    kind: 'turn.failed',
+    channel: 'webhook',
+    format: 'json',
+    destinationHash: 'event-hash-fixture',
+    payloadJson: JSON.stringify({
+      turnId: `turn-${requestId}`,
+      requestId,
+      requestTitle: 'Fix the parser',
+      state: 'implement',
+      cellId: null,
+      harness: 'opencode',
+      model: null,
+      source: 'engine.exit',
+      reason: 'process exited with code 1',
+      occurredAt: now,
+    }),
+    now,
+  });
+  if (status === 'failed') {
+    events.markDelivering(row.id, now);
+    events.markFailed(row.id, now, 'HTTP 503');
+  } else if (status === 'delivered') {
+    events.markDelivered(row.id, now);
+  }
+  return { row, events };
+}
+
 afterEach(async () => {
   if (open) {
     await open.app.close();
@@ -1439,6 +1475,92 @@ describe('http api', () => {
       expect(bad.status).toBe(400);
       expect(bad.json()).toMatchObject({ error: 'invalid' });
     }
+  });
+
+  it('lists operational event history with safe fields and filters', async () => {
+    await makeApp();
+    const { row } = seedEvent('failed');
+    seedDelivery('failed');
+
+    const events = await call('GET', '/api/notifications/deliveries?source=event');
+    expect(events.status).toBe(200);
+    expect(events.json()).toMatchObject({
+      total: 1,
+      deliveries: [
+        {
+          id: row.id,
+          source: 'event',
+          channel: 'webhook',
+          status: 'failed',
+          lastError: 'HTTP 503',
+          canResend: false,
+          event: {
+            kind: 'turn.failed',
+            title: 'Turn failed: Fix the parser',
+            text: 'Turn failed for "Fix the parser" in implement: process exited with code 1.',
+            source: 'engine.exit',
+            reason: 'process exited with code 1',
+            cellId: null,
+            cellName: null,
+            turnId: expect.stringMatching(/^turn-req-event-/),
+            segment: null,
+          },
+        },
+      ],
+    });
+    expect(events.text).not.toContain('event-hash-fixture');
+    expect(events.text).not.toContain('hooks.example.test');
+    expect(events.text).not.toContain('payload_json');
+
+    const byKind = await call('GET', '/api/notifications/deliveries?kind=turn.failed');
+    expect(byKind.status).toBe(200);
+    expect(byKind.json()).toMatchObject({ total: 1 });
+    const budget = await call('GET', '/api/notifications/deliveries?source=budget');
+    expect(budget.status).toBe(200);
+    expect(budget.json().deliveries[0]).toMatchObject({ source: 'budget' });
+
+    for (const query of [
+      'source=event&kind=turn.failed',
+      'alertId=a1&kind=turn.failed',
+      'alertId=a1&source=event',
+    ]) {
+      const bad = await call('GET', `/api/notifications/deliveries?${query}`);
+      expect(bad.status).toBe(400);
+      expect(bad.json()).toMatchObject({ error: 'invalid' });
+    }
+  });
+
+  it('guards and resends operational event rows', async () => {
+    await makeApp();
+    const { row } = seedEvent('failed');
+    const delivered = seedEvent('delivered');
+
+    const blocked = await call('POST', `/api/notifications/deliveries/${row.id}/resend`);
+    expect(blocked.status).toBe(409);
+    expect(blocked.json()).toMatchObject({ error: 'event_disabled' });
+
+    await call('PATCH', '/api/config', {
+      notifications: {
+        webhook: { enabled: true, url: 'https://hooks.example.test/events' },
+        events: { failedTurns: { webhook: true } },
+      },
+    });
+    const resent = await call('POST', `/api/notifications/deliveries/${row.id}/resend`);
+    expect(resent.status).toBe(200);
+    expect(resent.json()).toMatchObject({
+      id: row.id,
+      source: 'event',
+      status: 'pending',
+      attempts: 0,
+      canResend: false,
+    });
+
+    const refused = await call(
+      'POST',
+      `/api/notifications/deliveries/${delivered.row.id}/resend`,
+    );
+    expect(refused.status).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'already_delivered' });
   });
 
   it('resends a failed delivery, refuses a delivered one, and 404s unknown ids', async () => {

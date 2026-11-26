@@ -16,11 +16,12 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
 
 - **Alert delivery refinements.** Signed webhook, SMTP email, and native Slack/Discord
   bot delivery with per-cell routing, read-only delivery history with guarded manual
-  resend, and opt-in failed-turn/master-error/scorecard-failure events are built. Add
-  fan-out to multiple chat destinations per scope, per-scope routing for the webhook and
-  email channels, interactive acknowledgement from chat, pause-transition delivery, bot
-  event routes, and configurable event coalescing windows. Keep every destination deduped
-  by its delivery row and credentials redacted.
+  resend for both budget and operational-event outboxes, and opt-in
+  failed-turn/master-error/scorecard-failure events are built. Add fan-out to multiple
+  chat destinations per scope, per-scope routing for the webhook and email channels,
+  interactive acknowledgement from chat, pause-transition delivery, bot event routes, and
+  configurable event coalescing windows. Keep every destination deduped by its delivery
+  row and credentials redacted.
 - **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65), strict
   unknown-cost enforcement is built (D67), and bounded per-scope snoozes are built (D68).
   Override history/audit and grant-or-expiry notifications, automatic replay of a

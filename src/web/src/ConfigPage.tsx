@@ -82,12 +82,24 @@ const DELIVERY_TONES: Record<
   skipped: 'neutral',
 };
 
-function deliveryAlertLabel(item: DeliveryHistoryItem): string {
+type DeliveryTypeFilter = '' | 'budget' | 'turn.failed' | 'master.error';
+
+function deliverySubject(item: DeliveryHistoryItem): string {
+  if (item.source === 'event') return item.event.title;
   const scope =
     item.alert.scope === 'overall' ? 'Overall' : item.alert.cellName ?? 'Deleted cell';
   return `${scope} · ${item.alert.threshold} ${pct(item.alert.alertAtPercent)} · ${moneyLabel(
     item.alert.spendUsd,
   )} of ${moneyLabel(item.alert.budgetUsd)}`;
+}
+
+function deliveryTypeLabel(item: DeliveryHistoryItem): string {
+  if (item.source === 'budget') return 'Budget';
+  return item.event.kind === 'turn.failed' ? 'Turn failed' : 'Master error';
+}
+
+function deliverySubjectTitle(item: DeliveryHistoryItem): string {
+  return item.source === 'event' ? item.event.text : '';
 }
 
 /** Split the recipients box on commas, semicolons, or newlines and dedupe. */
@@ -230,6 +242,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [deliveries, setDeliveries] = useState<DeliveryHistoryResponse | null>(null);
   const [deliveryChannel, setDeliveryChannel] = useState<DeliveryChannel | ''>('');
   const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus | ''>('');
+  const [deliveryType, setDeliveryType] = useState<DeliveryTypeFilter>('');
   const [deliveryOffset, setDeliveryOffset] = useState(0);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -352,10 +365,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     offset = deliveryOffset,
     channel = deliveryChannel,
     status = deliveryStatus,
+    type = deliveryType,
   ): Promise<void> {
     setDeliveryLoading(true);
     try {
       const response = await api.getNotificationDeliveries({
+        source: type === 'budget' ? 'budget' : undefined,
+        kind: type === 'turn.failed' || type === 'master.error' ? type : undefined,
         channel: channel === '' ? undefined : channel,
         status: status === '' ? undefined : status,
         limit: 10,
@@ -1855,19 +1871,34 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         <div>
           <SectionTitle>Delivery history</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
-            Recent webhook, email, and chat delivery attempts for budget alerts. Delivery
-            is advisory; history is read-only and bounded.
+            Recent webhook, email, and chat delivery attempts for budget alerts and
+            operational events. Delivery is advisory; history is read-only and bounded.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Type" hint="budget alert or event">
+            <Select
+              value={deliveryType}
+              onChange={(event) => {
+                const value = event.target.value as DeliveryTypeFilter;
+                setDeliveryType(value);
+                void refreshDeliveries(0, deliveryChannel, deliveryStatus, value);
+              }}
+            >
+              <option value="">All types</option>
+              <option value="budget">Budget alerts</option>
+              <option value="turn.failed">Failed turns</option>
+              <option value="master.error">Master errors</option>
+            </Select>
+          </Field>
           <Field label="Channel" hint="webhook, email, Slack, or Discord">
             <Select
               value={deliveryChannel}
               onChange={(event) => {
                 const value = event.target.value as DeliveryChannel | '';
                 setDeliveryChannel(value);
-                void refreshDeliveries(0, value, deliveryStatus);
+                void refreshDeliveries(0, value, deliveryStatus, deliveryType);
               }}
             >
               <option value="">All channels</option>
@@ -1883,7 +1914,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onChange={(event) => {
                 const value = event.target.value as DeliveryStatus | '';
                 setDeliveryStatus(value);
-                void refreshDeliveries(0, deliveryChannel, value);
+                void refreshDeliveries(0, deliveryChannel, value, deliveryType);
               }}
             >
               <option value="">All statuses</option>
@@ -1898,7 +1929,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
 
         {!deliveries || deliveries.deliveries.length === 0 ? (
           <p className="text-sm text-zinc-500">
-            {deliveryChannel !== '' || deliveryStatus !== ''
+            {deliveryChannel !== '' || deliveryStatus !== '' || deliveryType !== ''
               ? 'No deliveries match these filters.'
               : 'No deliveries yet.'}
           </p>
@@ -1909,7 +1940,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                 <tr>
                   <th className="pb-2 font-medium">Created</th>
                   <th className="pb-2 font-medium">Channel</th>
-                  <th className="pb-2 font-medium">Alert</th>
+                  <th className="pb-2 font-medium">Type</th>
+                  <th className="pb-2 font-medium">Subject</th>
                   <th className="pb-2 font-medium">Status</th>
                   <th className="pb-2 text-right font-medium">Attempts</th>
                   <th className="pb-2 font-medium">Last error</th>
@@ -1926,7 +1958,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                       {timeAgo(item.createdAt)} ago
                     </td>
                     <td className="py-2 pr-3 text-zinc-400">{item.channel}</td>
-                    <td className="py-2 pr-3 text-zinc-300">{deliveryAlertLabel(item)}</td>
+                    <td className="py-2 pr-3 text-zinc-400">{deliveryTypeLabel(item)}</td>
+                    <td
+                      className="max-w-[18rem] truncate py-2 pr-3 text-zinc-300"
+                      title={deliverySubjectTitle(item)}
+                    >
+                      {deliverySubject(item)}
+                    </td>
                     <td className="py-2 pr-3">
                       <Badge tone={DELIVERY_TONES[item.status]}>{item.status}</Badge>
                     </td>
@@ -1942,7 +1980,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
                         <Button
                           size="sm"
                           disabled={resendingId !== null}
-                          aria-label={`Resend ${item.channel} delivery for ${deliveryAlertLabel(item)}`}
+                          aria-label={`Resend ${item.channel} delivery for ${deliverySubject(item)}`}
                           onClick={() => void resendDelivery(item)}
                         >
                           {resendingId === item.id ? <Spinner /> : 'Resend'}
@@ -1996,8 +2034,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         </div>
 
         <p className="text-[11px] text-zinc-600">
-          History keeps 400 days of delivery rows. Clearing a budget, changing its threshold,
-          or deleting a cell removes its unacknowledged alerts and their delivery rows.
+          Budget rows follow the Budget alert retention window. Event rows are pruned after
+          400 days on notifier start. Clearing a budget, changing its threshold, or deleting
+          a cell removes its unacknowledged alerts and their delivery rows.
         </p>
       </Card>
 

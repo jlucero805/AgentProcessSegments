@@ -200,16 +200,23 @@ last five.
     notification without touching other channels. Transient failures retry for about
     three hours; permanent ones are marked failed in the Config card. Delivery problems
     never stop work or hide the in-app banner.
-12. The **Delivery history** card below the channel settings lists recent attempts for
-    webhook, email, Slack, and Discord. Filter by channel or status; use **Refresh** or the
-    Newer/Older buttons to page. A failed or skipped row that still belongs to an
-    unacknowledged current-month alert shows **Resend** when its current destination still
-    matches. Pressing it re-queues the same outbox row under the current destination and
-    format, resets its attempt count, and shows a queued message; the next notifier flush
-    sends it. Delivered rows never show Resend. History is pruned under the Config
-    **Budget alert retention** window (default 400 days; `0` keeps it forever), the
-    current UTC month is always kept, and clearing a budget, changing its threshold, or
-    deleting a cell removes its unacknowledged rows.
+12. The **Delivery history** card below the channel settings lists recent budget and
+    operational-event attempts for webhook, email, Slack, and Discord. Filter by type
+    (budget, failed turns, master errors, scorecard failures), channel, or status; use
+    **Refresh** or the Newer/Older buttons to page. Budget subjects show the alert
+    scope/threshold/spend; event subjects show the safe title and reveal the human summary
+    on hover. A failed or
+    skipped budget row that still belongs to an unacknowledged current-month alert shows
+    **Resend** when its destination still matches; an event row shows it only while its
+    kind/channel route, channel, and destination remain enabled and configured. Pressing
+    Resend re-queues the same outbox row under the current destination and format, resets
+    its attempt count, and shows a queued message; the next notifier flush sends it.
+    Delivered rows never show Resend. Budget history is pruned under the Config **Budget
+    alert retention** window (default 400 days; `0` keeps it forever), the current UTC
+    month is always kept, and clearing a budget, changing its threshold, or deleting a
+    cell removes its unacknowledged rows. Event rows are pruned after 400 days on notifier
+    start. Full failure text remains in the request transcript and error log, not in the
+    history payload.
 13. The **Event notifications** card can send failed request turns, master turn/cycle
     errors, and scorecard failures. Check Webhook and/or Email per event kind, then
     **Save event notifications**; each selected channel must also be enabled above.
@@ -365,6 +372,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |
 | Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |
 | Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and destination, with a self-contained alert snapshot; terminal rows expire under `retention.budgetAlertsDays` |
+| Event delivery outbox | `notification_event_deliveries` in SQLite, one row per signature and channel, with the safe classification payload; rows prune after 400 days on notifier start |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |

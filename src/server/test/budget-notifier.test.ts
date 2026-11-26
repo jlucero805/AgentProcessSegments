@@ -12,6 +12,7 @@ import {
   type WebhookSettings,
 } from '../src/domain/budget.js';
 import type { ErrorSink } from '../src/logging/errors.js';
+import type { TurnFailureNotification } from '../src/domain/notifications.js';
 import { SettingsStore } from '../src/settings.js';
 import {
   BudgetAlertRepository,
@@ -1350,3 +1351,73 @@ describe('NotificationService delivery history', () => {
     await context.notifier.flush();
     expect(String(parseBody(fake.calls[0]!).text)).not.toContain('Usage:');
   });
+
+it('merges operational events into history with filters and pagination', () => {
+  const context = setup({ send: sender(() => ok()).send });
+  const budget = context.settings.get().notifications.webhook;
+  const firstAlert = addAlert(context.alerts);
+  const firstBudget = context.deliveries.enqueue({
+    alertId: firstAlert.id,
+    channel: 'webhook',
+    format: 'json',
+    destinationHash: destinationHash(budget),
+    now: NOW - 4_000,
+  });
+  const secondAlert = addAlert(context.alerts, { alertAtPercent: 70 });
+  const secondBudget = context.deliveries.enqueue({
+    alertId: secondAlert.id,
+    channel: 'webhook',
+    format: 'json',
+    destinationHash: destinationHash(budget),
+    now: NOW - 2_000,
+  });
+  const turn: TurnFailureNotification = {
+    turnId: 'turn-1',
+    requestId: 'req-1',
+    requestTitle: 'Fix the parser',
+    state: 'implement',
+    cellId: null,
+    harness: 'opencode',
+    model: null,
+    source: 'engine.exit',
+    reason: 'process exited with code 1',
+    occurredAt: NOW - 3_000,
+  };
+  const firstEvent = context.events.enqueue({
+    dedupeKey: 'turn:req-1:engine.exit:process_exited_with_code_1:1',
+    kind: 'turn.failed',
+    channel: 'webhook',
+    format: 'json',
+    destinationHash: destinationHash(budget),
+    payloadJson: JSON.stringify(turn),
+    now: NOW - 3_000,
+  });
+  const secondEvent = context.events.enqueue({
+    dedupeKey: 'turn:req-2:engine.exit:process_exited_with_code_1:1',
+    kind: 'turn.failed',
+    channel: 'webhook',
+    format: 'json',
+    destinationHash: destinationHash(budget),
+    payloadJson: JSON.stringify({ ...turn, requestId: 'req-2' }),
+    now: NOW - 1_000,
+  });
+
+  const all = context.notifier.history({ limit: 10, offset: 0 });
+  expect(all.total).toBe(4);
+  expect(all.deliveries.map((row) => row.id)).toEqual([
+    secondEvent.id,
+    secondBudget.id,
+    firstEvent.id,
+    firstBudget.id,
+  ]);
+  expect(all.deliveries[0]).toMatchObject({ source: 'event' });
+  expect(all.deliveries[1]).toMatchObject({ source: 'budget' });
+
+  expect(context.notifier.history({ source: 'budget' })).toMatchObject({ total: 2 });
+  expect(context.notifier.history({ source: 'event' })).toMatchObject({ total: 2 });
+  expect(context.notifier.history({ kind: 'turn.failed' }).deliveries).toHaveLength(2);
+  expect(context.notifier.history({ alertId: firstAlert.id }).deliveries).toHaveLength(1);
+  expect(
+    context.notifier.history({ offset: 1, limit: 2 }).deliveries.map((row) => row.id),
+  ).toEqual([secondBudget.id, firstEvent.id]);
+});

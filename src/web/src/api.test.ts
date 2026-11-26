@@ -94,6 +94,7 @@ describe('api client', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await api.getNotificationDeliveries({
+      source: 'budget',
       channel: 'webhook',
       status: 'failed',
       alertId: 'a b',
@@ -102,15 +103,19 @@ describe('api client', () => {
       limit: 10,
       offset: 20,
     });
+    await api.getNotificationDeliveries({ kind: 'turn.failed', limit: 5, offset: 0 });
     await api.resendNotificationDelivery('d/1');
 
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      '/api/notifications/deliveries?channel=webhook&status=failed&alertId=a+b&from=1&to=2&limit=10&offset=20',
+      '/api/notifications/deliveries?source=budget&channel=webhook&status=failed&alertId=a+b&from=1&to=2&limit=10&offset=20',
     );
     expect(String(fetchMock.mock.calls[1][0])).toBe(
+      '/api/notifications/deliveries?kind=turn.failed&limit=5&offset=0',
+    );
+    expect(String(fetchMock.mock.calls[2][0])).toBe(
       '/api/notifications/deliveries/d%2F1/resend',
     );
-    expect(fetchMock.mock.calls[1][1]?.method).toBe('POST');
+    expect(fetchMock.mock.calls[2][1]?.method).toBe('POST');
   });
 
   it('sends JSON on create', async () => {

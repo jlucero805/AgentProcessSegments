@@ -207,6 +207,7 @@ const budgetView: BudgetsResponse = {
 
 const deliveryRow: DeliveryHistoryItem = {
   id: 'd1',
+  source: 'budget',
   alertId: 'a1',
   channel: 'webhook',
   format: 'json',
@@ -230,6 +231,34 @@ const deliveryRow: DeliveryHistoryItem = {
     periodStart: Date.UTC(2026, 10, 1),
     createdAt: Date.UTC(2026, 10, 15, 12),
     acknowledgedAt: null,
+  },
+};
+
+const eventDeliveryRow: DeliveryHistoryItem = {
+  id: 'event-1',
+  source: 'event',
+  channel: 'webhook',
+  format: 'json',
+  status: 'failed',
+  attempts: 5,
+  nextAttemptAt: Date.UTC(2026, 10, 15, 13),
+  lastError: 'HTTP 503',
+  createdAt: Date.UTC(2026, 10, 15, 13),
+  updatedAt: Date.UTC(2026, 10, 15, 13),
+  deliveredAt: null,
+  canResend: true,
+  event: {
+    kind: 'turn.failed',
+    title: 'Turn failed: Fix the parser',
+    text: 'Turn failed for "Fix the parser" in implement, Acme: process exited with code 1.',
+    source: 'engine.exit',
+    reason: 'process exited with code 1',
+    cellId: 'c1',
+    cellName: 'Acme',
+    requestId: 'r1',
+    turnId: 't1',
+    segment: null,
+    occurredAt: Date.UTC(2026, 10, 15, 13),
   },
 };
 
@@ -1382,6 +1411,49 @@ describe('ConfigPage', () => {
 
     fireEvent.change(screen.getByLabelText(/^Status/), { target: { value: 'failed' } });
     await waitFor(() => expect(captured.deliveryQuery).toContain('status=failed'));
+  });
+
+  it('renders operational event rows and filters by type', async () => {
+    const captured = installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      email,
+      undefined,
+      {
+        deliveries: [deliveryRow, eventDeliveryRow],
+        total: 2,
+        limit: 10,
+        offset: 0,
+      },
+    );
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByText('Turn failed: Fix the parser')).toBeInTheDocument();
+    expect(screen.getByText('Turn failed')).toBeInTheDocument();
+    expect(screen.getByText('Budget')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: /Resend webhook delivery for Turn failed: Fix the parser/i,
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Type/), {
+      target: { value: 'turn.failed' },
+    });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=turn.failed'));
+    expect(captured.deliveryQuery).toContain('offset=0');
+
+    fireEvent.change(screen.getByLabelText(/^Type/), {
+      target: { value: 'master.error' },
+    });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=master.error'));
+
+    fireEvent.change(screen.getByLabelText(/^Type/), { target: { value: 'budget' } });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('source=budget'));
   });
 
   it('shows an empty delivery history', async () => {

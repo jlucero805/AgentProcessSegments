@@ -1446,8 +1446,8 @@ stopped by a cap stay stopped, and a live turn keeps running while the override 
 ending the override stops covered live turns at once, while an expiry is noticed by the
 next evaluation. There are still no spend reservations or automatic replay. There is no
 operator identity or approval workflow; the optional note is the only context recorded. A
-history/audit view, notification when an override is granted or expires, and per-request
-overrides remain separate work.
+read-only history view is D83; notification when an override is granted or expires, and
+per-request overrides remain separate work.
 
 ## D69. Blank path overrides are ignored, with a startup warning
 
@@ -1834,3 +1834,35 @@ already-pending rows, and enabling a route later never revives them. Changing th
 starts a new key space, so one duplicate message is possible in the transition window;
 existing rows are never re-keyed. Per-cell destination URLs, per-kind windows, native
 Slack/Discord event routes, and an explicit per-destination rate cap remain separate work.
+
+## D83. Spend-cap override history is a read-only view over retained rows
+
+**Context.** D68 stores each hard-cap snooze in `spend_cap_overrides` and keeps revoked and
+expired rows until the 400-day prune, but the operator UI only exposed the currently active
+overrides. There was no way to see when an override was granted, whether it had been
+extended, or whether it was revoked or simply expired.
+
+**Decision.** Expose the retained rows as a read-only history instead of adding a second
+event ledger. Add `extended_at` and `extension_count` to the existing table: a re-grant
+increments them only when the stored `expires_at` moves later, so a note-only or shorter
+re-grant refreshes `updated_at` without claiming an extension. Existing rows read `NULL`/`0`;
+pre-migration extensions are not backfilled. `GET /api/budgets/overrides/history` lists
+active, revoked, and expired rows across UTC periods, newest period then newest grant, with
+optional `scope`, `cellId`, `state`, `from`/`to` period bounds, `limit`, and `offset`. State
+is derived at read time (`revoked` wins over `expired`, then `active`). `active` is a
+lifecycle state, not a policy-effectiveness check: a budget/cell edit can leave a row inert
+and the live status/banner remains the source for current pause coverage.
+
+The route is read-only: it never writes, evaluates budgets, admits or stops a turn, changes
+alerts, or logs expected reads. The Config page renders a **Spend cap override history**
+card after **Spend budgets**, with scope/state filters, 10-row pagination, refresh, and
+columns for scope, state, period, granted, extended, expires, revoked, and note. It
+refetches after a snooze or end-override. Deleted cells resolve to `Deleted cell` live. The
+existing override prune bounds history; there is no new retention setting, export, identity,
+or "who" attribution. A re-grant after expiry reopens the same row, so intermediate expiry
+gaps and each extension's prior expiry are not retained. A per-event audit ledger remains
+separate work.
+
+**Cost.** Two additive columns, one read-only route, and one SPA card. No new table, event
+write path, dependency, or change to budget, alert, admission, enforcement, or delivery
+semantics.

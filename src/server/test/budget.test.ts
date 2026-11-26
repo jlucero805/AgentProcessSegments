@@ -694,6 +694,70 @@ describe('budgets', () => {
     expect(service.revokeOverride('missing', NOW)).toBeNull();
   });
 
+  it('reads override history with states, extensions, and live cell names', () => {
+    const usage = new FakeUsageSource();
+    const { service, settings, cells } = makeService(usage);
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    const alpha = cells.create('Alpha', null, null, {
+      monthlyBudgetUsd: 50,
+      pauseOnExceeded: true,
+    });
+
+    const overall = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: 'release review' },
+      NOW,
+    );
+    service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 120, note: null },
+      NOW + 1000,
+    );
+    const cellOverride = service.grantOverride(
+      { scope: 'cell', cellId: alpha.id, minutes: 60, note: 'alpha maintenance' },
+      NOW - 1000,
+    );
+    service.revokeOverride(cellOverride.override.id, NOW - 500);
+
+    const history = service.overrideHistory({}, NOW + 2000);
+    expect(history).toMatchObject({ total: 2, limit: 20, offset: 0 });
+    expect(history.overrides[0]).toMatchObject({
+      id: overall.override.id,
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      state: 'active',
+      extensionCount: 1,
+      lastExtendedAt: NOW + 1000,
+      note: 'release review',
+    });
+    expect(history.overrides[1]).toMatchObject({
+      id: cellOverride.override.id,
+      scope: 'cell',
+      cellId: alpha.id,
+      cellName: 'Alpha',
+      state: 'revoked',
+      extensionCount: 0,
+      lastExtendedAt: null,
+      revokedAt: NOW - 500,
+      note: 'alpha maintenance',
+    });
+
+    expect(service.overrideHistory({ state: 'revoked' }, NOW + 2000).overrides).toHaveLength(1);
+    expect(service.overrideHistory({ scope: 'overall' }, NOW + 2000).total).toBe(1);
+    expect(
+      service.overrideHistory({ scope: 'cell', cellId: alpha.id }, NOW + 2000).overrides[0]?.id,
+    ).toBe(cellOverride.override.id);
+    expect(service.overrideHistory({ limit: 1, offset: 1 }, NOW + 2000).overrides[0]?.id).toBe(
+      cellOverride.override.id,
+    );
+
+    cells.remove(alpha.id);
+    expect(
+      service.overrideHistory({ scope: 'cell', cellId: alpha.id }, NOW + 2000).overrides[0],
+    ).toMatchObject({ cellName: 'Deleted cell', state: 'revoked' });
+  });
+
   it('re-evaluates when an override is revoked but not when it is granted', () => {
     const db = openDb(':memory:');
     const cells = new CellRepository(db);

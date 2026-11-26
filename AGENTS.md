@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1046 vitest cases: 822 server across 49 files (one environmental root-skip) and 224 web across 24 files, all green.
+- 1058 vitest cases: 827 server across 49 files (one environmental root-skip) and 231 web across 25 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -60,7 +60,8 @@ digests.
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight
   turns in the paused scope including a strict unknown-cost mode, time-boxed operator
-  overrides that release a pause without changing the cap, an in-app alert/pause banner,
+  overrides that release a pause without changing the cap, a read-only override history,
+  an in-app alert/pause banner,
   opt-in signed webhook, SMTP email, and native
   Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
@@ -100,7 +101,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 822 server + 224 web, plus the e2e env guard
+npm test                       # 827 server + 231 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -453,7 +454,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     period, are revocable, and must fail open if the override store cannot be read.
     Revoking an override re-runs evaluation so the enforcer stops live turns in a scope
     that is still over its cap; an expiry refuses new turns at once and is observed by the
-    next evaluation (within 60 seconds).
+    next evaluation (within 60 seconds). Retained rows are also readable through a
+    read-only history route/card; state is derived at read time (`revoked` > `expired` >
+    `active`), `extended_at`/`extension_count` move only when a re-grant pushes the expiry
+    later, and history never changes budgets, alerts, pauses, admission, or enforcement.
+    `active` is a lifecycle state, not proof the scope is still a configured hard cap.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel

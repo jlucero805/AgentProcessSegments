@@ -1067,6 +1067,147 @@ describe('http api', () => {
     expect(state.agentStatus).toBe('none');
   });
 
+  it('returns spend cap override history with states, filters, and validation', async () => {
+    const { h } = await makeApp();
+    const empty = await call('GET', '/api/budgets/overrides/history');
+    expect(empty.status).toBe(200);
+    expect(empty.json()).toEqual({ overrides: [], total: 0, limit: 20, offset: 0 });
+
+    const cell = await call('POST', '/api/cells', {
+      name: 'History Alpha',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    const other = await call('POST', '/api/cells', {
+      name: 'History Beta',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    const otherId = (other.json() as { id: string }).id;
+
+    const granted = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 60,
+      note: 'active window',
+    });
+    const activeId = (granted.json() as { override: { id: string } }).override.id;
+    const extended = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 120,
+    });
+    expect(extended.status).toBe(200);
+
+    const revokedGrant = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId: otherId,
+      minutes: 60,
+      note: 'ended early',
+    });
+    const revokedId = (revokedGrant.json() as { override: { id: string } }).override.id;
+    expect((await call('DELETE', `/api/budgets/overrides/${revokedId}`)).status).toBe(200);
+
+    const now = Date.now();
+    const period = budgetPeriod(now);
+    const periodDate = new Date(period.start);
+    const priorStart = Date.UTC(
+      periodDate.getUTCFullYear(),
+      periodDate.getUTCMonth() - 1,
+      1,
+    );
+    const repo = new SpendCapOverrideRepository(h.db);
+    const expired = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: priorStart,
+        expiresAt: priorStart + 1000,
+        note: 'prior month',
+      },
+      now - 1000,
+    );
+
+    const history = await call('GET', '/api/budgets/overrides/history');
+    expect(history.status).toBe(200);
+    const body = history.json() as {
+      overrides: Array<{
+        id: string;
+        state: string;
+        cellName: string | null;
+        extensionCount: number;
+        lastExtendedAt: number | null;
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+    };
+    expect(body).toMatchObject({ total: 3, limit: 20, offset: 0 });
+    expect(body.overrides.find((item) => item.id === activeId)).toMatchObject({
+      state: 'active',
+      cellName: 'History Alpha',
+      extensionCount: 1,
+      lastExtendedAt: expect.any(Number),
+    });
+    expect(body.overrides.find((item) => item.id === revokedId)).toMatchObject({
+      state: 'revoked',
+      cellName: 'History Beta',
+      extensionCount: 0,
+      lastExtendedAt: null,
+    });
+    expect(body.overrides.find((item) => item.id === expired.record.id)).toMatchObject({
+      state: 'expired',
+      cellName: null,
+      extensionCount: 0,
+      lastExtendedAt: null,
+    });
+
+    const revokedHistory = await call(
+      'GET',
+      '/api/budgets/overrides/history?state=revoked',
+    );
+    expect(revokedHistory.json()).toMatchObject({
+      total: 1,
+      overrides: [expect.objectContaining({ id: revokedId })],
+    });
+    const cellHistory = await call(
+      'GET',
+      `/api/budgets/overrides/history?scope=cell&cellId=${encodeURIComponent(otherId)}`,
+    );
+    expect(cellHistory.json()).toMatchObject({
+      total: 1,
+      overrides: [expect.objectContaining({ id: revokedId })],
+    });
+    const currentHistory = await call(
+      'GET',
+      `/api/budgets/overrides/history?from=${period.start}`,
+    );
+    expect(currentHistory.json().total).toBe(2);
+    const page = await call('GET', '/api/budgets/overrides/history?limit=1&offset=2');
+    expect(page.json()).toMatchObject({ total: 3, limit: 1, offset: 2 });
+    expect(page.json().overrides).toHaveLength(1);
+
+    for (const query of [
+      'scope=team',
+      'state=gone',
+      'scope=overall&cellId=abc',
+      'from=20&to=10',
+      'limit=0',
+      'limit=101',
+      'offset=-1',
+    ]) {
+      const bad = await call('GET', `/api/budgets/overrides/history?${query}`);
+      expect(bad.status).toBe(400);
+      expect(bad.json()).toMatchObject({ error: 'invalid' });
+    }
+
+    const budgets = await call('GET', '/api/budgets');
+    expect(budgets.json()).toMatchObject({
+      overrides: [expect.objectContaining({ id: activeId })],
+    });
+  });
+
   it('patches, redacts, and reloads webhook settings', async () => {
     const { h } = await makeApp();
 

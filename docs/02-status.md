@@ -264,7 +264,11 @@ built and vended by the brain; real-CLI verification is still pending.
   pause reason, or alerts. Revoking a snooze re-evaluates immediately, so the cap refuses
   new turns and stops live turns at once; an expiry is enforced by the next evaluation
   (within 60 seconds). Master/summary schedulers skip paused cells without backoff; a
-  stopped summary is not a failure.
+  stopped summary is not a failure. The Config page also shows a read-only **Spend cap
+  override history** card with active, revoked, and expired rows across retained months,
+  granted/extended/expires/revoked timestamps, the optional note, scope/state filters,
+  and pagination. It is an audit view and does not change the budget, pause state, or
+  alerts; a per-event ledger is not built.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
   Discord text format. An independent SMTP channel in `notifications.email` sends the
@@ -375,7 +379,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1046 vitest cases, all passing: 822 server across 49 files (one environmental root-skip) and 224 web across 24 files,
+- 1058 vitest cases, all passing: 827 server across 49 files (one environmental root-skip) and 231 web across 25 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -475,8 +479,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - Pricing maintenance at scale (bulk import, context tiers, non-USD currencies,
   per-turn applied-price audit). Advisory budget alerts, webhook/email/chat delivery,
   effective-dated estimates, daily usage rollups, and hard-cap cancellation are built.
-- Automatic replay of a cap-stopped prompt. Admission, in-flight cancellation, strict
-  unknown-cost enforcement, and time-boxed operator snoozes are built.
+- Automatic replay of a cap-stopped prompt and a per-event override audit ledger.
+  Admission, in-flight cancellation, strict unknown-cost enforcement, time-boxed operator
+  snoozes, and their read-only history are built.
 - Fan-out to multiple Slack/Discord destinations per scope, per-scope routing for
   budget-alert webhook/email channels, interactive acknowledgement, and bot event routes.
   Webhook, email, and native Slack/Discord bot channels with per-cell routing, delivery
@@ -527,6 +532,7 @@ GET    /api/skills[?requestId=…]
 GET    /api/config
 PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?,slack?,discord?,events?}}
 GET    /api/budgets                       statuses + unacknowledged alerts + active pauses + active overrides
+GET    /api/budgets/overrides/history     read-only retained overrides; scope/cell/state/period filters + limit/offset
 POST   /api/budgets/alerts/:id/ack
 POST   /api/budgets/overrides             {scope, cellId?, minutes, note?}
 DELETE /api/budgets/overrides/:id

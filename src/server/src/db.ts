@@ -203,15 +203,17 @@ ${BUDGET_DELIVERIES_DDL};
 ${NOTIFICATION_EVENT_DELIVERIES_DDL};
 
 CREATE TABLE IF NOT EXISTS spend_cap_overrides (
-  id           TEXT PRIMARY KEY,
-  scope        TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
-  scope_id     TEXT NOT NULL,
-  period_start INTEGER NOT NULL,
-  expires_at   INTEGER NOT NULL,
-  note         TEXT,
-  created_at   INTEGER NOT NULL,
-  updated_at   INTEGER NOT NULL,
-  revoked_at   INTEGER
+  id              TEXT PRIMARY KEY,
+  scope           TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+  scope_id        TEXT NOT NULL,
+  period_start    INTEGER NOT NULL,
+  expires_at      INTEGER NOT NULL,
+  note            TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  revoked_at      INTEGER,
+  extended_at     INTEGER,
+  extension_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS model_pricing (
@@ -265,6 +267,8 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['cells', 'autocompact_percent', 'INTEGER NOT NULL DEFAULT 80'],
   ['cells', 'process_json', 'TEXT'],
   ['notification_event_deliveries', 'cell_id', 'TEXT'],
+  ['spend_cap_overrides', 'extended_at', 'INTEGER'],
+  ['spend_cap_overrides', 'extension_count', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 function addColumn(db: Db, table: string, column: string, ddl: string): void {

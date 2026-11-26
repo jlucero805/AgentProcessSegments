@@ -11,6 +11,9 @@ import {
   type BudgetScope,
   type BudgetsResponse,
   type SpendCapOverride,
+  type SpendCapOverrideHistoryItem,
+  type SpendCapOverrideHistoryQuery,
+  type SpendCapOverrideHistoryResponse,
   type SpendPause,
 } from '../domain/budget.js';
 import { BudgetAlertRepository, type BudgetAlertRecord } from './budget-alerts.js';
@@ -183,6 +186,67 @@ export class BudgetService {
           if (left.scope !== right.scope) return left.scope === 'overall' ? -1 : 1;
           return (left.cellName ?? '').localeCompare(right.cellName ?? '');
         }),
+    };
+  }
+
+  /**
+   * Read-only history of retained override rows. State is derived at read time,
+   * so an elapsed window is expired without a timer or a synthetic history row.
+   */
+  overrideHistory(
+    query: SpendCapOverrideHistoryQuery = {},
+    now = this.clock(),
+  ): SpendCapOverrideHistoryResponse {
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const offset = Math.max(0, query.offset ?? 0);
+    const scope: BudgetScope | undefined =
+      query.cellId !== undefined ? 'cell' : query.scope;
+    const filter = {
+      ...(scope === undefined ? {} : { scope }),
+      ...(query.cellId === undefined ? {} : { scopeId: query.cellId }),
+      ...(query.state === undefined ? {} : { state: query.state }),
+      ...(query.from === undefined ? {} : { from: query.from }),
+      ...(query.to === undefined ? {} : { to: query.to }),
+      limit,
+      offset,
+    };
+    const cells = new Map(this.cells.list().map((cell) => [cell.id, cell.name]));
+    const overrides = this.overrides
+      .listHistory(filter, now)
+      .map((record) => this.toHistoryItem(record, cells, now));
+    return {
+      overrides,
+      total: this.overrides.countHistory(filter, now),
+      limit,
+      offset,
+    };
+  }
+
+  private toHistoryItem(
+    record: SpendCapOverrideRecord,
+    cells: Map<string, string>,
+    now: number,
+  ): SpendCapOverrideHistoryItem {
+    const cellId = record.scope === 'cell' ? record.scopeId : null;
+    return {
+      id: record.id,
+      scope: record.scope,
+      cellId,
+      cellName: cellId ? cells.get(cellId) ?? 'Deleted cell' : null,
+      periodStart: record.periodStart,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      expiresAt: record.expiresAt,
+      note: record.note,
+      revokedAt: record.revokedAt,
+      state:
+        record.revokedAt !== null
+          ? 'revoked'
+          : record.expiresAt <= now
+            ? 'expired'
+            : 'active',
+      extensionCount: record.extensionCount,
+      lastExtendedAt: record.extendedAt,
     };
   }
 

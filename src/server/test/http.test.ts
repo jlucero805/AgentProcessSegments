@@ -2339,6 +2339,55 @@ describe('http api', () => {
     expect((await call('GET', '/api/summaries?limit=0')).status).toBe(400);
   });
 
+  it('filters summary history by generation time and keyset cursor', async () => {
+    const { h } = await makeApp();
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+    const insert = (id: string, cellId: string, createdAt: number) =>
+      h.db
+        .prepare(
+          `INSERT INTO cell_summaries
+             (id, cell_id, window_start, window_end, window_minutes, content, stats_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, cellId, createdAt - 360_000, createdAt, 6, `report-${id}`, '{}', createdAt);
+
+    insert('a', alpha.id, 1_000);
+    insert('b', alpha.id, 2_000);
+    insert('c', alpha.id, 2_000);
+    insert('d', alpha.id, 3_000);
+    insert('e', beta.id, 3_000);
+
+    const inRange = await call('GET', `/api/summaries?cellId=${alpha.id}&since=2000`);
+    expect(inRange.status).toBe(200);
+    expect(inRange.json().map((row: { id: string }) => row.id)).toEqual(['d', 'c', 'b']);
+
+    const older = await call(
+      'GET',
+      `/api/summaries?cellId=${alpha.id}&since=2000&before=2000&beforeId=c`,
+    );
+    expect(older.status).toBe(200);
+    expect(older.json().map((row: { id: string }) => row.id)).toEqual(['b']);
+
+    const allForCell = await call('GET', `/api/summaries?cellId=${alpha.id}`);
+    expect(allForCell.json().map((row: { id: string }) => row.id)).toEqual([
+      'd',
+      'c',
+      'b',
+      'a',
+    ]);
+
+    const allCells = await call('GET', '/api/summaries');
+    expect(allCells.status).toBe(200);
+    expect(allCells.json()).toHaveLength(5);
+
+    expect((await call('GET', '/api/summaries?since=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?since=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?before=abc')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?before=2000')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?beforeId=c')).status).toBe(400);
+  });
+
   it('returns usage totals, filters, buckets, and validation errors', async () => {
     const { h } = await makeApp();
     const empty = await call('GET', '/api/usage');

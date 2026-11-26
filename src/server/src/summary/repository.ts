@@ -25,6 +25,12 @@ export interface SummaryInput {
 export interface SummaryListOptions {
   cellId?: string | undefined;
   limit?: number | undefined;
+  /** Inclusive lower bound on `created_at` (epoch ms). */
+  since?: number | undefined;
+  /** Exclusive upper bound on the `(created_at, id)` keyset cursor. */
+  before?: number | undefined;
+  /** Tie-breaker for `before`; both cursor fields must be supplied together. */
+  beforeId?: string | undefined;
 }
 
 function toSummary(row: SummaryRow): Summary {
@@ -67,16 +73,26 @@ export class SummaryRepository {
 
   list(options: SummaryListOptions = {}): Summary[] {
     const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-    const rows =
-      options.cellId === undefined
-        ? (this.db
-            .prepare('SELECT * FROM cell_summaries ORDER BY created_at DESC, id DESC LIMIT ?')
-            .all(limit) as SummaryRow[])
-        : (this.db
-            .prepare(
-              'SELECT * FROM cell_summaries WHERE cell_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
-            )
-            .all(options.cellId, limit) as SummaryRow[]);
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (options.cellId !== undefined) {
+      clauses.push('cell_id = ?');
+      params.push(options.cellId);
+    }
+    if (options.since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(options.since);
+    }
+    if (options.before !== undefined && options.beforeId !== undefined) {
+      clauses.push('(created_at < ? OR (created_at = ? AND id < ?))');
+      params.push(options.before, options.before, options.beforeId);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM cell_summaries${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
+      )
+      .all(...params, limit) as SummaryRow[];
     return rows.map(toSummary);
   }
 

@@ -2081,3 +2081,30 @@ work, as it is for `config.json`. The snapshot is not encrypted, is never read b
 is not repaired automatically. A file edited on disk after the process loaded it follows
 the latest load attempt, so the copy is always the bytes being replaced. The process
 editor still has no equivalent of D88's `preservedPath` notice.
+
+## D91. Scorecard history is filtered by report generation time
+
+**Context.** The Scorecards page grouped all persisted `cell_summaries` rows by cell and
+asked for a fixed newest-10 or newest-25 per cell. Operators could not scope the page to a
+recent stretch or page farther back; a cell whose latest report was older than the window
+still looked current, and widening to "all" silently dropped rows behind the fixed limit.
+
+**Decision.** Add optional `since` (inclusive `created_at`) and `before`/`beforeId`
+(exclusive `(created_at, id)` keyset) filters to `GET /api/summaries` and
+`SummaryRepository.list()`. The page defaults to the last 72 hours, offers
+24h/72h/7d/30d/All, and requests 25 reports per cell plus one probe row to decide whether
+to show **Load older**; the next page uses the oldest rendered report's `created_at` and
+`id` as the cursor. The period filters by generation time, not `window_start`/`window_end`;
+a report generated inside the period is shown even when its own window starts earlier.
+The API has no default filter, so `MasterDetail`'s latest-five call and any other caller
+keep today's behavior. The drawer is unchanged.
+
+**Why keyset, not offset.** New reports are inserted at the head while an operator pages.
+An offset would duplicate or skip rows; `(created_at, id)` is stable and `id` breaks ties
+without a new column. The existing `idx_cell_summaries_created` and
+`idx_cell_summaries_cell_created` indexes cover the predicates.
+
+**Cost.** The page makes one request per cell and one extra row per page; no schema,
+index, scheduler, retention, or report-content change. **All** is bounded by
+`retention.cellSummariesDays` and still keeps one row per cell, so the page never implies
+unlimited history. A flat cross-cell feed and a custom date picker are separate work.

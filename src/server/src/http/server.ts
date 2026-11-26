@@ -350,10 +350,17 @@ const priceInputSchema = z.object({
 });
 const masterQuerySchema = z.object({ cellId: z.string().optional() });
 const masterRunQuerySchema = z.object({ cellId: z.string().min(1) });
-const summariesQuerySchema = z.object({
-  cellId: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(50).optional(),
-});
+const summariesQuerySchema = z
+  .object({
+    cellId: z.string().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+    since: z.coerce.number().int().min(0).optional(),
+    before: z.coerce.number().int().min(0).optional(),
+    beforeId: z.string().min(1).optional(),
+  })
+  .refine((query) => (query.before === undefined) === (query.beforeId === undefined), {
+    message: 'before and beforeId must be provided together',
+  });
 const summaryCellQuerySchema = z.object({ cellId: z.string().min(1) });
 const summaryStatusQuerySchema = z.object({ cellId: z.string().min(1).optional() });
 const chatTestSchema = z.object({ channelId: z.string().min(1).optional() });

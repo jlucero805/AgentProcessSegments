@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
 import { jsonResponse } from './test/fixtures';
@@ -35,6 +35,9 @@ function makeReport(id: string, cellId: string, content: string, createdAt: numb
   };
 }
 
+type Cell = ReturnType<typeof makeCell>;
+type Report = ReturnType<typeof makeReport>;
+
 const STATUS = {
   enabled: true,
   intervalMinutes: 360,
@@ -45,7 +48,7 @@ const STATUS = {
   lastError: null,
 };
 
-function stubFetch(cells: unknown[], reportsByCell: Record<string, unknown[]>) {
+function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -55,7 +58,17 @@ function stubFetch(cells: unknown[], reportsByCell: Record<string, unknown[]>) {
     if (url.startsWith('/api/summaries?')) {
       const params = new URL(url, 'http://localhost').searchParams;
       const cellId = params.get('cellId') ?? '';
-      return jsonResponse(reportsByCell[cellId] ?? []);
+      const before = params.get('before');
+      const beforeId = params.get('beforeId');
+      const rows = reportsByCell[cellId] ?? [];
+      const next =
+        before !== null && beforeId !== null
+          ? rows.filter((row) => {
+              const at = Number(before);
+              return row.createdAt < at || (row.createdAt === at && row.id < beforeId);
+            })
+          : rows;
+      return jsonResponse(next);
     }
     return jsonResponse([]);
   });
@@ -63,15 +76,24 @@ function stubFetch(cells: unknown[], reportsByCell: Record<string, unknown[]>) {
   return urls;
 }
 
+function summaryRequests(urls: string[]): URLSearchParams[] {
+  return urls
+    .filter((url) => url.startsWith('/api/summaries?'))
+    .map((url) => new URL(url, 'http://localhost').searchParams);
+}
+
 describe('ScorecardsPage', () => {
   it('groups reports by cell, newest first, with earlier history', async () => {
-    const urls = stubFetch([makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')], {
-      c1: [
-        makeReport('s1', 'c1', 'Alpha newest report', 2_000_000),
-        makeReport('s0', 'c1', 'Alpha previous report', 1_000_000),
-      ],
-      c2: [makeReport('s2', 'c2', 'Beta newest report', 1_500_000)],
-    });
+    const urls = stubFetch(
+      [makeCell('c1', 'Alpha'), makeCell('c2', 'Beta'), makeCell('c3', 'Gamma')],
+      {
+        c1: [
+          makeReport('s1', 'c1', 'Alpha newest report', 2_000_000),
+          makeReport('s0', 'c1', 'Alpha previous report', 1_000_000),
+        ],
+        c2: [makeReport('s2', 'c2', 'Beta newest report', 1_500_000)],
+      },
+    );
 
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
@@ -81,9 +103,31 @@ describe('ScorecardsPage', () => {
     expect(screen.getByText('Beta')).toBeInTheDocument();
     expect(screen.getByText('Earlier scorecards (1)')).toBeInTheDocument();
     expect(screen.getByText('Alpha previous report')).toBeInTheDocument();
+    expect(screen.queryByText('Gamma')).not.toBeInTheDocument();
     expect(screen.queryByText('No scorecards yet')).not.toBeInTheDocument();
-    expect(urls).toContain('/api/summaries?cellId=c1&limit=10');
-    expect(urls).toContain('/api/summaries?cellId=c2&limit=10');
+
+    const requests = summaryRequests(urls);
+    expect(requests).toHaveLength(3);
+    expect(requests.map((params) => params.get('cellId')).sort()).toEqual(['c1', 'c2', 'c3']);
+    for (const params of requests) {
+      expect(params.get('limit')).toBe('26');
+      expect(params.get('since')).not.toBeNull();
+    }
+  });
+
+  it('defaults to the last 72 hours', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    expect(await screen.findByText('Alpha report')).toBeInTheDocument();
+    const [params] = summaryRequests(urls);
+    const since = Number(params?.get('since'));
+    const expected = Date.now() - 72 * 60 * 60_000;
+    expect(Number.isFinite(since)).toBe(true);
+    expect(Math.abs(since - expected)).toBeLessThan(60_000);
   });
 
   it('scopes the list to the selected cell', async () => {
@@ -97,18 +141,71 @@ describe('ScorecardsPage', () => {
     expect(await screen.findByText('Alpha report')).toBeInTheDocument();
     expect(screen.queryByText('Beta report')).not.toBeInTheDocument();
     expect(screen.queryByText('Beta')).not.toBeInTheDocument();
-    expect(urls).toContain('/api/summaries?cellId=c1&limit=25');
+
+    const requests = summaryRequests(urls);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.get('cellId')).toBe('c1');
+    expect(requests[0]?.get('limit')).toBe('26');
     expect(urls).toContain('/api/summaries/status?cellId=c1');
     expect(urls.some((url) => url.includes('cellId=c2'))).toBe(false);
   });
 
-  it('shows an empty state when there are no reports', async () => {
+  it('reloads with a matching period and omits since for all time', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(await screen.findByText('Alpha report')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2));
+    const sevenDaySince = Number(summaryRequests(urls)[1]?.get('since'));
+    const expected = Date.now() - 7 * 24 * 60 * 60_000;
+    expect(Math.abs(sevenDaySince - expected)).toBeLessThan(60_000);
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3));
+    expect(summaryRequests(urls)[2]?.has('since')).toBe(false);
+  });
+
+  it('loads older reports within the period and stops at the end', async () => {
+    const reports = Array.from({ length: 27 }, (_, index) =>
+      makeReport(`s${index}`, 'c1', `Report ${index}`, 100_000 - index),
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    expect(await screen.findByText('Report 0')).toBeInTheDocument();
+    expect(screen.getByText('Earlier scorecards (24)')).toBeInTheDocument();
+    expect(screen.queryByText('Report 25')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+
+    expect(await screen.findByText('Report 25')).toBeInTheDocument();
+    expect(screen.getByText('Report 26')).toBeInTheDocument();
+    expect(screen.getByText('Earlier scorecards (26)')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument(),
+    );
+
+    const older = summaryRequests(urls)[1];
+    expect(older?.get('before')).toBe('99976');
+    expect(older?.get('beforeId')).toBe('s24');
+    expect(older?.get('since')).not.toBeNull();
+  });
+
+  it('shows a range-aware empty state', async () => {
     stubFetch([makeCell('c1', 'Alpha')], {});
 
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
+    expect(await screen.findByText('No scorecards in the last 72 hours')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+
     expect(await screen.findByText('No scorecards yet')).toBeInTheDocument();
-    expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
   });
 
   it('reports a load failure and offers a retry state', async () => {

@@ -137,7 +137,13 @@ describe('api client', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await api.getSummaries({ cellId: 'c1', limit: 5 });
+    await api.getSummaries({
+      cellId: 'c1',
+      limit: 5,
+      since: 1_000,
+      before: 2_000,
+      beforeId: 's1',
+    });
     await api.getLatestSummary('c1');
     await api.getSummaryStatus('c1');
     await api.runSummary('c1');
@@ -152,7 +158,9 @@ describe('api client', () => {
       url: String(call[0]),
       init: call[1],
     }));
-    expect(calls[0]?.url).toBe('/api/summaries?cellId=c1&limit=5');
+    expect(calls[0]?.url).toBe(
+      '/api/summaries?cellId=c1&limit=5&since=1000&before=2000&beforeId=s1',
+    );
     expect(calls[1]?.url).toBe('/api/summaries/latest?cellId=c1');
     expect(calls[2]?.url).toBe('/api/summaries/status?cellId=c1');
     expect(calls[3]?.url).toBe('/api/summaries/run?cellId=c1');
@@ -181,6 +189,17 @@ describe('api client', () => {
     expect(calls[9]?.init?.body).toBe(
       JSON.stringify({ retention: { notificationEventsDays: 30 } }),
     );
+  });
+
+  it('omits absent summary history filters', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse([]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.getSummaries({ cellId: 'c1' });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/summaries?cellId=c1');
   });
 
   it('surfaces the first validation issue when there is no message', async () => {

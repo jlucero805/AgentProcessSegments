@@ -151,6 +151,7 @@ describe('ClaudeHarness', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('aps');
     expect(warn.mock.calls[0]?.[0]).toContain(userFile);
+    expect(warn.mock.calls[0]?.[0]).toContain('user MCP server');
   });
 
   it('names the config file that supplied the overridden aps server', async () => {
@@ -180,6 +181,8 @@ describe('ClaudeHarness', () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain(projectFile);
+    expect(warn.mock.calls[0]?.[0]).toContain('project MCP server');
+    expect(warn.mock.calls[0]?.[0]).not.toContain('user MCP server');
   });
 
   it('prefers local scope over project scope for a same-named server', () => {
@@ -205,8 +208,9 @@ describe('ClaudeHarness', () => {
     const loaded = claudeUserMcpServers(home, cwd);
 
     expect(loaded.servers['shared']).toEqual({ command: 'local-shared' });
-    expect(loaded.sources.get('shared')).toBe(userFile);
+    expect(loaded.sources.get('shared')).toEqual({ file: userFile, scope: 'local' });
     expect(loaded.servers['user-only']).toEqual({ command: 'user-only' });
+    expect(loaded.sources.get('user-only')).toEqual({ file: userFile, scope: 'user' });
   });
 
   it('prefers project scope over user scope for a same-named server', () => {
@@ -225,7 +229,7 @@ describe('ClaudeHarness', () => {
     const loaded = claudeUserMcpServers(home, cwd);
 
     expect(loaded.servers['shared']).toEqual({ command: 'project-shared' });
-    expect(loaded.sources.get('shared')).toBe(projectFile);
+    expect(loaded.sources.get('shared')).toEqual({ file: projectFile, scope: 'project' });
   });
 
   it('names the winning local file when a local aps entry beats the project one', async () => {
@@ -252,6 +256,8 @@ describe('ClaudeHarness', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('aps');
     expect(warn.mock.calls[0]?.[0]).toContain(userFile);
+    expect(warn.mock.calls[0]?.[0]).toContain('local MCP server');
+    expect(warn.mock.calls[0]?.[0]).not.toContain('user MCP server');
     expect(warn.mock.calls[0]?.[0]).not.toContain(projectFile);
   });
 

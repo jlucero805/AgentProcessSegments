@@ -146,7 +146,8 @@ session. Claude reads user and local scopes from `~/.claude.json` plus project
 `<cwd>/.mcp.json`, adds them to `mcp-config.json`, and allows each server with
 `mcp__<server>__*` (the CLI's wildcard rule). Scope precedence is local > project >
 user, as the CLI documents it: the highest-precedence entry replaces the others whole,
-and the reserved-key warning names the file that supplied the winning entry. OpenCode
+and the reserved-key warning names the winning file and scope (`user`, `project`, or
+`local`). OpenCode
 merges `mcp` entries from its config into the generated
 `OPENCODE_CONFIG_DIR/opencode.json`; `--auto` makes them callable.
 

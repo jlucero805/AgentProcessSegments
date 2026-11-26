@@ -164,7 +164,7 @@ built and vended by the brain; real-CLI verification is still pending.
   with the winning entry used whole; OpenCode merges `mcp` entries from its config and
   runs with `--auto`. Read-only KB sessions exclude user servers and plugins. The bundled
   `aps` key is reserved: a user entry with that name is replaced by the bundled server,
-  with a one-time warning naming its config file. A missing config file stays silent;
+  with a one-time warning naming its config file and scope. A missing config file stays silent;
   one that exists but is unreadable or malformed is named once on stderr and in the
   `harness.mcpConfig` error-log record, and the session continues without those servers.
 - Installed plugins reach OpenCode too: `commands/**/*.md` become `commands` templates

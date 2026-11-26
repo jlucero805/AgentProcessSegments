@@ -1211,12 +1211,18 @@ export class NotificationService {
     }
   }
 
+  private eventRoute(kind: NotificationEventKind): EventChannelSettings {
+    const events = this.settings.get().notifications.events;
+    if (kind === 'turn.failed') return events.failedTurns;
+    if (kind === 'master.error') return events.masterErrors;
+    return events.summaryFailures;
+  }
+
   private resendEvent(delivery: EventDeliveryRecord): ResendDeliveryResult {
     try {
       const route = this.channelRoute(delivery.channel);
-      const settings = this.settings.get().notifications.events;
       const eventEnabled = eventChannelEnabled(
-        delivery.kind === 'turn.failed' ? settings.failedTurns : settings.masterErrors,
+        this.eventRoute(delivery.kind),
         delivery.channel,
       );
       const block = eventResendBlockReason({
@@ -1291,17 +1297,24 @@ export class NotificationService {
   private eventLogIds(delivery: EventDeliveryRecord): Record<string, unknown> {
     const payload = this.eventPayload(delivery);
     if (payload === null) return {};
-    return delivery.kind === 'turn.failed'
-      ? {
-          turnId: payload['turnId'],
-          requestId: payload['requestId'],
-          cellId: payload['cellId'],
-        }
-      : {
-          cellId: payload['cellId'],
-          requestId: payload['requestId'],
-          source: payload['source'],
-        };
+    if (delivery.kind === 'turn.failed') {
+      return {
+        turnId: payload['turnId'],
+        requestId: payload['requestId'],
+        cellId: payload['cellId'],
+      };
+    }
+    if (delivery.kind === 'master.error') {
+      return {
+        cellId: payload['cellId'],
+        requestId: payload['requestId'],
+        source: payload['source'],
+      };
+    }
+    return {
+      cellId: payload['cellId'],
+      source: payload['source'],
+    };
   }
 
   private toEventHistoryItem(
@@ -1310,9 +1323,8 @@ export class NotificationService {
   ): EventDeliveryHistoryItem {
     const event = this.eventSnapshot(delivery, names);
     const route = this.channelRoute(delivery.channel);
-    const settings = this.settings.get().notifications.events;
     const eventEnabled = eventChannelEnabled(
-      delivery.kind === 'turn.failed' ? settings.failedTurns : settings.masterErrors,
+      this.eventRoute(delivery.kind),
       delivery.channel,
     );
     const block = eventResendBlockReason({
@@ -1342,7 +1354,12 @@ export class NotificationService {
     delivery: EventDeliveryRecord,
     names: Map<string, string>,
   ): EventDeliverySnapshot {
-    const fallbackTitle = delivery.kind === 'turn.failed' ? 'Turn failed' : 'Master error';
+    const fallbackTitle =
+      delivery.kind === 'turn.failed'
+        ? 'Turn failed'
+        : delivery.kind === 'master.error'
+          ? 'Master error'
+          : 'Scorecard failed';
     const fallback: EventDeliverySnapshot = {
       kind: delivery.kind,
       title: fallbackTitle,
@@ -1408,6 +1425,32 @@ export class NotificationService {
     ) {
       return fallback;
     }
+
+    if (delivery.kind === 'summary.failed') {
+      if (typeof payload['reason'] !== 'string') return fallback;
+      const summary = {
+        cellId: payload['cellId'],
+        source: payload['source'],
+        reason: payload['reason'],
+        occurredAt: payload['occurredAt'],
+      } as unknown as SummaryFailureNotification;
+      const cellName = names.get(summary.cellId) ?? 'Deleted cell';
+      const envelope = summaryFailedEnvelope(summary, cellName);
+      return {
+        kind: delivery.kind,
+        title: envelope.title,
+        text: envelope.text,
+        source: summary.source,
+        reason: summary.reason,
+        cellId: summary.cellId,
+        cellName,
+        requestId: null,
+        turnId: null,
+        segment: null,
+        occurredAt: summary.occurredAt,
+      };
+    }
+
     const event = {
       source: payload['source'],
       cellId: payload['cellId'],

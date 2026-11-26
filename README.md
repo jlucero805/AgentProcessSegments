@@ -456,7 +456,7 @@ always kept and pending or in-flight rows are never pruned); event rows are prun
 400 days on notifier start. A budget row remains after its alert is deleted (clearing a
 budget, changing its threshold, deleting a cell, or retention expiring an acknowledged
 alert); it becomes history-only and cannot be resent. `GET /api/notifications/deliveries`
-filters by `source` (`budget|event`) or `kind` (`turn.failed|master.error`) and
+filters by `source` (`budget|event`) or `kind` (`turn.failed|master.error|summary.failed`) and
 `POST /api/notifications/deliveries/:id/resend` backs the card for both outboxes.
 Fan-out to several destinations per scope and interactive acknowledgement remain separate
 backlog items.
@@ -564,7 +564,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1026 vitest cases: 811 server cases across 49 files (state machine,
+`npm test` runs 1028 vitest cases: 813 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

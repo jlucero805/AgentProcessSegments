@@ -82,7 +82,7 @@ const DELIVERY_TONES: Record<
   skipped: 'neutral',
 };
 
-type DeliveryTypeFilter = '' | 'budget' | 'turn.failed' | 'master.error';
+type DeliveryTypeFilter = '' | 'budget' | 'turn.failed' | 'master.error' | 'summary.failed';
 
 function deliverySubject(item: DeliveryHistoryItem): string {
   if (item.source === 'event') return item.event.title;
@@ -95,7 +95,8 @@ function deliverySubject(item: DeliveryHistoryItem): string {
 
 function deliveryTypeLabel(item: DeliveryHistoryItem): string {
   if (item.source === 'budget') return 'Budget';
-  return item.event.kind === 'turn.failed' ? 'Turn failed' : 'Master error';
+  if (item.event.kind === 'turn.failed') return 'Turn failed';
+  return item.event.kind === 'master.error' ? 'Master error' : 'Scorecard failed';
 }
 
 function deliverySubjectTitle(item: DeliveryHistoryItem): string {
@@ -371,7 +372,10 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     try {
       const response = await api.getNotificationDeliveries({
         source: type === 'budget' ? 'budget' : undefined,
-        kind: type === 'turn.failed' || type === 'master.error' ? type : undefined,
+        kind:
+          type === 'turn.failed' || type === 'master.error' || type === 'summary.failed'
+            ? type
+            : undefined,
         channel: channel === '' ? undefined : channel,
         status: status === '' ? undefined : status,
         limit: 10,
@@ -1890,6 +1894,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               <option value="budget">Budget alerts</option>
               <option value="turn.failed">Failed turns</option>
               <option value="master.error">Master errors</option>
+              <option value="summary.failed">Scorecard failures</option>
             </Select>
           </Field>
           <Field label="Channel" hint="webhook, email, Slack, or Discord">

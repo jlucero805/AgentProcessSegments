@@ -1024,7 +1024,7 @@ cascade. The secret is never returned by `GET/PATCH /api/config`; failures go to
 
 **Cost.** A generic webhook plus Slack/Discord text bodies covers external delivery
 without SMTP or bot credentials. Email (D57), native chat apps (D64), delivery
-history/resend (D63/D80), and general event notifications (D66) were later built as
+history/resend (D63/D81), and general event notifications (D66) were later built as
 separate changes. The outbox adds one small table and
 one `unref()`'d timer; delivery is advisory and never changes budgets, turns, or the HTTP
 response path. `destination_hash` is a one-way hash stored only in the local database and
@@ -1104,7 +1104,7 @@ status, and `POST /api/notifications/email/test` exercises the sender without wr
 handling, provider APIs, or OAuth2; those are separate work. The password lives in
 `config.json` (mode `0600`) because the brain has no keyring. A recipient list is capped at
 ten. D64 later broadens the outbox key; email rows keep `destination_id = "email"`.
-Delivery history/resend and non-budget events were later built as D63/D80 and D66. The
+Delivery history/resend and non-budget events were later built as D63/D81 and D66. The
 dependency is one runtime package with its own types and no transitive dependencies.
 
 ## D58. Request workdirs are owner-only
@@ -1260,7 +1260,7 @@ flush. For chat, the current route must still resolve to the row's destination i
 **Cost.** No schema change, migration, new dependency, or background job. The audit is an
 ops list bounded by monthly alerts, two channels, and the configurable budget-alert
 retention window (D77). D78 later replaces the join with an alert snapshot so history
-survives alert deletion, and D80 extends the same read model and resend route to
+survives alert deletion, and D81 extends the same read model and resend route to
 operational event deliveries. Resends are not attributed to an operator because the app
 has no user identity.
 ## D64. Budget alerts also deliver through native Slack and Discord bots
@@ -1709,7 +1709,7 @@ and can differ from the latest alert or budget; that is the intended audit seman
 Alert rows and delivery rows are no longer transactionally coupled after enqueue, so the
 orphan sweep is the guard against sending a deleted alert. Migrated rows whose alert was
 already gone get safe default snapshot values; current installs cannot have that state
-because the old cascade removed them first. Resends remain unattributed. D80 later adds
+because the old cascade removed them first. Resends remain unattributed. D81 later adds
 event rows to the same history and resend view without changing this budget snapshot.
 
 ## D79. Finalize is a manual-only segment
@@ -1761,17 +1761,17 @@ a one-time table rebuild that preserves every delivery row and the unique key.
 
 **Cost.** One small setting, one Config row, one SummaryService callback, and one guarded
 table rebuild. Event delivery history/resend were later added by D81; bot event routes,
-per-cell routing, and configurable coalescing windows remain out of scope. A scorecard failure emits after the
-generation has already rejected, so the hook is advisory and cannot change scheduler
-backoff or an HTTP response.
+per-cell routing, and configurable coalescing windows remain out of scope. A scorecard
+failure emits after the generation has already rejected, so the hook is advisory and
+cannot change scheduler backoff or an HTTP response.
 
 ## D81. Delivery history and resend cover operational events
 
 **Context.** D63/D78 built a read-only audit and guarded manual resend for budget-alert
 deliveries only. D66 added a sibling `notification_event_deliveries` outbox for
-`turn.failed`, `master.error`, and `summary.failed`, but the Config page exposed only aggregate event
-pending/failed counts. An operator could not see which event failed, why, or re-queue a
-failed/skipped event row without editing SQLite.
+`turn.failed`, `master.error`, and `summary.failed`, but the Config page exposed only
+aggregate event pending/failed counts. An operator could not see which event failed,
+why, or re-queue a failed/skipped event row without editing SQLite.
 
 **Decision.** `GET /api/notifications/deliveries` reads both outboxes and returns one
 newest-first list with a `source` discriminator. Budget rows keep `alertId` and their
@@ -1783,8 +1783,9 @@ and no request/segment). Event history never returns
 transcripts, diffs, or model output. An unreadable payload renders a fallback label
 instead of hiding or throwing. The merge is `(created_at DESC, id DESC)`; `total` is the
 sum of matching per-source counts, and `limit`/`offset` apply to the merged list. Filters
-add `source` (`budget|event`) and `kind` (`turn.failed|master.error|summary.failed`); the two are
-mutually exclusive, `alertId` is budget-only, and incompatible combinations are `400`.
+add `source` (`budget|event`) and `kind`
+(`turn.failed|master.error|summary.failed`); the two are mutually exclusive, `alertId`
+is budget-only, and incompatible combinations are `400`.
 Channel, status, and the `[from, to)` window apply to both sources.
 
 `POST /api/notifications/deliveries/:id/resend` looks up the budget row first and then the

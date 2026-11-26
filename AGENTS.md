@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1105 vitest cases: 864 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
+- 1106 vitest cases: 865 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -72,7 +72,8 @@ digests.
   prunes older `~/.aps-cutover/runs/` evidence, and rolls back, a self-hosted upgrade
   script (`deploy/upgrade-vps.sh`,
   `npm run upgrade:vps`) that detaches, drains, fast-forwards, rebuilds, restarts,
-  verifies, and rolls back in place, a harness seam with `claude` and `opencode` adapters,
+  verifies, and rolls back in place, with owner-only `0700` run directories and a `0600`
+  database snapshot, a harness seam with `claude` and `opencode` adapters,
   OpenCode plugin parity (skills and slash commands), chat slash-menu skill discovery
   with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard with
@@ -105,7 +106,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 864 server + 241 web, plus the e2e env guard
+npm test                       # 865 server + 241 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -582,6 +583,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     not log file contents, prompts, or raw parser text: transcripts can contain secrets.
     The bulk `npm run repair:permissions` scan stays exact-name and does not include
     quarantine files.
+
+42. **Upgrade run directories and snapshots are owner-only.** `deploy/upgrade-vps.sh`
+    creates (or tightens) every run directory to `0700`, and the `VACUUM INTO`
+    `db-backup.sqlite` is forced to `0600`. A local `umask 077` covers creation, then
+    `chmod` makes the result independent of the caller's umask and repairs a retried run;
+    both fail closed. Missing `~/.aps-cutover`/`upgrades` ancestors are created `0700`;
+    existing ancestors are left alone. The snapshot remains a normal, manually restorable
+    SQLite database. This is not encryption at rest, and older run directories are not
+    repaired retroactively.
 
 ## Extension recipes
 

@@ -124,6 +124,14 @@ normalize_path() {
   realpath -m "$1"
 }
 
+# Create (or tighten) a run directory that holds the snapshot and evidence.
+# A missing ancestor chain is created owner-only; an existing ancestor is left alone.
+prepare_run_dir() {
+  local dir="$1"
+  (umask 077; mkdir -p "$dir")
+  chmod 700 "$dir"
+}
+
 short_sha() {
   printf '%s' "${1:0:12}"
 }
@@ -469,7 +477,7 @@ plan() {
 
 detach_upgrade() {
   RUN_DIR="$UPGRADE_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$RUN_DIR"
+  prepare_run_dir "$RUN_DIR"
   cp "$ORIGINAL_SCRIPT" "$RUN_DIR/upgrade.sh"
   chmod +x "$RUN_DIR/upgrade.sh"
   touch "$RUN_DIR/upgrade.log"
@@ -546,6 +554,7 @@ backup_db() {
   rm -f "$dest"
   (
     cd "$CLONE"
+    umask 077
     node - "$DB" "$dest" <<'NODE'
 const Database = require('better-sqlite3');
 const [dbPath, dest] = process.argv.slice(2);
@@ -555,6 +564,7 @@ db.close();
 NODE
   )
   [[ -s "$dest" ]] || die "database snapshot was not written: $dest"
+  chmod 600 "$dest"
   log "database snapshot: $dest"
 }
 
@@ -897,7 +907,7 @@ on_signal() {
 }
 
 run_upgrade() {
-  mkdir -p "$RUN_DIR"
+  prepare_run_dir "$RUN_DIR"
   touch "$RUN_DIR/upgrade.log"
   write_state running
   log "starting upgrade run in $RUN_DIR"

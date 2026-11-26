@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
@@ -269,16 +269,19 @@ function createFixture(options: { lockfileChanges?: boolean } = {}): Fixture {
   return { root, home, clone, v1, v2, env: createEnv(root, home, clone, bin) };
 }
 
-function runScript(fixture: Fixture, args: string[], timeout = 60_000) {
-  return spawnSync(
-    'bash',
-    [script, '--home', fixture.home, '--clone', fixture.clone, ...args],
-    { encoding: 'utf8', env: fixture.env, timeout },
-  );
+function runScript(fixture: Fixture, args: string[], timeout = 60_000, umask?: string) {
+  const argv = [script, '--home', fixture.home, '--clone', fixture.clone, ...args];
+  const options = { encoding: 'utf8' as const, env: fixture.env, timeout };
+  if (umask === undefined) return spawnSync('bash', argv, options);
+  return spawnSync('bash', ['-c', `umask ${umask}; exec bash "$@"`, 'bash', ...argv], options);
 }
 
 function latestRun(fixture: Fixture): string {
   return realpathSync(path.join(fixture.home, '.aps-cutover', 'upgrades', 'latest'));
+}
+
+function modeOf(target: string): number {
+  return statSync(target).mode & 0o777;
 }
 
 function stateOf(fixture: Fixture): string {
@@ -413,6 +416,20 @@ describe('deploy/upgrade-vps.sh', () => {
     }
     expect(existsSync(path.join(run, 'node_modules.bak'))).toBe(false);
 
+    if (process.platform !== 'win32') {
+      expect(modeOf(run)).toBe(0o700);
+      expect(modeOf(path.join(run, 'db-backup.sqlite'))).toBe(0o600);
+    }
+    const snapshot = new Database(path.join(run, 'db-backup.sqlite'), {
+      readonly: true,
+      fileMustExist: true,
+    });
+    const snapshotCount = snapshot.prepare('SELECT count(*) AS count FROM requests').get() as {
+      count: number;
+    };
+    expect(snapshotCount.count).toBe(1);
+    snapshot.close();
+
     const after = patchBody(fixture) as {
       head: string;
       http: { notificationsStatus: string };
@@ -493,7 +510,30 @@ describe('deploy/upgrade-vps.sh', () => {
     expect(existsSync(path.join(run, 'dist-backup/server'))).toBe(true);
     expect(existsSync(path.join(run, 'node_modules.bak'))).toBe(true);
     expect(output).toContain('database snapshot:');
+    if (process.platform !== 'win32') {
+      expect(modeOf(run)).toBe(0o700);
+      expect(modeOf(path.join(run, 'db-backup.sqlite'))).toBe(0o600);
+    }
     const patches = calls(fixture, 'config.patches').trim().split('\n');
     expect(patches[patches.length - 1]).toBe('{"master":{"enabled":true}}');
   }, 30_000);
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps the run directory and snapshot owner-only under a permissive umask',
+    () => {
+      const fixture = createFixture();
+
+      const result = runScript(fixture, ['--detach', '--health-timeout', '10'], 30_000, '000');
+
+      expect(result.status).toBe(0);
+      expect(stateOf(fixture)).toBe('success');
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      const run = latestRun(fixture);
+      expect(modeOf(cutoverRoot)).toBe(0o700);
+      expect(modeOf(path.join(cutoverRoot, 'upgrades'))).toBe(0o700);
+      expect(modeOf(run)).toBe(0o700);
+      expect(modeOf(path.join(run, 'db-backup.sqlite'))).toBe(0o600);
+    },
+    30_000,
+  );
 });

@@ -133,6 +133,8 @@ additive migrations, with an `addColumn` guard per column. Boot reconcile sets
 restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftover
 `-journal` at `0600`, repairing a loose install on every open. A missing database parent
 is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
+The deploy `upgrade-vps.sh` writes its `db-backup.sqlite` snapshot `0600` inside a `0700`
+run directory.
 
 ### `requests`
 

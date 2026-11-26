@@ -317,10 +317,12 @@ journalctl --user -f | grep aps-upgrade
 
 `--detach` prints the transient unit name; `journalctl --user -u <name>` shows that unit
 while it still exists. `state` is one of `launched`, `running`, `success`, `failed`, or
-`rolled_back`. Each run directory keeps `before.json`, `after.json`,
-`config-before.json`, `config-after.json`, `db-backup.sqlite`, and the previous `dist`
-and `node_modules` trees. The script prunes all but the 5 newest finished runs; a run
-still marked `launched` or `running` is never pruned.
+`rolled_back`. Each run directory is created (or tightened) `0700` and keeps `before.json`,
+`after.json`, `config-before.json`, `config-after.json`, `db-backup.sqlite`, and the
+previous `dist` and `node_modules` trees; the snapshot itself is written `0600`. The
+script prunes all but the 5 newest finished runs; a run still marked `launched` or
+`running` is never pruned. Run directories left by an older version are not retroactively
+changed.
 
 Notes:
 
@@ -329,9 +331,9 @@ Notes:
 - `npm ci` is not optional when the lockfile moves, and it must pass `--include=dev`:
   the unit exports `NODE_ENV=production`, which otherwise omits `typescript`, `vite`, and
   the rest of the devDependencies and breaks the build. The script handles this.
-- `db-backup.sqlite` is a consistent snapshot taken before the install. The script never
-  restores it automatically. Migrations are additive, so a rolled-back build can usually
-  read the upgraded database; restore the snapshot by hand only if it cannot.
+- `db-backup.sqlite` is a consistent, owner-only snapshot taken before the install. The
+  script never restores it automatically. Migrations are additive, so a rolled-back build
+  can usually read the upgraded database; restore the snapshot by hand only if it cannot.
 - The script refuses a dirty clone, a non-fast-forward target, a branch mismatch, or a
   target commit that changes `deploy/agent-process-segments.service`; install a changed
   unit deliberately instead of letting an upgrade replace it.

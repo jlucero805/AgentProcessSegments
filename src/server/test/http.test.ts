@@ -2361,7 +2361,6 @@ describe('http api', () => {
   it('reports an OpenCode harness without effort support', async () => {
     await makeApp({
       harness: 'opencode',
-      harnessBin: 'opencode',
       defaultModel: 'opencode-go/deepseek-v4.1-flash',
     });
     const response = await call('GET', '/api/models');
@@ -2380,7 +2379,6 @@ describe('http api', () => {
   it('applies a makeApp defaultModel override to the reported models', async () => {
     await makeApp({
       harness: 'opencode',
-      harnessBin: 'opencode',
       defaultModel: 'test/opencode-override',
     });
 
@@ -2397,7 +2395,6 @@ describe('http api', () => {
   it('uses a makeApp defaultModel override for real turns', async () => {
     const { h } = await makeApp({
       harness: 'opencode',
-      harnessBin: 'opencode',
       defaultModel: 'test/opencode-override',
     });
     const request = h.repo.create({ title: 'Overridden default model' });

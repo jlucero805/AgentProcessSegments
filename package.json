@@ -34,6 +34,7 @@
     "cutover:vps": "bash deploy/cutover-vps.sh",
     "upgrade:vps": "bash deploy/upgrade-vps.sh",
     "prune:cutover": "node scripts/prune-cutover-runs.mjs",
+    "prune:upgrades": "node scripts/prune-cutover-runs.mjs --kind upgrade",
     "smoke:claude": "node scripts/claude-mock-smoke.mjs"
   },
   "devDependencies": {

@@ -431,7 +431,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1242 vitest cases (one environmental root-skip): 966 server across 55 files and 276 web across 27 files,
+- 1243 vitest cases (one environmental root-skip): 967 server across 55 files and 276 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -458,6 +458,7 @@ built and vended by the brain; real-CLI verification is still pending.
   and rolls back in place; each run leaves evidence under `~/.aps-cutover/upgrades/` in a
   `0700` directory, the `db-backup.sqlite` snapshot is `0600`, and bounded retention
   (`--keep-runs`/`--keep-days`/`--no-prune`) prunes older runs after every terminal state.
+  The same retention can be run by hand with `npm run prune:upgrades`.
   Runs and snapshots left by an older version are tightened with `npm run repair:upgrades`
   (dry run first).
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`

@@ -330,6 +330,29 @@ a 7-day grace window, then removes the older terminal runs. Use `--keep-runs` an
 `--keep-days` to tune those windows, or `--no-prune` to leave pruning to an external
 schedule.
 
+Prune upgrade evidence by hand (for example after running with `--no-prune`, or on a
+schedule) with the same pruner:
+
+```bash
+npm run prune:upgrades -- --dry-run   # list what would be removed
+npm run prune:upgrades
+```
+
+The command scans only `~/.aps-cutover/upgrades`. It uses the pruner's defaults: the
+newest 10 runs, anything modified in the last 30 days, `upgrades/latest`, the newest
+successful run, and incomplete runs for a 7-day grace window. The upgrade script's
+automatic pass defaults to the newest 5, so pass `--keep-runs 5` to match it. Tune with
+`--keep-runs N`, `--keep-days D` (0 disables the age rule), and
+`--incomplete-grace-days D`; `--root DIR` points at a different cutover root. Deleting a
+run directory also deletes its `db-backup.sqlite` and previous build trees, so inspect
+`upgrades/latest` and the newest successful run before an aggressive prune.
+
+To schedule it instead of using the automatic pass:
+
+```cron
+17 5 * * 0 cd "$HOME/agent-process-segments" && npm run prune:upgrades -- --keep-runs 5 --keep-days 14 >> "$HOME/.aps-cutover/prune.log" 2>&1
+```
+
 Runs left by an older version have not been tightened. After the first upgrade to a build
 with the owner-only modes, repair them explicitly:
 

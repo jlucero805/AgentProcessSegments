@@ -434,20 +434,27 @@ last-delivery state, plus aggregate and per-kind event counts. `POST /api/notifi
 synthetic test event without writing alert or delivery rows; chat tests accept an optional
 `channelId` and otherwise use the default destination.
 
-The **Delivery history** card lists recent webhook, email, and chat attempts newest first,
-with channel, alert, status, attempts, next attempt, and a sanitized error. Filter by
-channel and status; each page holds ten rows. **Resend** is offered only for `failed` or
-`skipped` rows whose alert is unacknowledged in the current UTC month and whose channel
-and destination are still enabled and configured. A resend reuses the outbox row,
+The **Delivery history** card lists recent webhook, email, and chat attempts for budget
+alerts and operational events newest first, with channel, type, subject, status, attempts,
+next attempt, and a sanitized error. Filter by type, channel, or status; each page holds
+ten rows. Budget rows keep the alert scope/threshold/spend snapshot; event rows show only
+the safe event title/text, source/reason, ids, cell name, and occurrence time, never the
+raw payload. **Resend** is offered only for `failed` or `skipped` rows. Budget rows
+require an unacknowledged alert in the current UTC month and a channel/destination that
+are still enabled and configured; event rows require their kind/channel route plus the
+channel to be enabled and configured, otherwise resend returns `409 event_disabled`. A
+resend reuses the outbox row,
 re-stamps it to the current destination and format, resets the attempt count, and queues
-it for the next flush; delivered rows are immutable. History is read-only and pruned
-under `retention.budgetAlertsDays` (default 400 days; the current UTC month is always
-kept and pending or in-flight rows are never pruned). A row remains after its alert is
-deleted (clearing a budget, changing its threshold, deleting a cell, or retention
-expiring an acknowledged alert); it becomes history-only and cannot be resent.
-`GET /api/notifications/deliveries` and
-`POST /api/notifications/deliveries/:id/resend` back the card. Fan-out to several
-destinations per scope and interactive acknowledgement remain separate backlog items.
+it for the next flush; delivered rows are immutable. History is read-only. Budget rows
+are pruned under `retention.budgetAlertsDays` (default 400 days; the current UTC month is
+always kept and pending or in-flight rows are never pruned); event rows are pruned after
+400 days on notifier start. A budget row remains after its alert is deleted (clearing a
+budget, changing its threshold, deleting a cell, or retention expiring an acknowledged
+alert); it becomes history-only and cannot be resent. `GET /api/notifications/deliveries`
+filters by `source` (`budget|event`) or `kind` (`turn.failed|master.error`) and
+`POST /api/notifications/deliveries/:id/resend` backs the card for both outboxes.
+Fan-out to several destinations per scope and interactive acknowledgement remain separate
+backlog items.
 
 ## Docs
 
@@ -552,7 +559,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1013 vitest cases: 799 server cases across 49 files (state machine,
+`npm test` runs 1026 vitest cases: 811 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -566,7 +573,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 214 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 215 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

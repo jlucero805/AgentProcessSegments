@@ -12,6 +12,7 @@ import {
   chatDeliveryConfigured,
   chatDestinationId,
   emailDeliveryConfigured,
+  eventResendBlockReason,
   resendBlockReason,
   type BudgetAlert,
   type BudgetAlertEvent,
@@ -25,12 +26,14 @@ import {
   type DeliveryStatus,
   type EmailSettings,
   type EventChannelSettings,
+  type EventDeliveryHistoryItem,
   type ResendBlockReason,
   type WebhookFormat,
   type WebhookSettings,
 } from '../domain/budget.js';
 import {
   EVENT_NOTIFICATION_KINDS,
+  type EventDeliverySnapshot,
   type MasterErrorNotification,
   type NotificationEventEnvelope,
   type NotificationEventKind,
@@ -69,6 +72,7 @@ import {
 } from '../usage/budget-chat.js';
 import type {
   EventDeliveryRecord,
+  EventHistoryFilter,
   NotificationEventDeliveryRepository,
 } from './event-deliveries.js';
 
@@ -1034,37 +1038,61 @@ export class NotificationService {
     };
   }
 
-  /** Read-only audit across both channels. Never mutates or flushes. */
+  /** Read-only audit across both outboxes. Never mutates or flushes. */
   history(query: DeliveryHistoryQuery): DeliveryHistoryResponse {
     const limit = query.limit ?? 25;
     const offset = query.offset ?? 0;
-    const filter: DeliveryHistoryFilter = { limit, offset };
-    if (query.channel !== undefined) filter.channel = query.channel;
-    if (query.status !== undefined) filter.status = query.status;
-    if (query.alertId !== undefined) filter.alertId = query.alertId;
-    if (query.from !== undefined) filter.from = query.from;
-    if (query.to !== undefined) filter.to = query.to;
+    const fetchLimit = limit + offset;
+    const includeBudget = query.source !== 'event' && query.kind === undefined;
+    const includeEvents = query.source !== 'budget' && query.alertId === undefined;
 
     const currentPeriodStart = budgetPeriod(this.clock()).start;
     const names = new Map(this.cells.list().map((cell) => [cell.id, cell.name]));
-    const deliveries = this.deliveries
-      .listFiltered(filter)
-      .map(({ delivery, alert }) => {
+
+    const budgetItems: DeliveryHistoryItem[] = [];
+    let total = 0;
+    if (includeBudget) {
+      const filter: DeliveryHistoryFilter = { limit: fetchLimit, offset: 0 };
+      if (query.channel !== undefined) filter.channel = query.channel;
+      if (query.status !== undefined) filter.status = query.status;
+      if (query.alertId !== undefined) filter.alertId = query.alertId;
+      if (query.from !== undefined) filter.from = query.from;
+      if (query.to !== undefined) filter.to = query.to;
+      total += this.deliveries.countFiltered(filter);
+      for (const { delivery, alert } of this.deliveries.listFiltered(filter)) {
         const cellName =
           alert.scope === 'cell' ? names.get(alert.scopeId) ?? 'Deleted cell' : null;
         const alertExists = this.alerts.get(delivery.alertId) !== null;
-        return this.toHistoryItem(
-          delivery,
-          alert,
-          cellName,
-          currentPeriodStart,
-          alertExists,
+        budgetItems.push(
+          this.toHistoryItem(delivery, alert, cellName, currentPeriodStart, alertExists),
         );
-      });
+      }
+    }
+
+    const eventItems: DeliveryHistoryItem[] = [];
+    if (includeEvents) {
+      const filter: EventHistoryFilter = { limit: fetchLimit, offset: 0 };
+      if (query.kind !== undefined) filter.kind = query.kind;
+      if (query.channel !== undefined) filter.channel = query.channel;
+      if (query.status !== undefined) filter.status = query.status;
+      if (query.from !== undefined) filter.from = query.from;
+      if (query.to !== undefined) filter.to = query.to;
+      total += this.events.countFiltered(filter);
+      for (const delivery of this.events.listFiltered(filter)) {
+        eventItems.push(this.toEventHistoryItem(delivery, names));
+      }
+    }
+
+    const merged = [...budgetItems, ...eventItems].sort((left, right) => {
+      const byCreatedAt = right.createdAt - left.createdAt;
+      if (byCreatedAt !== 0) return byCreatedAt;
+      if (left.id === right.id) return 0;
+      return left.id > right.id ? -1 : 1;
+    });
 
     return {
-      deliveries,
-      total: this.deliveries.countFiltered(filter),
+      deliveries: merged.slice(offset, offset + limit),
+      total,
       limit,
       offset,
     };
@@ -1075,11 +1103,36 @@ export class NotificationService {
    * Pending/delivering rows are a no-op; delivered rows are immutable.
    */
   resend(id: string): ResendDeliveryResult {
+    let budgetDelivery: DeliveryRecord | null;
+    try {
+      budgetDelivery = this.deliveries.get(id);
+    } catch {
+      this.errors?.error('budget.notify', new Error('delivery resend lookup failed'), {
+        phase: 'resend',
+        deliveryId: id,
+      });
+      return { ok: false, reason: 'internal' };
+    }
+    if (budgetDelivery) return this.resendBudget(budgetDelivery);
+
+    let eventDelivery: EventDeliveryRecord | null;
+    try {
+      eventDelivery = this.events.get(id);
+    } catch {
+      this.errors?.error('notifications.event', new Error('event resend lookup failed'), {
+        phase: 'resend',
+        deliveryId: id,
+      });
+      return { ok: false, reason: 'internal' };
+    }
+    if (eventDelivery) return this.resendEvent(eventDelivery);
+    return { ok: false, reason: 'not_found' };
+  }
+
+  private resendBudget(delivery: DeliveryRecord): ResendDeliveryResult {
     let alertId: string | undefined;
     let channel: DeliveryChannel | undefined;
     try {
-      const delivery = this.deliveries.get(id);
-      if (!delivery) return { ok: false, reason: 'not_found' };
       alertId = delivery.alertId;
       channel = delivery.channel;
 
@@ -1121,14 +1174,14 @@ export class NotificationService {
       }
       if (block !== null) return { ok: false, reason: block };
 
-      const updated = this.deliveries.resetForResend(id, {
+      const updated = this.deliveries.resetForResend(delivery.id, {
         format: route.format,
         destinationHash: route.hash,
         now,
       });
       if (!updated) {
         // A flush may have changed the row between the read and the guarded update.
-        const current = this.deliveries.get(id);
+        const current = this.deliveries.get(delivery.id);
         if (!current) return { ok: false, reason: 'not_found' };
         if (current.status === 'pending' || current.status === 'delivering') {
           return {
@@ -1150,12 +1203,233 @@ export class NotificationService {
     } catch {
       this.errors?.error('budget.notify', new Error('delivery resend failed'), {
         phase: 'resend',
-        deliveryId: id,
+        deliveryId: delivery.id,
         ...(alertId !== undefined ? { alertId } : {}),
         ...(channel !== undefined ? { channel } : {}),
       });
       return { ok: false, reason: 'internal' };
     }
+  }
+
+  private resendEvent(delivery: EventDeliveryRecord): ResendDeliveryResult {
+    try {
+      const route = this.channelRoute(delivery.channel);
+      const settings = this.settings.get().notifications.events;
+      const eventEnabled = eventChannelEnabled(
+        delivery.kind === 'turn.failed' ? settings.failedTurns : settings.masterErrors,
+        delivery.channel,
+      );
+      const block = eventResendBlockReason({
+        status: delivery.status,
+        eventEnabled,
+        channelEnabled: route.enabled,
+        channelConfigured: route.configured,
+      });
+      if (block === 'in_flight') {
+        return {
+          ok: true,
+          delivery: this.toEventHistoryItem(delivery, this.cellNames()),
+        };
+      }
+      if (block !== null) return { ok: false, reason: block };
+
+      const now = this.clock();
+      const updated = this.events.resetForResend(delivery.id, {
+        format: route.format,
+        destinationHash: route.hash,
+        now,
+      });
+      if (!updated) {
+        // A flush may have changed the row between the read and the guarded update.
+        const current = this.events.get(delivery.id);
+        if (!current) return { ok: false, reason: 'not_found' };
+        if (current.status === 'pending' || current.status === 'delivering') {
+          return {
+            ok: true,
+            delivery: this.toEventHistoryItem(current, this.cellNames()),
+          };
+        }
+        if (current.status === 'delivered') {
+          return { ok: false, reason: 'already_delivered' };
+        }
+        return { ok: false, reason: 'internal' };
+      }
+
+      this.kick();
+      return {
+        ok: true,
+        delivery: this.toEventHistoryItem(updated, this.cellNames()),
+      };
+    } catch {
+      this.errors?.error('notifications.event', new Error('event delivery resend failed'), {
+        phase: 'resend',
+        deliveryId: delivery.id,
+        kind: delivery.kind,
+        channel: delivery.channel,
+        dedupeKey: delivery.dedupeKey,
+        ...this.eventLogIds(delivery),
+      });
+      return { ok: false, reason: 'internal' };
+    }
+  }
+
+  private cellNames(): Map<string, string> {
+    return new Map(this.cells.list().map((cell) => [cell.id, cell.name]));
+  }
+
+  private eventPayload(delivery: EventDeliveryRecord): Record<string, unknown> | null {
+    try {
+      const parsed = JSON.parse(delivery.payloadJson) as unknown;
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private eventLogIds(delivery: EventDeliveryRecord): Record<string, unknown> {
+    const payload = this.eventPayload(delivery);
+    if (payload === null) return {};
+    return delivery.kind === 'turn.failed'
+      ? {
+          turnId: payload['turnId'],
+          requestId: payload['requestId'],
+          cellId: payload['cellId'],
+        }
+      : {
+          cellId: payload['cellId'],
+          requestId: payload['requestId'],
+          source: payload['source'],
+        };
+  }
+
+  private toEventHistoryItem(
+    delivery: EventDeliveryRecord,
+    names: Map<string, string>,
+  ): EventDeliveryHistoryItem {
+    const event = this.eventSnapshot(delivery, names);
+    const route = this.channelRoute(delivery.channel);
+    const settings = this.settings.get().notifications.events;
+    const eventEnabled = eventChannelEnabled(
+      delivery.kind === 'turn.failed' ? settings.failedTurns : settings.masterErrors,
+      delivery.channel,
+    );
+    const block = eventResendBlockReason({
+      status: delivery.status,
+      eventEnabled,
+      channelEnabled: route.enabled,
+      channelConfigured: route.configured,
+    });
+    return {
+      id: delivery.id,
+      source: 'event',
+      channel: delivery.channel,
+      format: delivery.format,
+      status: delivery.status,
+      attempts: delivery.attempts,
+      nextAttemptAt: delivery.nextAttemptAt,
+      lastError: delivery.lastError,
+      createdAt: delivery.createdAt,
+      updatedAt: delivery.updatedAt,
+      deliveredAt: delivery.deliveredAt,
+      canResend: block === null,
+      event,
+    };
+  }
+
+  private eventSnapshot(
+    delivery: EventDeliveryRecord,
+    names: Map<string, string>,
+  ): EventDeliverySnapshot {
+    const fallbackTitle = delivery.kind === 'turn.failed' ? 'Turn failed' : 'Master error';
+    const fallback: EventDeliverySnapshot = {
+      kind: delivery.kind,
+      title: fallbackTitle,
+      text: '',
+      source: null,
+      reason: null,
+      cellId: null,
+      cellName: null,
+      requestId: null,
+      turnId: null,
+      segment: null,
+      occurredAt: null,
+    };
+    const payload = this.eventPayload(delivery);
+    if (payload === null) return fallback;
+
+    if (delivery.kind === 'turn.failed') {
+      if (
+        typeof payload['requestTitle'] !== 'string' ||
+        typeof payload['requestId'] !== 'string' ||
+        typeof payload['source'] !== 'string' ||
+        typeof payload['reason'] !== 'string' ||
+        typeof payload['occurredAt'] !== 'number' ||
+        !Number.isFinite(payload['occurredAt'])
+      ) {
+        return fallback;
+      }
+      const cellId = typeof payload['cellId'] === 'string' ? payload['cellId'] : null;
+      const turn = {
+        turnId: typeof payload['turnId'] === 'string' ? payload['turnId'] : '',
+        requestId: payload['requestId'],
+        requestTitle: payload['requestTitle'],
+        state: typeof payload['state'] === 'string' ? payload['state'] : '',
+        cellId,
+        harness: typeof payload['harness'] === 'string' ? payload['harness'] : '',
+        model: typeof payload['model'] === 'string' ? payload['model'] : null,
+        source: payload['source'],
+        reason: payload['reason'],
+        occurredAt: payload['occurredAt'],
+      } as unknown as TurnFailureNotification;
+      const cellName = cellId === null ? null : names.get(cellId) ?? 'Deleted cell';
+      const envelope = turnFailedEnvelope(turn, cellName);
+      return {
+        kind: delivery.kind,
+        title: envelope.title,
+        text: envelope.text,
+        source: turn.source,
+        reason: turn.reason,
+        cellId,
+        cellName,
+        requestId: turn.requestId,
+        turnId: typeof payload['turnId'] === 'string' ? payload['turnId'] : null,
+        segment: null,
+        occurredAt: turn.occurredAt,
+      };
+    }
+
+    if (
+      typeof payload['cellId'] !== 'string' ||
+      typeof payload['source'] !== 'string' ||
+      typeof payload['occurredAt'] !== 'number' ||
+      !Number.isFinite(payload['occurredAt'])
+    ) {
+      return fallback;
+    }
+    const event = {
+      source: payload['source'],
+      cellId: payload['cellId'],
+      requestId: typeof payload['requestId'] === 'string' ? payload['requestId'] : null,
+      segment: typeof payload['segment'] === 'string' ? payload['segment'] : null,
+      occurredAt: payload['occurredAt'],
+    } as unknown as MasterErrorNotification;
+    const cellName = names.get(event.cellId) ?? 'Deleted cell';
+    const envelope = masterErrorEnvelope(event, cellName);
+    return {
+      kind: delivery.kind,
+      title: envelope.title,
+      text: envelope.text,
+      source: event.source,
+      reason: null,
+      cellId: event.cellId,
+      cellName,
+      requestId: event.requestId,
+      turnId: null,
+      segment: event.segment,
+      occurredAt: event.occurredAt,
+    };
   }
 
   private toHistoryItem(
@@ -1181,6 +1455,7 @@ export class NotificationService {
     });
     return {
       id: delivery.id,
+      source: 'budget',
       alertId: delivery.alertId,
       channel: delivery.channel,
       format: delivery.format,

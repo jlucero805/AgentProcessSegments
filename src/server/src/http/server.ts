@@ -18,6 +18,7 @@ import {
   emailDeliveryConfigured,
   type ResendBlockReason,
 } from '../domain/budget.js';
+import { EVENT_NOTIFICATION_KINDS } from '../domain/notifications.js';
 import { cellSessionIds } from '../domain/sessions.js';
 import {
   EFFORT_LEVELS,
@@ -268,15 +269,18 @@ const usageQuerySchema = z
     }
   });
 const RESEND_MESSAGES: Record<ResendBlockReason, string> = {
-  already_delivered: 'the delivery already succeeded; delivered alerts are never resent',
+  already_delivered: 'the delivery already succeeded; delivered notifications are never resent',
   alert_deleted: 'the alert was deleted; its delivery history is retained but cannot be resent',
   alert_acknowledged: 'the alert was acknowledged; only active alerts can be resent',
   not_current_period: 'the alert is not from the current UTC budget month',
+  event_disabled: 'event notifications are disabled for this event type and channel',
   channel_disabled: 'the delivery channel is disabled',
   channel_unconfigured: 'the delivery channel is missing required settings',
 };
 const deliveryQuerySchema = z
   .object({
+    source: z.enum(['budget', 'event']).optional(),
+    kind: z.enum(EVENT_NOTIFICATION_KINDS).optional(),
     channel: z.enum(DELIVERY_CHANNELS).optional(),
     status: z.enum(DELIVERY_STATUSES).optional(),
     alertId: z.string().min(1).max(100).optional(),
@@ -288,6 +292,29 @@ const deliveryQuerySchema = z
   .refine((value) => value.from === undefined || value.to === undefined || value.from < value.to, {
     message: 'from must be before to',
     path: ['from'],
+  })
+  .superRefine((value, ctx) => {
+    if (value.source !== undefined && value.kind !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'source and kind are mutually exclusive',
+        path: ['kind'],
+      });
+    }
+    if (value.alertId !== undefined && value.kind !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'alertId cannot be combined with an event kind',
+        path: ['kind'],
+      });
+    }
+    if (value.alertId !== undefined && value.source === 'event') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'alertId cannot be combined with source=event',
+        path: ['alertId'],
+      });
+    }
   });
 const priceRateSchema = z.number().finite().nonnegative().max(1_000_000);
 const priceInputSchema = z.object({

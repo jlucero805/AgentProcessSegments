@@ -60,6 +60,7 @@ describe('db migrations', () => {
       }>
     ).map((row) => row.name);
     expect(indexes).toContain('idx_model_pricing_model_effective');
+    expect(indexes).toContain('idx_notification_event_deliveries_created');
     db.close();
   });
 
@@ -137,6 +138,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_budget_alert_deliveries_created');
     expect(indexes).toContain('idx_budget_alert_deliveries_alert');
     expect(indexes).toContain('idx_notification_event_deliveries_due');
+    expect(indexes).toContain('idx_notification_event_deliveries_created');
     expect(indexes).toContain('idx_spend_cap_overrides_active');
     expect(indexes).toContain('idx_spend_cap_overrides_period');
     expect(indexes).toContain('idx_model_pricing_model_effective');

@@ -1486,7 +1486,8 @@ fails validation is replaced with that unit's `DEFAULT_SETTINGS` value, reported
 unchanged. An unreadable, unparseable, or non-object file still falls back to all
 defaults (`settings.unreadable`, or `settings.invalid` with `reason: 'not-an-object'`),
 and a final whole-object parse keeps a future block from slipping through unnoticed.
-Loading never writes; the next successful patch persists the recovered default.
+Loading never writes; the next successful patch persists the recovered default. D75
+preserves the file's original bytes before that patch rewrites it.
 Notification channels are separate units because they hold separate credentials: a bad
 email port must not reset a webhook secret.
 
@@ -1589,3 +1590,29 @@ worktrees, SQLite, the error log, or unrelated siblings, and never opens the dat
 encryption at rest and root can still read the files. A boot-time recursive repair is
 rejected because `cwd/` contains unrelated git checkouts and repository files. The
 automatic post-upgrade hook and the error-log/data-root modes are separate work.
+
+## D75. An unusable settings file is preserved before the first overwrite
+
+**Context.** D70 recovers an invalid `config.json` unit by unit in memory and leaves the
+file untouched while loading. The next `PATCH /api/config` then writes the recovered
+defaults back, so the saved values that failed validation — and, for malformed or
+non-object files, the whole original file — are silently destroyed. That is D70's
+documented cost, but the operator has no copy to inspect or restore.
+
+**Decision.** A load that could not use the file as-is marks the store: a read error
+other than a missing file, invalid JSON, a non-object top level, any unit replaced by
+`recover()`, or the final whole-object fallback. Before the first save after such a
+load, `SettingsStore` re-reads the file and copies the exact bytes to a sibling
+`config.json.invalid-<UTC stamp>` (with `:` and `.` replaced by `-`, and a numeric
+suffix if that name exists). The copy is written with `writePrivateFile` (`0600`,
+because it can hold a webhook secret, SMTP password, or bot tokens) and never overwrites
+an earlier copy. Loading still never writes; a clean or missing file never creates a
+copy, and the flag clears after one copy so later saves in the same process do not
+duplicate it. Success warns once with both paths only. If the copy cannot be written,
+the save is refused and reported as `settings.backupFailed`, so the file is never
+replaced without one.
+
+**Cost.** Copies accumulate until an operator deletes them; bounding them is separate
+work. The snapshot is not encrypted and is never read back or repaired automatically. A
+file edited on disk after the process loaded it is outside this rule; the store saves
+its in-memory view either way.

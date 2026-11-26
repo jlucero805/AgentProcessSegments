@@ -297,7 +297,10 @@ built and vended by the brain; real-CLI verification is still pending.
   existed. Each block and notification channel also validates on its own: one invalid
   unit falls back to that unit's defaults, is reported as `settings.invalid` with its
   `block` name, and leaves the rest of the file intact; only an unreadable or non-JSON
-  file falls back to all defaults. Loading never rewrites the file. `GET/PATCH
+  file falls back to all defaults. Loading never rewrites the file. Before the first save
+  after an unusable load, the raw file is copied to a sibling `config.json.invalid-<UTC>`
+  (owner-only, never overwriting an earlier copy); a failed copy refuses the save and
+  reports `settings.backupFailed`. `GET/PATCH
   /api/config` expose all blocks and redact the signing secret as `secret: null` with
   `secretSet`, the SMTP password as `password: null` with `passwordSet`, and bot tokens as
   `botToken: null` with `botTokenSet`.
@@ -355,7 +358,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 977 vitest cases, all passing: 765 server across 49 files and 212 web across 24 files,
+- 982 vitest cases, all passing: 770 server across 49 files and 212 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

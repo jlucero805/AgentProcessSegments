@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,18 @@ import { DEFAULT_SETTINGS, SettingsStore } from '../src/settings.js';
 
 function tempFile(name = 'config.json'): string {
   return path.join(tmpDir('settings'), name);
+}
+
+/** Names of preserved copies for `file`, oldest first. */
+function backupNames(file: string): string[] {
+  const prefix = `${path.basename(file)}.invalid-`;
+  return readdirSync(path.dirname(file))
+    .filter((name) => name.startsWith(prefix))
+    .sort();
+}
+
+function backupFile(file: string, name: string): string {
+  return path.join(path.dirname(file), name);
 }
 
 /** Distinct, valid, non-default values for every settings unit. */
@@ -893,6 +905,138 @@ describe('settings recovery', () => {
     expect(reloaded.retention).toEqual(sentinel.retention);
     expect(reloaded.notifications).toEqual(sentinel.notifications);
     warn.mockRestore();
+  });
+
+  it('preserves a malformed file before the first save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    const original = '{not json\n';
+    writeFileSync(file, original);
+
+    const errors = { error: vi.fn() };
+    const store = new SettingsStore(file, errors);
+    expect(store.get()).toEqual(DEFAULT_SETTINGS);
+    expect(backupNames(file)).toEqual([]);
+
+    store.patch({ master: { intervalMinutes: 2 } });
+    const names = backupNames(file);
+    expect(names).toHaveLength(1);
+    const backup = backupFile(file, names[0]!);
+    expect(readFileSync(backup, 'utf8')).toBe(original);
+    if (process.platform !== 'win32') {
+      expect(statSync(backup).mode & 0o777).toBe(0o600);
+    }
+    expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(2);
+
+    store.patch({ master: { intervalMinutes: 3 } });
+    expect(backupNames(file)).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it('preserves the saved file when a unit recovers to its default', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const original = JSON.stringify(saved);
+    const file = tempFile();
+    writeFileSync(file, original);
+
+    const store = new SettingsStore(file);
+    expect(store.get().budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(backupNames(file)).toEqual([]);
+
+    store.patch({ master: { intervalMinutes: 2 } });
+    const names = backupNames(file);
+    expect(names).toHaveLength(1);
+    expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe(original);
+
+    const written = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    expect(written.budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(written.notifications).toEqual(sentinelSettings().notifications);
+
+    const logged = warn.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(logged).not.toContain('0123456789abcdef');
+    expect(logged).not.toContain('smtp-password');
+    expect(logged).not.toContain('xoxb-sentinel-0123456789');
+    expect(logged).not.toContain('discord-sentinel-0123456789');
+    warn.mockRestore();
+  });
+
+  it('preserves a non-object top level before the first save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const original of ['[]', '"x"', 'null']) {
+      const file = tempFile();
+      writeFileSync(file, original);
+      const store = new SettingsStore(file);
+      expect(store.get()).toEqual(DEFAULT_SETTINGS);
+      store.patch({ master: { intervalMinutes: 2 } });
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(1);
+      expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe(original);
+    }
+    warn.mockRestore();
+  });
+
+  it('never preserves a valid or missing file', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({ master: { intervalMinutes: 2 } });
+    store.patch({ master: { intervalMinutes: 3 } });
+    expect(backupNames(file)).toEqual([]);
+    expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(3);
+  });
+
+  it('refuses to overwrite when the unusable file cannot be copied', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    mkdirSync(file);
+
+    const errors = { error: vi.fn() };
+    const store = new SettingsStore(file, errors);
+    expect(store.get()).toEqual(DEFAULT_SETTINGS);
+    expect(() => store.patch({ master: { intervalMinutes: 2 } })).toThrow();
+
+    expect(errors.error).toHaveBeenCalledWith('settings.backupFailed', expect.any(Error), {
+      path: file,
+    });
+    expect(statSync(file).isDirectory()).toBe(true);
+    expect(store.get()).toEqual(DEFAULT_SETTINGS);
+    expect(readdirSync(path.dirname(file))).toEqual([path.basename(file)]);
+    warn.mockRestore();
+  });
+
+  it('never overwrites an existing preserved copy', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      writeFileSync(file, '{first\n');
+      const first = new SettingsStore(file);
+      first.get();
+      first.patch({ master: { intervalMinutes: 2 } });
+      const firstNames = backupNames(file);
+      expect(firstNames).toHaveLength(1);
+      const firstBackup = backupFile(file, firstNames[0]!);
+
+      writeFileSync(file, '{second\n');
+      const second = new SettingsStore(file);
+      second.get();
+      second.patch({ master: { intervalMinutes: 3 } });
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(2);
+      expect(readFileSync(firstBackup, 'utf8')).toBe('{first\n');
+      const secondBackup = names
+        .map((name) => backupFile(file, name))
+        .find((name) => name !== firstBackup);
+      expect(secondBackup).toBeDefined();
+      expect(readFileSync(secondBackup!, 'utf8')).toBe('{second\n');
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
 

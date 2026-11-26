@@ -943,7 +943,10 @@ carried in the `done` event:
   renames, and deletes cells, filtering the board by `cellId`.
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
   monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
-  shows the current UTC-month status for the overall and per-cell budgets. Its **Alert
+  shows the current UTC-month status for the overall and per-cell budgets. Snoozing a
+  scope, ending an override, or saving the budget refreshes the shared budget feed
+  immediately, so the banner and these status rows update together; the 60-second poll
+  remains the only background source. Its **Alert
   delivery** card edits the webhook URL, format, and signing secret, its **Email
   delivery** card edits the SMTP host, port, TLS mode, optional credentials, From address,
   and recipients, and the **Slack alerts**/**Discord alerts** cards edit bot tokens,

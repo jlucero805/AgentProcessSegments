@@ -59,6 +59,11 @@ import {
 interface ConfigPageProps {
   onError: (message: string) => void;
   onEditCell?: (cell: CellDetail) => void;
+  /**
+   * Force-refresh the shared budget feed and return its snapshot, so the
+   * banner and these rows update together after a budget action.
+   */
+  reloadBudgets?: () => Promise<BudgetsResponse | null>;
 }
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -164,7 +169,7 @@ function mergePrice(list: ModelPrice[], created: ModelPrice): ModelPrice[] {
 }
 
 /** Edits the global master defaults, process template, and per-cell switches. */
-export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
+export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [summary, setSummary] = useState<SummaryConfig | null>(null);
   const [usage, setUsage] = useState<UsageSettings | null>(null);
@@ -570,9 +575,11 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   }
 
   const reloadBudgetView = useCallback(async () => {
-    const next = await api.getBudgets().catch(() => null);
-    setBudgetView(next && Array.isArray(next.statuses) ? next : null);
-  }, []);
+    const next = reloadBudgets
+      ? await reloadBudgets()
+      : await api.getBudgets().catch(() => null);
+    if (next && Array.isArray(next.statuses)) setBudgetView(next);
+  }, [reloadBudgets]);
 
   async function snoozeBudget(status: BudgetStatus, minutes: number) {
     try {
@@ -643,8 +650,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setBudgetAlertPercent(String(savedBudget.alertAtPercent));
       setBudgetPauseOnExceeded(savedBudget.pauseOnExceeded);
       setBudgetPauseOnUnknownCost(savedBudget.pauseOnUnknownCost);
-      const nextView = await api.getBudgets().catch(() => null);
-      setBudgetView(nextView && Array.isArray(nextView.statuses) ? nextView : null);
+      await reloadBudgetView();
       setBudgetSaved(true);
     } catch (error) {
       onError(describeError(error));

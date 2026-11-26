@@ -379,7 +379,10 @@ stopped, and the harness session stays on disk, so sending again after the pause
 continues from the same session. Nothing is replayed automatically. Spend is recorded when
 a turn completes, so one long turn can still overshoot the cap before the next crossing is
 observed. The Usage card and banner share one budget poll; the card keeps its last good
-status when a refresh fails and offers Retry when budget status cannot be loaded.
+status when a refresh fails and offers Retry when budget status cannot be loaded. A
+snooze, end-override, or budget save on the Config page refreshes that shared poll
+immediately, so the banner and the Config status rows agree without waiting for the next
+tick.
 
 A paused scope can also be **snoozed** for 15 minutes up to the rest of the UTC month. An
 overall snooze admits every new turn; a cell snooze admits only that cell. Snoozing never
@@ -557,7 +560,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1013 vitest cases: 799 server cases across 49 files (state machine,
+`npm test` runs 1020 vitest cases: 799 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -571,7 +574,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 214 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 221 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

@@ -78,6 +78,7 @@ function makeFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
     error: null,
     loading: false,
     refresh: vi.fn(async () => {}),
+    reload: vi.fn(async () => null),
     acknowledge: vi.fn(async () => {}),
     snooze: vi.fn(async () => {}),
     revokeOverride: vi.fn(async () => {}),

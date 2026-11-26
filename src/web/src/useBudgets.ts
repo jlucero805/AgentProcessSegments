@@ -13,6 +13,12 @@ export interface BudgetFeed {
   loading: boolean;
   /** Fetch now. Concurrent calls share one request. */
   refresh: () => Promise<void>;
+  /**
+   * Force a fetch now, discarding any in-flight poll, and return the snapshot
+   * that was applied. Returns null on failure, unmount, or when a newer reload
+   * supersedes this one.
+   */
+  reload: () => Promise<BudgetsResponse | null>;
   /** Acknowledge an alert and remove it from this feed. */
   acknowledge: (alert: BudgetAlert) => Promise<void>;
   /** Grant or extend a time-boxed override, then reload the snapshot. */
@@ -39,8 +45,9 @@ function normalize(response: BudgetsResponse): BudgetsResponse {
 }
 
 /**
- * The SPA's only budget poll. The banner and the Usage page both read this
- * snapshot, so an acknowledgement made in either place clears the other.
+ * The SPA's only budget poll. The banner, the Usage page, and Config's budget
+ * status rows read this snapshot, so an acknowledgement or override action in
+ * one place is reflected everywhere else.
  */
 export function useBudgets(
   onError: (message: string) => void,
@@ -51,30 +58,33 @@ export function useBudgets(
   const [loading, setLoading] = useState(true);
 
   const alive = useRef(true);
-  const inFlight = useRef<Promise<void> | null>(null);
+  const inFlight = useRef<Promise<BudgetsResponse | null> | null>(null);
   // A poll that started before an ack can resolve after it with the old alert.
   const acknowledged = useRef(new Set<string>());
   // A poll that started before an override change must not overwrite the result.
   const generation = useRef(0);
 
-  const refresh = useCallback((force = false): Promise<void> => {
+  const load = useCallback((force = false): Promise<BudgetsResponse | null> => {
     if (!force && inFlight.current) return inFlight.current;
 
     const startedAt = generation.current;
-    const run = (async () => {
+    const run = (async (): Promise<BudgetsResponse | null> => {
       if (alive.current) setLoading(true);
       try {
         const response = normalize(await api.getBudgets());
-        if (!alive.current || startedAt !== generation.current) return;
-        setBudgets({
+        if (!alive.current || startedAt !== generation.current) return null;
+        const next = {
           ...response,
           alerts: response.alerts.filter((alert) => !acknowledged.current.has(alert.id)),
-        });
+        };
+        setBudgets(next);
         setError(null);
+        return next;
       } catch (caught) {
         if (alive.current && startedAt === generation.current) {
           setError(describeError(caught));
         }
+        return null;
       } finally {
         if (alive.current && startedAt === generation.current) setLoading(false);
       }
@@ -86,6 +96,15 @@ export function useBudgets(
     });
     return run;
   }, []);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    await load();
+  }, [load]);
+
+  const reload = useCallback(async (): Promise<BudgetsResponse | null> => {
+    generation.current += 1;
+    return load(true);
+  }, [load]);
 
   useEffect(() => {
     alive.current = true;
@@ -119,27 +138,34 @@ export function useBudgets(
     async (input: SpendCapOverrideRequest): Promise<void> => {
       try {
         await api.grantBudgetOverride(input);
-        generation.current += 1;
-        await refresh(true);
+        await reload();
       } catch (caught) {
         onError(describeError(caught));
       }
     },
-    [onError, refresh],
+    [onError, reload],
   );
 
   const revokeOverride = useCallback(
     async (id: string): Promise<void> => {
       try {
         await api.revokeBudgetOverride(id);
-        generation.current += 1;
-        await refresh(true);
+        await reload();
       } catch (caught) {
         onError(describeError(caught));
       }
     },
-    [onError, refresh],
+    [onError, reload],
   );
 
-  return { budgets, error, loading, refresh, acknowledge, snooze, revokeOverride };
+  return {
+    budgets,
+    error,
+    loading,
+    refresh,
+    reload,
+    acknowledge,
+    snooze,
+    revokeOverride,
+  };
 }

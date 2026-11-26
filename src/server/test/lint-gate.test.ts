@@ -12,6 +12,9 @@ const packageJson = JSON.parse(
 };
 const eslintConfig = readFileSync(path.join(repoRoot, 'eslint.config.mjs'), 'utf8');
 const workflow = readFileSync(path.join(repoRoot, 'deploy/ci-workflow.yml'), 'utf8');
+const tsconfigTest = JSON.parse(
+  readFileSync(path.join(repoRoot, 'src/server/tsconfig.test.json'), 'utf8'),
+) as { include?: string[] };
 
 describe('zero-warning lint gate', () => {
   it('runs ESLint over the repo and bash -n over the deploy scripts', () => {
@@ -36,11 +39,15 @@ describe('zero-warning lint gate', () => {
     }
   });
 
-  it('scopes the flat config to src, scripts, and .opencode and keeps unused suppressions fatal', () => {
+  it('pins the lint and typecheck scope for src, scripts, .opencode, and the vitest config', () => {
     expect(eslintConfig).toContain("files: ['**/*.{js,mjs,cjs}']");
     expect(eslintConfig).toContain(
-      "files: ['src/**/*.{ts,tsx}', '.opencode/**/*.{ts,mts,cts}']",
+      "files: ['src/**/*.{ts,tsx,mts,cts}', '.opencode/**/*.{ts,mts,cts}']",
     );
+    expect(
+      tsconfigTest.include,
+      'the server test project must typecheck vitest.config.mts',
+    ).toContain('vitest.config.mts');
     expect(eslintConfig).toContain("files: ['scripts/screenshots.mjs', 'scripts/ui-smoke.mjs']");
     expect(eslintConfig).toContain("'**/dist/**'");
     expect(eslintConfig).toContain("'**/node_modules/**'");

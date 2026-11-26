@@ -103,7 +103,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 # The root dev commands preflight project-local tsc/vitest/eslint; a missing
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
-npm run typecheck              # server src + tests, then web app + config; must print nothing
+npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
 npm test                       # 860 server + 241 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the

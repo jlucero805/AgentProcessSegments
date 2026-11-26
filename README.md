@@ -690,18 +690,21 @@ TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.ope
 plugin sources when present, with the `react-hooks` `recommended-latest` preset for the
 SPA. It also runs `bash -n` and `shellcheck --severity=warning` over `deploy/*.sh` and
 `scripts/*.sh`, `actionlint` over `deploy/ci-workflow.yml` and
-`.github/workflows/ci.yml`, and `systemd-analyze verify` over
+`.github/workflows/ci.yml`, and the unit gate over
 `deploy/agent-process-segments.service`, and fails on any warning, shell syntax
 error, workflow error, or unit diagnostic. It runs `markdownlint-cli2` over every tracked
 `*.md` (the root docs, `docs/`, `deploy/vps.md`, and `.opencode/skills`) with a
 120-column prose cap and tables, fences, and headings exempt from MD013, and a Markdown
-finding fails it too. The unit check treats a diagnostic naming the unit as fatal because
-`systemd-analyze` exits 0 for unknown keys and invalid values. The shell checks need
+finding fails it too. The unit gate runs `systemd-analyze verify`, treats a diagnostic
+naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
+values, asserts the reviewed sandboxing directives, and fails when the offline
+`systemd-analyze security` exposure exceeds 5.5. The security review needs systemd 250 or
+newer; below that the Linux gate fails rather than skipping. The shell checks need
 `bash`, which the deploy runbooks already require, plus `shellcheck`
 (`apt-get install shellcheck` or `brew install shellcheck`). actionlint is a system tool
 too: install it with `brew install actionlint`, your package manager, or the pinned
 v1.7.12 release binary CI uses (CI verifies the release SHA-256 before running it);
-`systemd-analyze` ships with systemd on Linux. The unit check skips with a visible line
+`systemd-analyze` ships with systemd on Linux. The unit gate skips with a visible line
 on non-Linux hosts and fails on Linux when `systemd-analyze` is missing.
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns

@@ -43,5 +43,35 @@ RestartSec=2
 TimeoutStopSec=10
 KillMode=mixed
 
+# Sandboxing: the reviewed set for this unit. `npm run lint` checks these exact
+# values and the offline exposure ceiling; change them here and in
+# scripts/verify-systemd-unit.mjs (HARDENING_REQUIRED) and docs/03-decisions.md
+# together.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+KeyringMode=private
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+#
+# Deliberately not set. ProtectHome and ProtectSystem=strict would make the
+# clone, agent worktrees, and $HOME read-only; PrivateNetwork would break the
+# loopback listener; PrivateUsers needs the real home; MemoryDenyWriteExecute
+# breaks V8's JIT. RestrictNamespaces, SystemCallFilter, PrivateDevices, and
+# ProtectProc/ProcSubset stay off because agent CLIs run user tools, their own
+# sandboxes, PTYs, and /proc readers. See D96 in docs/03-decisions.md.
+
 [Install]
 WantedBy=default.target

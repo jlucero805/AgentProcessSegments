@@ -2220,3 +2220,33 @@ instead of being mutated; operators can run `--apply` or open it once normally.
 **Cost.** One option on the existing helper and one call-site branch. `--apply` keeps the
 read-write open and remains the only path that writes `requests.branch`. Making a dry run
 work without ownership/chmod is separate work, and this is not encryption at rest.
+
+## D96. The brain's systemd unit is sandboxed and the lint gate pins the result
+
+**Context.** The user unit that ships in `deploy/agent-process-segments.service` ran with
+systemd's defaults; `systemd-analyze security --offline=yes --user` scored 9.2 UNSAFE. The
+brain is a loopback server that also spawns PTYs, `git`, and user-controlled agent CLIs, so
+the restrictive directives that usually raise that score (read-only home, private network,
+syscall filtering) would break the product.
+
+**Decision.** Add 18 reviewed directives to `[Service]`: `NoNewPrivileges`, `PrivateTmp`,
+`ProtectSystem=full`, `ProtectKernelTunables`, `ProtectKernelModules`,
+`ProtectControlGroups`, `ProtectKernelLogs`, `ProtectClock`, `ProtectHostname`,
+`KeyringMode=private`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,
+`RestrictRealtime`, `RestrictSUIDSGID`, `LockPersonality`,
+`SystemCallArchitectures=native`, empty `CapabilityBoundingSet` and `AmbientCapabilities`,
+and `UMask=0077`. The unit scores 4.3 OK on systemd 259.
+`scripts/verify-systemd-unit.mjs` (already the `lint:unit` step) asserts the exact
+`[Service]` values, rejects four known-breaking directives, and runs
+`systemd-analyze security --offline=yes --user --threshold=55`, so an exposure above 5.5
+fails `npm run lint`. The directive map is the primary guard; the ceiling also
+catches new checks in later systemd versions. `ProtectHome`, `ProtectSystem=strict`,
+`PrivateNetwork`, `PrivateUsers`, `MemoryDenyWriteExecute`, `RestrictNamespaces`,
+`SystemCallFilter`, `PrivateDevices`, and `ProtectProc`/`ProcSubset` stay off for the
+reasons commented in the unit; evaluating them needs a live VPS run.
+
+**Cost.** In brain terminals, `sudo`/setuid escalation fails, `/etc`, `/usr`, and `/boot`
+are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do not run.
+The security review needs systemd 250 or newer, so older Linux hosts fail `npm run lint`
+(a documented, fail-closed choice). Existing installs must copy the new unit by hand
+because `upgrade-vps.sh` refuses target commits that change it.

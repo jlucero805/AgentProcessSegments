@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 895 vitest cases: 696 server across 46 files and 199 web across 24 files, all green.
+- 899 vitest cases: 699 server across 46 files and 200 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -72,7 +72,8 @@ digests.
   verifies, and rolls back in place, a harness seam with `claude` and `opencode` adapters,
   OpenCode plugin parity (skills and slash commands), chat slash-menu skill discovery
   with per-request
-  target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
+  target-repo skills, per-turn token/cost usage tracking with a Usage dashboard with
+  per-cell/per-segment cost and wall-clock/active cycle time, and
   request-level card, configurable master-activity retention for `master_events`,
   configurable scorecard-history retention for `cell_summaries`, cell-delete cleanup for
   activity and reserved master/summary session directories,
@@ -96,7 +97,7 @@ digests.
 npm install
 npm run typecheck              # server then web, must print nothing
 npm run lint                   # eslint over src, zero warnings allowed
-npm test                       # 696 server + 199 web, plus the e2e env guard
+npm test                       # 699 server + 200 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)

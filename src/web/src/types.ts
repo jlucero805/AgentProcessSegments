@@ -121,6 +121,7 @@ export type {
 } from '../../server/src/pricing/types';
 export type {
   UsageBucket,
+  UsageCellSegmentGroup,
   UsageCoverage,
   UsageFilter,
   UsageGroup,

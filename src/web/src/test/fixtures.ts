@@ -153,6 +153,18 @@ export function makeUsageResponse(overrides: Partial<UsageResponse> = {}): Usage
     byRequest: [
       { key: 'req-1', label: 'A request', cellId: 'cell-1', cellLabel: 'Alpha', ...makeUsageTotals() },
     ],
+    byCellSegment: [
+      {
+        key: 'cell-1:implement',
+        label: 'Implement',
+        cellId: 'cell-1',
+        cellLabel: 'Alpha',
+        segment: 'implement',
+        wallMs: 3_600_000,
+        activeMs: 600_000,
+        ...makeUsageTotals(),
+      },
+    ],
     ...overrides,
   };
 }

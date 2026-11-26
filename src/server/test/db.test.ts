@@ -318,6 +318,48 @@ describe('db migrations', () => {
     db.close();
   });
 
+  it('rebuilds a legacy usage_daily table with the segment dimension', () => {
+    const dir = tmpDir('usage-daily-legacy');
+    const file = path.join(dir, 'legacy.sqlite');
+    const legacy = new Database(file);
+    legacy.exec(`CREATE TABLE usage_daily (
+      day_start            INTEGER NOT NULL,
+      scope                TEXT NOT NULL,
+      cell_id              TEXT NOT NULL DEFAULT '',
+      request_id           TEXT NOT NULL DEFAULT '',
+      model                TEXT NOT NULL DEFAULT '',
+      turns                INTEGER NOT NULL,
+      input_tokens         INTEGER NOT NULL,
+      output_tokens        INTEGER NOT NULL,
+      cache_read_tokens    INTEGER NOT NULL,
+      cache_write_tokens   INTEGER NOT NULL,
+      reasoning_tokens     INTEGER NOT NULL,
+      reported_cost_usd    REAL,
+      reported_cost_turns  INTEGER NOT NULL,
+      estimated_cost_usd   REAL,
+      estimated_cost_turns INTEGER NOT NULL,
+      PRIMARY KEY (day_start, scope, cell_id, request_id, model)
+    ) WITHOUT ROWID`);
+    legacy
+      .prepare(
+        `INSERT INTO usage_daily
+           (day_start, scope, cell_id, request_id, model, turns, input_tokens,
+            output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+            reported_cost_usd, reported_cost_turns, estimated_cost_usd,
+            estimated_cost_turns)
+         VALUES (0, 'request', 'c1', 'r1', 'm1', 3, 10, 5, 0, 0, 0, 0.5, 3, NULL, 0)`,
+      )
+      .run();
+    legacy.close();
+
+    const db = openDb(file);
+    expect(columns(db, 'usage_daily')).toContain('segment');
+    expect(
+      db.prepare('SELECT segment, turns, reported_cost_usd FROM usage_daily').get(),
+    ).toEqual({ segment: '', turns: 3, reported_cost_usd: 0.5 });
+    db.close();
+  });
+
   it('reconciles a stale working status to idle on boot', () => {
     const db = openDb(':memory:');
     db.prepare(

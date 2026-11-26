@@ -21,6 +21,42 @@ export const SEGMENT_STATES: Record<SegmentId, State> = {
   finalize: 'finalize',
 };
 
+/** Canonical labels for analytics, independent of a cell's editable labels. */
+export const SEGMENT_LABELS: Record<SegmentId, string> = {
+  intake: 'Requests',
+  plan: 'Plan',
+  implement: 'Implement',
+  review: 'Review',
+  merge: 'Merge',
+  finalize: 'Finalize',
+};
+
+/**
+ * Which segment a request is in for its current state. Intake and Plan share
+ * `clarify`; `clarifyStarted` distinguishes planning from untouched intake.
+ * Terminal requests are in no segment.
+ */
+export function segmentForState(
+  state: State,
+  clarifyStarted = false,
+): SegmentId | null {
+  switch (state) {
+    case 'clarify':
+      return clarifyStarted ? 'plan' : 'intake';
+    case 'dispatch':
+      return 'implement';
+    case 'review':
+      return 'review';
+    case 'merge':
+      return 'merge';
+    case 'finalize':
+      return 'finalize';
+    case 'done':
+    case 'dropped':
+      return null;
+  }
+}
+
 export interface FollowUpPolicy {
   enabled: boolean;
   /** A line starting with this marker becomes a new request. */

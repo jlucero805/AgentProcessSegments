@@ -9,6 +9,8 @@ import {
   type Request,
   type State,
 } from '../domain/request.js';
+import { segmentForState } from '../process/definition.js';
+import { RequestSegmentRepository } from '../usage/segments.js';
 
 export type RequestErrorCode = 'NOT_FOUND' | 'ILLEGAL_TRANSITION';
 
@@ -139,7 +141,11 @@ function encodeValue(value: unknown): unknown {
 }
 
 export class RequestRepository {
-  constructor(private readonly db: Db) {}
+  private readonly segments: RequestSegmentRepository;
+
+  constructor(private readonly db: Db) {
+    this.segments = new RequestSegmentRepository(db);
+  }
 
   /** One place for `updated_at` and column encoding so every write behaves the same. */
   private write(
@@ -175,6 +181,7 @@ export class RequestRepository {
         now,
         now,
       );
+    this.segments.enter(id, input.cellId ?? null, 'intake', now);
     return this.require(id);
   }
 
@@ -219,11 +226,14 @@ export class RequestRepository {
   setClarifyStarted(id: string, started: boolean): Request {
     this.require(id);
     this.write(id, [['clarify_started', started]]);
-    return this.require(id);
+    const updated = this.require(id);
+    const segment = segmentForState(updated.state, updated.clarifyStarted);
+    if (segment) this.segments.enter(id, updated.cellId, segment);
+    return updated;
   }
 
   edit(id: string, fields: EditInput): Request {
-    this.require(id);
+    const before = this.require(id);
 
     const source = fields as Record<string, unknown>;
     const assignments: Array<[string, unknown]> = [];
@@ -234,7 +244,11 @@ export class RequestRepository {
     }
 
     this.write(id, assignments);
-    return this.require(id);
+    const updated = this.require(id);
+    if (updated.cellId !== before.cellId) {
+      this.segments.moveCell(id, updated.cellId);
+    }
+    return updated;
   }
 
   transition(id: string, to: State): Request {
@@ -246,7 +260,11 @@ export class RequestRepository {
       );
     }
     this.write(id, [['state', to]]);
-    return this.require(id);
+    const updated = this.require(id);
+    const segment = segmentForState(updated.state, updated.clarifyStarted);
+    if (segment) this.segments.enter(id, updated.cellId, segment);
+    else this.segments.close(id);
+    return updated;
   }
 
   addRun(id: string, runId: string): Request {

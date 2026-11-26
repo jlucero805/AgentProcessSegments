@@ -122,6 +122,10 @@ describe('UsagePage', () => {
     expect(screen.getAllByText('Alpha').length).toBeGreaterThan(0);
     expect(screen.getByText('Top requests')).toBeInTheDocument();
     expect(screen.getByText('A request')).toBeInTheDocument();
+    expect(screen.getByText('By cell and process segment')).toBeInTheDocument();
+    expect(screen.getByText('Implement')).toBeInTheDocument();
+    expect(screen.getByText('1h 0m')).toBeInTheDocument();
+    expect(screen.getByText('10m')).toBeInTheDocument();
     expect(screen.getAllByTitle(/estimated/).length).toBeGreaterThan(0);
   });
 

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
-import { costBreakdown, formatCost, formatTokens, formatUsd } from './usageFormat';
+import {
+  costBreakdown,
+  formatCost,
+  formatDuration,
+  formatTokens,
+  formatUsd,
+} from './usageFormat';
 import {
   Badge,
   Button,
@@ -14,6 +20,7 @@ import type {
   BudgetStatus,
   CellDetail,
   UsageBucket,
+  UsageCellSegmentGroup,
   UsageCoverage,
   UsageGroup,
   UsageResponse,
@@ -349,6 +356,64 @@ function BreakdownTable({
   );
 }
 
+function CellSegmentTable({ rows }: { rows: UsageCellSegmentGroup[] }) {
+  return (
+    <Card className="space-y-3 p-4">
+      <div>
+        <SectionTitle>By cell and process segment</SectionTitle>
+        <p className="mt-1 text-[11px] text-zinc-600">
+          Cycle time covers every visit to a segment. Wall time includes waiting;
+          active time is only while an agent turn ran. Unattributed spend sits
+          outside the request pipeline.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-zinc-600">No segment activity in this range.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[44rem] text-left text-xs">
+            <thead className="text-[10px] uppercase tracking-wide text-zinc-600">
+              <tr>
+                <th className="pb-2 font-medium">Cell</th>
+                <th className="pb-2 font-medium">Segment</th>
+                <th className="pb-2 text-right font-medium">Cost</th>
+                <th className="pb-2 text-right font-medium">Tokens</th>
+                <th className="pb-2 text-right font-medium">Turns</th>
+                <th className="pb-2 text-right font-medium">Wall time</th>
+                <th className="pb-2 text-right font-medium">Active time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900">
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td
+                    className="max-w-[12rem] truncate py-2 pr-3 text-zinc-500"
+                    title={row.cellLabel}
+                  >
+                    {row.cellLabel}
+                  </td>
+                  <td className="py-2 pr-3 text-zinc-300">{row.label}</td>
+                  <td className="py-2 text-right text-zinc-400">{formatCost(row)}</td>
+                  <td className="py-2 text-right text-zinc-400">
+                    {formatTokens(row.totalTokens)}
+                  </td>
+                  <td className="py-2 text-right text-zinc-500">{row.turns}</td>
+                  <td className="py-2 text-right text-zinc-400">
+                    {formatDuration(row.wallMs)}
+                  </td>
+                  <td className="py-2 text-right text-zinc-400">
+                    {formatDuration(row.activeMs)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function CostChart({ data }: { data: UsageResponse }) {
   const step =
     data.series.length > 1
@@ -625,6 +690,7 @@ export function UsagePage({
                 empty="No request turns in this range."
                 showCell
               />
+              <CellSegmentTable rows={data.byCellSegment} />
             </>
           )}
           {loading ? (

@@ -128,9 +128,11 @@ mean to skip: it prints each image's timestamp so a stale capture stays visible.
 ![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
 
 The **Usage** page shows reported cost and, for turns a harness left unpriced, estimates
-from the operator-maintained **Model pricing** table on the Config page. Reported cost is
-never overwritten; a turn with neither a reported cost nor an effective price renders as
-unknown or as an explicit lower bound, never as zero.
+from the operator-maintained **Model pricing** table on the Config page. It also breaks
+cost and cycle time down by cell and process segment: wall-clock time includes waiting in
+the segment, active time counts only agent turns, and every revisit is summed. Reported
+cost is never overwritten; a turn with neither a reported cost nor an effective price
+renders as unknown or as an explicit lower bound, never as zero.
 
 ## Requirements
 
@@ -494,7 +496,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 895 vitest cases: 696 server cases across 46 files (state machine,
+`npm test` runs 899 vitest cases: 699 server cases across 46 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -508,7 +510,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 199 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 200 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

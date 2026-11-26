@@ -11,7 +11,8 @@ import { UsageRepository } from '../src/usage/repository.js';
 import { UsageRetention } from '../src/usage/retention.js';
 import type { UsageEventInput } from '../src/usage/types.js';
 
-const HOUR = 60 * 60 * 1000;
+const MIN = 60 * 1000;
+const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 const BASE = Date.UTC(2026, 0, 1, 10, 0, 0);
 
@@ -165,6 +166,88 @@ describe('usage repository', () => {
       cellId: cell.id,
       cellLabel: 'Alpha',
     });
+  });
+
+  it('groups cost and cycle time by cell and process segment', () => {
+    const h = setup();
+    const cell = h.cells.create('Alpha');
+    const request = h.requests.create({ title: 'Pipelined', cellId: cell.id });
+    const start = BASE + DAY;
+
+    h.usage.segments.enter(request.id, cell.id, 'implement', start);
+    h.usage.segments.enter(request.id, cell.id, 'review', start + 2 * HOUR);
+    h.usage.segments.recordTurn({
+      turnId: 'turn-implement',
+      requestId: request.id,
+      cellId: cell.id,
+      segment: 'implement',
+      startedAt: start + 30 * MIN,
+      endedAt: start + 90 * MIN,
+    });
+    h.usage.record(
+      event({
+        turnId: 'turn-implement',
+        sessionId: request.id,
+        requestId: request.id,
+        cellId: cell.id,
+        segment: 'implement',
+        costUsd: 0.5,
+        createdAt: start + 90 * MIN,
+      }),
+    );
+    h.usage.record(
+      event({
+        turnId: 'turn-review',
+        sessionId: request.id,
+        requestId: request.id,
+        cellId: cell.id,
+        segment: 'review',
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        costUsd: 0.25,
+        createdAt: start + 2 * HOUR + 10 * MIN,
+      }),
+    );
+
+    const result = h.usage.query({ from: start, to: start + 3 * HOUR });
+    const implement = result.byCellSegment.find((row) => row.segment === 'implement');
+    expect(implement).toMatchObject({
+      key: `${cell.id}:implement`,
+      label: 'Implement',
+      cellId: cell.id,
+      cellLabel: 'Alpha',
+      turns: 1,
+      wallMs: 2 * HOUR,
+      activeMs: 1 * HOUR,
+    });
+    expect(implement?.totalCostUsd).toBeCloseTo(0.5);
+
+    const review = result.byCellSegment.find((row) => row.segment === 'review');
+    expect(review).toMatchObject({ turns: 1, wallMs: 1 * HOUR, activeMs: 0 });
+    expect(review?.totalCostUsd).toBeCloseTo(0.25);
+  });
+
+  it('records a visit for every process segment the request passes through', () => {
+    const h = setup();
+    const cell = h.cells.create('Alpha');
+    const request = h.requests.create({ title: 'Moves', cellId: cell.id });
+
+    h.requests.setClarifyStarted(request.id, true);
+    h.requests.transition(request.id, 'dispatch');
+    h.requests.transition(request.id, 'review');
+
+    const bySegment = new Map(
+      h.usage.segments
+        .durations({ requestId: request.id, to: Date.now() + 1000 })
+        .map((row) => [row.segment, row]),
+    );
+    expect(new Set(bySegment.keys())).toEqual(
+      new Set(['intake', 'plan', 'implement', 'review']),
+    );
+    for (const row of bySegment.values()) expect(row.cellId).toBe(cell.id);
   });
 
   it('filters by cell, request, and time window', () => {
@@ -438,6 +521,7 @@ describe('usage repository', () => {
         requestId: request.id,
         sessionId: request.id,
         cellId: cell.id,
+        segment: 'implement',
         createdAt: BASE,
       }),
     );
@@ -490,6 +574,10 @@ describe('usage repository', () => {
     expect(after.byModel).toEqual(before.byModel);
     expect(after.byCell).toEqual(before.byCell);
     expect(after.byRequest).toEqual(before.byRequest);
+    // The daily rollup keeps the segment dimension after raw rows are pruned.
+    expect(
+      after.byCellSegment.find((row) => row.segment === 'implement'),
+    ).toMatchObject({ cellId: cell.id, turns: 1 });
     expect(after.coverage.rolledThrough).toBe(day0 + DAY);
     expect(h.usage.query({ requestId: request.id }).totals).toEqual(
       beforeRequest.totals,

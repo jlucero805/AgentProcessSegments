@@ -512,6 +512,9 @@ export function App() {
           setCellModalOpen(false);
           setCellId(cell.id);
           void loadCells();
+          // A cell save can change its budget or pause policy; refresh the one
+          // shared budget feed instead of waiting for the next poll.
+          void budgetFeed.reload();
         }}
         onError={setError}
       />

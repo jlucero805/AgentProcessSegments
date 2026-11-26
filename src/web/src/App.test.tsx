@@ -136,6 +136,66 @@ function makePausedBudgetView(overridden = false) {
   };
 }
 
+function makeCellPausedBudgetView(cell: CellDetail, paused = true) {
+  const periodStart = Date.UTC(2026, 10, 1);
+  const periodEnd = Date.UTC(2026, 11, 1);
+  const budgetUsd = cell.monthlyBudgetUsd ?? 100;
+  return {
+    periodStart,
+    periodEnd,
+    alertAtPercent: 80,
+    statuses: paused
+      ? [
+          {
+            scope: 'cell',
+            cellId: cell.id,
+            cellName: cell.name,
+            label: cell.name,
+            periodStart,
+            periodEnd,
+            budgetUsd,
+            spendUsd: budgetUsd,
+            remainingUsd: 0,
+            percentUsed: 100,
+            pricedTurns: 3,
+            unknownCostTurns: 0,
+            spendIsLowerBound: false,
+            state: 'exceeded',
+            pauseOnExceeded: true,
+            pauseOnUnknownCost: false,
+            capSpendUsd: budgetUsd,
+            capSpendIsLowerBound: false,
+            unpricedTurns: 0,
+            paused: true,
+            pauseReason: 'cap_reached',
+            overrideId: null,
+            overrideExpiresAt: null,
+          },
+        ]
+      : [],
+    alerts: [],
+    pauses: paused
+      ? [
+          {
+            scope: 'cell',
+            cellId: cell.id,
+            cellName: cell.name,
+            label: cell.name,
+            reason: 'cap_reached',
+            periodStart,
+            periodEnd,
+            budgetUsd,
+            spendUsd: budgetUsd,
+            spendIsLowerBound: false,
+            unpricedTurns: 0,
+            percentUsed: 100,
+          },
+        ]
+      : [],
+    overrides: [],
+  };
+}
+
 function installFetch(
   request: Request,
   transcript: unknown[] = [],
@@ -516,6 +576,98 @@ describe('App', () => {
     await waitFor(() =>
       expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0),
     );
+  });
+
+  it('refreshes the banner after saving a cell pause off', async () => {
+    const cell: CellDetail = {
+      ...makeCell(),
+      monthlyBudgetUsd: 100,
+      pauseOnExceeded: true,
+    };
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [cell]);
+    const baseFetch = globalThis.fetch;
+    let paused = true;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${url}`);
+        if (url === '/api/cells/c1' && method === 'PATCH') {
+          paused = false;
+          return jsonResponse({ ...cell, pauseOnExceeded: false });
+        }
+        if (url === '/api/budgets') return jsonResponse(makeCellPausedBudgetView(cell, paused));
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    expect(await screen.findByText(/Alpha hard cap reached/)).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Alpha' }));
+    const pauseToggle = await screen.findByRole('checkbox', {
+      name: /pause this cell's new work when its budget is exceeded/i,
+    });
+    await waitFor(() => expect(pauseToggle).toBeEnabled());
+    fireEvent.click(pauseToggle);
+    const saveButton = screen.getByRole('button', { name: 'Save cell' });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(),
+    );
+    const patchAt = calls.indexOf('PATCH /api/cells/c1');
+    expect(patchAt).toBeGreaterThan(-1);
+    expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(patchAt);
+  });
+
+  it('refreshes the banner after saving a cell pause on', async () => {
+    const cell: CellDetail = {
+      ...makeCell(),
+      monthlyBudgetUsd: 100,
+      pauseOnExceeded: false,
+    };
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [cell]);
+    const baseFetch = globalThis.fetch;
+    let paused = false;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${url}`);
+        if (url === '/api/cells/c1' && method === 'PATCH') {
+          paused = true;
+          return jsonResponse({ ...cell, pauseOnExceeded: true });
+        }
+        if (url === '/api/budgets') return jsonResponse(makeCellPausedBudgetView(cell, paused));
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Alpha' }));
+    const pauseToggle = await screen.findByRole('checkbox', {
+      name: /pause this cell's new work when its budget is exceeded/i,
+    });
+    await waitFor(() => expect(pauseToggle).toBeEnabled());
+    fireEvent.click(pauseToggle);
+    const saveButton = screen.getByRole('button', { name: 'Save cell' });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    fireEvent.click(saveButton);
+
+    expect(await screen.findByText(/Alpha hard cap reached/)).toBeInTheDocument();
+    const patchAt = calls.indexOf('PATCH /api/cells/c1');
+    expect(patchAt).toBeGreaterThan(-1);
+    expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(patchAt);
   });
 
   it('opens the config page and records it in the URL', async () => {

@@ -176,7 +176,9 @@ last five.
    an **End override** action; ending it immediately re-pauses the scope and stops its live
    turns, while letting it expire re-pauses new work and is enforced by the next budget
    check. A snooze changes no budget and clears no alert. The Usage page shows paused
-   scopes, cap spend, the reason, and the same snooze controls. If you enabled the
+   scopes, cap spend, the reason, and the same snooze controls. Config's Spend budgets
+   card, the app banner, and Usage all read the same polled snapshot, so a snooze or
+   revoke in one updates the others immediately. If you enabled the
    **Spend cap overrides** event route, a grant or extension while the cap still blocks
    work and an expiry that leaves it blocked again are delivered to the configured
    webhook/email channels; revoking a snooze does not notify, and an expiry may take up

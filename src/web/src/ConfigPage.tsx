@@ -5,6 +5,7 @@ import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
 import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideControl';
 import { SpendOverrideHistory } from './SpendOverrideHistory';
+import type { BudgetFeed } from './useBudgets';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_EVENT_COALESCE_MINUTES,
@@ -29,7 +30,6 @@ import {
   webhookUrlError,
   type BudgetSettings,
   type BudgetStatus,
-  type BudgetsResponse,
   type CellDetail,
   type ChatView,
   type ConfigResponse,
@@ -69,11 +69,8 @@ import {
 interface ConfigPageProps {
   onError: (message: string) => void;
   onEditCell?: (cell: CellDetail) => void;
-  /**
-   * Force-refresh the shared budget feed and return its snapshot, so the
-   * banner and these rows update together after a budget action.
-   */
-  reloadBudgets?: () => Promise<BudgetsResponse | null>;
+  /** The app's single budget snapshot, shared with the banner and Usage page. */
+  budgetFeed: BudgetFeed;
 }
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -221,7 +218,7 @@ function mergePrice(list: ModelPrice[], created: ModelPrice): ModelPrice[] {
 }
 
 /** Edits the global master defaults, process template, and per-cell switches. */
-export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPageProps) {
+export function ConfigPage({ onError, onEditCell, budgetFeed }: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [summary, setSummary] = useState<SummaryConfig | null>(null);
   const [usage, setUsage] = useState<UsageSettings | null>(null);
@@ -254,7 +251,6 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   const [budgetAlertPercent, setBudgetAlertPercent] = useState('80');
   const [budgetPauseOnExceeded, setBudgetPauseOnExceeded] = useState(false);
   const [budgetPauseOnUnknownCost, setBudgetPauseOnUnknownCost] = useState(false);
-  const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaved, setBudgetSaved] = useState(false);
   const [overrideHistoryToken, setOverrideHistoryToken] = useState(0);
@@ -324,7 +320,6 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         processConfig,
         cellList,
         eventList,
-        budgetResponse,
         statusResponse,
         deliveryResponse,
       ] = await Promise.all([
@@ -332,7 +327,6 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         api.getProcess(),
         api.getCells(),
         api.getMasterEvents({ limit: 20 }),
-        api.getBudgets().catch(() => null),
         api.getNotificationStatus().catch(() => null),
         api.getNotificationDeliveries({ limit: 10, offset: 0 }).catch(() => null),
       ]);
@@ -370,9 +364,6 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       setBudgetAlertPercent(String(loadedBudget.alertAtPercent));
       setBudgetPauseOnExceeded(loadedBudget.pauseOnExceeded);
       setBudgetPauseOnUnknownCost(loadedBudget.pauseOnUnknownCost);
-      setBudgetView(
-        budgetResponse && Array.isArray(budgetResponse.statuses) ? budgetResponse : null,
-      );
       setWebhook(loadedWebhook);
       setWebhookEnabled(loadedWebhook.enabled);
       setWebhookUrl(loadedWebhook.url ?? '');
@@ -680,35 +671,18 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     }
   }
 
-  const reloadBudgetView = useCallback(async () => {
-    const next = reloadBudgets
-      ? await reloadBudgets()
-      : await api.getBudgets().catch(() => null);
-    if (next && Array.isArray(next.statuses)) setBudgetView(next);
-  }, [reloadBudgets]);
-
   async function snoozeBudget(status: BudgetStatus, minutes: number) {
-    try {
-      await api.grantBudgetOverride({
-        scope: status.scope,
-        ...(status.cellId === null ? {} : { cellId: status.cellId }),
-        minutes,
-      });
-      await reloadBudgetView();
-      setOverrideHistoryToken((current) => current + 1);
-    } catch (error) {
-      onError(describeError(error));
-    }
+    await budgetFeed.snooze({
+      scope: status.scope,
+      ...(status.cellId === null ? {} : { cellId: status.cellId }),
+      minutes,
+    });
+    setOverrideHistoryToken((current) => current + 1);
   }
 
   async function endBudgetOverride(id: string) {
-    try {
-      await api.revokeBudgetOverride(id);
-      await reloadBudgetView();
-      setOverrideHistoryToken((current) => current + 1);
-    } catch (error) {
-      onError(describeError(error));
-    }
+    await budgetFeed.revokeOverride(id);
+    setOverrideHistoryToken((current) => current + 1);
   }
 
   async function saveBudget() {
@@ -759,7 +733,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       setBudgetAlertPercent(String(savedBudget.alertAtPercent));
       setBudgetPauseOnExceeded(savedBudget.pauseOnExceeded);
       setBudgetPauseOnUnknownCost(savedBudget.pauseOnUnknownCost);
-      await reloadBudgetView();
+      await budgetFeed.reload();
       setBudgetSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -1189,6 +1163,8 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     );
   }
 
+  const budgetView = budgetFeed.budgets;
+
   return (
     <div className="mx-auto h-full w-full max-w-3xl space-y-4 overflow-y-auto p-4 md:p-6">
       {warnings.length > 0 ? (
@@ -1571,120 +1547,153 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
           </p>
         </div>
 
-        {budgetView && budgetView.statuses.length > 0 ? (
-          <div className="space-y-2">
-            {budgetView.statuses.map((status) => (
-              <div
-                key={`${status.scope}:${status.cellId ?? ''}`}
-                className="space-y-1.5 rounded-lg border border-zinc-800 px-3 py-2"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm text-zinc-300">{status.label}</span>
-                  <div className="flex items-center gap-2">
-                    {status.paused ? (
-                      <Badge tone={status.overrideId ? 'amber' : 'red'}>
-                        {status.overrideId ? 'snoozed' : 'paused'}
-                      </Badge>
-                    ) : null}
-                    <Badge tone={budgetTone(status)}>{status.state}</Badge>
-                  </div>
-                </div>
-                {status.state === 'unknown' ? (
-                  <p className="text-[11px] text-zinc-500">
-                    Spend unknown
-                    {status.unknownCostTurns > 0
-                      ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
-                      : ''}
-                  </p>
-                ) : (
-                  <>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
-                      <div
-                        className={
-                          status.state === 'exceeded'
-                            ? 'h-full rounded-full bg-red-500'
-                            : status.state === 'warning'
-                              ? 'h-full rounded-full bg-amber-400'
-                              : 'h-full rounded-full bg-emerald-500'
-                        }
-                        style={{
-                          width: `${Math.min(100, Math.max(0, status.percentUsed))}%`,
-                        }}
-                      />
+        {budgetFeed.error && budgetView ? (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-200"
+          >
+            <span>
+              Couldn&apos;t refresh budgets; showing the last successful snapshot.
+            </span>
+            <Button size="sm" variant="secondary" onClick={() => void budgetFeed.reload()}>
+              Retry
+            </Button>
+          </div>
+        ) : null}
+
+        {budgetView ? (
+          budgetView.statuses.length > 0 ? (
+            <div className="space-y-2">
+              {budgetView.statuses.map((status) => (
+                <div
+                  key={`${status.scope}:${status.cellId ?? ''}`}
+                  className="space-y-1.5 rounded-lg border border-zinc-800 px-3 py-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm text-zinc-300">{status.label}</span>
+                    <div className="flex items-center gap-2">
+                      {status.paused ? (
+                        <Badge tone={status.overrideId ? 'amber' : 'red'}>
+                          {status.overrideId ? 'snoozed' : 'paused'}
+                        </Badge>
+                      ) : null}
+                      <Badge tone={budgetTone(status)}>{status.state}</Badge>
                     </div>
+                  </div>
+                  {status.state === 'unknown' ? (
                     <p className="text-[11px] text-zinc-500">
-                      {status.spendIsLowerBound ? 'At least ' : ''}
-                      {moneyLabel(status.spendUsd)} of {moneyLabel(status.budgetUsd)} (
-                      {pct(status.percentUsed)})
+                      Spend unknown
                       {status.unknownCostTurns > 0
                         ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
                         : ''}
                     </p>
-                  </>
-                )}
-                {status.paused ? (
-                  <>
-                    <p
-                      className={
-                        status.overrideId
-                          ? 'text-[11px] text-amber-300'
-                          : 'text-[11px] text-red-300'
-                      }
-                    >
-                      {status.overrideId ? (
-                        status.pauseReason === 'unknown_cost' ? (
+                  ) : (
+                    <>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                        <div
+                          className={
+                            status.state === 'exceeded'
+                              ? 'h-full rounded-full bg-red-500'
+                              : status.state === 'warning'
+                                ? 'h-full rounded-full bg-amber-400'
+                                : 'h-full rounded-full bg-emerald-500'
+                          }
+                          style={{
+                            width: `${Math.min(100, Math.max(0, status.percentUsed))}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-zinc-500">
+                        {status.spendIsLowerBound ? 'At least ' : ''}
+                        {moneyLabel(status.spendUsd)} of {moneyLabel(status.budgetUsd)} (
+                        {pct(status.percentUsed)})
+                        {status.unknownCostTurns > 0
+                          ? ` · ${status.unknownCostTurns} unpriced turn${status.unknownCostTurns === 1 ? '' : 's'}`
+                          : ''}
+                      </p>
+                    </>
+                  )}
+                  {status.paused ? (
+                    <>
+                      <p
+                        className={
+                          status.overrideId
+                            ? 'text-[11px] text-amber-300'
+                            : 'text-[11px] text-red-300'
+                        }
+                      >
+                        {status.overrideId ? (
+                          status.pauseReason === 'unknown_cost' ? (
+                            <>
+                              Cost is unknown: {status.unpricedTurns} unpriced turn
+                              {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be
+                              verified; an override is admitting new work until{' '}
+                              {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
+                            </>
+                          ) : (
+                            <>
+                              Cap reached at {moneyLabel(status.capSpendUsd)} of{' '}
+                              {moneyLabel(status.budgetUsd)} cap spend
+                              {status.capSpendIsLowerBound ? ' (lower bound)' : ''}; an
+                              override is admitting new work until{' '}
+                              {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
+                            </>
+                          )
+                        ) : status.pauseReason === 'unknown_cost' ? (
                           <>
-                            Cost is unknown: {status.unpricedTurns} unpriced turn
-                            {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be
-                            verified; an override is admitting new work until{' '}
-                            {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
+                            Paused: {status.unpricedTurns} unpriced turn
+                            {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified.
+                            New work is paused and in-flight turns were stopped. Add a matching
+                            price, clear the budget, or turn off strict pause.
                           </>
                         ) : (
                           <>
-                            Cap reached at {moneyLabel(status.capSpendUsd)} of{' '}
-                            {moneyLabel(status.budgetUsd)} cap spend
-                            {status.capSpendIsLowerBound ? ' (lower bound)' : ''}; an
-                            override is admitting new work until{' '}
-                            {overrideExpiryLabel(status.overrideExpiresAt ?? status.periodEnd)}.
+                            New work is paused and in-flight turns were stopped at{' '}
+                            {moneyLabel(status.capSpendUsd)} of {moneyLabel(status.budgetUsd)} cap
+                            spend{status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
                           </>
-                        )
-                      ) : status.pauseReason === 'unknown_cost' ? (
-                        <>
-                          Paused: {status.unpricedTurns} unpriced turn
-                          {status.unpricedTurns === 1 ? '' : 's'}, so cost cannot be verified.
-                          New work is paused and in-flight turns were stopped. Add a matching
-                          price, clear the budget, or turn off strict pause.
-                        </>
-                      ) : (
-                        <>
-                          New work is paused and in-flight turns were stopped at{' '}
-                          {moneyLabel(status.capSpendUsd)} of {moneyLabel(status.budgetUsd)} cap
-                          spend{status.capSpendIsLowerBound ? ' (lower bound)' : ''}.
-                        </>
-                      )}
-                    </p>
-                    <SpendOverrideControl
-                      label={
-                        status.scope === 'overall'
-                          ? 'overall spend'
-                          : `${status.cellName ?? 'cell'} spend`
-                      }
-                      paused
-                      overrideId={status.overrideId}
-                      overrideExpiresAt={status.overrideExpiresAt}
-                      periodEnd={status.periodEnd}
-                      onSnooze={(minutes) => snoozeBudget(status, minutes)}
-                      onRevoke={endBudgetOverride}
-                    />
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-500">
-            No budgets configured. Set an overall budget below or edit a cell.
+                        )}
+                      </p>
+                      <SpendOverrideControl
+                        label={
+                          status.scope === 'overall'
+                            ? 'overall spend'
+                            : `${status.cellName ?? 'cell'} spend`
+                        }
+                        paused
+                        overrideId={status.overrideId}
+                        overrideExpiresAt={status.overrideExpiresAt}
+                        periodEnd={status.periodEnd}
+                        onSnooze={(minutes) => snoozeBudget(status, minutes)}
+                        onRevoke={endBudgetOverride}
+                      />
+                    </>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">
+              No budgets configured. Set an overall budget below or edit a cell.
+            </p>
+          )
+        ) : budgetFeed.loading ? (
+          <p className="flex items-center gap-2 text-sm text-zinc-500">
+            <Spinner /> Loading budgets…
           </p>
+        ) : (
+          <div
+            role="alert"
+            className="space-y-2 rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200"
+          >
+            <p className="font-medium">Couldn&apos;t load budget status.</p>
+            {budgetFeed.error ? (
+              <p className="break-words text-[11px] text-red-300/80">{budgetFeed.error}</p>
+            ) : null}
+            <Button size="sm" variant="secondary" onClick={() => void budgetFeed.reload()}>
+              Retry
+            </Button>
+          </div>
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">

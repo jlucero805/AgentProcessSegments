@@ -7,6 +7,7 @@ import { openDb, type Db } from '../src/db.js';
 import type { EmailSettings } from '../src/domain/budget.js';
 import type {
   MasterErrorNotification,
+  SummaryFailureNotification,
   TurnFailureNotification,
 } from '../src/domain/notifications.js';
 import type { ErrorSink } from '../src/logging/errors.js';
@@ -52,6 +53,13 @@ const MASTER: MasterErrorNotification = {
   occurredAt: NOW,
 };
 
+const SUMMARY: SummaryFailureNotification = {
+  cellId: 'cell-1',
+  source: 'summary.exit',
+  reason: 'process exited with code 1',
+  occurredAt: NOW,
+};
+
 interface Sent {
   url: string;
   init: RequestInit;
@@ -88,6 +96,7 @@ interface SetupOptions {
   email?: Partial<EmailSettings>;
   failedTurns?: { webhook?: boolean; email?: boolean };
   masterErrors?: { webhook?: boolean; email?: boolean };
+  summaryFailures?: { webhook?: boolean; email?: boolean };
   timeoutMs?: number;
   maxAttempts?: number;
   errors?: ErrorSink;
@@ -113,6 +122,7 @@ function setup(options: SetupOptions) {
       events: {
         failedTurns: { webhook: false, email: false, ...options.failedTurns },
         masterErrors: { webhook: false, email: false, ...options.masterErrors },
+        summaryFailures: { webhook: false, email: false, ...options.summaryFailures },
       },
     },
   });
@@ -165,6 +175,7 @@ describe('notification event deliveries', () => {
       byKind: {
         'turn.failed': { pending: 0, failed: 0 },
         'master.error': { pending: 0, failed: 0 },
+        'summary.failed': { pending: 0, failed: 0 },
       },
     });
   });
@@ -236,6 +247,50 @@ describe('notification event deliveries', () => {
     });
   });
 
+  it('sends a summary envelope and coalesces per cell, source, reason, and hour', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      summaryFailures: { webhook: true },
+    });
+
+    context.notifier.observeSummaryFailure({ ...SUMMARY, cellId: context.cellId });
+    context.notifier.observeSummaryFailure({ ...SUMMARY, cellId: context.cellId });
+    expect(context.events.status('summary.failed')).toMatchObject({
+      pending: 1,
+      failed: 0,
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+
+    const sent = fake.calls[0]!;
+    const headers = sent.init.headers as Record<string, string>;
+    expect(headers['idempotency-key']).toMatch(
+      new RegExp(`^summary:${context.cellId}:summary\\.exit:process_exited_with_code_1:`),
+    );
+    expect(bodyOf(sent)).toMatchObject({
+      version: 1,
+      event: 'summary.failed',
+      severity: 'error',
+      title: 'Scorecard failed: Acme',
+      text: 'Scorecard generation failed for cell "Acme": process exited with code 1.',
+      summary: {
+        cellId: context.cellId,
+        source: 'summary.exit',
+        reason: 'process exited with code 1',
+      },
+    });
+
+    context.clock.advance(HOUR);
+    context.notifier.observeSummaryFailure({
+      ...SUMMARY,
+      cellId: context.cellId,
+      occurredAt: NOW + HOUR,
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(2);
+  });
+
   it('sends email for a routed event kind', async () => {
     const messages: EmailMessage[] = [];
     const sendEmail: EmailSendLike = async (_email, message) => {
@@ -261,6 +316,36 @@ describe('notification event deliveries', () => {
     );
     expect(messages[0]?.text).toContain('Master cycle failed for cell "Acme".');
     expect(messages[0]?.text).toContain(`Cell: ${context.cellId}`);
+  });
+
+  it('sends a summary failure by email with the safe classification', async () => {
+    const messages: EmailMessage[] = [];
+    const sendEmail: EmailSendLike = async (_email, message) => {
+      messages.push(message);
+    };
+    const context = setup({
+      sendEmail,
+      email: {},
+      summaryFailures: { email: true },
+    });
+
+    context.notifier.observeSummaryFailure({ ...SUMMARY, cellId: context.cellId });
+    await context.notifier.flush();
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      to: ['ops@example.test'],
+      subject: '[APS] Scorecard failed: Acme',
+      eventKind: 'summary.failed',
+    });
+    expect(messages[0]?.eventId).toMatch(
+      new RegExp(`^summary:${context.cellId}:summary\\.exit:`),
+    );
+    expect(messages[0]?.text).toContain(
+      'Scorecard generation failed for cell "Acme": process exited with code 1.',
+    );
+    expect(messages[0]?.text).toContain(`Cell: ${context.cellId}`);
+    expect(messages[0]?.text).toContain('Source: summary.exit');
   });
 
   it('retries transient failures, honors Retry-After, and fails permanent rows', async () => {

@@ -45,6 +45,24 @@ const BUDGET_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS budget_alert_deliverie
   UNIQUE(alert_id, destination_id)
 )`;
 
+const NOTIFICATION_EVENT_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS notification_event_deliveries (
+  id               TEXT PRIMARY KEY,
+  dedupe_key       TEXT NOT NULL,
+  kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error', 'summary.failed')),
+  channel          TEXT NOT NULL,
+  format           TEXT NOT NULL,
+  destination_hash TEXT NOT NULL,
+  payload_json     TEXT NOT NULL,
+  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at  INTEGER NOT NULL,
+  last_error       TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  delivered_at     INTEGER,
+  UNIQUE(dedupe_key, channel)
+)`;
+
 const BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS cells (
   id                       TEXT PRIMARY KEY,
@@ -181,23 +199,7 @@ CREATE TABLE IF NOT EXISTS budget_alerts (
 
 ${BUDGET_DELIVERIES_DDL};
 
-CREATE TABLE IF NOT EXISTS notification_event_deliveries (
-  id               TEXT PRIMARY KEY,
-  dedupe_key       TEXT NOT NULL,
-  kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error')),
-  channel          TEXT NOT NULL,
-  format           TEXT NOT NULL,
-  destination_hash TEXT NOT NULL,
-  payload_json     TEXT NOT NULL,
-  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
-  attempts         INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at  INTEGER NOT NULL,
-  last_error       TEXT,
-  created_at       INTEGER NOT NULL,
-  updated_at       INTEGER NOT NULL,
-  delivered_at     INTEGER,
-  UNIQUE(dedupe_key, channel)
-);
+${NOTIFICATION_EVENT_DELIVERIES_DDL};
 
 CREATE TABLE IF NOT EXISTS spend_cap_overrides (
   id           TEXT PRIMARY KEY,
@@ -339,9 +341,39 @@ function migrateBudgetDeliveries(db: Db): void {
   })();
 }
 
+/**
+ * SQLite cannot alter the event-kind CHECK in place. Rebuild a two-kind table
+ * once so `summary.failed` can be enqueued, preserving every delivery row.
+ */
+function migrateNotificationEventDeliveries(db: Db): void {
+  const table = db
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notification_event_deliveries'",
+    )
+    .get() as { sql: string } | undefined;
+  if (!table || table.sql.includes("'summary.failed'")) return;
+
+  db.transaction(() => {
+    db.exec(
+      'ALTER TABLE notification_event_deliveries RENAME TO notification_event_deliveries_legacy',
+    );
+    db.exec(NOTIFICATION_EVENT_DELIVERIES_DDL);
+    db.exec(
+      `INSERT INTO notification_event_deliveries
+         (id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       SELECT id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+              status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at
+         FROM notification_event_deliveries_legacy`,
+    );
+    db.exec('DROP TABLE notification_event_deliveries_legacy');
+  })();
+}
+
 export function migrate(db: Db): void {
   db.exec(BASE_SCHEMA);
   migrateBudgetDeliveries(db);
+  migrateNotificationEventDeliveries(db);
   for (const [table, column, ddl] of COLUMNS) addColumn(db, table, column, ddl);
   db.prepare(
     'INSERT OR IGNORE INTO usage_rollup_state (id, rolled_through) VALUES (1, 0)',

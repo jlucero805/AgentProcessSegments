@@ -232,6 +232,7 @@ export interface EventChannelSettings {
 export interface EventNotificationSettings {
   failedTurns: EventChannelSettings;
   masterErrors: EventChannelSettings;
+  summaryFailures: EventChannelSettings;
 }
 
 export interface NotificationsSettings {
@@ -279,6 +280,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
 export const DEFAULT_EVENT_NOTIFICATIONS: EventNotificationSettings = {
   failedTurns: { webhook: false, email: false },
   masterErrors: { webhook: false, email: false },
+  summaryFailures: { webhook: false, email: false },
 };
 
 export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
@@ -298,6 +300,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
   events: {
     failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
     masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
+    summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
   },
 };
 

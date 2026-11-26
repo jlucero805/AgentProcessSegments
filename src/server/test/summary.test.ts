@@ -4,15 +4,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { openDb, type Db } from '../src/db.js';
+import type { SummaryFailureNotification } from '../src/domain/notifications.js';
 import { summarySessionId } from '../src/domain/sessions.js';
 import { RequestRepository } from '../src/requests/repository.js';
 import { SettingsStore } from '../src/settings.js';
 import { SummaryRepository } from '../src/summary/repository.js';
-import { collectSummaryStats, SummaryService } from '../src/summary/service.js';
+import {
+  collectSummaryStats,
+  summaryFailureSource,
+  SummaryService,
+} from '../src/summary/service.js';
 import { SpendCapError } from '../src/usage/spend-cap.js';
 import type { SummaryStats } from '../src/summary/types.js';
 import {
   createHarness,
+  errorResultLine,
   initLine,
   resultLine,
   settle,
@@ -269,7 +275,12 @@ describe('summary stats', () => {
 });
 
 describe('SummaryService', () => {
-  function setup(script: (text: string) => string[]) {
+  function setup(
+    script: (text: string) => string[],
+    options: {
+      onSummaryFailure?: (event: SummaryFailureNotification) => void;
+    } = {},
+  ) {
     const base = tmpDir('summary');
     const harness = createHarness(script, () => ({ model: 'cell-model', effort: 'high' }));
     open = harness;
@@ -277,6 +288,7 @@ describe('SummaryService', () => {
     const summaries = new SummaryRepository(harness.db);
     const settings = new SettingsStore(path.join(base, 'config.json'));
     const errors = { error: vi.fn() };
+    const notify = options.onSummaryFailure ?? vi.fn();
     const service = new SummaryService({
       repo: harness.repo,
       cells: harness.cells,
@@ -285,8 +297,9 @@ describe('SummaryService', () => {
       events,
       summaries,
       errors,
+      onSummaryFailure: notify,
     });
-    return { base, harness, events, summaries, settings, errors, service };
+    return { base, harness, events, summaries, settings, errors, notify, service };
   }
 
   it('writes a scorecard from the summary session and persists the stats', async () => {
@@ -310,6 +323,7 @@ describe('SummaryService', () => {
     expect(summary.stats.cell).toEqual({ id: cell.id, name: 'Alpha' });
     expect(fixture.summaries.latest(cell.id)?.id).toBe(summary.id);
     expect(fixture.harness.repo.list()).toHaveLength(before);
+    expect(fixture.notify).not.toHaveBeenCalled();
 
     const session = fixture.harness.harness.sessions[0];
     expect(session).toMatchObject({ scope: 'master', requestId: '', model: 'cell-model', effort: 'high' });
@@ -358,6 +372,91 @@ describe('SummaryService', () => {
       expect.any(Error),
       { cellId: cell.id },
     );
+    expect(fixture.notify).toHaveBeenCalledWith({
+      cellId: cell.id,
+      source: 'summary.empty',
+      reason: 'scorecard returned no text',
+      occurredAt: expect.any(Number),
+    });
+  });
+
+  it('notifies for an engine error result with the safe classification', async () => {
+    const fixture = setup(() => [
+      initLine(),
+      errorResultLine('provider secret error'),
+      resultLine(),
+    ]);
+    const cell = fixture.harness.cells.create('Alpha');
+
+    await expect(fixture.service.generate(cell.id)).rejects.toThrow('provider secret error');
+
+    const event = (fixture.notify as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+      | SummaryFailureNotification
+      | undefined;
+    expect(event).toMatchObject({
+      cellId: cell.id,
+      source: 'summary.result',
+      reason: 'harness error result',
+    });
+    expect(JSON.stringify(event)).not.toContain('provider secret error');
+  });
+
+  it('notifies for a non-zero exit and maps the safe reason', async () => {
+    const fixture = setup(() => []);
+    const cell = fixture.harness.cells.create('Alpha');
+    const pending = fixture.service.generate(cell.id);
+    await settle();
+    fixture.harness.harness.process?.emitExit(1);
+
+    await expect(pending).rejects.toThrow('process exited with code 1');
+
+    expect(fixture.notify).toHaveBeenCalledWith({
+      cellId: cell.id,
+      source: 'summary.exit',
+      reason: 'process exited with code 1',
+      occurredAt: expect.any(Number),
+    });
+  });
+
+  it('maps every engine failure source and reports a hook that throws', async () => {
+    expect(summaryFailureSource('engine.result')).toBe('summary.result');
+    expect(summaryFailureSource('engine.exit')).toBe('summary.exit');
+    expect(summaryFailureSource('engine.timeout')).toBe('summary.timeout');
+    expect(summaryFailureSource('engine.turn')).toBe('summary.turn');
+
+    const fixture = setup(
+      () => [initLine(), errorResultLine('boom'), resultLine()],
+      {
+        onSummaryFailure: () => {
+          throw new Error('observer down');
+        },
+      },
+    );
+    const cell = fixture.harness.cells.create('Alpha');
+
+    await expect(fixture.service.generate(cell.id)).rejects.toThrow('boom');
+    expect(fixture.errors.error).toHaveBeenCalledWith(
+      'notifications.event',
+      expect.any(Error),
+      { kind: 'summary.failed', cellId: cell.id },
+    );
+  });
+
+  it('notifies when the scorecard cannot be stored', async () => {
+    const fixture = setup(() => [initLine(), textLine('# Report'), resultLine()]);
+    const cell = fixture.harness.cells.create('Alpha');
+    vi.spyOn(fixture.summaries, 'record').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    await expect(fixture.service.generate(cell.id)).rejects.toThrow('disk full');
+
+    expect(fixture.notify).toHaveBeenCalledWith({
+      cellId: cell.id,
+      source: 'summary.store',
+      reason: 'could not save scorecard',
+      occurredAt: expect.any(Number),
+    });
   });
 
   it('treats a cap-stopped generation as a pause, not a failure', async () => {
@@ -386,6 +485,7 @@ describe('SummaryService', () => {
 
     expect(fixture.summaries.latest(cell.id)).toBeNull();
     expect(fixture.errors.error).not.toHaveBeenCalled();
+    expect(fixture.notify).not.toHaveBeenCalled();
     expect(
       fixture.harness.engine
         .transcript(summarySessionId(cell.id))
@@ -423,5 +523,6 @@ describe('SummaryService', () => {
     await turn.promise;
     await settle();
     expect(fixture.summaries.latest(cell.id)).toBeNull();
+    expect(fixture.notify).not.toHaveBeenCalled();
   });
 });

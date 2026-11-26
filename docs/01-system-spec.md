@@ -201,16 +201,18 @@ creates a second row for that destination.
 
 ### `notification_event_deliveries`
 
-`id` (uuid PK), `dedupe_key`, `kind` (`turn.failed|master.error`), `channel`
-(`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`,
+`id` (uuid PK), `dedupe_key`, `kind` (`turn.failed|master.error|summary.failed`),
+`channel` (`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`,
 `payload_json`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
 `next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
 `UNIQUE(dedupe_key, channel)` is the event idempotency key;
 `idx_notification_event_deliveries_due` covers `(status, next_attempt_at)`. The row has no
 alert foreign key, so it survives request/cell deletion and carries a self-contained,
 sanitized payload. `dedupe_key` is a request+source+reason+UTC-hour signature for a failed
-turn, or a cell+source+segment+UTC-hour signature for a master error. Rows older than 400
-days are pruned on notifier start.
+turn, a cell+source+segment+UTC-hour signature for a master error, or a
+cell+source+reason+UTC-hour signature for a failed scorecard. Rows older than 400 days are
+pruned on notifier start. A database created with only the first two kinds is rebuilt once
+by `migrate()` so `summary.failed` can be enqueued.
 
 ### `spend_cap_overrides`
 
@@ -255,9 +257,9 @@ with `botToken: null`/`botTokenSet`.
 
 `notifications.events` defaults to
 `{ failedTurns: { webhook: false, email: false }, masterErrors: { webhook: false, email:
-false } }`; a route only sends when its webhook/email channel is also enabled and
-configured. Settings patches merge both event levels independently, and enabling a route
-never replays old events.
+false }, summaryFailures: { webhook: false, email: false } }`; a route only sends when its
+webhook/email channel is also enabled and configured. Settings patches merge every event
+kind and channel independently, and enabling a route never replays old events.
 
 `BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
 budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
@@ -431,10 +433,14 @@ The same service drains `notification_event_deliveries` for the opt-in
 `notifications.events` routes. `Engine` emits `turn.failed` once for a request-scoped turn
 whose failure classification is `engine.result`, `engine.exit`, `engine.timeout`, or
 `engine.turn`; `MasterService`/`MasterScheduler` emit `master.error` for `master.turn` and
-`master.cycle` failures and skip expected spend-cap refusals. JSON event bodies are a v1
-envelope (`version`, `event`, `severity`, `title`, `occurredAt`, `text`, and a typed
-`turn`/`master` object); Slack is `{text}` and Discord is `{content}`. Events reuse the
-budget HMAC headers, 10-second timeout, bounded retry, `Retry-After`, destination hash, and
+`master.cycle` failures and skip expected spend-cap refusals. `SummaryService` emits
+`summary.failed` once when a scorecard generation fails, mapping the engine classification
+to `summary.result|exit|timeout|turn`, or reporting `summary.empty`/`summary.store`; a
+cap-stopped scorecard, the already-running guard, and a cell deleted mid-run do not notify.
+JSON event bodies are a v1 envelope (`version`, `event`, `severity`, `title`, `occurredAt`,
+`text`, and a typed `turn`/`master`/`summary` object); Slack is `{text}` and Discord is
+`{content}`. Events reuse the budget HMAC headers, 10-second timeout, bounded retry,
+`Retry-After`, destination hash, `X-APS-Event-Kind`/`X-APS-Event-Id` email headers, and
 400-day prune. The same signature in the same UTC hour creates one row per channel; the
 first row wins, and disabling a route or channel marks pending rows `skipped`. Payloads
 contain ids, title/state, harness/model, and a safe classification only; raw error text

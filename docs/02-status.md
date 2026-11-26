@@ -288,11 +288,13 @@ built and vended by the brain; real-CLI verification is still pending.
   immutable, a chat row is resendable only while its destination still matches, and a row
   whose alert was deleted is history-only and returns `alert_deleted`. Resend and history
   never return a destination or payload.
-  An opt-in **Event notifications** card routes failed request turns and master
-  turn/cycle errors to the same webhook/email channels, per event kind and channel;
-  `notification_event_deliveries` dedupes by a one-hour signature, sends
-  classification-only payloads, and shares the retry/signing/prune rules. Delivery is
-  advisory and never blocks budgets, turns, master cycles, or the in-app banner.
+  An opt-in **Event notifications** card routes failed request turns, master turn/cycle
+  errors, and scorecard generation failures to the same webhook/email channels, per event
+  kind and channel; `notification_event_deliveries` dedupes by a one-hour signature,
+  sends classification-only payloads, and shares the retry/signing/prune rules. A
+  cap-stopped scorecard, the already-running guard, and a deleted cell do not notify.
+  Delivery is advisory and never blocks budgets, turns, master cycles, scorecards, or the
+  in-app banner.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
@@ -369,7 +371,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1005 vitest cases, all passing: 791 server across 49 files and 214 web across 24 files,
+- 1012 vitest cases, all passing: 798 server across 49 files (one environmental root-skip) and 214 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -472,10 +474,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - Automatic replay of a cap-stopped prompt. Admission, in-flight cancellation, strict
   unknown-cost enforcement, and time-boxed operator snoozes are built.
 - Fan-out to multiple Slack/Discord destinations per scope, per-scope routing for the
-  webhook/email channels, interactive acknowledgement, summary-failure events, and
-  configurable event coalescing windows. Webhook, email, and native Slack/Discord bot
-  channels with per-cell routing, delivery history/resend, and failed-turn/master-error
-  events are built.
+  webhook/email channels, interactive acknowledgement, and configurable event
+  coalescing windows. Webhook, email, and native Slack/Discord bot channels with per-cell
+  routing, delivery history/resend, and failed-turn/master-error/scorecard-failure events
+  are built.
 - The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list

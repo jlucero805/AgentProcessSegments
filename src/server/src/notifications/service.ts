@@ -34,10 +34,12 @@ import {
   type MasterErrorNotification,
   type NotificationEventEnvelope,
   type NotificationEventKind,
+  type SummaryFailureNotification,
   type TurnFailureNotification,
   masterErrorEnvelope,
   notificationEventEmailText,
   notificationEventSubject,
+  summaryFailedEnvelope,
   turnFailedEnvelope,
 } from '../domain/notifications.js';
 import type { BudgetAlertRecord } from '../usage/budget-alerts.js';
@@ -246,12 +248,22 @@ function hourBucket(occurredAt: number): number {
 
 /** Stable per-channel idempotency key for one event signature in a UTC hour. */
 export function eventDedupeKey(
-  event: TurnFailureNotification | MasterErrorNotification,
+  event:
+    | TurnFailureNotification
+    | MasterErrorNotification
+    | SummaryFailureNotification,
   kind: NotificationEventKind,
 ): string {
-  return kind === 'turn.failed'
-    ? `turn:${(event as TurnFailureNotification).requestId}:${(event as TurnFailureNotification).source}:${safeKeyPart((event as TurnFailureNotification).reason)}:${hourBucket(event.occurredAt)}`
-    : `master:${(event as MasterErrorNotification).cellId}:${(event as MasterErrorNotification).source}:${safeKeyPart((event as MasterErrorNotification).segment ?? '')}:${hourBucket(event.occurredAt)}`;
+  if (kind === 'turn.failed') {
+    const turn = event as TurnFailureNotification;
+    return `turn:${turn.requestId}:${turn.source}:${safeKeyPart(turn.reason)}:${hourBucket(turn.occurredAt)}`;
+  }
+  if (kind === 'master.error') {
+    const master = event as MasterErrorNotification;
+    return `master:${master.cellId}:${master.source}:${safeKeyPart(master.segment ?? '')}:${hourBucket(master.occurredAt)}`;
+  }
+  const summary = event as SummaryFailureNotification;
+  return `summary:${summary.cellId}:${summary.source}:${safeKeyPart(summary.reason)}:${hourBucket(summary.occurredAt)}`;
 }
 
 function eventChannelEnabled(
@@ -435,9 +447,21 @@ export class NotificationService {
     );
   }
 
+  /** Enqueue one failed scorecard generation for its routed channels. Never throws. */
+  observeSummaryFailure(event: SummaryFailureNotification): void {
+    this.observeEvent(
+      'summary.failed',
+      event,
+      this.settings.get().notifications.events.summaryFailures,
+    );
+  }
+
   private observeEvent(
     kind: NotificationEventKind,
-    event: TurnFailureNotification | MasterErrorNotification,
+    event:
+      | TurnFailureNotification
+      | MasterErrorNotification
+      | SummaryFailureNotification,
     route: EventChannelSettings,
   ): void {
     try {
@@ -687,7 +711,12 @@ export class NotificationService {
       const now = this.clock();
 
       for (const kind of EVENT_NOTIFICATION_KINDS) {
-        const route = kind === 'turn.failed' ? events.failedTurns : events.masterErrors;
+        const route =
+          kind === 'turn.failed'
+            ? events.failedTurns
+            : kind === 'master.error'
+              ? events.masterErrors
+              : events.summaryFailures;
         for (const channel of DELIVERY_CHANNELS) {
           if (!eventChannelEnabled(route, channel)) {
             this.events.skipKindChannel(kind, channel, now);
@@ -736,15 +765,15 @@ export class NotificationService {
   }
 
   private eventCellName(delivery: EventDeliveryRecord, payload: unknown): string | null {
-    if (delivery.kind === 'master.error') {
-      const event = payload as MasterErrorNotification;
-      const cellId = typeof event.cellId === 'string' ? event.cellId : null;
-      if (cellId === null) return null;
-      return this.cells.list().find((cell) => cell.id === cellId)?.name ?? 'Deleted cell';
+    if (delivery.kind === 'turn.failed') {
+      const event = payload as TurnFailureNotification;
+      if (event.cellId === null) return null;
+      return this.cells.list().find((cell) => cell.id === event.cellId)?.name ?? 'Deleted cell';
     }
-    const event = payload as TurnFailureNotification;
-    if (event.cellId === null) return null;
-    return this.cells.list().find((cell) => cell.id === event.cellId)?.name ?? 'Deleted cell';
+    const event = payload as { cellId?: unknown };
+    const cellId = typeof event.cellId === 'string' ? event.cellId : null;
+    if (cellId === null) return null;
+    return this.cells.list().find((cell) => cell.id === cellId)?.name ?? 'Deleted cell';
   }
 
   private eventEnvelope(
@@ -752,9 +781,13 @@ export class NotificationService {
     payload: unknown,
     cellName: string | null,
   ): NotificationEventEnvelope {
-    return delivery.kind === 'turn.failed'
-      ? turnFailedEnvelope(payload as TurnFailureNotification, cellName)
-      : masterErrorEnvelope(payload as MasterErrorNotification, cellName);
+    if (delivery.kind === 'turn.failed') {
+      return turnFailedEnvelope(payload as TurnFailureNotification, cellName);
+    }
+    if (delivery.kind === 'master.error') {
+      return masterErrorEnvelope(payload as MasterErrorNotification, cellName);
+    }
+    return summaryFailedEnvelope(payload as SummaryFailureNotification, cellName);
   }
 
   private async deliverEvent(
@@ -891,11 +924,17 @@ export class NotificationService {
           requestId: payload['requestId'],
           cellId: payload['cellId'],
         };
-      } else {
+      } else if (delivery.kind === 'master.error') {
         ids = {
           dedupeKey: delivery.dedupeKey,
           cellId: payload['cellId'],
           requestId: payload['requestId'],
+          source: payload['source'],
+        };
+      } else {
+        ids = {
+          dedupeKey: delivery.dedupeKey,
+          cellId: payload['cellId'],
           source: payload['source'],
         };
       }
@@ -919,6 +958,7 @@ export class NotificationService {
     const eventSummary = this.events.status();
     const failedTurns = this.events.status('turn.failed');
     const masterErrors = this.events.status('master.error');
+    const summaryFailures = this.events.status('summary.failed');
     return {
       webhook: {
         enabled: webhook.enabled,
@@ -955,6 +995,10 @@ export class NotificationService {
           'master.error': {
             pending: masterErrors.pending,
             failed: masterErrors.failed,
+          },
+          'summary.failed': {
+            pending: summaryFailures.pending,
+            failed: summaryFailures.failed,
           },
         },
       },

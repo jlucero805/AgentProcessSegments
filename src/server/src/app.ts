@@ -149,6 +149,7 @@ export async function main(): Promise<void> {
       events: masterEvents,
       summaries,
       errors,
+      onSummaryFailure: (event) => notifications.observeSummaryFailure(event),
     });
     const summary = new SummaryScheduler({
       service: summaryService,

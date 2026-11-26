@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { jsonResponse, makeProcessResponse, makeRequest, makeUsageResponse } from './test/fixtures';
@@ -516,6 +516,52 @@ describe('App', () => {
     await waitFor(() =>
       expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0),
     );
+  });
+
+  it('refreshes Config budget rows after snoozing a pause from the banner', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+    const baseFetch = globalThis.fetch;
+    let overridden = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/budgets/overrides' && init?.method === 'POST') {
+        overridden = true;
+        return jsonResponse({ override: { id: 'o1' }, created: true }, 201);
+      }
+      if (url === '/api/budgets') return jsonResponse(makePausedBudgetView(overridden));
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    expect(await screen.findByText(/Overall spend hard cap reached/)).toBeInTheDocument();
+
+    const budgetGets = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === '/api/budgets',
+    ).length;
+    fireEvent.click(screen.getByText('Config'));
+    const banner = screen.getByLabelText('Budget alerts');
+    const bannerSnooze = await within(banner).findByRole('button', {
+      name: 'Snooze overall spend',
+    });
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Snooze overall spend' }),
+      ).toHaveLength(2),
+    );
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === '/api/budgets'),
+    ).toHaveLength(budgetGets);
+
+    fireEvent.click(bannerSnooze);
+
+    await waitFor(() =>
+      expect(screen.getByText('snoozed')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/an override is admitting new work until/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0);
   });
 
   it('opens the config page and records it in the URL', async () => {

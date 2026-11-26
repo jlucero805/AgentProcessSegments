@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { ConfigPage } from './ConfigPage';
+import { ConfigPage as ConfigPageComponent } from './ConfigPage';
 import { jsonResponse, makePrice, makeProcessResponse } from './test/fixtures';
+import type { BudgetFeed } from './useBudgets';
 import type {
   BudgetsResponse,
   Cell,
@@ -262,6 +264,32 @@ function overriddenBudgetView(): BudgetsResponse {
       },
     ],
   };
+}
+
+function makeBudgetFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
+  return {
+    budgets: budgetView,
+    error: null,
+    loading: false,
+    refresh: vi.fn(async () => {}),
+    reload: vi.fn(async () => budgetView),
+    acknowledge: vi.fn(async () => {}),
+    snooze: vi.fn(async () => {}),
+    revokeOverride: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
+type TestConfigPageProps = Omit<
+  ComponentProps<typeof ConfigPageComponent>,
+  'budgetFeed'
+> & {
+  budgetFeed?: BudgetFeed;
+};
+
+/** Render ConfigPage with a deterministic shared feed unless a test supplies one. */
+function ConfigPage({ budgetFeed, ...props }: TestConfigPageProps) {
+  return <ConfigPageComponent {...props} budgetFeed={budgetFeed ?? makeBudgetFeed()} />;
 }
 
 const overrideHistory: SpendCapOverrideHistoryResponse = {
@@ -1102,7 +1130,7 @@ describe('ConfigPage', () => {
   });
 
   it('explains a strict unknown-cost pause even when spend is unknown', async () => {
-    installFetch({
+    const view: BudgetsResponse = {
       ...budgetView,
       statuses: [
         {
@@ -1115,8 +1143,11 @@ describe('ConfigPage', () => {
           capSpendIsLowerBound: true,
         },
       ],
-    });
-    render(<ConfigPage onError={() => {}} />);
+    };
+    installFetch(view);
+    render(
+      <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
+    );
 
     expect(await screen.findByText(/Spend unknown/)).toBeInTheDocument();
     expect(
@@ -1137,23 +1168,16 @@ describe('ConfigPage', () => {
     await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
   });
 
-  it('snoozes a paused budget and ends an active override', async () => {
-    const pausedView: BudgetsResponse = {
-      ...budgetView,
-      statuses: [
-        {
-          ...budgetView.statuses[0]!,
-          spendUsd: 100,
-          remainingUsd: 0,
-          percentUsed: 100,
-          state: 'exceeded',
-          capSpendUsd: 100,
-          paused: true,
-        },
-      ],
-    };
+  it('snoozes a paused budget through the shared feed and ends an active override', async () => {
+    const pausedView = pausedBudgetView();
+    const snooze = vi.fn(async () => {});
     const captured = installFetch(pausedView);
-    const { unmount } = render(<ConfigPage onError={() => {}} />);
+    const { unmount } = render(
+      <ConfigPage
+        onError={() => {}}
+        budgetFeed={makeBudgetFeed({ budgets: pausedView, snooze })}
+      />,
+    );
 
     expect(await screen.findByText('paused')).toBeInTheDocument();
     expect(
@@ -1162,37 +1186,20 @@ describe('ConfigPage', () => {
     await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
     fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
     await waitFor(() =>
-      expect(captured.override).toEqual({ scope: 'overall', minutes: 60 }),
+      expect(snooze).toHaveBeenCalledWith({ scope: 'overall', minutes: 60 }),
     );
     await waitFor(() => expect(captured.historyQueries!.length).toBeGreaterThan(1));
     unmount();
 
-    const overrideView: BudgetsResponse = {
-      ...pausedView,
-      statuses: [
-        {
-          ...pausedView.statuses[0]!,
-          overrideId: 'o1',
-          overrideExpiresAt: Date.UTC(2026, 10, 15, 13),
-        },
-      ],
-      overrides: [
-        {
-          id: 'o1',
-          scope: 'overall',
-          cellId: null,
-          cellName: null,
-          periodStart: Date.UTC(2026, 10, 1),
-          createdAt: Date.UTC(2026, 10, 15, 12),
-          updatedAt: Date.UTC(2026, 10, 15, 12),
-          expiresAt: Date.UTC(2026, 10, 15, 13),
-          note: null,
-          revokedAt: null,
-        },
-      ],
-    };
+    const overrideView = overriddenBudgetView();
+    const revokeOverride = vi.fn(async () => {});
     const second = installFetch(overrideView);
-    render(<ConfigPage onError={() => {}} />);
+    render(
+      <ConfigPage
+        onError={() => {}}
+        budgetFeed={makeBudgetFeed({ budgets: overrideView, revokeOverride })}
+      />,
+    );
 
     expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
     expect(screen.getByText('snoozed')).toBeInTheDocument();
@@ -1206,75 +1213,72 @@ describe('ConfigPage', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'End override for overall spend' }),
     );
-    await waitFor(() => expect(second.revokedOverrideId).toBe('o1'));
+    await waitFor(() => expect(revokeOverride).toHaveBeenCalledWith('o1'));
     await waitFor(() => expect(second.historyQueries!.length).toBeGreaterThan(1));
   });
 
-  it('refreshes the shared budget view after snoozing', async () => {
-    installFetch(pausedBudgetView());
-    const reloadBudgets = vi.fn(async () => overriddenBudgetView());
-    render(<ConfigPage onError={() => {}} reloadBudgets={reloadBudgets} />);
-
-    expect(await screen.findByText('paused')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
-
-    await waitFor(() => expect(reloadBudgets).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('snoozed')).toBeInTheDocument();
-    expect(
-      screen.getByText(/an override is admitting new work until/),
-    ).toBeInTheDocument();
-  });
-
-  it('refreshes the shared budget view after ending an override', async () => {
-    installFetch(overriddenBudgetView());
-    const reloadBudgets = vi.fn(async () => pausedBudgetView());
-    render(<ConfigPage onError={() => {}} reloadBudgets={reloadBudgets} />);
-
-    expect(await screen.findByText('snoozed')).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole('button', { name: 'End override for overall spend' }),
-    );
-
-    await waitFor(() => expect(reloadBudgets).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('paused')).toBeInTheDocument();
-    expect(
-      screen.getByText(/New work is paused and in-flight turns were stopped/),
-    ).toBeInTheDocument();
-  });
-
-  it('refreshes the shared budget view after saving a budget', async () => {
+  it('force-reloads the shared feed after saving a budget', async () => {
     installFetch();
-    const reloadBudgets = vi.fn(async () => budgetView);
-    render(<ConfigPage onError={() => {}} reloadBudgets={reloadBudgets} />);
+    const reload = vi.fn(async () => budgetView);
+    render(<ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ reload })} />);
 
     const save = await screen.findByRole('button', { name: 'Save budgets' });
     fireEvent.click(save);
 
-    await waitFor(() => expect(reloadBudgets).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 
-  it('does not refresh the shared view when snoozing fails', async () => {
-    installFetch(pausedBudgetView());
-    const baseFetch = globalThis.fetch;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        if (String(input) === '/api/budgets/overrides' && init?.method === 'POST') {
-          return jsonResponse({ message: 'cap not configured' }, 409);
-        }
-        return baseFetch(input, init);
-      }),
+  it('shows loading instead of an empty budget message before the feed resolves', async () => {
+    installFetch();
+    render(
+      <ConfigPage
+        onError={() => {}}
+        budgetFeed={makeBudgetFeed({ budgets: null, loading: true })}
+      />,
     );
-    const reloadBudgets = vi.fn(async () => overriddenBudgetView());
-    const onError = vi.fn();
-    render(<ConfigPage onError={onError} reloadBudgets={reloadBudgets} />);
 
-    expect(await screen.findByText('paused')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+    expect(await screen.findByText('Loading budgets…')).toBeInTheDocument();
+    expect(screen.queryByText(/No budgets configured/)).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('cap not configured'));
-    expect(reloadBudgets).not.toHaveBeenCalled();
+  it('shows a retryable error when the feed has no budget snapshot', async () => {
+    installFetch();
+    const reload = vi.fn(async () => null);
+    render(
+      <ConfigPage
+        onError={() => {}}
+        budgetFeed={makeBudgetFeed({
+          budgets: null,
+          loading: false,
+          error: 'offline',
+          reload,
+        })}
+      />,
+    );
+
+    expect(await screen.findByText("Couldn't load budget status.")).toBeInTheDocument();
+    expect(screen.getByText('offline')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+  });
+
+  it('warns and retries when a refresh fails but a snapshot is shown', async () => {
+    installFetch();
+    const reload = vi.fn(async () => budgetView);
+    render(
+      <ConfigPage
+        onError={() => {}}
+        budgetFeed={makeBudgetFeed({ error: 'offline', reload })}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/showing the last successful snapshot/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('Overall').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   });
 
   it('explains a strict unknown-cost pause that an override is admitting', async () => {
@@ -1312,8 +1316,9 @@ describe('ConfigPage', () => {
       ],
     };
     installFetch(view);
-    render(<ConfigPage onError={() => {}} />);
-
+    render(
+      <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
+    );
     expect(await screen.findByText('snoozed')).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1621,7 +1626,7 @@ describe('ConfigPage', () => {
   );
 
   it('does not render an all-unpriced budget as measured zero', async () => {
-    installFetch({
+    const view: BudgetsResponse = {
       ...budgetView,
       statuses: [
         {
@@ -1635,8 +1640,11 @@ describe('ConfigPage', () => {
           state: 'unknown',
         },
       ],
-    });
-    render(<ConfigPage onError={() => {}} />);
+    };
+    installFetch(view);
+    render(
+      <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
+    );
 
     expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
     expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();

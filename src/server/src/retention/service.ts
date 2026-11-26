@@ -58,7 +58,9 @@ const BUDGET_ALERT_DELIVERIES_DELETE_SQL = `
 
 // Unacknowledged alerts belong to budget reconciliation, which removes them
 // when the budget changes or the period rolls over. Retention only bounds the
-// acknowledged history; deleting an alert cascades its remaining deliveries.
+// acknowledged history. Deleting an alert leaves its snapshotted delivery
+// history in place: terminal rows are pruned by the delivery pass, and pending
+// rows whose alert is gone are skipped by the notifier drain.
 const BUDGET_ALERTS_DELETE_SQL = `
   DELETE FROM budget_alerts
   WHERE id IN (

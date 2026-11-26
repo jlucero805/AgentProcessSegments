@@ -525,6 +525,7 @@ export class NotificationService {
       const periodStart = budgetPeriod(now).start;
       this.deliveries.skipAcknowledged(now);
       this.deliveries.skipBeforePeriod(periodStart, now);
+      this.deliveries.skipOrphaned(now);
 
       if (!webhook.enabled || webhook.url === null) {
         this.deliveries.skipPending('webhook', now);
@@ -1007,7 +1008,14 @@ export class NotificationService {
       .map(({ delivery, alert }) => {
         const cellName =
           alert.scope === 'cell' ? names.get(alert.scopeId) ?? 'Deleted cell' : null;
-        return this.toHistoryItem(delivery, alert, cellName, currentPeriodStart);
+        const alertExists = this.alerts.get(delivery.alertId) !== null;
+        return this.toHistoryItem(
+          delivery,
+          alert,
+          cellName,
+          currentPeriodStart,
+          alertExists,
+        );
       });
 
     return {
@@ -1032,7 +1040,12 @@ export class NotificationService {
       channel = delivery.channel;
 
       const alert = this.alerts.get(delivery.alertId);
-      if (!alert) return { ok: false, reason: 'not_found' };
+      if (!alert) {
+        return {
+          ok: false,
+          reason: delivery.status === 'delivered' ? 'already_delivered' : 'alert_deleted',
+        };
+      }
 
       const now = this.clock();
       const currentPeriodStart = budgetPeriod(now).start;
@@ -1048,6 +1061,7 @@ export class NotificationService {
       );
       const block = resendBlockReason({
         status: delivery.status,
+        alertExists: true,
         acknowledgedAt: alert.acknowledgedAt,
         periodStart: alert.periodStart,
         currentPeriodStart,
@@ -1058,7 +1072,7 @@ export class NotificationService {
       if (block === 'in_flight') {
         return {
           ok: true,
-          delivery: this.toHistoryItem(delivery, alert, cellName, currentPeriodStart),
+          delivery: this.toHistoryItem(delivery, alert, cellName, currentPeriodStart, true),
         };
       }
       if (block !== null) return { ok: false, reason: block };
@@ -1075,7 +1089,7 @@ export class NotificationService {
         if (current.status === 'pending' || current.status === 'delivering') {
           return {
             ok: true,
-            delivery: this.toHistoryItem(current, alert, cellName, currentPeriodStart),
+            delivery: this.toHistoryItem(current, alert, cellName, currentPeriodStart, true),
           };
         }
         if (current.status === 'delivered') {
@@ -1087,7 +1101,7 @@ export class NotificationService {
       this.kick();
       return {
         ok: true,
-        delivery: this.toHistoryItem(updated, alert, cellName, currentPeriodStart),
+        delivery: this.toHistoryItem(updated, alert, cellName, currentPeriodStart, true),
       };
     } catch {
       this.errors?.error('budget.notify', new Error('delivery resend failed'), {
@@ -1105,6 +1119,7 @@ export class NotificationService {
     alert: DeliveryAlertRecord,
     cellName: string | null,
     currentPeriodStart: number,
+    alertExists: boolean,
   ): DeliveryHistoryItem {
     const route = this.channelRoute(
       delivery.channel,
@@ -1113,6 +1128,7 @@ export class NotificationService {
     );
     const block = resendBlockReason({
       status: delivery.status,
+      alertExists,
       acknowledgedAt: alert.acknowledgedAt,
       periodStart: alert.periodStart,
       currentPeriodStart,

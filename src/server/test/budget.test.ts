@@ -1237,6 +1237,7 @@ describe('budget email helpers', () => {
   it('allows resend only for active failed or skipped deliveries', () => {
     const base = {
       status: 'failed' as const,
+      alertExists: true,
       acknowledgedAt: null,
       periodStart: PERIOD.start,
       currentPeriodStart: PERIOD.start,
@@ -1249,6 +1250,7 @@ describe('budget email helpers', () => {
     expect(resendBlockReason({ ...base, status: 'delivered' })).toBe('already_delivered');
     expect(resendBlockReason({ ...base, status: 'pending' })).toBe('in_flight');
     expect(resendBlockReason({ ...base, status: 'delivering' })).toBe('in_flight');
+    expect(resendBlockReason({ ...base, alertExists: false })).toBe('alert_deleted');
     expect(resendBlockReason({ ...base, acknowledgedAt: NOW })).toBe('alert_acknowledged');
     expect(resendBlockReason({ ...base, periodStart: PERIOD.start - 1 })).toBe(
       'not_current_period',

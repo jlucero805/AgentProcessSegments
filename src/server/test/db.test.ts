@@ -135,6 +135,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_budget_alerts_identity');
     expect(indexes).toContain('idx_budget_alert_deliveries_due');
     expect(indexes).toContain('idx_budget_alert_deliveries_created');
+    expect(indexes).toContain('idx_budget_alert_deliveries_alert');
     expect(indexes).toContain('idx_notification_event_deliveries_due');
     expect(indexes).toContain('idx_spend_cap_overrides_active');
     expect(indexes).toContain('idx_spend_cap_overrides_period');
@@ -193,7 +194,7 @@ describe('db migrations', () => {
     db.close();
   });
 
-  it('enforces delivery identity and cascades deletes from alerts', () => {
+  it('keeps delivery history when the alert is deleted', () => {
     const db = openDb(':memory:');
     db.prepare(
       `INSERT INTO budget_alerts
@@ -203,9 +204,13 @@ describe('db migrations', () => {
     ).run();
     const insert = db.prepare(
       `INSERT INTO budget_alert_deliveries
-         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
-          next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       VALUES (?, 'a1', 'webhook', ?, 'json', 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+         (id, alert_id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, alert_period_start, alert_created_at,
+          alert_acknowledged_at, channel, destination_id, format, destination_hash,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at,
+          delivered_at)
+       VALUES (?, 'a1', 'overall', '', 'warning', 80, 100, 85, 0, 100, 10, NULL,
+               'webhook', ?, 'json', 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
     );
     insert.run('d1', 'webhook');
     expect(() => insert.run('d2', 'webhook')).toThrow();
@@ -213,10 +218,38 @@ describe('db migrations', () => {
 
     db.prepare("DELETE FROM budget_alerts WHERE id = 'a1'").run();
     expect(
-      (db.prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries').get() as {
-        count: number;
-      }).count,
-    ).toBe(0);
+      db
+        .prepare(
+          `SELECT id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+                  spend_usd, alert_period_start, alert_created_at
+             FROM budget_alert_deliveries ORDER BY id`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        id: 'd1',
+        scope: 'overall',
+        scope_id: '',
+        threshold: 'warning',
+        alert_at_percent: 80,
+        budget_usd: 100,
+        spend_usd: 85,
+        alert_period_start: 100,
+        alert_created_at: 10,
+      },
+      {
+        id: 'd3',
+        scope: 'overall',
+        scope_id: '',
+        threshold: 'warning',
+        alert_at_percent: 80,
+        budget_usd: 100,
+        spend_usd: 85,
+        alert_period_start: 100,
+        alert_created_at: 10,
+      },
+    ]);
+    expect(db.prepare('PRAGMA foreign_key_list(budget_alert_deliveries)').all()).toEqual([]);
     db.close();
   });
 
@@ -230,9 +263,13 @@ describe('db migrations', () => {
     ).run();
     const insert = db.prepare(
       `INSERT INTO budget_alert_deliveries
-         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
-          next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       VALUES (?, 'a1', ?, ?, ?, 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
+         (id, alert_id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, alert_period_start, alert_created_at,
+          alert_acknowledged_at, channel, destination_id, format, destination_hash,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at,
+          delivered_at)
+       VALUES (?, 'a1', 'overall', '', 'warning', 80, 100, 85, 0, 100, 10, NULL,
+               ?, ?, ?, 'hash', 'pending', 0, 10, NULL, 10, 10, NULL)`,
     );
     insert.run('d-webhook', 'webhook', 'webhook', 'json');
     insert.run('d-email', 'email', 'email', 'email');
@@ -301,9 +338,15 @@ describe('db migrations', () => {
 
     const db = openDb(file);
     expect(columns(db, 'budget_alert_deliveries')).toContain('destination_id');
+    expect(columns(db, 'budget_alert_deliveries')).toContain('alert_period_start');
     expect(
       db
-        .prepare('SELECT id, channel, destination_id, status, attempts FROM budget_alert_deliveries')
+        .prepare(
+          `SELECT id, channel, destination_id, status, attempts, scope, scope_id,
+                  threshold, alert_at_percent, budget_usd, spend_usd, alert_period_start,
+                  alert_created_at, alert_acknowledged_at
+             FROM budget_alert_deliveries`,
+        )
         .get(),
     ).toEqual({
       id: 'd1',
@@ -311,12 +354,25 @@ describe('db migrations', () => {
       destination_id: 'webhook',
       status: 'delivered',
       attempts: 2,
+      scope: 'overall',
+      scope_id: '',
+      threshold: 'warning',
+      alert_at_percent: 80,
+      budget_usd: 100,
+      spend_usd: 85,
+      alert_period_start: 100,
+      alert_created_at: 10,
+      alert_acknowledged_at: null,
     });
     const insert = db.prepare(
       `INSERT INTO budget_alert_deliveries
-         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
-          next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       VALUES ('d2', 'a1', 'webhook', 'slack:C0123456789', 'chat', 'hash2', 'pending', 0, 10,
+         (id, alert_id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, alert_period_start, alert_created_at,
+          alert_acknowledged_at, channel, destination_id, format, destination_hash,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at,
+          delivered_at)
+       VALUES ('d2', 'a1', 'overall', '', 'warning', 80, 100, 85, 0, 100, 10, NULL,
+               'webhook', 'slack:C0123456789', 'chat', 'hash2', 'pending', 0, 10,
                NULL, 10, 10, NULL)`,
     );
     insert.run();
@@ -326,6 +382,89 @@ describe('db migrations', () => {
         count: number;
       }).count,
     ).toBe(2);
+    expect(columns(db, 'budget_alert_deliveries')).toContain('alert_period_start');
+    db.close();
+  });
+
+  it('rebuilds the cascading delivery table and backfills its alert snapshot', () => {
+    const dir = tmpDir('delivery-cascade');
+    const file = path.join(dir, 'cascade.sqlite');
+    const legacy = new Database(file);
+    legacy.exec(`CREATE TABLE budget_alerts (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+      scope_id TEXT NOT NULL,
+      period_start INTEGER NOT NULL,
+      threshold TEXT NOT NULL CHECK (threshold IN ('warning', 'exceeded')),
+      alert_at_percent INTEGER NOT NULL,
+      budget_usd REAL NOT NULL,
+      spend_usd REAL NOT NULL,
+      unknown_cost_turns INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      acknowledged_at INTEGER
+    )`);
+    legacy.exec(`CREATE TABLE budget_alert_deliveries (
+      id TEXT PRIMARY KEY,
+      alert_id TEXT NOT NULL REFERENCES budget_alerts(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL,
+      destination_id TEXT NOT NULL,
+      format TEXT NOT NULL,
+      destination_hash TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      delivered_at INTEGER,
+      UNIQUE(alert_id, destination_id)
+    )`);
+    legacy.prepare(
+      `INSERT INTO budget_alerts
+         (id, scope, scope_id, period_start, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, created_at, acknowledged_at)
+       VALUES ('a1', 'cell', 'cell-1', 100, 'exceeded', 90, 200, 190, 2, 10, NULL)`,
+    ).run();
+    legacy.prepare(
+      `INSERT INTO budget_alert_deliveries
+         (id, alert_id, channel, destination_id, format, destination_hash, status,
+          attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       VALUES ('d1', 'a1', 'email', 'email', 'email', 'hash', 'delivered', 1, 10,
+               NULL, 20, 30, 30)`,
+    ).run();
+    legacy.close();
+
+    const db = openDb(file);
+    expect(db.prepare('PRAGMA foreign_key_list(budget_alert_deliveries)').all()).toEqual([]);
+    expect(
+      db
+        .prepare(
+          `SELECT scope, scope_id, threshold, alert_at_percent, budget_usd, spend_usd,
+                  unknown_cost_turns, alert_period_start, alert_created_at,
+                  alert_acknowledged_at, destination_id
+             FROM budget_alert_deliveries`,
+        )
+        .get(),
+    ).toEqual({
+      scope: 'cell',
+      scope_id: 'cell-1',
+      threshold: 'exceeded',
+      alert_at_percent: 90,
+      budget_usd: 200,
+      spend_usd: 190,
+      unknown_cost_turns: 2,
+      alert_period_start: 100,
+      alert_created_at: 10,
+      alert_acknowledged_at: null,
+      destination_id: 'email',
+    });
+
+    db.prepare("DELETE FROM budget_alerts WHERE id = 'a1'").run();
+    expect(
+      (db.prepare('SELECT COUNT(*) AS count FROM budget_alert_deliveries').get() as {
+        count: number;
+      }).count,
+    ).toBe(1);
     db.close();
   });
 

@@ -115,11 +115,22 @@ export class BudgetAlertRepository {
   }
 
   acknowledge(id: string, now: number): BudgetAlertRecord | null {
-    this.db
-      .prepare(
-        'UPDATE budget_alerts SET acknowledged_at = COALESCE(acknowledged_at, ?) WHERE id = ?',
-      )
-      .run(now, id);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          'UPDATE budget_alerts SET acknowledged_at = COALESCE(acknowledged_at, ?) WHERE id = ?',
+        )
+        .run(now, id);
+      this.db
+        .prepare(
+          `UPDATE budget_alert_deliveries
+              SET alert_acknowledged_at = (
+                SELECT acknowledged_at FROM budget_alerts WHERE id = ?
+              )
+            WHERE alert_id = ?`,
+        )
+        .run(id, id);
+    })();
     return this.get(id);
   }
 

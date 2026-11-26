@@ -70,21 +70,27 @@ function seedDeliveries(
 ): void {
   const insert = db.prepare(
     `INSERT INTO budget_alert_deliveries
-       (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
-        next_attempt_at, last_error, created_at, updated_at, delivered_at)
-     VALUES (?, ?, 'webhook', ?, 'json', 'hash', ?, 0, ?, NULL, ?, ?, ?)`,
+       (id, alert_id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+        spend_usd, unknown_cost_turns, alert_period_start, alert_created_at,
+        alert_acknowledged_at, channel, destination_id, format, destination_hash,
+        status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+     SELECT ?, a.id, a.scope, a.scope_id, a.threshold, a.alert_at_percent, a.budget_usd,
+            a.spend_usd, a.unknown_cost_turns, a.period_start, a.created_at,
+            a.acknowledged_at, 'webhook', ?, 'json', 'hash', ?, 0, ?, NULL, ?, ?, ?
+       FROM budget_alerts a
+      WHERE a.id = ?`,
   );
   for (const row of rows) {
     const status = row.status ?? 'delivered';
     insert.run(
       row.id,
-      row.alertId,
       row.id,
       status,
       row.createdAt,
       row.createdAt,
       row.createdAt,
       status === 'delivered' ? row.createdAt : null,
+      row.alertId,
     );
   }
 }
@@ -296,7 +302,7 @@ describe('DataRetention', () => {
     ]);
   });
 
-  it('prunes acknowledged budget alerts and cascades their remaining deliveries', async () => {
+  it('prunes acknowledged budget alerts without removing their delivery history', async () => {
     const db = makeDb();
     const boundary = NOW - 90 * DAY;
     seedAlerts(db, [
@@ -310,8 +316,9 @@ describe('DataRetention', () => {
       { id: 'a-recent-ack', createdAt: NOW - DAY, acknowledgedAt: NOW - DAY },
     ]);
     seedDeliveries(db, [
-      // Pending rows are skipped by direct delivery retention, so deleting the
-      // acknowledged alert is what removes this one through the FK cascade.
+      // Pending rows are not terminal, so delivery retention leaves this row.
+      // Deleting the acknowledged alert no longer cascades; the notifier drain
+      // marks an orphaned pending row skipped on its next pass.
       {
         id: 'd-old-ack',
         alertId: 'a-old-ack',
@@ -336,7 +343,7 @@ describe('DataRetention', () => {
       'a-old-unack',
       'a-recent-ack',
     ]);
-    expect(deliveryIds(db)).toEqual(['d-boundary-ack']);
+    expect(deliveryIds(db)).toEqual(['d-boundary-ack', 'd-old-ack']);
   });
 
   it('keeps the current UTC period when the configured window is shorter than a month', async () => {
@@ -464,7 +471,7 @@ describe('DataRetention', () => {
       { id: 'd-recover', alertId: 'a-recover', createdAt: old, status: 'delivered' },
     ]);
     const second = await retention.runOnce();
-    expect(second.budgetAlertDeliveries.deleted).toBe(1);
+    expect(second.budgetAlertDeliveries.deleted).toBe(2);
     expect(second.budgetAlerts.deleted).toBe(0);
     expect(errors.error).toHaveBeenCalledTimes(2);
     expect(errors.error).toHaveBeenLastCalledWith(

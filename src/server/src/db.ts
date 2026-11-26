@@ -5,20 +5,43 @@ import { ensurePrivateFile } from './util/files.js';
 
 export type Db = Database.Database;
 
+const BUDGET_DELIVERY_SNAPSHOT_COLUMNS = [
+  'scope',
+  'scope_id',
+  'threshold',
+  'alert_at_percent',
+  'budget_usd',
+  'spend_usd',
+  'unknown_cost_turns',
+  'alert_period_start',
+  'alert_created_at',
+  'alert_acknowledged_at',
+] as const;
+
 const BUDGET_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS budget_alert_deliveries (
-  id               TEXT PRIMARY KEY,
-  alert_id         TEXT NOT NULL REFERENCES budget_alerts(id) ON DELETE CASCADE,
-  channel          TEXT NOT NULL,
-  destination_id   TEXT NOT NULL,
-  format           TEXT NOT NULL,
-  destination_hash TEXT NOT NULL,
-  status           TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
-  attempts         INTEGER NOT NULL DEFAULT 0,
-  next_attempt_at  INTEGER NOT NULL,
-  last_error       TEXT,
-  created_at       INTEGER NOT NULL,
-  updated_at       INTEGER NOT NULL,
-  delivered_at     INTEGER,
+  id                    TEXT PRIMARY KEY,
+  alert_id              TEXT NOT NULL,
+  scope                 TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+  scope_id              TEXT NOT NULL,
+  threshold             TEXT NOT NULL CHECK (threshold IN ('warning', 'exceeded')),
+  alert_at_percent      INTEGER NOT NULL,
+  budget_usd            REAL NOT NULL,
+  spend_usd             REAL NOT NULL,
+  unknown_cost_turns    INTEGER NOT NULL DEFAULT 0,
+  alert_period_start    INTEGER NOT NULL,
+  alert_created_at      INTEGER NOT NULL,
+  alert_acknowledged_at INTEGER,
+  channel               TEXT NOT NULL,
+  destination_id        TEXT NOT NULL,
+  format                TEXT NOT NULL,
+  destination_hash      TEXT NOT NULL,
+  status                TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+  attempts              INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at       INTEGER NOT NULL,
+  last_error            TEXT,
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  delivered_at          INTEGER,
   UNIQUE(alert_id, destination_id)
 )`;
 
@@ -247,28 +270,70 @@ function addColumn(db: Db, table: string, column: string, ddl: string): void {
 }
 
 /**
- * SQLite cannot drop the table-level `UNIQUE(alert_id, channel)` from an older
- * budget_alert_deliveries table, so the identity change needs a table rebuild.
- * Existing rows keep channel as their destination identity.
+ * The delivery table now snapshots alert fields and has no alert foreign key, so
+ * older tables need a rebuild. SQLite cannot drop a table-level foreign key or
+ * the old `UNIQUE(alert_id, channel)` in place. Both legacy shapes are handled:
+ * the original table without `destination_id`, and the later table with
+ * `destination_id` plus `ON DELETE CASCADE`.
  */
 function migrateBudgetDeliveries(db: Db): void {
   const columns = db
     .prepare('PRAGMA table_info(budget_alert_deliveries)')
     .all() as Array<{ name: string }>;
-  if (columns.length === 0 || columns.some((column) => column.name === 'destination_id')) {
-    return;
-  }
+  if (columns.length === 0) return;
+  const names = new Set(columns.map((column) => column.name));
+  const foreignKeys = db
+    .prepare('PRAGMA foreign_key_list(budget_alert_deliveries)')
+    .all() as Array<{ table: string }>;
+  const hasSnapshot = BUDGET_DELIVERY_SNAPSHOT_COLUMNS.every((column) =>
+    names.has(column),
+  );
+  if (hasSnapshot && names.has('destination_id') && foreignKeys.length === 0) return;
+
+  // Prefer a value already snapshotted by a partial build, then the alert row,
+  // then a safe default for the rare row whose alert is already gone.
+  const source = (column: string, fallback: string): string =>
+    names.has(column) ? `d.${column}` : fallback;
+  const snapshot = (column: string, alertColumn: string, fallback: string): string =>
+    `COALESCE(${source(column, 'NULL')}, a.${alertColumn}, ${fallback})`;
+  const acknowledged = names.has('alert_acknowledged_at')
+    ? 'COALESCE(d.alert_acknowledged_at, a.acknowledged_at)'
+    : 'a.acknowledged_at';
 
   db.transaction(() => {
     db.exec('ALTER TABLE budget_alert_deliveries RENAME TO budget_alert_deliveries_legacy');
     db.exec(BUDGET_DELIVERIES_DDL);
     db.exec(
       `INSERT INTO budget_alert_deliveries
-         (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
-          next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       SELECT id, alert_id, channel, channel, format, destination_hash, status, attempts,
-              next_attempt_at, last_error, created_at, updated_at, delivered_at
-         FROM budget_alert_deliveries_legacy`,
+         (id, alert_id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+          spend_usd, unknown_cost_turns, alert_period_start, alert_created_at,
+          alert_acknowledged_at, channel, destination_id, format, destination_hash,
+          status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+       SELECT d.id,
+              d.alert_id,
+              ${snapshot('scope', 'scope', "'overall'")},
+              ${snapshot('scope_id', 'scope_id', "''")},
+              ${snapshot('threshold', 'threshold', "'warning'")},
+              ${snapshot('alert_at_percent', 'alert_at_percent', '0')},
+              ${snapshot('budget_usd', 'budget_usd', '0')},
+              ${snapshot('spend_usd', 'spend_usd', '0')},
+              ${snapshot('unknown_cost_turns', 'unknown_cost_turns', '0')},
+              ${snapshot('alert_period_start', 'period_start', 'd.created_at')},
+              ${snapshot('alert_created_at', 'created_at', 'd.created_at')},
+              ${acknowledged},
+              d.channel,
+              ${source('destination_id', 'd.channel')},
+              d.format,
+              d.destination_hash,
+              d.status,
+              d.attempts,
+              d.next_attempt_at,
+              d.last_error,
+              d.created_at,
+              d.updated_at,
+              d.delivered_at
+         FROM budget_alert_deliveries_legacy d
+         LEFT JOIN budget_alerts a ON a.id = d.alert_id`,
     );
     db.exec('DROP TABLE budget_alert_deliveries_legacy');
   })();
@@ -317,6 +382,10 @@ export function migrate(db: Db): void {
   );
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_budget_alert_deliveries_created ON budget_alert_deliveries(created_at)',
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_budget_alert_deliveries_alert
+       ON budget_alert_deliveries(alert_id)`,
   );
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_notification_event_deliveries_due

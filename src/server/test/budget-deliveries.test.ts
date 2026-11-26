@@ -151,15 +151,70 @@ describe('BudgetAlertDeliveryRepository history', () => {
     db.close();
   });
 
-  it('cascades history rows when the alert is deleted', () => {
+  it('keeps history rows and their snapshot when the alert is deleted', () => {
     const { db, alerts, deliveries } = setup();
     const alert = addAlert(alerts);
     enqueue(deliveries, alert);
 
+    alerts.upsert(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD.start,
+        threshold: 'warning',
+        alertAtPercent: 80,
+        budgetUsd: 100,
+        spendUsd: 110,
+        unknownCostTurns: 2,
+      },
+      NOW + 100,
+    );
     db.prepare('DELETE FROM budget_alerts WHERE id = ?').run(alert.id);
 
-    expect(deliveries.listFiltered(filter())).toEqual([]);
-    expect(deliveries.countFiltered(filter())).toBe(0);
+    const rows = deliveries.listFiltered(filter());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.alert).toEqual({
+      scope: 'overall',
+      scopeId: '',
+      threshold: 'warning',
+      alertAtPercent: 80,
+      budgetUsd: 100,
+      spendUsd: 85,
+      unknownCostTurns: 0,
+      periodStart: PERIOD.start,
+      createdAt: NOW,
+      acknowledgedAt: null,
+    });
+    expect(deliveries.countFiltered(filter())).toBe(1);
+    db.close();
+  });
+
+  it('stamps acknowledgement on the delivery snapshot in one transaction', () => {
+    const { db, alerts, deliveries } = setup();
+    const alert = addAlert(alerts);
+    enqueue(deliveries, alert);
+
+    alerts.acknowledge(alert.id, NOW + 100);
+    expect(deliveries.listFiltered(filter())[0]?.alert.acknowledgedAt).toBe(NOW + 100);
+
+    db.prepare('DELETE FROM budget_alerts WHERE id = ?').run(alert.id);
+    expect(deliveries.listFiltered(filter())[0]?.alert.acknowledgedAt).toBe(NOW + 100);
+    db.close();
+  });
+
+  it('skips queued rows whose alert row no longer exists', () => {
+    const { db, alerts, deliveries } = setup();
+    const alert = addAlert(alerts);
+    const row = enqueue(deliveries, alert);
+    db.prepare('DELETE FROM budget_alerts WHERE id = ?').run(alert.id);
+
+    expect(deliveries.get(row.id)?.status).toBe('pending');
+    expect(deliveries.skipOrphaned(NOW + 100)).toBe(1);
+    expect(deliveries.get(row.id)).toMatchObject({
+      status: 'skipped',
+      updatedAt: NOW + 100,
+    });
+    expect(deliveries.listFiltered(filter())).toHaveLength(1);
     db.close();
   });
 });

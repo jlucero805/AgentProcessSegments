@@ -102,7 +102,7 @@ interface DeliveryHistoryRow extends DeliveryRow {
   unknown_cost_turns: number;
   alert_period_start: number;
   alert_created_at: number;
-  acknowledged_at: number | null;
+  alert_acknowledged_at: number | null;
 }
 
 /** Fixed SQL fragments; every value stays a bound parameter. */
@@ -167,13 +167,18 @@ export class BudgetAlertDeliveryRepository {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO budget_alert_deliveries
-           (id, alert_id, channel, destination_id, format, destination_hash, status, attempts,
-            next_attempt_at, last_error, created_at, updated_at, delivered_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, NULL)`,
+           (id, alert_id, scope, scope_id, threshold, alert_at_percent, budget_usd,
+            spend_usd, unknown_cost_turns, alert_period_start, alert_created_at,
+            alert_acknowledged_at, channel, destination_id, format, destination_hash,
+            status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+         SELECT ?, a.id, a.scope, a.scope_id, a.threshold, a.alert_at_percent, a.budget_usd,
+                a.spend_usd, a.unknown_cost_turns, a.period_start, a.created_at,
+                a.acknowledged_at, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, NULL
+           FROM budget_alerts a
+          WHERE a.id = ?`,
       )
       .run(
         randomUUID(),
-        input.alertId,
         channel,
         destinationId,
         input.format,
@@ -181,6 +186,7 @@ export class BudgetAlertDeliveryRepository {
         input.now,
         input.now,
         input.now,
+        input.alertId,
       );
     return this.getForAlert(input.alertId, destinationId);
   }
@@ -206,18 +212,13 @@ export class BudgetAlertDeliveryRepository {
     return toRecord(row);
   }
 
-  /** Newest first, joined to the alert for the audit view. */
+  /** Newest first, read entirely from the delivery's alert snapshot. */
   listFiltered(filter: DeliveryHistoryFilter): DeliveryHistoryRecord[] {
     const where = historyWhere(filter);
     const rows = this.db
       .prepare(
-        `SELECT d.*, a.scope, a.scope_id, a.threshold, a.alert_at_percent, a.budget_usd,
-                a.spend_usd, a.unknown_cost_turns,
-                a.period_start AS alert_period_start,
-                a.created_at AS alert_created_at,
-                a.acknowledged_at
+        `SELECT d.*
            FROM budget_alert_deliveries d
-           JOIN budget_alerts a ON a.id = d.alert_id
           WHERE 1 = 1${where.sql}
           ORDER BY d.created_at DESC, d.id DESC
           LIMIT ? OFFSET ?`,
@@ -235,7 +236,7 @@ export class BudgetAlertDeliveryRepository {
         unknownCostTurns: row.unknown_cost_turns,
         periodStart: row.alert_period_start,
         createdAt: row.alert_created_at,
-        acknowledgedAt: row.acknowledged_at,
+        acknowledgedAt: row.alert_acknowledged_at,
       },
     }));
   }
@@ -246,7 +247,6 @@ export class BudgetAlertDeliveryRepository {
       .prepare(
         `SELECT COUNT(*) AS total
            FROM budget_alert_deliveries d
-           JOIN budget_alerts a ON a.id = d.alert_id
           WHERE 1 = 1${where.sql}`,
       )
       .get(...where.params) as { total: number };
@@ -404,6 +404,21 @@ export class BudgetAlertDeliveryRepository {
           WHERE status = 'pending'
             AND alert_id IN (
               SELECT id FROM budget_alerts WHERE acknowledged_at IS NOT NULL
+            )`,
+      )
+      .run(now).changes;
+  }
+
+  /** Skip queued rows whose alert row is gone; history rows are retained. */
+  skipOrphaned(now: number): number {
+    return this.db
+      .prepare(
+        `UPDATE budget_alert_deliveries
+            SET status = 'skipped', updated_at = ?
+          WHERE status IN ('pending', 'delivering')
+            AND NOT EXISTS (
+              SELECT 1 FROM budget_alerts a
+               WHERE a.id = budget_alert_deliveries.alert_id
             )`,
       )
       .run(now).changes;

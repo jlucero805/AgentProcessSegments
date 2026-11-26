@@ -933,6 +933,55 @@ describe('NotificationService delivery history', () => {
     expect(context.notifier.history({}).deliveries[0]?.alert.cellName).toBe('Deleted cell');
   });
 
+  it('keeps history and refuses resend after the alert is deleted', () => {
+    const context = setup({ send: sender(() => ok()).send });
+    const record = addAlert(context.alerts);
+    const row = enqueueWebhook(context, record);
+    context.deliveries.markFailed(row.id, NOW, 'HTTP 503');
+
+    context.db.prepare('DELETE FROM budget_alerts WHERE id = ?').run(record.id);
+
+    const history = context.notifier.history({});
+    expect(history.deliveries[0]).toMatchObject({
+      id: row.id,
+      alertId: record.id,
+      status: 'failed',
+      canResend: false,
+      alert: {
+        scope: 'overall',
+        cellId: null,
+        cellName: null,
+        threshold: 'warning',
+        alertAtPercent: 80,
+        budgetUsd: 100,
+        spendUsd: 85,
+        periodStart: PERIOD.start,
+      },
+    });
+    expect(context.notifier.resend(row.id)).toEqual({
+      ok: false,
+      reason: 'alert_deleted',
+    });
+    expect(context.deliveries.get(row.id)?.status).toBe('failed');
+  });
+
+  it('skips an orphaned pending delivery without sending it', async () => {
+    const fake = sender(() => ok());
+    const context = setup({ send: fake.send });
+    const record = addAlert(context.alerts);
+    const row = enqueueWebhook(context, record);
+
+    context.db.prepare('DELETE FROM budget_alerts WHERE id = ?').run(record.id);
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(0);
+    expect(context.deliveries.get(row.id)).toMatchObject({
+      status: 'skipped',
+      attempts: 0,
+    });
+    expect(context.notifier.history({}).deliveries[0]?.alert.spendUsd).toBe(85);
+  });
+
   it('resends a failed row under the current destination exactly once', async () => {
     const fake = sender(() => ok());
     const context = setup({ send: fake.send });

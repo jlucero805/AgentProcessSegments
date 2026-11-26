@@ -269,6 +269,7 @@ const usageQuerySchema = z
   });
 const RESEND_MESSAGES: Record<ResendBlockReason, string> = {
   already_delivered: 'the delivery already succeeded; delivered alerts are never resent',
+  alert_deleted: 'the alert was deleted; its delivery history is retained but cannot be resent',
   alert_acknowledged: 'the alert was acknowledged; only active alerts can be resent',
   not_current_period: 'the alert is not from the current UTC budget month',
   channel_disabled: 'the delivery channel is disabled',

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 995 vitest cases: 782 server across 49 files and 213 web across 24 files, all green.
+- 1001 vitest cases: 788 server across 49 files and 213 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -99,7 +99,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 782 server + 213 web, plus the e2e env guard
+npm test                       # 788 server + 213 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -453,7 +453,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     never send a delivered alert twice. Webhook/email destination ids are their channel
     names; chat ids are `<provider>:<channelId>`. Rows carry the `destination_hash` they
     were enqueued under so a URL/format/secret or bot-token/channel change skips pending
-    rows instead of sending them with new credentials. Slack returns HTTP 200 with
+    rows instead of sending them with new credentials. Each row also snapshots its alert
+    (`scope`, `scope_id`, `threshold`, `alert_at_percent`, `budget_usd`, `spend_usd`,
+    `unknown_cost_turns`, `alert_period_start`, `alert_created_at`,
+    `alert_acknowledged_at`) at enqueue; the snapshot is immutable except for the ack
+    stamp, and history never joins `budget_alerts`. There is deliberately no foreign key to
+    `budget_alerts`, so deleting an alert leaves history behind; a pending row whose alert
+    is gone is marked `skipped` by the drain and is never sent. Slack returns HTTP 200 with
     `{ok:false}` for failures, and Discord rate limits put `retry_after` in the body; both
     are classified explicitly. Delivery retries are bounded, failures go to
     `budget.notify` with ids only, and a notifier failure must never throw into budget
@@ -462,6 +468,7 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     secret, recipient, or payload. Manual resend only re-queues `failed`/`skipped` rows for
     an unacknowledged current-month alert on an enabled, configured channel; it re-stamps
     the destination and preserves the one-row-per-alert dedupe. A delivered row is never
+    resent. A row whose alert was deleted returns `409 alert_deleted` and can never be
     resent. Resend failures reuse `budget.notify` with delivery/alert ids and phase only.
     Operational events use the sibling `notification_event_deliveries` outbox, keyed
     `UNIQUE(dedupe_key, channel)` with a one-hour failure signature, drain through
@@ -474,7 +481,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     record and an acknowledged alert suppresses a lower-severity alert in the same
     period. Never prune `pending`/`delivering` rows, and never delete an unacknowledged
     alert through retention; reconciliation owns those. Deleting an expired acknowledged
-    alert cascades its delivery rows.
+    alert leaves its snapshotted delivery history in place; terminal delivery rows are
+    bounded by the same retention setting, and orphaned pending rows are skipped by the
+    notifier drain.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose

@@ -1,9 +1,9 @@
-import Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { legacyBranchName } from '../clarify/worktree.js';
 import { loadConfig } from '../config.js';
+import { openExistingDb } from '../db.js';
 import { RequestRepository } from '../requests/repository.js';
 import {
   applyMigrationEntries,
@@ -149,9 +149,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 1;
   }
 
-  // Open directly rather than through openDb(): migrate()/reconcile() would
-  // write to a live brain's database and reset a working request to idle.
-  const db = new Database(dbPath, { fileMustExist: true });
+  // openExistingDb() hardens the database and its sidecars without openDb()'s
+  // migrate()/reconcile(), which would write to a live brain's database and
+  // reset a working request to idle.
+  const db = openExistingDb(dbPath);
   db.pragma('busy_timeout = 5000');
   if (!options.apply) db.pragma('query_only = ON');
 

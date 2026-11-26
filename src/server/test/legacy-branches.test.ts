@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { chmodSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { branchName, legacyBranchName } from '../src/clarify/worktree.js';
-import { openDb } from '../src/db.js';
+import { openDb, openExistingDb } from '../src/db.js';
 import type { State } from '../src/domain/request.js';
 import { main, parseArgs } from '../src/maintenance/legacy-branches-cli.js';
 import {
@@ -23,6 +23,11 @@ import { RequestRepository } from '../src/requests/repository.js';
 
 function tempDir(): string {
   return tmpDir('legacy');
+}
+
+/** POSIX permission bits for a path. */
+function modeOf(target: string): number {
+  return statSync(target).mode & 0o777;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -723,6 +728,35 @@ describe('legacy branch CLI helpers', () => {
     expect(branchTip(repoDir, 'sbox/no-such-request')).toBeNull();
     expect(refTip(repoDir, `refs/sbox-pruned/no-such-request-${tip}`)).toBe(tip);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps the database owner-only without reconciling a working request',
+    async () => {
+      const dbPath = path.join(tempDir(), 'brain.sqlite');
+      const seed = openDb(dbPath);
+      const repo = new RequestRepository(seed);
+      const request = repo.create({ title: 'still working' });
+      repo.setAgentStatus(request.id, 'working');
+      seed.close();
+      chmodSync(dbPath, 0o644);
+
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const code = await main(['--db', dbPath]);
+      log.mockRestore();
+
+      expect(code).toBe(0);
+      expect(modeOf(dbPath)).toBe(0o600);
+
+      const check = openExistingDb(dbPath);
+      try {
+        expect(
+          check.prepare('SELECT agent_status FROM requests WHERE id = ?').get(request.id),
+        ).toEqual({ agent_status: 'working' });
+      } finally {
+        check.close();
+      }
+    },
+  );
 });
 
 describe('legacy branch migration end to end', () => {

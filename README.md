@@ -315,7 +315,9 @@ review). Orphan `sbox/*` refs with no request row are reported but kept by defau
 `--prune-orphans` to retire them. With `--apply`, the orphan tip is first archived as
 `refs/sbox-pruned/<suffix>-<sha>`, then the branch is deleted, so no commits are lost.
 Checked-out orphans are skipped, and a ref is orphaned only when its id has no request
-row at all. List backups with `git for-each-ref refs/sbox-pruned/` and restore one with
+row at all. The command opens the live database without migrating or reconciling it and
+keeps the database and sidecars owner-only. List backups with
+`git for-each-ref refs/sbox-pruned/` and restore one with
 `git branch <name> <ref>`. Pass `--repo DIR` to limit the run and `--db FILE` to point
 at a non-default database.
 
@@ -602,7 +604,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1118 vitest cases: 877 server cases across 51 files (state machine,
+`npm test` runs 1122 vitest cases: 881 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

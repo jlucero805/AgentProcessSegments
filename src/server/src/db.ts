@@ -542,6 +542,13 @@ export function reconcile(db: Db): number {
   return result.changes;
 }
 
+/** Force an existing database file and its SQLite sidecars owner-only. */
+function hardenDbFiles(dbPath: string): void {
+  for (const suffix of ['', '-wal', '-shm', '-journal']) {
+    ensurePrivateFile(`${dbPath}${suffix}`);
+  }
+}
+
 export function openDb(dbPath: string): Db {
   const inMemory = dbPath === ':memory:';
   if (!inMemory) {
@@ -554,12 +561,22 @@ export function openDb(dbPath: string): Db {
   if (!inMemory) ensurePrivateFile(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  if (!inMemory) {
-    for (const suffix of ['', '-wal', '-shm', '-journal']) {
-      ensurePrivateFile(`${dbPath}${suffix}`);
-    }
-  }
+  if (!inMemory) hardenDbFiles(dbPath);
   migrate(db);
   reconcile(db);
+  return db;
+}
+
+/**
+ * Open an existing database without migrating or reconciling it.
+ *
+ * For maintenance paths that must not change a live brain. The database is
+ * tightened before SQLite opens it so new sidecars inherit its mode, and the
+ * sweep after opening repairs sidecars already on disk.
+ */
+export function openExistingDb(dbPath: string): Db {
+  ensurePrivateFile(dbPath);
+  const db = new Database(dbPath, { fileMustExist: true });
+  hardenDbFiles(dbPath);
   return db;
 }

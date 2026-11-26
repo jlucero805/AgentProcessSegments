@@ -724,6 +724,76 @@ describe('http api', () => {
     expect(refused.json()).toMatchObject({ error: 'spend_cap', scope: 'overall' });
   });
 
+  it('keeps a live turn running while an active override covers its cap', async () => {
+    await makeApp(
+      {},
+      (text) =>
+        text.includes('slow work')
+          ? []
+          : [initLine('fast-session'), resultLine('ok', { input_tokens: 10, output_tokens: 5 }, 2)],
+    );
+    const patched = await call('PATCH', '/api/config', {
+      budget: { monthlyUsd: 1, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    expect(patched.status).toBe(200);
+
+    const granted = await call('POST', '/api/budgets/overrides', {
+      scope: 'overall',
+      minutes: 60,
+    });
+    expect(granted.status).toBe(201);
+    const overrideId = (granted.json() as { override: { id: string } }).override.id;
+
+    const h = open!.h;
+    const first = await call('POST', '/api/requests', { title: 'Slow' });
+    const second = await call('POST', '/api/requests', { title: 'Fast' });
+    const firstId = (first.json() as { id: string }).id;
+    const secondId = (second.json() as { id: string }).id;
+
+    const slow = await h.engine.send(firstId, 'slow work');
+    await settle();
+    const slowProcess = h.harness.process;
+
+    const fast = await h.engine.send(secondId, 'fast work');
+    await fast.promise;
+    await settle();
+
+    expect(fast.stoppedBy).toBeNull();
+    expect(slow.stoppedBy).toBeNull();
+    expect(slowProcess?.killed).toBe(false);
+    expect(h.engine.liveTurns().map((turn) => turn.id)).toContain(firstId);
+    expect(slow.events).toEqual([]);
+    expect(h.engine.transcript(firstId).some((message) => message.text.startsWith('⏸'))).toBe(false);
+    expect(h.repo.require(firstId).agentStatus).toBe('working');
+
+    const budgets = await call('GET', '/api/budgets');
+    const body = budgets.json() as {
+      statuses: Array<{ scope: string; paused: boolean; overrideId: string | null }>;
+      pauses: unknown[];
+      overrides: Array<{ id: string }>;
+    };
+    expect(body.statuses[0]).toMatchObject({
+      scope: 'overall',
+      paused: true,
+      overrideId,
+    });
+    expect(body.pauses).toHaveLength(1);
+    expect(body.overrides).toContainEqual(expect.objectContaining({ id: overrideId }));
+
+    const revoked = await call('DELETE', `/api/budgets/overrides/${overrideId}`);
+    expect(revoked.status).toBe(200);
+    await slow.promise;
+    await settle();
+
+    expect(slow.stoppedBy).toMatchObject({ scope: 'overall' });
+    expect(slowProcess?.killed).toBe(true);
+    expect(h.repo.require(firstId).agentStatus).toBe('idle');
+    expect(
+      h.engine.transcript(firstId).filter((message) => message.text.startsWith('⏸')),
+    ).toHaveLength(1);
+    expect(slow.events.map((event) => event.t)).toEqual(['paused', 'done']);
+  });
+
   it('stops a live turn when a cell patch enables its cap', async () => {
     await makeApp({}, () => []);
     const cell = await call('POST', '/api/cells', {

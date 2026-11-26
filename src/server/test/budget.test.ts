@@ -28,6 +28,7 @@ import {
   type EmailSettings,
   type SpendPause,
 } from '../src/domain/budget.js';
+import type { SpendCapOverrideNotification } from '../src/domain/notifications.js';
 import type { ErrorSink } from '../src/logging/errors.js';
 import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
@@ -72,6 +73,7 @@ function makeService(
   usage: FakeUsageSource,
   settings = makeStore(),
   errors?: ErrorSink,
+  onOverride?: (event: SpendCapOverrideNotification) => void,
 ): {
   service: BudgetService;
   alerts: BudgetAlertRepository;
@@ -91,6 +93,7 @@ function makeService(
     alerts,
     overrides,
     ...(errors ? { errors } : {}),
+    ...(onOverride ? { onOverride } : {}),
     now: () => NOW,
   });
   return { service, alerts, overrides, cells, db, settings };
@@ -900,6 +903,183 @@ describe('budgets', () => {
       unknownCostTurns: 0,
     };
     expect(service.admission(null, nextMonth)).not.toBeNull();
+  });
+
+  it('emits grant and extension events only while the cap is blocking', () => {
+    const usage = new FakeUsageSource();
+    const events: SpendCapOverrideNotification[] = [];
+    const { service, settings, db } = makeService(
+      usage,
+      undefined,
+      undefined,
+      (event) => events.push(event),
+    );
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+
+    const granted = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: 'release review' },
+      NOW,
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      overrideId: granted.override.id,
+      change: 'granted',
+      scope: 'overall',
+      cellId: null,
+      reason: 'cap_reached',
+      budgetUsd: 100,
+      spendUsd: 100,
+      expiresAt: granted.override.expiresAt,
+      note: 'release review',
+      occurredAt: NOW,
+    });
+
+    const extended = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 120, note: null },
+      NOW + 1000,
+    );
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      overrideId: extended.override.id,
+      change: 'extended',
+      expiresAt: extended.override.expiresAt,
+      note: 'release review',
+    });
+
+    // A shorter re-grant does not move the stored expiry, so it is not notified.
+    service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 30, note: null },
+      NOW + 2000,
+    );
+    expect(events).toHaveLength(2);
+
+    // A pre-authorized grant while under budget is silent.
+    usage.overall = emptyTotals();
+    service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 240, note: null },
+      NOW + 3000,
+    );
+    expect(events).toHaveLength(2);
+    db.close();
+  });
+
+  it('emits one expiry event only while the cap still blocks and nothing else covers it', () => {
+    const usage = new FakeUsageSource();
+    const events: SpendCapOverrideNotification[] = [];
+    const { service, settings, cells, db } = makeService(
+      usage,
+      undefined,
+      undefined,
+      (event) => events.push(event),
+    );
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    const alpha = cells.create('Alpha', null, null, {
+      monthlyBudgetUsd: 50,
+      pauseOnExceeded: true,
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    usage.cells.set(alpha.id, {
+      turns: 1,
+      costUsd: 50,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    });
+
+    const overall = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: null },
+      NOW,
+    );
+    const cell = service.grantOverride(
+      { scope: 'cell', cellId: alpha.id, minutes: 30, note: null },
+      NOW,
+    );
+
+    // The cell window ends while the overall override still admits it.
+    service.evaluate(NOW + 31 * 60_000);
+    expect(events.filter((event) => event.change === 'expired')).toHaveLength(0);
+
+    // The overall window ends; the cap now blocks with no covering override.
+    service.evaluate(NOW + 61 * 60_000);
+    const expired = events.filter((event) => event.change === 'expired');
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      overrideId: overall.override.id,
+      scope: 'overall',
+      reason: 'cap_reached',
+      occurredAt: overall.override.expiresAt,
+    });
+
+    // A second evaluation sees the row handled and does not duplicate.
+    service.evaluate(NOW + 62 * 60_000);
+    expect(events.filter((event) => event.change === 'expired')).toHaveLength(1);
+
+    // The cell row was observed while covered; its own expiry is silent.
+    expect(
+      events.some(
+        (event) => event.change === 'expired' && event.overrideId === cell.override.id,
+      ),
+    ).toBe(false);
+    db.close();
+  });
+
+  it('does not notify for a revoked override or one whose budget was cleared', () => {
+    const usage = new FakeUsageSource();
+    const events: SpendCapOverrideNotification[] = [];
+    const { service, settings, db } = makeService(
+      usage,
+      undefined,
+      undefined,
+      (event) => events.push(event),
+    );
+    settings.patch({
+      budget: { monthlyUsd: 100, alertAtPercent: 80, pauseOnExceeded: true },
+    });
+    usage.overall = {
+      turns: 1,
+      costUsd: 100,
+      estimatedCostUsd: 0,
+      unpricedTurns: 0,
+      unknownCostTurns: 0,
+    };
+    const revoked = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 60, note: null },
+      NOW,
+    );
+    service.revokeOverride(revoked.override.id, NOW + 1000);
+    service.evaluate(NOW + 61 * 60_000);
+    expect(events.filter((event) => event.change === 'expired')).toHaveLength(0);
+
+    const cleared = service.grantOverride(
+      { scope: 'overall', cellId: null, minutes: 120, note: null },
+      NOW + 61 * 60_000,
+    );
+    settings.patch({ budget: { monthlyUsd: null } });
+    service.evaluate(NOW + 182 * 60_000);
+    expect(
+      events.filter(
+        (event) =>
+          event.change === 'expired' && event.overrideId === cleared.override.id,
+      ),
+    ).toHaveLength(0);
+    db.close();
   });
 
   it('scopes a cell override and never lets it release an overall pause', () => {

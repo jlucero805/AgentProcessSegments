@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1058 vitest cases: 827 server across 49 files (one environmental root-skip) and 231 web across 25 files, all green.
+- 1068 vitest cases: 837 server across 49 files (one environmental root-skip) and 231 web across 25 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -101,7 +101,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 827 server + 231 web, plus the e2e env guard
+npm test                       # 837 server + 231 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -459,6 +459,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `active`), `extended_at`/`extension_count` move only when a re-grant pushes the expiry
     later, and history never changes budgets, alerts, pauses, admission, or enforcement.
     `active` is a lifecycle state, not proof the scope is still a configured hard cap.
+    When `notifications.events.spendOverrides` is enabled, a grant or extension while the
+    scope is still `paused` and an expiry that leaves it `paused` with no other active
+    override are delivered as `spend.override` events (granted/extended/expired). A
+    revoke, a pre-authorized grant while not paused, and an expiry still covered by
+    another override do not notify. Expiry is observed once via
+    `spend_cap_overrides.expiry_handled_at` on the next evaluation; a later extension
+    clears it. The overall-scope event is not cell-filtered by event routes. This is
+    advisory only: it never changes budgets, alerts, pauses, admission, or the banner.
 35. **Alert delivery is advisory, idempotent, authenticated, and auditable.** One
     `budget_alert_deliveries` row per `(alert_id, destination_id)` is the dedupe record;
     never send a delivered alert twice. Webhook/email destination ids are their channel
@@ -484,9 +492,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     Operational events use the sibling `notification_event_deliveries` outbox, keyed
     `UNIQUE(dedupe_key, channel)` with a configurable failure window, drain through
     `notifications/service.ts`, and send classification-only payloads to the enabled
-    webhook/email routes. Failed request turns, master errors, and scorecard failures are
-    the event kinds; a scorecard cap stop, the already-running guard, and a deleted cell
-    do not notify. The `kind` CHECK is extended by a one-time table rebuild in `db.ts`.
+    webhook/email routes. Failed request turns, master errors, scorecard failures, and
+    spend-cap override transitions are the event kinds; a scorecard cap stop, the
+    already-running guard, and a deleted cell do not notify. The `kind` CHECK is extended
+    by a one-time table rebuild in `db.ts`.
     Both outboxes feed one read-only history with a `source` discriminator; event rows
     expose only the safe title/text, classifications, ids, cell name, and occurrence
     time, never the raw payload. The shared resend route looks up either row; event

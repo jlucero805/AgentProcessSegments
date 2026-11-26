@@ -14,6 +14,7 @@ import {
   chatDestinationId,
   emailDeliveryConfigured,
   eventResendBlockReason,
+  eventKindRoute,
   eventRouteAllows,
   eventRouteCells,
   resendBlockReason,
@@ -41,11 +42,13 @@ import {
   type MasterErrorNotification,
   type NotificationEventEnvelope,
   type NotificationEventKind,
+  type SpendCapOverrideNotification,
   type SummaryFailureNotification,
   type TurnFailureNotification,
   masterErrorEnvelope,
   notificationEventEmailText,
   notificationEventSubject,
+  spendOverrideEnvelope,
   summaryFailedEnvelope,
   turnFailedEnvelope,
 } from '../domain/notifications.js';
@@ -426,12 +429,22 @@ export class NotificationService {
     );
   }
 
+  /** Enqueue one spend-cap override transition. Never throws. */
+  observeSpendOverride(event: SpendCapOverrideNotification): void {
+    this.observeEvent(
+      'spend.override',
+      event,
+      this.settings.get().notifications.events,
+    );
+  }
+
   private observeEvent(
     kind: NotificationEventKind,
     event:
       | TurnFailureNotification
       | MasterErrorNotification
-      | SummaryFailureNotification,
+      | SummaryFailureNotification
+      | SpendCapOverrideNotification,
     settings: EventNotificationSettings,
   ): void {
     try {
@@ -442,7 +455,9 @@ export class NotificationService {
           ? (event as TurnFailureNotification).cellId
           : kind === 'master.error'
             ? (event as MasterErrorNotification).cellId
-            : (event as SummaryFailureNotification).cellId;
+            : kind === 'summary.failed'
+              ? (event as SummaryFailureNotification).cellId
+              : (event as SpendCapOverrideNotification).cellId;
       const dedupeKey = eventDedupeKey(event, kind, settings.coalesceMinutes);
       for (const channel of EVENT_CHANNELS) {
         if (!eventRouteAllows(settings, kind, channel, cellId)) continue;
@@ -688,12 +703,7 @@ export class NotificationService {
       const now = this.clock();
 
       for (const kind of EVENT_NOTIFICATION_KINDS) {
-        const route =
-          kind === 'turn.failed'
-            ? events.failedTurns
-            : kind === 'master.error'
-              ? events.masterErrors
-              : events.summaryFailures;
+        const route = eventKindRoute(events, kind);
         for (const channel of EVENT_CHANNELS) {
           if (!route[channel]) {
             this.events.skipKindChannel(kind, channel, now);
@@ -701,7 +711,15 @@ export class NotificationService {
           }
           const allowedCells = eventRouteCells(events, kind, channel);
           if (allowedCells !== null) {
-            this.events.skipUnrouted(kind, channel, allowedCells, now);
+            // Overall spend-cap override events have no cell and are not
+            // cell-scoped, so a route cannot exclude them.
+            this.events.skipUnrouted(
+              kind,
+              channel,
+              allowedCells,
+              now,
+              kind === 'spend.override',
+            );
           }
         }
       }
@@ -769,7 +787,10 @@ export class NotificationService {
     if (delivery.kind === 'master.error') {
       return masterErrorEnvelope(payload as MasterErrorNotification, cellName);
     }
-    return summaryFailedEnvelope(payload as SummaryFailureNotification, cellName);
+    if (delivery.kind === 'summary.failed') {
+      return summaryFailedEnvelope(payload as SummaryFailureNotification, cellName);
+    }
+    return spendOverrideEnvelope(payload as SpendCapOverrideNotification, cellName);
   }
 
   private async deliverEvent(
@@ -913,11 +934,18 @@ export class NotificationService {
           requestId: payload['requestId'],
           source: payload['source'],
         };
-      } else {
+      } else if (delivery.kind === 'summary.failed') {
         ids = {
           dedupeKey: delivery.dedupeKey,
           cellId: payload['cellId'],
           source: payload['source'],
+        };
+      } else {
+        ids = {
+          dedupeKey: delivery.dedupeKey,
+          overrideId: payload['overrideId'],
+          change: payload['change'],
+          cellId: payload['cellId'],
         };
       }
     } catch {
@@ -941,6 +969,7 @@ export class NotificationService {
     const failedTurns = this.events.status('turn.failed');
     const masterErrors = this.events.status('master.error');
     const summaryFailures = this.events.status('summary.failed');
+    const spendOverrides = this.events.status('spend.override');
     return {
       webhook: {
         enabled: webhook.enabled,
@@ -981,6 +1010,10 @@ export class NotificationService {
           'summary.failed': {
             pending: summaryFailures.pending,
             failed: summaryFailures.failed,
+          },
+          'spend.override': {
+            pending: spendOverrides.pending,
+            failed: spendOverrides.failed,
           },
         },
       },
@@ -1286,9 +1319,16 @@ export class NotificationService {
         source: payload['source'],
       };
     }
+    if (delivery.kind === 'summary.failed') {
+      return {
+        cellId: payload['cellId'],
+        source: payload['source'],
+      };
+    }
     return {
+      overrideId: payload['overrideId'],
+      change: payload['change'],
       cellId: payload['cellId'],
-      source: payload['source'],
     };
   }
 
@@ -1338,7 +1378,9 @@ export class NotificationService {
         ? 'Turn failed'
         : delivery.kind === 'master.error'
           ? 'Master error'
-          : 'Scorecard failed';
+          : delivery.kind === 'summary.failed'
+            ? 'Scorecard failed'
+            : 'Spend cap override';
     const fallback: EventDeliverySnapshot = {
       kind: delivery.kind,
       title: fallbackTitle,
@@ -1351,6 +1393,7 @@ export class NotificationService {
       turnId: null,
       segment: null,
       occurredAt: null,
+      change: null,
     };
     const payload = this.eventPayload(delivery);
     if (payload === null) return fallback;
@@ -1393,6 +1436,65 @@ export class NotificationService {
         turnId: typeof payload['turnId'] === 'string' ? payload['turnId'] : null,
         segment: null,
         occurredAt: turn.occurredAt,
+        change: null,
+      };
+    }
+
+    if (delivery.kind === 'spend.override') {
+      const change = payload['change'];
+      const scope = payload['scope'];
+      const reason = payload['reason'];
+      if (
+        typeof payload['overrideId'] !== 'string' ||
+        (change !== 'granted' && change !== 'extended' && change !== 'expired') ||
+        (scope !== 'overall' && scope !== 'cell') ||
+        (reason !== 'cap_reached' && reason !== 'unknown_cost') ||
+        !(payload['cellId'] === null || typeof payload['cellId'] === 'string') ||
+        !(payload['note'] === null || typeof payload['note'] === 'string') ||
+        typeof payload['periodStart'] !== 'number' ||
+        typeof payload['expiresAt'] !== 'number' ||
+        typeof payload['budgetUsd'] !== 'number' ||
+        typeof payload['spendUsd'] !== 'number' ||
+        typeof payload['capSpendUsd'] !== 'number' ||
+        typeof payload['spendIsLowerBound'] !== 'boolean' ||
+        typeof payload['capSpendIsLowerBound'] !== 'boolean' ||
+        typeof payload['occurredAt'] !== 'number' ||
+        !Number.isFinite(payload['occurredAt'])
+      ) {
+        return fallback;
+      }
+      const event = {
+        overrideId: payload['overrideId'],
+        change,
+        scope,
+        cellId: payload['cellId'],
+        reason,
+        periodStart: payload['periodStart'],
+        expiresAt: payload['expiresAt'],
+        note: payload['note'],
+        budgetUsd: payload['budgetUsd'],
+        spendUsd: payload['spendUsd'],
+        spendIsLowerBound: payload['spendIsLowerBound'],
+        capSpendUsd: payload['capSpendUsd'],
+        capSpendIsLowerBound: payload['capSpendIsLowerBound'],
+        occurredAt: payload['occurredAt'],
+      } as unknown as SpendCapOverrideNotification;
+      const cellId = event.cellId;
+      const cellName = cellId === null ? null : names.get(cellId) ?? 'Deleted cell';
+      const envelope = spendOverrideEnvelope(event, cellName);
+      return {
+        kind: delivery.kind,
+        title: envelope.title,
+        text: envelope.text,
+        source: null,
+        reason: event.reason,
+        cellId,
+        cellName,
+        requestId: null,
+        turnId: null,
+        segment: null,
+        occurredAt: event.occurredAt,
+        change: event.change,
       };
     }
 
@@ -1427,6 +1529,7 @@ export class NotificationService {
         turnId: null,
         segment: null,
         occurredAt: summary.occurredAt,
+        change: null,
       };
     }
 
@@ -1451,6 +1554,7 @@ export class NotificationService {
       turnId: null,
       segment: event.segment,
       occurredAt: event.occurredAt,
+      change: null,
     };
   }
 

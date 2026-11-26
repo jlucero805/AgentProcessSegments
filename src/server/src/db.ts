@@ -48,7 +48,7 @@ const BUDGET_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS budget_alert_deliverie
 const NOTIFICATION_EVENT_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS notification_event_deliveries (
   id               TEXT PRIMARY KEY,
   dedupe_key       TEXT NOT NULL,
-  kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error', 'summary.failed')),
+  kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error', 'summary.failed', 'spend.override')),
   cell_id          TEXT,
   channel          TEXT NOT NULL,
   format           TEXT NOT NULL,
@@ -213,7 +213,8 @@ CREATE TABLE IF NOT EXISTS spend_cap_overrides (
   updated_at      INTEGER NOT NULL,
   revoked_at      INTEGER,
   extended_at     INTEGER,
-  extension_count INTEGER NOT NULL DEFAULT 0
+  extension_count INTEGER NOT NULL DEFAULT 0,
+  expiry_handled_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS model_pricing (
@@ -269,6 +270,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['notification_event_deliveries', 'cell_id', 'TEXT'],
   ['spend_cap_overrides', 'extended_at', 'INTEGER'],
   ['spend_cap_overrides', 'extension_count', 'INTEGER NOT NULL DEFAULT 0'],
+  ['spend_cap_overrides', 'expiry_handled_at', 'INTEGER'],
 ];
 
 function addColumn(db: Db, table: string, column: string, ddl: string): void {
@@ -348,8 +350,8 @@ function migrateBudgetDeliveries(db: Db): void {
 }
 
 /**
- * SQLite cannot alter the event-kind CHECK in place. Rebuild a two-kind table
- * once so `summary.failed` can be enqueued, preserving every delivery row.
+ * SQLite cannot alter the event-kind CHECK in place. Rebuild an older table
+ * once so `spend.override` can be enqueued, preserving every delivery row.
  */
 function migrateNotificationEventDeliveries(db: Db): void {
   const table = db
@@ -357,7 +359,7 @@ function migrateNotificationEventDeliveries(db: Db): void {
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notification_event_deliveries'",
     )
     .get() as { sql: string } | undefined;
-  if (!table || table.sql.includes("'summary.failed'")) return;
+  if (!table || table.sql.includes("'spend.override'")) return;
 
   db.transaction(() => {
     db.exec(
@@ -366,9 +368,9 @@ function migrateNotificationEventDeliveries(db: Db): void {
     db.exec(NOTIFICATION_EVENT_DELIVERIES_DDL);
     db.exec(
       `INSERT INTO notification_event_deliveries
-         (id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+         (id, dedupe_key, kind, cell_id, channel, format, destination_hash, payload_json,
           status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
-       SELECT id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+       SELECT id, dedupe_key, kind, cell_id, channel, format, destination_hash, payload_json,
               status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at
          FROM notification_event_deliveries_legacy`,
     );
@@ -378,9 +380,11 @@ function migrateNotificationEventDeliveries(db: Db): void {
 
 export function migrate(db: Db): void {
   db.exec(BASE_SCHEMA);
+  // Older event tables may lack `cell_id`; add every column before the event
+  // kind rebuild so the copy can preserve it.
+  for (const [table, column, ddl] of COLUMNS) addColumn(db, table, column, ddl);
   migrateBudgetDeliveries(db);
   migrateNotificationEventDeliveries(db);
-  for (const [table, column, ddl] of COLUMNS) addColumn(db, table, column, ddl);
   db.prepare(
     'INSERT OR IGNORE INTO usage_rollup_state (id, rolled_through) VALUES (1, 0)',
   ).run();

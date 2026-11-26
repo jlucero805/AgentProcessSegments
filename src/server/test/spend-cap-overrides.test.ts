@@ -175,6 +175,61 @@ describe('spend cap overrides', () => {
     expect(replacement.record.extendedAt).toBeNull();
   });
 
+  it('tracks expiry observation once and clears it on a later extension', () => {
+    const repo = makeRepo();
+    const first = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 60_000,
+        note: null,
+      },
+      NOW,
+    );
+    expect(first.extended).toBe(false);
+    expect(first.record.expiryHandledAt).toBeNull();
+    expect(repo.listExpiredUnhandled(PERIOD, NOW + 59_000)).toEqual([]);
+
+    const expired = repo.listExpiredUnhandled(PERIOD, NOW + 60_000);
+    expect(expired.map((record) => record.id)).toEqual([first.record.id]);
+    repo.markExpiryHandled(first.record.id, NOW + 60_000);
+    repo.markExpiryHandled(first.record.id, NOW + 61_000);
+    expect(repo.get(first.record.id)?.expiryHandledAt).toBe(NOW + 60_000);
+    expect(repo.listExpiredUnhandled(PERIOD, NOW + 120_000)).toEqual([]);
+
+    const extended = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 180_000,
+        note: null,
+      },
+      NOW + 62_000,
+    );
+    expect(extended.extended).toBe(true);
+    expect(extended.record.expiryHandledAt).toBeNull();
+    expect(repo.listExpiredUnhandled(PERIOD, NOW + 180_000)).toHaveLength(1);
+
+    const shorter = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 90_000,
+        note: null,
+      },
+      NOW + 63_000,
+    );
+    expect(shorter.extended).toBe(false);
+    expect(shorter.record.expiryHandledAt).toBeNull();
+
+    const revoked = repo.revoke(first.record.id, NOW + 64_000);
+    expect(revoked?.expiryHandledAt).toBeNull();
+    expect(repo.listExpiredUnhandled(PERIOD, NOW + 180_000)).toEqual([]);
+  });
+
   it('lists retained history across periods with state, scope, and page filters', () => {
     const repo = makeRepo();
     const previous = Date.UTC(2026, 9, 1);

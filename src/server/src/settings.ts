@@ -345,6 +345,9 @@ const eventsSchema: z.ZodType<EventNotificationSettings, unknown> = z.object({
   summaryFailures: eventChannelSchema.default(() => ({
     ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures,
   })),
+  spendOverrides: eventChannelSchema.default(() => ({
+    ...DEFAULT_EVENT_NOTIFICATIONS.spendOverrides,
+  })),
   coalesceMinutes: z
     .number()
     .int()
@@ -363,6 +366,7 @@ const notificationsSchema: z.ZodType<NotificationsSettings, unknown> = z.object(
     failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
     masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
     summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
+    spendOverrides: { ...DEFAULT_EVENT_NOTIFICATIONS.spendOverrides },
     coalesceMinutes: DEFAULT_EVENT_NOTIFICATIONS.coalesceMinutes,
     routes: [],
   })),
@@ -408,6 +412,7 @@ const eventsPatchSchema = z.object({
   failedTurns: eventChannelPatchSchema.optional(),
   masterErrors: eventChannelPatchSchema.optional(),
   summaryFailures: eventChannelPatchSchema.optional(),
+  spendOverrides: eventChannelPatchSchema.optional(),
   coalesceMinutes: z
     .number()
     .int()
@@ -470,6 +475,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
       masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
       summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
+      spendOverrides: { ...DEFAULT_EVENT_NOTIFICATIONS.spendOverrides },
       coalesceMinutes: DEFAULT_EVENT_NOTIFICATIONS.coalesceMinutes,
       routes: [],
     },
@@ -522,6 +528,7 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
         failedTurns: { ...settings.notifications.events.failedTurns },
         masterErrors: { ...settings.notifications.events.masterErrors },
         summaryFailures: { ...settings.notifications.events.summaryFailures },
+        spendOverrides: { ...settings.notifications.events.spendOverrides },
         coalesceMinutes: settings.notifications.events.coalesceMinutes,
         routes: settings.notifications.events.routes.map((route) => ({ ...route })),
       },
@@ -751,6 +758,10 @@ export class SettingsStore {
           summaryFailures: {
             ...current.notifications.events.summaryFailures,
             ...(parsed.notifications?.events?.summaryFailures ?? {}),
+          },
+          spendOverrides: {
+            ...current.notifications.events.spendOverrides,
+            ...(parsed.notifications?.events?.spendOverrides ?? {}),
           },
           coalesceMinutes:
             parsed.notifications?.events?.coalesceMinutes ??

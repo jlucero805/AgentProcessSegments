@@ -285,6 +285,8 @@ export interface EventNotificationSettings {
   failedTurns: EventChannelSettings;
   masterErrors: EventChannelSettings;
   summaryFailures: EventChannelSettings;
+  /** Spend-cap override grants, extensions, and expiries. */
+  spendOverrides: EventChannelSettings;
   /** Fixed window length for coalescing one failure signature. */
   coalesceMinutes: number;
   /** Optional per-kind/channel cell allowlists; empty means every cell. */
@@ -337,6 +339,7 @@ export const DEFAULT_EVENT_NOTIFICATIONS: EventNotificationSettings = {
   failedTurns: { webhook: false, email: false },
   masterErrors: { webhook: false, email: false },
   summaryFailures: { webhook: false, email: false },
+  spendOverrides: { webhook: false, email: false },
   coalesceMinutes: DEFAULT_EVENT_COALESCE_MINUTES,
   routes: [],
 };
@@ -359,6 +362,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
     failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
     masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
     summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
+    spendOverrides: { ...DEFAULT_EVENT_NOTIFICATIONS.spendOverrides },
     coalesceMinutes: DEFAULT_EVENT_NOTIFICATIONS.coalesceMinutes,
     routes: [],
   },
@@ -384,20 +388,36 @@ export function eventRouteCells(
   return routes.length === 0 ? null : routes.map((route) => route.cellId);
 }
 
-/** True when the kind/channel boolean and any cell allowlist permit this event. */
+/** The per-kind webhook/email booleans. */
+export function eventKindRoute(
+  settings: EventNotificationSettings,
+  kind: NotificationEventKind,
+): EventChannelSettings {
+  switch (kind) {
+    case 'turn.failed':
+      return settings.failedTurns;
+    case 'master.error':
+      return settings.masterErrors;
+    case 'summary.failed':
+      return settings.summaryFailures;
+    case 'spend.override':
+      return settings.spendOverrides;
+  }
+}
+
+/**
+ * True when the kind/channel boolean and any cell allowlist permit this event.
+ * A spend-cap override with no cell (overall) is not cell-scoped, so a route
+ * allowlist cannot exclude it; cell overrides still honor their allowlist.
+ */
 export function eventRouteAllows(
   settings: EventNotificationSettings,
   kind: NotificationEventKind,
   channel: EventChannel,
   cellId: string | null,
 ): boolean {
-  const route =
-    kind === 'turn.failed'
-      ? settings.failedTurns
-      : kind === 'master.error'
-        ? settings.masterErrors
-        : settings.summaryFailures;
-  if (!route[channel]) return false;
+  if (!eventKindRoute(settings, kind)[channel]) return false;
+  if (kind === 'spend.override' && cellId === null) return true;
   const cells = eventRouteCells(settings, kind, channel);
   return cells === null || (cellId !== null && cells.includes(cellId));
 }

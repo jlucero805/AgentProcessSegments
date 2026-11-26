@@ -1446,7 +1446,7 @@ stopped by a cap stay stopped, and a live turn keeps running while the override 
 ending the override stops covered live turns at once, while an expiry is noticed by the
 next evaluation. There are still no spend reservations or automatic replay. There is no
 operator identity or approval workflow; the optional note is the only context recorded. A
-read-only history view is D83; notification when an override is granted or expires, and
+read-only history view is D83; override grant/extension/expiry notifications are D84;
 per-request overrides remain separate work.
 
 ## D69. Blank path overrides are ignored, with a startup warning
@@ -1866,3 +1866,35 @@ separate work.
 **Cost.** Two additive columns, one read-only route, and one SPA card. No new table, event
 write path, dependency, or change to budget, alert, admission, enforcement, or delivery
 semantics.
+
+## D84. Spend-cap override transitions reuse the operational event outbox
+
+**Context.** D68 made hard-cap snoozes durable and D83 exposed their history, but an
+operator who was not watching the UI had no out-of-band signal when a snooze started or
+ended. The existing `notification_event_deliveries` outbox already provides signed
+webhook/email delivery, retry, history, status, and resend; a second transport or a
+synthetic budget alert would duplicate that machinery and disturb the alert model.
+
+**Decision.** Add `spend.override` as a fourth event kind under
+`notifications.events.spendOverrides` (default webhook/email off) with payload `change:
+granted | extended | expired`. A successful grant emits synchronously when the stored
+expiry moves later (or the row is new) and the target status is still `paused`; a no-op
+re-grant, a pre-authorized grant while under budget, and a rejected grant are silent. An
+expiry is observed by the existing 60-second budget evaluation. A new nullable
+`spend_cap_overrides.expiry_handled_at` marker records that the transition was evaluated;
+the evaluator emits only when the scope is still `paused` and `status.overrideId` is null,
+then marks the row handled even when it stays silent, so a later spend increase cannot send
+a stale expiry. A later-expiry grant clears the marker. Revocation is not notified, and an
+expiry covered by another active override (for example an active overall override on a
+cell row) is silent; the covering row's own expiry notifies when coverage ends. Dedupe is
+`override:<id>:<change>:<expiresAt>` rather than the failure coalescing window, so an
+extension is a new event and an identical repeat is suppressed. Cell event routes restrict
+cell-scoped override events, but an overall override has no cell and is never filtered by a
+route. The payload carries ids, scope, pause reason, budget/cap spend, lower-bound flags,
+expiry, and the optional note; it never carries prompts, transcripts, destinations, or
+secrets. The table kind CHECK is extended by a guarded rebuild that preserves `cell_id`.
+
+**Cost.** One additive column, one event kind/route, one BudgetService callback plus the
+expiry sweep, and Config copy. No new HTTP route, dependency, alert, admission, pause,
+banner, or in-flight behavior change; override notifications are advisory and may lag an
+expiry by up to one budget evaluation.

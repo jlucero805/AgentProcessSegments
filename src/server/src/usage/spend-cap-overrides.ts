@@ -14,6 +14,7 @@ export interface SpendCapOverrideRecord {
   revokedAt: number | null;
   extendedAt: number | null;
   extensionCount: number;
+  expiryHandledAt: number | null;
 }
 
 export interface SpendCapOverrideHistoryFilter {
@@ -48,6 +49,7 @@ interface SpendCapOverrideRow {
   revoked_at: number | null;
   extended_at: number | null;
   extension_count: number;
+  expiry_handled_at: number | null;
 }
 
 function toRecord(row: SpendCapOverrideRow): SpendCapOverrideRecord {
@@ -63,6 +65,7 @@ function toRecord(row: SpendCapOverrideRow): SpendCapOverrideRecord {
     revokedAt: row.revoked_at,
     extendedAt: row.extended_at,
     extensionCount: row.extension_count,
+    expiryHandledAt: row.expiry_handled_at,
   };
 }
 
@@ -143,6 +146,7 @@ export class SpendCapOverrideRepository {
   grant(input: SpendCapOverrideInput, now: number): {
     record: SpendCapOverrideRecord;
     created: boolean;
+    extended: boolean;
   } {
     const existing = this.db
       .prepare(
@@ -166,6 +170,7 @@ export class SpendCapOverrideRepository {
                   note = COALESCE(?, note),
                   extended_at = ?,
                   extension_count = ?,
+                  expiry_handled_at = ?,
                   updated_at = ?
             WHERE id = ?`,
         )
@@ -174,10 +179,11 @@ export class SpendCapOverrideRepository {
           input.note,
           extended ? now : existing.extended_at,
           existing.extension_count + (extended ? 1 : 0),
+          extended ? null : existing.expiry_handled_at,
           now,
           existing.id,
         );
-      return { record: this.get(existing.id)!, created: false };
+      return { record: this.get(existing.id)!, created: false, extended };
     }
 
     const id = randomUUID();
@@ -198,7 +204,34 @@ export class SpendCapOverrideRepository {
         now,
         now,
       );
-    return { record: this.get(id)!, created: true };
+    return { record: this.get(id)!, created: true, extended: false };
+  }
+
+  /**
+   * Expired, non-revoked rows in the current period that have not been observed
+   * by the budget evaluation yet.
+   */
+  listExpiredUnhandled(periodStart: number, now: number): SpendCapOverrideRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM spend_cap_overrides
+          WHERE period_start = ? AND revoked_at IS NULL AND expires_at <= ?
+            AND expiry_handled_at IS NULL
+          ORDER BY expires_at ASC, created_at ASC`,
+      )
+      .all(periodStart, now) as SpendCapOverrideRow[];
+    return rows.map(toRecord);
+  }
+
+  /** Mark an expiry transition handled; safe to call more than once. */
+  markExpiryHandled(id: string, now: number): void {
+    this.db
+      .prepare(
+        `UPDATE spend_cap_overrides
+            SET expiry_handled_at = COALESCE(expiry_handled_at, ?)
+          WHERE id = ?`,
+      )
+      .run(now, id);
   }
 
   listHistory(filter: SpendCapOverrideHistoryFilter, now: number): SpendCapOverrideRecord[] {

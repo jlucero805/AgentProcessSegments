@@ -1324,6 +1324,7 @@ describe('http api', () => {
           'turn.failed': { pending: 0, failed: 0 },
           'master.error': { pending: 0, failed: 0 },
           'summary.failed': { pending: 0, failed: 0 },
+          'spend.override': { pending: 0, failed: 0 },
         },
       },
     });
@@ -1337,6 +1338,7 @@ describe('http api', () => {
       failedTurns: { webhook: false, email: false },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: false },
+      spendOverrides: { webhook: false, email: false },
       coalesceMinutes: 60,
       routes: [],
     });
@@ -1346,6 +1348,7 @@ describe('http api', () => {
         events: {
           failedTurns: { webhook: true },
           summaryFailures: { email: true },
+          spendOverrides: { email: true },
           coalesceMinutes: 30,
           routes: [{ kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' }],
         },
@@ -1356,6 +1359,7 @@ describe('http api', () => {
       failedTurns: { webhook: true, email: false },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: true },
+      spendOverrides: { webhook: false, email: true },
       coalesceMinutes: 30,
       routes: [{ kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' }],
     });
@@ -1367,6 +1371,7 @@ describe('http api', () => {
       failedTurns: { webhook: true, email: false },
       masterErrors: { webhook: false, email: true },
       summaryFailures: { webhook: false, email: true },
+      spendOverrides: { webhook: false, email: true },
       coalesceMinutes: 30,
       routes: [{ kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' }],
     });

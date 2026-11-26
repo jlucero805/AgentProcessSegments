@@ -10,6 +10,7 @@ export const EVENT_NOTIFICATION_KINDS = [
   'turn.failed',
   'master.error',
   'summary.failed',
+  'spend.override',
 ] as const;
 export type NotificationEventKind = (typeof EVENT_NOTIFICATION_KINDS)[number];
 
@@ -59,6 +60,31 @@ export interface SummaryFailureNotification {
   occurredAt: number;
 }
 
+/** A hard spend cap override transitioned while the scope was still blocked. */
+export type SpendOverrideChange = 'granted' | 'extended' | 'expired';
+/** Mirrors `BudgetScope`; kept local so this module stays acyclic. */
+export type SpendOverrideScope = 'overall' | 'cell';
+/** Mirrors `SpendPauseReason`; the cap is still blocking work. */
+export type SpendOverrideReason = 'cap_reached' | 'unknown_cost';
+
+/** One override grant, extension, or expiry. Contains ids and amounts only. */
+export interface SpendCapOverrideNotification {
+  overrideId: string;
+  change: SpendOverrideChange;
+  scope: SpendOverrideScope;
+  cellId: string | null;
+  reason: SpendOverrideReason;
+  periodStart: number;
+  expiresAt: number;
+  note: string | null;
+  budgetUsd: number;
+  spendUsd: number;
+  spendIsLowerBound: boolean;
+  capSpendUsd: number;
+  capSpendIsLowerBound: boolean;
+  occurredAt: number;
+}
+
 /**
  * The safe, read-only projection of one event delivery row. It contains only
  * classifications and ids already sent outbound; never the raw payload.
@@ -78,6 +104,8 @@ export interface EventDeliverySnapshot {
   turnId: string | null;
   segment: string | null;
   occurredAt: number | null;
+  /** Spend-override transition, or null for the failure event kinds. */
+  change: SpendOverrideChange | null;
 }
 
 export interface TurnFailedEnvelope {
@@ -110,10 +138,21 @@ export interface SummaryFailedEnvelope {
   summary: SummaryFailureNotification;
 }
 
+export interface SpendOverrideEnvelope {
+  version: 1;
+  event: 'spend.override';
+  severity: 'warning';
+  title: string;
+  occurredAt: number;
+  text: string;
+  override: SpendCapOverrideNotification;
+}
+
 export type NotificationEventEnvelope =
   | TurnFailedEnvelope
   | MasterErrorEnvelope
-  | SummaryFailedEnvelope;
+  | SummaryFailedEnvelope
+  | SpendOverrideEnvelope;
 
 const MAX_TITLE_LENGTH = 200;
 
@@ -209,16 +248,81 @@ export function summaryFailedEnvelope(
   };
 }
 
+const overrideMoney = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
+function overrideScopeLabel(
+  event: SpendCapOverrideNotification,
+  cellName: string | null,
+): string {
+  return event.scope === 'overall' ? 'overall spend' : `cell "${cellName ?? 'Deleted cell'}"`;
+}
+
+function overrideTitleScope(
+  event: SpendCapOverrideNotification,
+  cellName: string | null,
+): string {
+  return event.scope === 'overall' ? 'Overall' : cellName ?? 'Deleted cell';
+}
+
+function overrideReasonLabel(reason: SpendOverrideReason): string {
+  return reason === 'cap_reached' ? 'cap reached' : 'unknown turn cost';
+}
+
+export function spendOverrideText(
+  event: SpendCapOverrideNotification,
+  cellName: string | null,
+): string {
+  const scope = overrideScopeLabel(event, cellName);
+  const spend = event.spendIsLowerBound
+    ? `at least ${overrideMoney.format(event.spendUsd)}`
+    : overrideMoney.format(event.spendUsd);
+  const budget = overrideMoney.format(event.budgetUsd);
+  const reason = overrideReasonLabel(event.reason);
+  const note = event.note === null ? '' : ` Note: ${clipNotificationText(event.note, 280)}.`;
+  if (event.change === 'expired') {
+    return `Spend cap override for ${scope} expired at ${new Date(event.expiresAt).toISOString()}. The hard cap is blocking new work again (${reason}): ${spend} of a ${budget} monthly budget.${note}`;
+  }
+  const action = event.change === 'extended' ? 'extended' : 'granted';
+  return `Spend cap override ${action} for ${scope} until ${new Date(event.expiresAt).toISOString()}. The hard cap is still blocking new work (${reason}): ${spend} of a ${budget} monthly budget.${note}`;
+}
+
+export function spendOverrideEnvelope(
+  event: SpendCapOverrideNotification,
+  cellName: string | null,
+): SpendOverrideEnvelope {
+  return {
+    version: 1,
+    event: 'spend.override',
+    severity: 'warning',
+    title: `Spend cap override ${event.change}: ${overrideTitleScope(event, cellName)}`,
+    occurredAt: event.occurredAt,
+    text: spendOverrideText(event, cellName),
+    override: event,
+  };
+}
+
 export function notificationEventSubject(
   event: NotificationEventEnvelope,
   cellName: string | null,
 ): string {
-  const title =
-    event.event === 'turn.failed'
-      ? turnFailedEnvelope(event.turn, cellName).title
-      : event.event === 'master.error'
-        ? masterErrorEnvelope(event.master, cellName).title
-        : summaryFailedEnvelope(event.summary, cellName).title;
+  let title: string;
+  switch (event.event) {
+    case 'turn.failed':
+      title = turnFailedEnvelope(event.turn, cellName).title;
+      break;
+    case 'master.error':
+      title = masterErrorEnvelope(event.master, cellName).title;
+      break;
+    case 'summary.failed':
+      title = summaryFailedEnvelope(event.summary, cellName).title;
+      break;
+    case 'spend.override':
+      title = spendOverrideEnvelope(event.override, cellName).title;
+      break;
+  }
   return `[APS] ${title}`;
 }
 
@@ -226,12 +330,21 @@ export function notificationEventEmailText(
   event: NotificationEventEnvelope,
   cellName: string | null,
 ): string {
-  const text =
-    event.event === 'turn.failed'
-      ? turnFailedText(event.turn, cellName)
-      : event.event === 'master.error'
-        ? masterErrorText(event.master, cellName)
-        : summaryFailedText(event.summary, cellName);
+  let text: string;
+  switch (event.event) {
+    case 'turn.failed':
+      text = turnFailedText(event.turn, cellName);
+      break;
+    case 'master.error':
+      text = masterErrorText(event.master, cellName);
+      break;
+    case 'summary.failed':
+      text = summaryFailedText(event.summary, cellName);
+      break;
+    case 'spend.override':
+      text = spendOverrideText(event.override, cellName);
+      break;
+  }
   const lines = [
     text,
     '',
@@ -254,12 +367,26 @@ export function notificationEventEmailText(
       `Request: ${event.master.requestId ?? 'none'}`,
       `Segment: ${event.master.segment ?? 'none'}`,
     );
-  } else {
+  } else if (event.event === 'summary.failed') {
     lines.push(
       `Cell: ${event.summary.cellId}`,
       `Source: ${event.summary.source}`,
       `Reason: ${event.summary.reason}`,
     );
+  } else {
+    lines.push(
+      `Change: ${event.override.change}`,
+      `Scope: ${event.override.scope}`,
+      `Cell: ${event.override.cellId ?? 'overall'}`,
+      `Override: ${event.override.overrideId}`,
+      `Reason: ${event.override.reason}`,
+      `Expires: ${new Date(event.override.expiresAt).toISOString()}`,
+      `Budget: ${overrideMoney.format(event.override.budgetUsd)}`,
+      `Spend: ${event.override.spendIsLowerBound ? 'at least ' : ''}${overrideMoney.format(event.override.spendUsd)}`,
+    );
+    if (event.override.note !== null) {
+      lines.push(`Note: ${clipNotificationText(event.override.note, 280)}`);
+    }
   }
   return lines.join('\n');
 }
@@ -280,12 +407,23 @@ export function eventNotificationWindowStart(
   return Math.floor(occurredAt / windowMs) * windowMs;
 }
 
-/** Stable per-channel idempotency key for one event signature in a window. */
+/**
+ * Stable per-channel idempotency key. Failure events coalesce in a window;
+ * override transitions dedupe on the override, change, and stored expiry.
+ */
 export function eventDedupeKey(
-  event: TurnFailureNotification | MasterErrorNotification | SummaryFailureNotification,
+  event:
+    | TurnFailureNotification
+    | MasterErrorNotification
+    | SummaryFailureNotification
+    | SpendCapOverrideNotification,
   kind: NotificationEventKind,
   coalesceMinutes: number,
 ): string {
+  if (kind === 'spend.override') {
+    const override = event as SpendCapOverrideNotification;
+    return `override:${override.overrideId}:${override.change}:${override.expiresAt}`;
+  }
   const windowStart = eventNotificationWindowStart(event.occurredAt, coalesceMinutes);
   if (kind === 'turn.failed') {
     const turn = event as TurnFailureNotification;

@@ -62,6 +62,7 @@ function sentinelSettings(): typeof DEFAULT_SETTINGS {
     failedTurns: { webhook: true, email: false },
     masterErrors: { webhook: false, email: true },
     summaryFailures: { webhook: false, email: false },
+    spendOverrides: { webhook: false, email: false },
     coalesceMinutes: 60,
     routes: [],
   };
@@ -700,6 +701,7 @@ describe('SettingsStore', () => {
       failedTurns: { webhook: false, email: false },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: false },
+      spendOverrides: { webhook: false, email: false },
       coalesceMinutes: 60,
       routes: [],
     });
@@ -725,6 +727,7 @@ describe('SettingsStore', () => {
       failedTurns: { webhook: true, email: true },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: true },
+      spendOverrides: { webhook: false, email: false },
       coalesceMinutes: 60,
       routes: [],
     });

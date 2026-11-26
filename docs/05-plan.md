@@ -245,3 +245,7 @@ states dispose the session as before; disabling the master stops scheduling imme
   read-only `GET /api/budgets/overrides/history` with state derivation, scope/cell/state/
   period filters, and pagination, a Config-page history card with lifecycle columns and
   refresh-after-action, tests and docs.
+- [x] **51. Spend-cap override notifications** — a default-off `spend.override` event
+  kind for grants, later-expiry extensions, and single-shot expiries while the cap still
+  blocks work, guarded by `expiry_handled_at` and the paused/no-cover rule, with Config
+  checkboxes, delivery history/resend, tests and docs.

@@ -177,6 +177,7 @@ import type {
 } from '../../server/src/domain/budget';
 import type { MasterConfig } from '../../server/src/master/types';
 import type { ModelOption } from '../../server/src/clarify/models';
+import type { NotificationEventKind } from '../../server/src/domain/notifications';
 import type { ProcessConfig } from '../../server/src/process/definition';
 import type { SummaryConfig } from '../../server/src/summary/types';
 import type { UsageSettings } from '../../server/src/usage/settings';
@@ -244,7 +245,7 @@ export interface EventNotificationStatus {
   lastDeliveryAt: number | null;
   lastDeliveryStatus: DeliveryStatus | null;
   lastError: string | null;
-  byKind: Record<'turn.failed' | 'master.error' | 'summary.failed', EventKindStatus>;
+  byKind: Record<NotificationEventKind, EventKindStatus>;
 }
 
 export interface NotificationStatusResponse {

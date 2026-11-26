@@ -391,7 +391,12 @@ the override expiry until it is ended early or expires, when the pause resumes. 
 snooze does not stop or resume anything: turns already stopped stay stopped, and a live
 turn keeps running while the override is active, so spend can overshoot during the window.
 Ending a snooze immediately re-pauses the scope and stops its live turns; an expiry is
-enforced by the next budget check (within 60 seconds).
+enforced by the next budget check (within 60 seconds). When the **Spend cap overrides**
+event route is enabled, a grant or extension while the cap still blocks work and an
+expiry that leaves the scope blocked again are delivered to the configured webhook/email
+channels. A revoke is not notified, and an expiry is observed by the next budget check
+(up to 60 seconds later). A notification never raises a budget, clears an alert, or
+changes pause state.
 
 The Config page's **Spend cap override history** card is a read-only record of retained
 snoozes across UTC months. It shows the scope, state (`active`, `revoked`, or `expired`),
@@ -435,19 +440,22 @@ share the same outbox and retry schedule but dedupe per destination, so disablin
 re-pointing one channel never cancels the others. A saved password or bot token is
 redacted from the API and only cleared when the operator asks.
 
-The independent **Event notifications** card can send three operational events to the same
-webhook and email channels: **failed request turns** (a harness error result, non-zero
-agent exit, or timeout), **master errors** (a failed master turn or scheduler cycle), and
-**scorecard failures** (a failed summary generation). Each event kind has its own webhook
-and email checkboxes; the channel must also be enabled above. Event bodies carry ids, the
-request title/state or cell, and a failure classification only, never a prompt, transcript,
-diff, stderr block, or raw error text. A cap-stopped scorecard is a pause, not a failure.
-Repeat failures with the same signature are coalesced inside a configurable window (default
-60 minutes, one UTC hour; allowed 1–1440) per channel. Optional **cell routes** limit an
-event kind/channel to specific cells; with no route the channel follows the all-cells
-default. Narrowing a route skips pending rows for excluded cells, and enabling a route or
-widening the window never backfills old events. Event deliveries use the same durable
-retry, signing, timeout, and destination-rotation rules as budget alerts.
+The independent **Event notifications** card can send four operational event kinds to the
+same webhook and email channels: **failed request turns** (a harness error result, non-zero
+agent exit, or timeout), **master errors** (a failed master turn or scheduler cycle),
+**scorecard failures** (a failed summary generation), and **spend cap overrides** (a grant
+or extension while the cap still blocks work, or an expiry that leaves it blocked again).
+Each event kind has its own webhook and email checkboxes; the channel must also be enabled
+above. Event bodies carry ids, the request title/state or cell, and a classification only,
+never a prompt, transcript, diff, stderr block, or raw error text. A cap-stopped scorecard
+is a pause, not a failure. Repeat failures with the same signature are coalesced inside a
+configurable window (default 60 minutes, one UTC hour; allowed 1–1440) per channel.
+Optional **cell routes** limit an event kind/channel to specific cells; with no route the
+channel follows the all-cells default. An overall spend-cap override has no cell, so routes
+do not filter it. Narrowing a route skips pending rows for excluded cells, and enabling a
+route or widening the window never backfills old events. Override events dedupe by
+override, change, and expiry rather than the failure window. Event deliveries use the same
+durable retry, signing, timeout, and destination-rotation rules as budget alerts.
 
 `GET /api/notifications/status` shows per-channel and per-destination queue, failure, and
 last-delivery state, plus aggregate and per-kind event counts. `POST /api/notifications/{webhook,email,slack,discord}/test` sends a
@@ -457,7 +465,8 @@ synthetic test event without writing alert or delivery rows; chat tests accept a
 The **Delivery history** card lists recent webhook, email, and chat attempts for budget
 alerts and operational events newest first, with channel, type, subject, status, attempts,
 next attempt, and a sanitized error. Filter by type, channel, or status; each page holds
-ten rows. Budget rows keep the alert scope/threshold/spend snapshot; event rows show only
+ten rows. Types are budget alerts, failed turns, master errors, scorecard failures, and
+spend cap overrides. Budget rows keep the alert scope/threshold/spend snapshot; event rows show only
 the safe event title/text, source/reason, ids, cell name, and occurrence time, never the
 raw payload. **Resend** is offered only for `failed` or `skipped` rows. Budget rows
 require an unacknowledged alert in the current UTC month and a channel/destination that
@@ -579,7 +588,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1058 vitest cases: 827 server cases across 49 files (state machine,
+`npm test` runs 1068 vitest cases: 837 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

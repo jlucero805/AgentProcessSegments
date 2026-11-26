@@ -336,17 +336,21 @@ export class NotificationEventDeliveryRepository {
     channel: DeliveryChannel,
     allowedCellIds: readonly string[],
     now: number,
+    keepUnscoped = false,
   ): number {
     if (allowedCellIds.length === 0) {
       return this.skipKindChannel(kind, channel, now);
     }
     const placeholders = allowedCellIds.map(() => '?').join(', ');
+    const cellClause = keepUnscoped
+      ? `cell_id IS NOT NULL AND cell_id NOT IN (${placeholders})`
+      : `(cell_id IS NULL OR cell_id NOT IN (${placeholders}))`;
     return this.db
       .prepare(
         `UPDATE notification_event_deliveries
             SET status = 'skipped', updated_at = ?
           WHERE status = 'pending' AND kind = ? AND channel = ?
-            AND (cell_id IS NULL OR cell_id NOT IN (${placeholders}))`,
+            AND ${cellClause}`,
       )
       .run(now, kind, channel, ...allowedCellIds).changes;
   }

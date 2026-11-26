@@ -172,7 +172,11 @@ last five.
    an **End override** action; ending it immediately re-pauses the scope and stops its live
    turns, while letting it expire re-pauses new work and is enforced by the next budget
    check. A snooze changes no budget and clears no alert. The Usage page shows paused
-   scopes, cap spend, the reason, and the same snooze controls. To audit recent snoozes,
+   scopes, cap spend, the reason, and the same snooze controls. If you enabled the
+   **Spend cap overrides** event route, a grant or extension while the cap still blocks
+   work and an expiry that leaves it blocked again are delivered to the configured
+   webhook/email channels; revoking a snooze does not notify, and an expiry may take up
+   to a minute to be observed. To audit recent snoozes,
    use **Config → Spend cap override history**: each row shows the scope, state
    (`active`, `revoked`, or `expired`), budget month, grant time, later-expiry extensions,
    final expiry, revocation time, and note. Filter by scope or state and page through the
@@ -208,7 +212,8 @@ last five.
     never stop work or hide the in-app banner.
 12. The **Delivery history** card below the channel settings lists recent budget and
     operational-event attempts for webhook, email, Slack, and Discord. Filter by type
-    (budget, failed turns, master errors, scorecard failures), channel, or status; use
+    (budget, failed turns, master errors, scorecard failures, spend cap overrides),
+    channel, or status; use
     **Refresh** or the Newer/Older buttons to page. Budget subjects show the alert
     scope/threshold/spend; event subjects show the safe title and reveal the human summary
     on hover. A failed or
@@ -224,17 +229,20 @@ last five.
     start. Full failure text remains in the request transcript and error log, not in the
     history payload.
 13. The **Event notifications** card can send failed request turns, master turn/cycle
-    errors, and scorecard failures. Check Webhook and/or Email per event kind, choose a
-    coalescing window (default 60 minutes; 1–1440), and optionally add **cell routes** that
-    limit a kind/channel to specific cells; with no route that pair covers every cell. Then
-    **Save event notifications**; each selected channel must also be enabled above.
-    Notifications contain the request title/state or cell, ids, and a failure
-    classification only, never prompts, transcripts, or raw error text. A cap-stopped
-    scorecard is a pause and does not notify; the full error remains in the scorecard
-    warning and `summary.generate` log. Repeat failures with the same signature are
-    coalesced inside the window per channel; narrowing a route skips pending rows for
-    excluded cells, and enabling a route or widening the window does not replay old
-    events. The card shows aggregate and per-kind pending/failed counts.
+    errors, scorecard failures, and spend-cap override grants/extensions/expiries. Check
+    Webhook and/or Email per event kind, choose a coalescing window (default 60 minutes;
+    1–1440), and optionally add **cell routes** that limit a kind/channel to specific
+    cells; with no route that pair covers every cell. Then **Save event notifications**;
+    each selected channel must also be enabled above. Notifications contain the request
+    title/state or cell, ids, and a classification only, never prompts, transcripts, or
+    raw error text. A cap-stopped scorecard is a pause and does not notify; the full error
+    remains in the scorecard warning and `summary.generate` log. Repeat failures with the
+    same signature are coalesced inside the window per channel; override events dedupe by
+    override, change, and expiry, and an overall override is never filtered by a cell
+    route. Revoking a snooze is not notified; a grant/extension while the cap still
+    blocks and an expiry that leaves it blocked again are. Narrowing a route skips
+    pending rows for excluded cells, and enabling a route or widening the window does not
+    replay old events. The card shows aggregate and per-kind pending/failed counts.
 
 ### Verify webhook signatures
 

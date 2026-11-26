@@ -201,8 +201,8 @@ creates a second row for that destination.
 
 ### `notification_event_deliveries`
 
-`id` (uuid PK), `dedupe_key`, `kind` (`turn.failed|master.error|summary.failed`),
-`cell_id`,
+`id` (uuid PK), `dedupe_key`, `kind`
+(`turn.failed|master.error|summary.failed|spend.override`), `cell_id`,
 `channel` (`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`,
 `payload_json`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
 `next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
@@ -212,17 +212,19 @@ creates a second row for that destination.
 has no alert foreign key, so it survives request/cell deletion and carries a self-contained,
 sanitized payload. `cell_id` is nullable and exists only so the drain can skip pending rows
 outside a route allowlist. `dedupe_key` is a request+source+reason+window signature for a
-failed turn, a cell+source+segment+window signature for a master error, or a
-cell+source+reason+window signature for a failed scorecard; the key includes the window
-length and start. Rows older than 400 days are pruned on notifier start. A database created
-with only the first two kinds is rebuilt once by `migrate()` so `summary.failed` can be
-enqueued.
+failed turn, a cell+source+segment+window signature for a master error, a
+cell+source+reason+window signature for a failed scorecard, or an
+override+change+stored-expiry signature for a spend-cap override; the failure keys include
+the window length and start. Rows older than 400 days are pruned on notifier start. Older
+tables are rebuilt once by `migrate()` so `spend.override` can be enqueued; the rebuild
+preserves `cell_id`.
 
 ### `spend_cap_overrides`
 
 `id` (uuid PK), `scope` (`overall|cell`), `scope_id` (empty for overall), `period_start`
 (UTC month start), `expires_at`, `note` (optional, max 280), `created_at`, `updated_at`,
-`revoked_at`, `extended_at`, and `extension_count`. One non-revoked row per
+`revoked_at`, `extended_at`, `extension_count`, and `expiry_handled_at` (the budget
+evaluation that observed the expiry transition). One non-revoked row per
 `(scope, scope_id, period_start)` is enforced by the partial unique index
 `idx_spend_cap_overrides_active`; re-granting extends `expires_at` and refreshes
 `updated_at` instead of inserting, and increments `extension_count`/sets `extended_at`
@@ -232,7 +234,9 @@ only when the stored expiry moves later. `idx_spend_cap_overrides_period` covers
 budget evaluation. There is no cell FK, so deleting a cell leaves an inert row that
 expires naturally; history resolves the cell name live and falls back to `Deleted cell`.
 History derives `revoked`/`expired`/`active` at read time from `revoked_at`/`expires_at`
-without requiring the row to be in the current period.
+without requiring the row to be in the current period. `expiry_handled_at` is set once by
+budget evaluation after the window ends and is cleared by a later-expiry extension; it is
+the durable guard that keeps an expiry notification single-shot across restarts.
 
 ### Spend budgets
 
@@ -265,16 +269,19 @@ with `botToken: null`/`botTokenSet`.
 
 `notifications.events` defaults to
 `{ failedTurns: { webhook: false, email: false }, masterErrors: { webhook: false, email:
-false }, summaryFailures: { webhook: false, email: false }, coalesceMinutes: 60,
-routes: [] }`; a route only sends when its webhook/email channel is also enabled and
-configured. `coalesceMinutes` is an integer from 1 to 1440; the window is a fixed UTC
-bucket anchored at the Unix epoch, so 60 preserves the old hourly behavior. `routes` holds
-`{ kind: 'turn.failed'|'master.error'|'summary.failed', channel: 'webhook'|'email',
-cellId }` entries. For one kind/channel pair, no entries means every cell; entries restrict
-delivery to those exact cell ids. A `turn.failed` with no cell only matches the no-route
-default. Settings patches merge every event kind and channel independently, and replace
-`routes` wholesale when supplied. Enabling a route or widening the window never replays old
-events; narrowing a route skips pending rows for excluded cells.
+false }, summaryFailures: { webhook: false, email: false }, spendOverrides: { webhook:
+false, email: false }, coalesceMinutes: 60, routes: [] }`; a route only sends when its
+webhook/email channel is also enabled and configured. `coalesceMinutes` is an integer from
+1 to 1440; the window is a fixed UTC bucket anchored at the Unix epoch, so 60 preserves
+the old hourly behavior. `routes` holds
+`{ kind: 'turn.failed'|'master.error'|'summary.failed'|'spend.override',
+channel: 'webhook'|'email', cellId }` entries. For one kind/channel pair, no entries means
+every cell; entries restrict delivery to those exact cell ids. A `turn.failed` with no cell
+only matches the no-route default. A `spend.override` with no cell (an overall override) is
+not cell-scoped, so routes do not filter it. Settings patches merge every event kind and
+channel independently, and replace `routes` wholesale when supplied. Enabling a route or
+widening the window never replays old events; narrowing a route skips pending rows for
+excluded cells.
 
 `BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
 budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
@@ -324,6 +331,12 @@ grant is `created` the first time and extends the same active row afterward; `DE
 scope resumes refusing new turns and its live turns are stopped; an expiry refuses new
 turns at `expiresAt` and is enforced by the next evaluation (within 60 seconds). Policy
 edits and cell deletion do not revoke overrides, and month rollover makes them inert.
+When the `spendOverrides` event route is enabled, a new grant or a later-expiry extension
+while the scope is still `paused`, and an expiry that leaves it `paused` with no other
+active override, enqueue a `spend.override` event (`granted`/`extended`/`expired`) with
+the scope, reason, budget/spend, expiry, and note. Revokes, pre-authorized grants while
+not paused, and expiries still covered by another override do not notify; an expiry is
+observed once by budget evaluation via `expiry_handled_at`.
 
 `GET /api/budgets` returns the current period, statuses (including `pauseOnExceeded`,
 `pauseOnUnknownCost`, `capSpendUsd`, `capSpendIsLowerBound`, `unpricedTurns`, `paused`,
@@ -460,19 +473,25 @@ whose failure classification is `engine.result`, `engine.exit`, `engine.timeout`
 `summary.failed` once when a scorecard generation fails, mapping the engine classification
 to `summary.result|exit|timeout|turn`, or reporting `summary.empty`/`summary.store`; a
 cap-stopped scorecard, the already-running guard, and a cell deleted mid-run do not notify.
-JSON event bodies are a v1 envelope (`version`, `event`, `severity`, `title`, `occurredAt`,
-`text`, and a typed `turn`/`master`/`summary` object); Slack is `{text}` and Discord is
-`{content}`. Events reuse the budget HMAC headers, 10-second timeout, bounded retry,
+`BudgetService` emits `spend.override` for a new grant or later-expiry extension while the
+scope is still paused and for a single observed expiry that leaves it paused with no
+covering override; a revoke, pre-authorized under-budget grant, or covered expiry is
+silent. JSON event bodies are a v1 envelope (`version`, `event`, `severity`, `title`,
+`occurredAt`, `text`, and a typed `turn`/`master`/`summary`/`override` object); Slack is
+`{text}` and Discord is `{content}`. Events reuse the budget HMAC headers, 10-second
+timeout, bounded retry,
 `Retry-After`, destination hash, `X-APS-Event-Kind`/`X-APS-Event-Id` email headers, and
-400-day prune. The same signature in the same configured window creates one row per
-channel; the window defaults to 60 minutes and is a fixed UTC bucket anchored at the Unix
-epoch. The first row wins, and disabling a route or channel marks pending rows `skipped`.
+400-day prune. The same failure signature in the same configured window creates one row
+per channel; the window defaults to 60 minutes and is a fixed UTC bucket anchored at the
+Unix epoch. A `spend.override` row instead dedupes by override, change, and stored expiry.
+The first row wins, and disabling a route or channel marks pending rows `skipped`.
 Cell routes restrict an event kind/channel to exact cell ids; with no route for that pair
-every cell, including unassigned turns, is eligible. Narrowing a route skips pending rows
+every cell, including unassigned turns and overall overrides, is eligible. An overall
+`spend.override` is never excluded by a cell route. Narrowing a route skips pending rows
 for excluded cells, and skipped signatures are never revived. Payloads contain ids,
-title/state, harness/model, and a safe classification only; raw error text stays in the
-transcript and error log. Event failures go to `notifications.event` with kind/delivery ids
-and a short reason only.
+title/state, harness/model, amounts/expiry, and a safe classification only; raw error text
+stays in the transcript and error log. Event failures go to `notifications.event` with
+kind/delivery ids and a short reason only.
 
 
 `GET /api/notifications/status` reports per-channel enabled/configured, pending, failed,

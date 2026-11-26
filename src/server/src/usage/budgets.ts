@@ -16,6 +16,10 @@ import {
   type SpendCapOverrideHistoryResponse,
   type SpendPause,
 } from '../domain/budget.js';
+import type {
+  SpendCapOverrideNotification,
+  SpendOverrideChange,
+} from '../domain/notifications.js';
 import { BudgetAlertRepository, type BudgetAlertRecord } from './budget-alerts.js';
 import type { UsageRepository } from './repository.js';
 import { SpendCapOverrideError } from './spend-cap.js';
@@ -44,6 +48,8 @@ export interface BudgetServiceDeps {
   errors?: ErrorSink;
   /** Receives the current unacknowledged alerts after reconciliation. */
   onAlerts?: (alerts: BudgetAlert[]) => void;
+  /** Receives a spend-cap override grant, extension, or expiry event. */
+  onOverride?: (event: SpendCapOverrideNotification) => void;
   /** Runs after a successful evaluation so hard caps can stop in-flight turns. */
   onEvaluated?: () => void;
   now?: () => number;
@@ -63,6 +69,7 @@ export class BudgetService {
   private readonly overrides: SpendCapOverrideRepository;
   private readonly errors?: ErrorSink;
   private readonly onAlerts?: (alerts: BudgetAlert[]) => void;
+  private readonly onOverride?: (event: SpendCapOverrideNotification) => void;
   private readonly onEvaluated?: () => void;
   private readonly clock: () => number;
   private readonly intervalMs: number;
@@ -78,6 +85,7 @@ export class BudgetService {
     this.overrides = options.overrides;
     this.errors = options.errors;
     this.onAlerts = options.onAlerts;
+    this.onOverride = options.onOverride;
     this.onEvaluated = options.onEvaluated;
     this.clock = options.now ?? (() => Date.now());
     this.intervalMs =
@@ -370,7 +378,7 @@ export class BudgetService {
       );
     }
 
-    const { record, created } = this.overrides.grant(
+    const { record, created, extended } = this.overrides.grant(
       {
         scope: input.scope,
         scopeId,
@@ -380,6 +388,34 @@ export class BudgetService {
       },
       now,
     );
+
+    if (created || extended) {
+      try {
+        const status = this.statuses(now).statuses.find(
+          (candidate) =>
+            candidate.scope === input.scope &&
+            (input.scope === 'overall' || candidate.cellId === scopeId),
+        );
+        if (status?.paused) {
+          this.onOverride?.(
+            this.toOverrideNotification(
+              record,
+              created ? 'granted' : 'extended',
+              status,
+              now,
+            ),
+          );
+        }
+      } catch (error) {
+        // Notification is advisory; a budget-status read failure must not fail
+        // the grant the operator already completed.
+        this.errors?.error('budget.notify', error, {
+          phase: 'override-grant',
+          overrideId: record.id,
+        });
+      }
+    }
+
     return { override: this.toOverride(record), created };
   }
 
@@ -432,6 +468,73 @@ export class BudgetService {
     };
   }
 
+  private toOverrideNotification(
+    record: SpendCapOverrideRecord,
+    change: SpendOverrideChange,
+    status: BudgetStatus,
+    occurredAt: number,
+  ): SpendCapOverrideNotification {
+    return {
+      overrideId: record.id,
+      change,
+      scope: record.scope,
+      cellId: record.scope === 'cell' ? record.scopeId : null,
+      reason: status.pauseReason ?? 'cap_reached',
+      periodStart: record.periodStart,
+      expiresAt: record.expiresAt,
+      note: record.note,
+      budgetUsd: status.budgetUsd,
+      spendUsd: status.spendUsd,
+      spendIsLowerBound: status.unknownCostTurns > 0,
+      capSpendUsd: status.capSpendUsd,
+      capSpendIsLowerBound: status.unpricedTurns > 0,
+      occurredAt,
+    };
+  }
+
+  private statusForOverride(
+    statuses: readonly BudgetStatus[],
+    record: SpendCapOverrideRecord,
+  ): BudgetStatus | null {
+    return (
+      statuses.find(
+        (status) =>
+          status.scope === record.scope &&
+          (record.scope === 'overall' || status.cellId === record.scopeId),
+      ) ?? null
+    );
+  }
+
+  /**
+   * Emit at most one expiry event per row, only while the scope is blocked and
+   * no other active override still covers it. The row is marked handled even
+   * when nothing is sent, so a later spend increase cannot produce a stale
+   * "expired" message.
+   */
+  private notifyExpiredOverrides(response: BudgetsResponse, now: number): void {
+    for (const record of this.overrides.listExpiredUnhandled(
+      response.periodStart,
+      now,
+    )) {
+      try {
+        const status = this.statusForOverride(response.statuses, record);
+        if (status?.paused && status.overrideId === null) {
+          this.onOverride?.(
+            this.toOverrideNotification(record, 'expired', status, record.expiresAt),
+          );
+        }
+        this.overrides.markExpiryHandled(record.id, now);
+      } catch (error) {
+        // Leave the row unhandled so the next evaluation retries; the event
+        // outbox's dedupe key makes a repeat enqueue idempotent.
+        this.errors?.error('budget.notify', error, {
+          phase: 'override-expiry',
+          overrideId: record.id,
+        });
+      }
+    }
+  }
+
   /** Refresh alert rows for the current month. Never throws. */
   evaluate(now = this.clock()): void {
     let periodStart = budgetPeriod(now).start;
@@ -443,6 +546,16 @@ export class BudgetService {
     try {
       const response = this.statuses(now);
       periodStart = response.periodStart;
+      // Override notifications are a separate hazard domain: a notifier bug
+      // must not block alert reconciliation or enforcement.
+      try {
+        this.notifyExpiredOverrides(response, now);
+      } catch (error) {
+        this.errors?.error('budget.notify', error, {
+          periodStart: response.periodStart,
+          phase: 'override-expiry',
+        });
+      }
 
       const configured = new Set<string>();
       for (const status of response.statuses) {

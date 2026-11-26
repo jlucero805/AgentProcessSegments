@@ -18,16 +18,17 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
   bot delivery with per-cell routing, read-only delivery history with guarded manual
   resend for both budget and operational-event outboxes, and opt-in
   failed-turn/master-error/scorecard-failure events (with per-cell event routes and a
-  configurable coalescing window) are built. Add fan-out to multiple chat destinations per
+  configurable coalescing window), and spend-cap override grant/extension/expiry events
+  are built. Add fan-out to multiple chat destinations per
   scope, per-scope routing for budget-alert webhook/email channels, interactive
   acknowledgement from chat, pause-transition delivery, and bot event routes. Keep every
   destination deduped by its delivery row and credentials redacted.
 - **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65), strict
-  unknown-cost enforcement is built (D67), bounded per-scope snoozes are built (D68), and
-  their read-only history is built (D83). Grant-or-expiry notifications, a per-event audit
-  ledger, automatic replay of a cap-stopped prompt, a broad partial-usage rule for user
-  stop/timeout, and a fail-closed policy for an unreadable usage ledger are deferred; caps
-  still fail open when the ledger is unreadable.
+  unknown-cost enforcement is built (D67), bounded per-scope snoozes are built (D68), their
+  read-only history is built (D83), and grant/extension/expiry notifications are built
+  (D84). A per-event audit ledger, automatic replay of a cap-stopped prompt, a broad
+  partial-usage rule for user stop/timeout, and a fail-closed policy for an unreadable
+  usage ledger are deferred; caps still fail open when the ledger is unreadable.
 - **Pricing maintenance at scale.** Follow-ups cover bulk JSON/CSV import/export,
   context-length tiers, currencies other than USD, and a per-turn applied-price audit
   view. The current table is exact-model, flat, USD-only, and operator-maintained.

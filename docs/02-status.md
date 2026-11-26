@@ -268,7 +268,10 @@ built and vended by the brain; real-CLI verification is still pending.
   override history** card with active, revoked, and expired rows across retained months,
   granted/extended/expires/revoked timestamps, the optional note, scope/state filters,
   and pagination. It is an audit view and does not change the budget, pause state, or
-  alerts; a per-event ledger is not built.
+  alerts; a per-event ledger is not built. The **Spend cap overrides** event route can
+  deliver a grant or extension while the cap is still blocking and an expiry that leaves
+  it blocked again; revokes and pre-authorized under-budget grants are silent, as is an
+  expiry still covered by another override.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
   unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed), Slack, or
   Discord text format. An independent SMTP channel in `notifications.email` sends the
@@ -295,13 +298,15 @@ built and vended by the brain; real-CLI verification is still pending.
   event rows are merged newest-first; event rows expose only the safe classification
   fields, never the payload. Resend and history never return a destination or payload.
   An opt-in **Event notifications** card routes failed request turns, master turn/cycle
-  errors, and scorecard generation failures to the same webhook/email channels, per event
-  kind and channel, with optional per-cell allowlists and a configurable coalescing window
-  (default 60 minutes, 1–1440); `notification_event_deliveries` dedupes by the windowed
-  signature, sends classification-only payloads, and shares the retry/signing/prune rules.
-  A cap-stopped scorecard, the already-running guard, and a deleted cell do not notify.
-  Delivery is advisory and never blocks budgets, turns, master cycles, scorecards, or the
-  in-app banner.
+  errors, scorecard generation failures, and spend-cap override grants/extensions/expiries
+  to the same webhook/email channels, per event kind and channel, with optional per-cell
+  allowlists and a configurable coalescing window (default 60 minutes, 1–1440);
+  `notification_event_deliveries` dedupes failure kinds by the windowed signature and
+  override events by override/change/expiry, sends classification-only payloads, and
+  shares the retry/signing/prune rules. An overall spend-cap override has no cell, so
+  routes do not filter it. A cap-stopped scorecard, the already-running guard, and a
+  deleted cell do not notify. Delivery is advisory and never blocks budgets, turns, master
+  cycles, scorecards, or the in-app banner.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
@@ -311,7 +316,7 @@ built and vended by the brain; real-CLI verification is still pending.
   `alertAtPercent`, `pauseOnExceeded`, `pauseOnUnknownCost`), webhook delivery (`enabled`, `url`, `format`,
   `secret`), email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`,
   `from`, `to`), Slack/Discord bot delivery (`enabled`, `botToken`, `destinations`,
-  `defaultChannelId`, `routes`), and event routes (`failedTurns`/`masterErrors`/`summaryFailures`
+  `defaultChannelId`, `routes`), and event routes (`failedTurns`/`masterErrors`/`summaryFailures`/`spendOverrides`
   with `webhook`/`email` booleans, `coalesceMinutes`, and per-cell `routes`), validated
   with zod and written atomically. Each saved
   block is merged over defaults on load, including older files written before a block
@@ -379,7 +384,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1058 vitest cases, all passing: 827 server across 49 files (one environmental root-skip) and 231 web across 25 files,
+- 1068 vitest cases (one environmental root-skip): 837 server across 49 files and 231 web across 25 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

@@ -94,7 +94,13 @@ const DELIVERY_TONES: Record<
   skipped: 'neutral',
 };
 
-type DeliveryTypeFilter = '' | 'budget' | 'turn.failed' | 'master.error' | 'summary.failed';
+type DeliveryTypeFilter =
+  | ''
+  | 'budget'
+  | 'turn.failed'
+  | 'master.error'
+  | 'summary.failed'
+  | 'spend.override';
 
 function deliverySubject(item: DeliveryHistoryItem): string {
   if (item.source === 'event') return item.event.title;
@@ -108,7 +114,12 @@ function deliverySubject(item: DeliveryHistoryItem): string {
 function deliveryTypeLabel(item: DeliveryHistoryItem): string {
   if (item.source === 'budget') return 'Budget';
   if (item.event.kind === 'turn.failed') return 'Turn failed';
-  return item.event.kind === 'master.error' ? 'Master error' : 'Scorecard failed';
+  if (item.event.kind === 'master.error') return 'Master error';
+  if (item.event.kind === 'summary.failed') return 'Scorecard failed';
+  if (item.event.change === 'granted') return 'Override granted';
+  if (item.event.change === 'extended') return 'Override extended';
+  if (item.event.change === 'expired') return 'Override expired';
+  return 'Spend override';
 }
 
 function deliverySubjectTitle(item: DeliveryHistoryItem): string {
@@ -390,7 +401,10 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       const response = await api.getNotificationDeliveries({
         source: type === 'budget' ? 'budget' : undefined,
         kind:
-          type === 'turn.failed' || type === 'master.error' || type === 'summary.failed'
+          type === 'turn.failed' ||
+          type === 'master.error' ||
+          type === 'summary.failed' ||
+          type === 'spend.override'
             ? type
             : undefined,
         channel: channel === '' ? undefined : channel,
@@ -919,7 +933,11 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   }
 
   function setEventRoute(
-    kind: 'failedTurns' | 'masterErrors' | 'summaryFailures',
+    kind:
+      | 'failedTurns'
+      | 'masterErrors'
+      | 'summaryFailures'
+      | 'spendOverrides',
     channel: 'webhook' | 'email',
     value: boolean,
   ): void {
@@ -1939,9 +1957,9 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         <div>
           <SectionTitle>Event notifications</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
-            Send failed request turns, master errors, and scorecard failures to the same
-            webhook and email channels. Events include ids and a failure classification,
-            never prompts, transcripts, or raw error text.
+            Send failed request turns, master errors, scorecard failures, and spend-cap
+            override transitions to the same webhook and email channels. Events include
+            ids and a classification, never prompts, transcripts, or raw error text.
           </p>
         </div>
 
@@ -1951,6 +1969,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
               ['failedTurns', 'Failed turns'],
               ['masterErrors', 'Master errors'],
               ['summaryFailures', 'Scorecard failures'],
+              ['spendOverrides', 'Spend cap overrides'],
             ] as const
           ).map(([kind, label]) => (
             <div
@@ -2002,7 +2021,8 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
             <p className="mt-1 text-[11px] text-zinc-600">
               No route means every cell. Adding a route limits that event and channel to
               the listed cells; the event checkbox and global channel must also be
-              enabled. A route that references a deleted cell can be removed here.
+              enabled. Overall spend-cap override events have no cell, so routes do not
+              filter them. A route that references a deleted cell can be removed here.
             </p>
           </div>
           {eventSettings?.routes.length ? (
@@ -2022,6 +2042,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
                     <option value="turn.failed">Failed turns</option>
                     <option value="master.error">Master errors</option>
                     <option value="summary.failed">Scorecard failures</option>
+                    <option value="spend.override">Spend cap overrides</option>
                   </Select>
                   <Select
                     aria-label={`Route ${index + 1} channel`}
@@ -2072,15 +2093,15 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         </div>
 
         <p className="text-[11px] text-zinc-600">
-          A channel must also be enabled above. Repeat failures with the same signature are
-          coalesced within the configured window; turning a channel off skips pending
-          events.
+          A channel must also be enabled above. Repeated failures with the same signature
+          are coalesced within the configured window; override events dedupe by override,
+          change, and expiry. Turning a channel off skips pending events.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[11px] text-zinc-600">
             {notificationStatus?.events
-              ? `${notificationStatus.events.pending} pending · ${notificationStatus.events.failed} failed · turns ${notificationStatus.events.byKind['turn.failed'].pending} pending / ${notificationStatus.events.byKind['turn.failed'].failed} failed · master ${notificationStatus.events.byKind['master.error'].pending} pending / ${notificationStatus.events.byKind['master.error'].failed} failed · scorecard ${notificationStatus.events.byKind['summary.failed'].pending} pending / ${notificationStatus.events.byKind['summary.failed'].failed} failed`
+              ? `${notificationStatus.events.pending} pending · ${notificationStatus.events.failed} failed · turns ${notificationStatus.events.byKind['turn.failed'].pending} pending / ${notificationStatus.events.byKind['turn.failed'].failed} failed · master ${notificationStatus.events.byKind['master.error'].pending} pending / ${notificationStatus.events.byKind['master.error'].failed} failed · scorecard ${notificationStatus.events.byKind['summary.failed'].pending} pending / ${notificationStatus.events.byKind['summary.failed'].failed} failed · overrides ${notificationStatus.events.byKind['spend.override'].pending} pending / ${notificationStatus.events.byKind['spend.override'].failed} failed`
               : 'No event deliveries yet.'}
           </p>
           <div className="flex items-center justify-end gap-2">
@@ -2122,6 +2143,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
               <option value="turn.failed">Failed turns</option>
               <option value="master.error">Master errors</option>
               <option value="summary.failed">Scorecard failures</option>
+              <option value="spend.override">Spend cap overrides</option>
             </Select>
           </Field>
           <Field label="Channel" hint="webhook, email, Slack, or Discord">

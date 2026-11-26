@@ -11,12 +11,13 @@ import {
 } from '../src/domain/budget.js';
 import type {
   MasterErrorNotification,
+  SpendCapOverrideNotification,
   SummaryFailureNotification,
   TurnFailureNotification,
 } from '../src/domain/notifications.js';
 import type { ErrorSink } from '../src/logging/errors.js';
 import { NotificationEventDeliveryRepository } from '../src/notifications/event-deliveries.js';
-import { NotificationService, type FetchLike } from '../src/notifications/service.js';
+import { NotificationService, destinationHash, type FetchLike } from '../src/notifications/service.js';
 import { SettingsStore } from '../src/settings.js';
 import { BudgetAlertRepository } from '../src/usage/budget-alerts.js';
 import { BudgetAlertDeliveryRepository } from '../src/usage/budget-deliveries.js';
@@ -64,6 +65,23 @@ const SUMMARY: SummaryFailureNotification = {
   occurredAt: NOW,
 };
 
+const OVERRIDE: SpendCapOverrideNotification = {
+  overrideId: 'override-1',
+  change: 'granted',
+  scope: 'overall',
+  cellId: null,
+  reason: 'cap_reached',
+  periodStart: Date.UTC(2026, 10, 1),
+  expiresAt: NOW + 60 * 60_000,
+  note: 'release review',
+  budgetUsd: 100,
+  spendUsd: 120,
+  spendIsLowerBound: false,
+  capSpendUsd: 120,
+  capSpendIsLowerBound: false,
+  occurredAt: NOW,
+};
+
 interface Sent {
   url: string;
   init: RequestInit;
@@ -101,6 +119,7 @@ interface SetupOptions {
   failedTurns?: { webhook?: boolean; email?: boolean };
   masterErrors?: { webhook?: boolean; email?: boolean };
   summaryFailures?: { webhook?: boolean; email?: boolean };
+  spendOverrides?: { webhook?: boolean; email?: boolean };
   coalesceMinutes?: number;
   routes?: (cellId: string) => EventRoute[];
   timeoutMs?: number;
@@ -129,6 +148,7 @@ function setup(options: SetupOptions) {
         failedTurns: { webhook: false, email: false, ...options.failedTurns },
         masterErrors: { webhook: false, email: false, ...options.masterErrors },
         summaryFailures: { webhook: false, email: false, ...options.summaryFailures },
+        spendOverrides: { webhook: false, email: false, ...options.spendOverrides },
         coalesceMinutes: options.coalesceMinutes ?? 60,
         routes: options.routes?.(cell.id) ?? [],
       },
@@ -184,8 +204,233 @@ describe('notification event deliveries', () => {
         'turn.failed': { pending: 0, failed: 0 },
         'master.error': { pending: 0, failed: 0 },
         'summary.failed': { pending: 0, failed: 0 },
+        'spend.override': { pending: 0, failed: 0 },
       },
     });
+  });
+
+  it('delivers override grants and extensions with exact dedupe and safe text', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      spendOverrides: { webhook: true },
+    });
+
+    context.notifier.observeSpendOverride(OVERRIDE);
+    context.notifier.observeSpendOverride({ ...OVERRIDE });
+    expect(context.events.status('spend.override')).toMatchObject({
+      pending: 1,
+      failed: 0,
+    });
+
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+    const body = bodyOf(fake.calls[0]!);
+    expect(body).toMatchObject({
+      event: 'spend.override',
+      severity: 'warning',
+      title: 'Spend cap override granted: Overall',
+      override: {
+        overrideId: 'override-1',
+        change: 'granted',
+        scope: 'overall',
+        cellId: null,
+        reason: 'cap_reached',
+        budgetUsd: 100,
+        spendUsd: 120,
+      },
+    });
+    expect(String(body['text'])).toContain('overall spend');
+    expect(String(body['text'])).toContain('$120.00');
+    expect(String(body['text'])).toContain('release review');
+
+    context.notifier.observeSpendOverride({
+      ...OVERRIDE,
+      change: 'extended',
+      expiresAt: OVERRIDE.expiresAt + 60 * 60_000,
+      occurredAt: NOW + 1000,
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(2);
+    expect(bodyOf(fake.calls[1]!)).toMatchObject({
+      title: 'Spend cap override extended: Overall',
+    });
+
+    expect(context.notifier.status().events.byKind['spend.override']).toEqual({
+      pending: 0,
+      failed: 0,
+    });
+  });
+
+  it('routes cell override events but never a cell route to an overall override', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      spendOverrides: { webhook: true },
+      routes: () => [
+        { kind: 'spend.override', channel: 'webhook', cellId: 'allowed-cell' },
+      ],
+    });
+
+    context.notifier.observeSpendOverride(OVERRIDE);
+    context.notifier.observeSpendOverride({
+      ...OVERRIDE,
+      overrideId: 'override-allowed',
+      scope: 'cell',
+      cellId: 'allowed-cell',
+    });
+    context.notifier.observeSpendOverride({
+      ...OVERRIDE,
+      overrideId: 'override-blocked',
+      scope: 'cell',
+      cellId: 'blocked-cell',
+    });
+
+    expect(context.events.status('spend.override').pending).toBe(2);
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(2);
+    const ids = fake.calls.map(
+      (call) => (bodyOf(call)['override'] as { overrideId: string }).overrideId,
+    );
+    expect(ids.sort()).toEqual(['override-1', 'override-allowed']);
+  });
+
+  it('sends an override email with change, scope, expiry, and note', async () => {
+    const messages: EmailMessage[] = [];
+    const context = setup({
+      email: {},
+      spendOverrides: { email: true },
+      sendEmail: async (_email, message) => {
+        messages.push(message);
+      },
+    });
+
+    context.notifier.observeSpendOverride({ ...OVERRIDE, change: 'expired' });
+    await context.notifier.flush();
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.subject).toBe('[APS] Spend cap override expired: Overall');
+    expect(messages[0]!.text).toContain('expired at 2026-11-15T13:00:00.000Z');
+    expect(messages[0]!.text).toContain('blocking new work again');
+    expect(messages[0]!.text).toContain('Change: expired');
+    expect(messages[0]!.text).toContain('Scope: overall');
+    expect(messages[0]!.text).toContain('Note: release review');
+  });
+
+  it('maps an override history row to a safe snapshot and allows resend when routed', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      spendOverrides: { webhook: true },
+    });
+    context.notifier.observeSpendOverride({ ...OVERRIDE, change: 'expired' });
+    await context.notifier.flush();
+
+    const history = context.notifier.history({ kind: 'spend.override' });
+    expect(history.total).toBe(1);
+    expect(history.deliveries[0]).toMatchObject({
+      source: 'event',
+      canResend: false,
+      event: {
+        kind: 'spend.override',
+        title: 'Spend cap override expired: Overall',
+        change: 'expired',
+        reason: 'cap_reached',
+        cellId: null,
+        cellName: null,
+      },
+    });
+    expect(history.deliveries[0]!.source === 'event' && history.deliveries[0]!.event.text)
+      .toContain('overall spend');
+  });
+
+  it('skips excluded cell overrides but keeps an overall override pending', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      spendOverrides: { webhook: true },
+    });
+    const base = {
+      kind: 'spend.override' as const,
+      channel: 'webhook' as const,
+      format: 'json' as const,
+      destinationHash: 'placeholder',
+      now: NOW,
+    };
+    // Enqueue first, then narrow the route, so the drain owns the skip decision.
+    context.settings.patch({ notifications: { events: { routes: [] } } });
+    const routeHash = destinationHash(
+      context.settings.get().notifications.webhook,
+    );
+    context.events.enqueue({
+      ...base,
+      dedupeKey: 'override:o1:granted:1',
+      cellId: null,
+      payloadJson: JSON.stringify(OVERRIDE),
+      destinationHash: routeHash,
+    });
+    context.events.enqueue({
+      ...base,
+      dedupeKey: 'override:o2:granted:1',
+      cellId: 'blocked-cell',
+      payloadJson: JSON.stringify({
+        ...OVERRIDE,
+        overrideId: 'o2',
+        scope: 'cell',
+        cellId: 'blocked-cell',
+      }),
+      destinationHash: routeHash,
+    });
+    context.settings.patch({
+      notifications: {
+        events: {
+          routes: [
+            { kind: 'spend.override', channel: 'webhook', cellId: 'allowed-cell' },
+          ],
+        },
+      },
+    });
+
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+    expect(
+      (bodyOf(fake.calls[0]!)['override'] as { overrideId: string }).overrideId,
+    ).toBe('override-1');
+  });
+
+  it('resends a failed override event only while the route is enabled', async () => {
+    let status = 503;
+    const fake = sender(() => new Response(null, { status }));
+    const context = setup({
+      send: fake.send,
+      spendOverrides: { webhook: true },
+      maxAttempts: 1,
+    });
+    context.notifier.observeSpendOverride(OVERRIDE);
+    await context.notifier.flush();
+    expect(context.events.status('spend.override').failed).toBe(1);
+    const failed = context.notifier.history({ kind: 'spend.override' }).deliveries[0]!;
+    expect(failed.canResend).toBe(true);
+
+    context.settings.patch({
+      notifications: { events: { spendOverrides: { webhook: false } } },
+    });
+    expect(context.notifier.resend(failed.id)).toEqual({
+      ok: false,
+      reason: 'event_disabled',
+    });
+
+    context.settings.patch({
+      notifications: { events: { spendOverrides: { webhook: true } } },
+    });
+    status = 204;
+    const resent = context.notifier.resend(failed.id);
+    expect(resent.ok).toBe(true);
+    await context.notifier.flush();
+    expect(context.events.status('spend.override').failed).toBe(0);
+    expect(context.notifier.history({ kind: 'spend.override' }).deliveries[0]?.status).toBe(
+      'delivered',
+    );
   });
 
   it('routes a channel only for listed cells while leaving the default alone', async () => {

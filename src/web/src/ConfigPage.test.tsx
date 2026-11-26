@@ -114,9 +114,14 @@ const eventSettings = {
   failedTurns: { webhook: false, email: false },
   masterErrors: { webhook: false, email: false },
   summaryFailures: { webhook: false, email: false },
+  spendOverrides: { webhook: false, email: false },
   coalesceMinutes: 60,
   routes: [] as Array<{
-    kind: 'turn.failed' | 'master.error' | 'summary.failed';
+    kind:
+      | 'turn.failed'
+      | 'master.error'
+      | 'summary.failed'
+      | 'spend.override';
     channel: 'webhook' | 'email';
     cellId: string;
   }>,
@@ -172,6 +177,7 @@ const notificationStatus = {
       'turn.failed': { pending: 1, failed: 1 },
       'master.error': { pending: 1, failed: 0 },
       'summary.failed': { pending: 0, failed: 0 },
+      'spend.override': { pending: 0, failed: 0 },
     },
   },
 };
@@ -334,6 +340,7 @@ const eventDeliveryRow: DeliveryHistoryItem = {
     turnId: 't1',
     segment: null,
     occurredAt: Date.UTC(2026, 10, 15, 13),
+    change: null,
   },
 };
 
@@ -362,6 +369,36 @@ const summaryDeliveryRow: DeliveryHistoryItem = {
     turnId: null,
     segment: null,
     occurredAt: Date.UTC(2026, 10, 15, 14),
+    change: null,
+  },
+};
+
+const overrideDeliveryRow: DeliveryHistoryItem = {
+  id: 'event-3',
+  source: 'event',
+  channel: 'webhook',
+  format: 'json',
+  status: 'delivered',
+  attempts: 1,
+  nextAttemptAt: Date.UTC(2026, 10, 15, 15),
+  lastError: null,
+  createdAt: Date.UTC(2026, 10, 15, 15),
+  updatedAt: Date.UTC(2026, 10, 15, 15),
+  deliveredAt: Date.UTC(2026, 10, 15, 15),
+  canResend: false,
+  event: {
+    kind: 'spend.override',
+    title: 'Spend cap override expired: Overall',
+    text: 'Spend cap override for overall spend expired at 2026-11-15T14:00:00.000Z.',
+    source: null,
+    reason: 'cap_reached',
+    cellId: null,
+    cellName: null,
+    requestId: null,
+    turnId: null,
+    segment: null,
+    occurredAt: Date.UTC(2026, 10, 15, 14),
+    change: 'expired',
   },
 };
 
@@ -428,9 +465,14 @@ interface Captured {
         failedTurns?: { webhook?: boolean; email?: boolean };
         masterErrors?: { webhook?: boolean; email?: boolean };
         summaryFailures?: { webhook?: boolean; email?: boolean };
+        spendOverrides?: { webhook?: boolean; email?: boolean };
         coalesceMinutes?: number;
         routes?: Array<{
-          kind: 'turn.failed' | 'master.error' | 'summary.failed';
+          kind:
+            | 'turn.failed'
+            | 'master.error'
+            | 'summary.failed'
+            | 'spend.override';
           channel: 'webhook' | 'email';
           cellId: string;
         }>;
@@ -552,6 +594,10 @@ function installFetch(
         summaryFailures: {
           ...eventSettings.summaryFailures,
           ...(eventsPatch?.summaryFailures ?? {}),
+        },
+        spendOverrides: {
+          ...eventSettings.spendOverrides,
+          ...(eventsPatch?.spendOverrides ?? {}),
         },
         coalesceMinutes: eventsPatch?.coalesceMinutes ?? eventSettings.coalesceMinutes,
         routes: eventsPatch?.routes ?? eventSettings.routes,
@@ -1163,10 +1209,14 @@ describe('ConfigPage', () => {
     const summaryWebhook = screen.getByRole('checkbox', {
       name: /scorecard failures by webhook/i,
     });
+    const overrideEmail = screen.getByRole('checkbox', {
+      name: /spend cap overrides by email/i,
+    });
     expect(failedWebhook).not.toBeChecked();
     fireEvent.click(failedWebhook);
     fireEvent.click(masterEmail);
     fireEvent.click(summaryWebhook);
+    fireEvent.click(overrideEmail);
     fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
 
     await waitFor(() =>
@@ -1174,6 +1224,7 @@ describe('ConfigPage', () => {
         failedTurns: { webhook: true, email: false },
         masterErrors: { webhook: false, email: true },
         summaryFailures: { webhook: true, email: false },
+        spendOverrides: { webhook: false, email: true },
         coalesceMinutes: 60,
         routes: [],
       }),
@@ -1182,6 +1233,7 @@ describe('ConfigPage', () => {
     expect(screen.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/scorecard 0 pending \/ 0 failed/)).toBeInTheDocument();
+    expect(screen.getByText(/overrides 0 pending \/ 0 failed/)).toBeInTheDocument();
   });
 
   it('saves the coalescing window and a cell route', async () => {
@@ -1205,6 +1257,7 @@ describe('ConfigPage', () => {
         failedTurns: { webhook: false, email: false },
         masterErrors: { webhook: false, email: false },
         summaryFailures: { webhook: false, email: false },
+        spendOverrides: { webhook: false, email: false },
         coalesceMinutes: 30,
         routes: [{ kind: 'turn.failed', channel: 'email', cellId: 'c1' }],
       }),
@@ -1669,8 +1722,13 @@ describe('ConfigPage', () => {
       email,
       undefined,
       {
-        deliveries: [deliveryRow, eventDeliveryRow, summaryDeliveryRow],
-        total: 3,
+        deliveries: [
+          deliveryRow,
+          eventDeliveryRow,
+          summaryDeliveryRow,
+          overrideDeliveryRow,
+        ],
+        total: 4,
         limit: 10,
         offset: 0,
       },
@@ -1680,6 +1738,8 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Turn failed: Fix the parser')).toBeInTheDocument();
     expect(screen.getByText('Turn failed')).toBeInTheDocument();
     expect(screen.getByText('Budget')).toBeInTheDocument();
+    expect(screen.getByText('Spend cap override expired: Overall')).toBeInTheDocument();
+    expect(screen.getByText('Override expired')).toBeInTheDocument();
     expect(screen.getByText('Scorecard failed: Acme')).toBeInTheDocument();
     expect(screen.getByText('Scorecard failed')).toBeInTheDocument();
     expect(
@@ -1703,6 +1763,11 @@ describe('ConfigPage', () => {
       target: { value: 'summary.failed' },
     });
     await waitFor(() => expect(captured.deliveryQuery).toContain('kind=summary.failed'));
+
+    fireEvent.change(screen.getByLabelText(/^Type/), {
+      target: { value: 'spend.override' },
+    });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=spend.override'));
 
     fireEvent.change(screen.getByLabelText(/^Type/), { target: { value: 'budget' } });
     await waitFor(() => expect(captured.deliveryQuery).toContain('source=budget'));

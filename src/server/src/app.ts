@@ -89,6 +89,7 @@ export async function main(): Promise<void> {
       overrides: new SpendCapOverrideRepository(db),
       errors,
       onAlerts: (alerts) => notifications.observe(alerts),
+      onOverride: (event) => notifications.observeSpendOverride(event),
       onEvaluated: () => enforcement?.check(),
     });
     const harnesses = createHarnessRegistry(config, errors);

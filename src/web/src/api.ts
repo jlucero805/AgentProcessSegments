@@ -373,6 +373,7 @@ export const api = {
         failedTurns?: Partial<EventChannelSettings>;
         masterErrors?: Partial<EventChannelSettings>;
         summaryFailures?: Partial<EventChannelSettings>;
+        spendOverrides?: Partial<EventChannelSettings>;
         coalesceMinutes?: number;
         routes?: EventRoute[];
       };

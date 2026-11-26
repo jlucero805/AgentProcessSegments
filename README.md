@@ -396,9 +396,9 @@ continues from the same session. Nothing is replayed automatically. Spend is rec
 a turn completes, so one long turn can still overshoot the cap before the next crossing is
 observed. The Usage card and banner share one budget poll; the card keeps its last good
 status when a refresh fails and offers Retry when budget status cannot be loaded. A
-snooze, end-override, or budget save on the Config page refreshes that shared poll
-immediately, so the banner and the Config status rows agree without waiting for the next
-tick.
+snooze, an end-override, a budget save on the Config page, or a cell budget/pause save in
+the cell editor refreshes that shared poll immediately, so the banner and the status rows
+agree without waiting for the next tick.
 
 A paused scope can also be **snoozed** for 15 minutes up to the rest of the UTC month. An
 overall snooze admits every new turn; a cell snooze admits only that cell. Snoozing never
@@ -608,7 +608,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1165 vitest cases: 906 server cases across 51 files (state machine,
+`npm test` runs 1167 vitest cases: 906 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -623,7 +623,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 259 web cases across 27 files (shared contract re-exports, NDJSON
+real socket) and 261 web cases across 27 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab chat queue claim, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

@@ -1022,9 +1022,9 @@ carried in the `done` event:
   monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
   shows the current UTC-month status for the overall and per-cell budgets and a read-only
   **Spend cap override history** card with scope/state filters and pagination. Snoozing a
-  scope, ending an override, or saving the budget refreshes the shared budget feed
-  immediately, so the banner and these status rows update together; the 60-second poll
-  remains the only background source. Its **Alert
+  scope, ending an override, saving the overall budget, or saving a cell's budget/pause
+  refreshes the shared budget feed immediately, so the banner and these status rows update
+  together; the 60-second poll remains the only background source. Its **Alert
   delivery** card edits the webhook URL, format, and signing secret, its **Email
   delivery** card edits the SMTP host, port, TLS mode, optional credentials, From address,
   and recipients, and the **Slack alerts**/**Discord alerts** cards edit bot tokens,

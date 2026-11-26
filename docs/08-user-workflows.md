@@ -387,8 +387,8 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Global process template | `$XDG_CONFIG_HOME/agent-process-segments/process.json` (`APS_PROCESS`) |
 | Per-cell process snapshot | `cells.process_json` in SQLite |
 | Per-cell harness | `cells.harness` in SQLite (NULL = `APS_HARNESS`) |
-| Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `pauseOnExceeded`, `pauseOnUnknownCost`) |
-| Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded` in SQLite |
+| Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `alertAtPercent` (1–100, default 80), `pauseOnExceeded`, `pauseOnUnknownCost`) |
+| Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded`, `cells.pause_on_unknown_cost` in SQLite |
 | Budget alert history | `budget_alerts` in SQLite (acknowledged rows expire under `retention.budgetAlertsDays`) |
 | Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |
 | Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |

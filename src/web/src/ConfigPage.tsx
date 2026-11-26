@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
+import { VERIFY_WEBHOOK_SIGNATURES_HELP, helpHref } from './links';
 import { ACTION_TONES, eventDetail } from './masterView';
 import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
@@ -69,6 +70,8 @@ import {
 interface ConfigPageProps {
   onError: (message: string) => void;
   onEditCell?: (cell: CellDetail) => void;
+  /** Open the in-app Help at a page and optional heading anchor. */
+  onOpenHelp?: (slug: string, anchor?: string) => void;
   /**
    * Force-refresh the shared budget feed and return its snapshot, so the
    * banner and these rows update together after a budget action.
@@ -221,7 +224,12 @@ function mergePrice(list: ModelPrice[], created: ModelPrice): ModelPrice[] {
 }
 
 /** Edits the global master defaults, process template, and per-cell switches. */
-export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPageProps) {
+export function ConfigPage({
+  onError,
+  onEditCell,
+  onOpenHelp,
+  reloadBudgets,
+}: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [summary, setSummary] = useState<SummaryConfig | null>(null);
   const [usage, setUsage] = useState<UsageSettings | null>(null);
@@ -1869,7 +1877,25 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         <p className="text-[11px] text-zinc-600">
           JSON payloads carry an HMAC-SHA256 signature in{' '}
           <code className="text-zinc-500">X-APS-Signature</code>. Slack and Discord incoming
-          webhooks accept the text-only format and ignore that header.
+          webhooks accept the text-only format and ignore that header. See{' '}
+          <a
+            href={helpHref(
+              VERIFY_WEBHOOK_SIGNATURES_HELP.slug,
+              VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
+            )}
+            className="font-medium text-blue-400 underline decoration-blue-900 underline-offset-2 hover:text-blue-300"
+            onClick={(event) => {
+              if (!onOpenHelp) return;
+              event.preventDefault();
+              onOpenHelp(
+                VERIFY_WEBHOOK_SIGNATURES_HELP.slug,
+                VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
+              );
+            }}
+          >
+            Verify webhook signatures
+          </a>{' '}
+          for the raw-body check and a runnable receiver.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">

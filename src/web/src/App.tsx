@@ -31,9 +31,17 @@ function readRoute(): {
   detailId: string | null;
   masterOpen: boolean;
   helpSlug: string | null;
+  helpAnchor: string | null;
 } {
   if (typeof window === 'undefined') {
-    return { page: 'board', cellId: null, detailId: null, masterOpen: false, helpSlug: null };
+    return {
+      page: 'board',
+      cellId: null,
+      detailId: null,
+      masterOpen: false,
+      helpSlug: null,
+      helpAnchor: null,
+    };
   }
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('page');
@@ -48,12 +56,15 @@ function readRoute(): {
   const cellId = params.get('cell');
   // Only a real cell owns a master; the "all cells" filter cannot open one.
   const masterOpen = params.get('master') === '1' && cellId !== null;
+  const helpSlug = params.get('help') || null;
+  const hash = window.location.hash.replace(/^#/, '');
   return {
     page,
     cellId,
     detailId: masterOpen ? null : params.get('request'),
     masterOpen,
-    helpSlug: params.get('help') || null,
+    helpSlug,
+    helpAnchor: helpSlug && hash ? hash : null,
   };
 }
 
@@ -88,6 +99,7 @@ export function App() {
   const [detailId, setDetailId] = useState<string | null>(initialRoute.detailId);
   const [masterOpen, setMasterOpen] = useState(initialRoute.masterOpen);
   const [helpSlug, setHelpSlug] = useState<string | null>(initialRoute.helpSlug);
+  const [helpAnchor, setHelpAnchor] = useState<string | null>(initialRoute.helpAnchor);
   const [cellModalOpen, setCellModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
   const [terminalAvailable, setTerminalAvailable] = useState(false);
@@ -156,12 +168,13 @@ export function App() {
     if (masterOpen) params.set('master', '1');
     if (helpSlug) params.set('help', helpSlug);
     const search = params.toString();
+    const hash = helpSlug && helpAnchor ? `#${helpAnchor}` : '';
     window.history.replaceState(
       null,
       '',
-      `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`,
+      `${window.location.pathname}${search ? `?${search}` : ''}${hash}`,
     );
-  }, [page, cellId, detailId, masterOpen, helpSlug]);
+  }, [page, cellId, detailId, masterOpen, helpSlug, helpAnchor]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -171,10 +184,22 @@ export function App() {
       setDetailId(route.detailId);
       setMasterOpen(route.masterOpen);
       setHelpSlug(route.helpSlug);
+      setHelpAnchor(route.helpAnchor);
       setNavOpen(false);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // "On this page" links update the hash directly; mirror them into route state
+  // so later renders do not drop the anchor.
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.replace(/^#/, '');
+      setHelpAnchor(hash || null);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
   // Closing the docs returns focus to the button that opened them.
@@ -192,33 +217,52 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [navOpen]);
 
+  const pushHelpRoute = (next: string, anchor: string | null) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('help', next);
+    const search = params.toString();
+    const hash = anchor ? `#${anchor}` : '';
+    window.history.pushState(
+      null,
+      '',
+      `${window.location.pathname}${search ? `?${search}` : ''}${hash}`,
+    );
+  };
+
   const go = (next: Page) => {
     setPage(next);
     setDetailId(null);
     setMasterOpen(false);
     setHelpSlug(null);
+    setHelpAnchor(null);
     setNavOpen(false);
   };
 
   const openHelp = () => {
     setHelpSlug((current) => current ?? 'getting-started');
+    setHelpAnchor(null);
     setNavOpen(false);
   };
 
-  const selectHelpPage = (next: string) => {
-    if (next === helpSlug) return;
+  const openHelpAt = (next: string, anchor?: string) => {
     setHelpSlug(next);
-    const params = new URLSearchParams(window.location.search);
-    params.set('help', next);
-    const search = params.toString();
-    window.history.pushState(
-      null,
-      '',
-      `${window.location.pathname}${search ? `?${search}` : ''}`,
-    );
+    setHelpAnchor(anchor ?? null);
+    setNavOpen(false);
+    pushHelpRoute(next, anchor ?? null);
   };
 
-  const closeHelp = () => setHelpSlug(null);
+  const selectHelpPage = (next: string, anchor?: string) => {
+    const nextAnchor = anchor ?? null;
+    if (next === helpSlug && nextAnchor === helpAnchor) return;
+    setHelpSlug(next);
+    setHelpAnchor(nextAnchor);
+    pushHelpRoute(next, nextAnchor);
+  };
+
+  const closeHelp = () => {
+    setHelpSlug(null);
+    setHelpAnchor(null);
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-200">
@@ -461,6 +505,7 @@ export function App() {
           {page === 'config' ? (
             <ConfigPage
               onError={setError}
+              onOpenHelp={openHelpAt}
               reloadBudgets={budgetFeed.reload}
               onEditCell={(cell) => {
                 setEditingCell(cell);
@@ -520,7 +565,12 @@ export function App() {
       />
 
       {helpSlug ? (
-        <HelpPanel slug={helpSlug} onNavigate={selectHelpPage} onClose={closeHelp} />
+        <HelpPanel
+          slug={helpSlug}
+          anchor={helpAnchor}
+          onNavigate={selectHelpPage}
+          onClose={closeHelp}
+        />
       ) : null}
 
       {terminalOpen && terminalAvailable ? (

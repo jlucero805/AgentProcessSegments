@@ -20,7 +20,9 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'missing' | 'error';
 export interface HelpPanelProps {
   /** Current Help page slug. */
   slug: string;
-  onNavigate: (slug: string) => void;
+  /** Heading id to scroll to after the page renders. */
+  anchor?: string | null;
+  onNavigate: (slug: string, anchor?: string) => void;
   onClose: () => void;
 }
 
@@ -37,7 +39,7 @@ function pageTitle(state: LoadState, pages: DocPage[], slug: string): string {
   return pages.find((page) => page.slug === slug)?.title ?? 'Documentation';
 }
 
-export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
+export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps) {
   const [pages, setPages] = useState<DocPage[]>([]);
   const [manifest, setManifest] = useState<LoadState>('loading');
   // The article view is stamped with its slug so a page change shows the
@@ -51,6 +53,7 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const articleRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
 
@@ -149,6 +152,18 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
   const groups = useMemo(() => groupDocs(pages), [pages]);
   const headings = useMemo(() => extractHeadings(doc?.markdown ?? ''), [doc?.markdown]);
 
+  // Wait for the Markdown to mount before looking up the heading; a missing or
+  // stale fragment simply leaves the article at the top.
+  useEffect(() => {
+    if (!anchor || page !== 'ready' || manifest !== 'ready') return;
+    const article = articleRef.current;
+    if (!article) return;
+    const target = [...article.querySelectorAll<HTMLElement>('h2[id], h3[id]')].find(
+      (heading) => heading.id === anchor,
+    );
+    target?.scrollIntoView({ block: 'start' });
+  }, [anchor, page, manifest, doc]);
+
   const copyMarkdown = async () => {
     if (!doc) return;
     try {
@@ -159,9 +174,10 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
     }
   };
 
-  const select = (next: string) => {
+  const select = (next: string, fragment?: string) => {
     setNavOpen(false);
-    onNavigate(next);
+    if (fragment) onNavigate(next, fragment);
+    else onNavigate(next);
   };
 
   const components: Components = (() => {
@@ -208,13 +224,15 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
         const target = resolveDocHref(href ?? '');
         const helpSlug = helpSlugFromHref(target);
         if (helpSlug) {
+          const hashIndex = target.indexOf('#');
+          const fragment = hashIndex >= 0 ? target.slice(hashIndex + 1) : '';
           return (
             <a
               href={target}
               className="text-blue-400 underline decoration-blue-900 underline-offset-2 hover:text-blue-300"
               onClick={(event) => {
                 event.preventDefault();
-                select(helpSlug);
+                select(helpSlug, fragment || undefined);
               }}
             >
               {children}
@@ -421,7 +439,7 @@ export function HelpPanel({ slug, onNavigate, onClose }: HelpPanelProps) {
           ) : null}
           {showArticle && page === 'ready' && doc ? (
             <div className="mx-auto flex max-w-5xl gap-8 px-4 py-6">
-              <article className="min-w-0 flex-1">
+              <article ref={articleRef} className="min-w-0 flex-1">
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-900 pb-4">
                   <div className="min-w-0">
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">

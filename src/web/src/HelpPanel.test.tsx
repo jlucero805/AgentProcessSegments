@@ -22,6 +22,7 @@ const PAGES: DocPage[] = [
     description: 'Start here.',
   },
   { slug: '07-process-segments', title: 'Process segments', group: 'Guides' },
+  { slug: '08-user-workflows', title: 'User workflows', group: 'Guides' },
   { slug: '01-system-spec', title: 'System spec', group: 'Reference' },
 ];
 
@@ -37,7 +38,9 @@ const gettingStarted: DocContent = {
     '',
     'Run **this**.',
     '',
-    'See [process segments](07-process-segments.md) and [external docs](https://example.com).',
+    'See [process segments](07-process-segments.md),',
+    '[signatures](08-user-workflows.md#verify-webhook-signatures), and',
+    '[external docs](https://example.com).',
     '',
     '![Board](docs/screenshots/board.png)',
     '',
@@ -63,10 +66,17 @@ function docWithMermaid(...sources: string[]): DocContent {
   };
 }
 
-function installFetch(pages: DocPage[] = PAGES, docs: Record<string, DocContent> = {}) {
+function installFetch(
+  pages: DocPage[] = PAGES,
+  docs: Record<string, DocContent> = {},
+  manifestGate?: Promise<void>,
+) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === '/api/docs') return jsonResponse({ pages });
+    if (url === '/api/docs') {
+      if (manifestGate) await manifestGate;
+      return jsonResponse({ pages });
+    }
     if (url.startsWith('/api/docs/')) {
       const slug = decodeURIComponent(url.slice('/api/docs/'.length).split('?')[0] ?? '');
       const doc = docs[slug];
@@ -82,13 +92,32 @@ function installFetch(pages: DocPage[] = PAGES, docs: Record<string, DocContent>
 function renderPanel(
   slug = 'getting-started',
   overrides: Partial<Record<string, DocContent>> = {},
+  anchor?: string,
 ) {
   installFetch(PAGES, { 'getting-started': gettingStarted, ...overrides });
   const onNavigate = vi.fn();
   const onClose = vi.fn();
-  const view = render(<HelpPanel slug={slug} onNavigate={onNavigate} onClose={onClose} />);
+  const view = render(
+    <HelpPanel slug={slug} anchor={anchor} onNavigate={onNavigate} onClose={onClose} />,
+  );
   return { onNavigate, onClose, ...view };
 }
+
+const signaturesDoc: DocContent = {
+  slug: '08-user-workflows',
+  title: 'User workflows',
+  group: 'Guides',
+  updatedAt: 2,
+  markdown: [
+    '# User workflows',
+    '',
+    'Configure alert delivery.',
+    '',
+    '### Verify webhook signatures',
+    '',
+    'Verify the raw body.',
+  ].join('\n'),
+};
 
 describe('HelpPanel', () => {
   beforeEach(() => {
@@ -136,6 +165,77 @@ describe('HelpPanel', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('keeps a fragment when navigating through a markdown link', async () => {
+    const { onNavigate } = renderPanel();
+
+    await screen.findByText('Intro paragraph.');
+    fireEvent.click(screen.getByRole('link', { name: 'signatures' }));
+
+    expect(onNavigate).toHaveBeenCalledWith(
+      '08-user-workflows',
+      'verify-webhook-signatures',
+    );
+  });
+
+  it('scrolls to a fragment after the article renders', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    renderPanel(
+      '08-user-workflows',
+      { '08-user-workflows': signaturesDoc },
+      'verify-webhook-signatures',
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }));
+  });
+
+  it('scrolls when the docs manifest arrives after the article', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    let releaseManifest: () => void = () => {};
+    const manifestGate = new Promise<void>((resolve) => {
+      releaseManifest = resolve;
+    });
+    const fetchMock = installFetch(
+      PAGES,
+      { '08-user-workflows': signaturesDoc },
+      manifestGate,
+    );
+    render(
+      <HelpPanel
+        slug="08-user-workflows"
+        anchor="verify-webhook-signatures"
+        onNavigate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/docs/08-user-workflows',
+        expect.anything(),
+      ),
+    );
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    releaseManifest();
+
+    expect(
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }));
+  });
+
+  it('leaves the page at the top for an unknown fragment', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    renderPanel('08-user-workflows', { '08-user-workflows': signaturesDoc }, 'missing-heading');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+    ).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('renders Mermaid fences as SVG and leaves ordinary code blocks alone', async () => {

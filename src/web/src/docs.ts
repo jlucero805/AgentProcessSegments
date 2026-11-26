@@ -84,7 +84,8 @@ export function resolveDocImage(src: string): string {
 /** Read the slug out of a `?help=<slug>` link, if it is one. */
 export function helpSlugFromHref(href: string): string | null {
   if (!href.startsWith('?help=')) return null;
-  const params = new URLSearchParams(href.slice(1));
+  const query = href.slice(1).split('#')[0] ?? '';
+  const params = new URLSearchParams(query);
   return params.get('help');
 }
 

@@ -9,6 +9,7 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const DOC_PAGES = [
   { slug: 'getting-started', title: 'Getting started', group: 'Getting started' },
   { slug: '07-process-segments', title: 'Process segments', group: 'Guides' },
+  { slug: '08-user-workflows', title: 'User workflows', group: 'Guides' },
 ];
 
 const DOCS: Record<string, unknown> = {
@@ -25,6 +26,21 @@ const DOCS: Record<string, unknown> = {
     group: 'Guides',
     markdown: '# Process segments\n\nProcess segments article.',
     updatedAt: 2,
+  },
+  '08-user-workflows': {
+    slug: '08-user-workflows',
+    title: 'User workflows',
+    group: 'Guides',
+    markdown: [
+      '# User workflows',
+      '',
+      'Configure alert delivery.',
+      '',
+      '### Verify webhook signatures',
+      '',
+      'Verify the raw body.',
+    ].join('\n'),
+    updatedAt: 3,
   },
 };
 
@@ -783,6 +799,46 @@ describe('App', () => {
 
     expect(await screen.findByText('Help article body.')).toBeInTheDocument();
     expect(window.location.search).toContain('help=getting-started');
+  });
+
+  it('deep-links from Alert delivery to the webhook signature section', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Config'));
+
+    const link = await screen.findByRole('link', { name: 'Verify webhook signatures' });
+    expect(link).toHaveAttribute('href', '?help=08-user-workflows#verify-webhook-signatures');
+    fireEvent.click(link);
+
+    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+    ).toBeInTheDocument();
+    expect(window.location.search).toContain('page=config');
+    expect(window.location.search).toContain('help=08-user-workflows');
+    expect(window.location.hash).toBe('#verify-webhook-signatures');
+
+    window.history.replaceState(null, '', '/?page=config');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Documentation' })).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText('Cell master')).toBeInTheDocument();
+  });
+
+  it('opens a Help section from the URL hash', async () => {
+    window.history.replaceState(null, '', '/?help=08-user-workflows#verify-webhook-signatures');
+    installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+    ).toBeInTheDocument();
+    expect(window.location.search).toContain('help=08-user-workflows');
+    expect(window.location.hash).toBe('#verify-webhook-signatures');
   });
 
   it('moves between docs pages with browser back and forward', async () => {

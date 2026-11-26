@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1257 vitest cases: 966 server across 55 files (one environmental root-skip) and 291 web across 27 files, all green.
+- 1263 vitest cases: 966 server across 55 files (one environmental root-skip) and 297 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -110,7 +110,8 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 966 server + 291 web, plus the e2e env guard
+npm test                       # 966 server + 297 web, plus the e2e env guard
+npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -664,6 +665,16 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     failures fail closed. Files inside keep their current modes because the directory is
     the protection boundary. This is not encryption at rest, and older run directories are
     not repaired retroactively.
+46. **Documentation links resolve in Help.** Every local link, image, and `#fragment` in
+    the root Markdown, `docs/`, `deploy/vps.md`, and `.opencode/skills` must resolve.
+    `src/web/src/doc-links.test.ts` walks that corpus (`.git`, `node_modules`, and `dist`
+    excluded), skips fenced blocks and inline code, and fails on a missing file, a path
+    escaping the repository, a fragment on a non-Markdown target, an undefined reference
+    label, or a fragment that is not an `extractHeadings` id for the target. Anchors are
+    the in-app Help ids (h2/h3 only), not GitHub slugs, because Help renders these pages
+    and assigns ids only to those headings. External schemes and bare `?query` targets are
+    never fetched. Run it alone with `npm run check:docs`; it is part of `npm test`, not
+    `npm run lint`.
 
 ## Extension recipes
 

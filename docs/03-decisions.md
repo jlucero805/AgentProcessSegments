@@ -2269,3 +2269,24 @@ are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do n
 The security review needs systemd 250 or newer, so older Linux hosts fail `npm run lint`
 (a documented, fail-closed choice). Existing installs must copy the new unit by hand
 because `upgrade-vps.sh` refuses target commits that change it.
+
+## D97. Documentation links are checked in the web test suite
+
+**Context.** The Markdown gate checks syntax, not destinations. A renamed heading or a
+moved screenshot would leave `README.md` and `docs/` with links that render on GitHub but
+fail inside the in-app Help, which is the product surface for those pages.
+
+**Decision.** `src/web/src/doc-links.ts` walks every `*.md` file the Markdown gate owns
+and resolves inline links, images, reference definitions, and raw `<a>`/`<img>` tags. A
+fragment must match an `extractHeadings` id from `src/web/src/docs.ts` exactly, so it is
+the same h2/h3 slug Help renders; GitHub's slugger is not consulted because Help, not
+GitHub, is where these pages are read. Fenced blocks and inline code are masked, external
+schemes and bare `?query` targets are skipped, and nothing is fetched. Problems are
+reported as `file:line: target — reason` and fail the web suite; `npm run check:docs`
+runs that one file.
+
+**Cost.** One module, one test file, and a package script. The check runs with `npm test`
+rather than `npm run lint` because it reuses the app's TypeScript slugger: a standalone
+`.mjs` lint step would need either a duplicate slug implementation or native TypeScript
+imports, which the documented Node 22.13 floor does not guarantee. External-link and
+manifest-aware checks are separate work.

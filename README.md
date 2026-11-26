@@ -643,7 +643,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1257 vitest cases: 966 server cases across 55 files (state machine,
+`npm test` runs 1263 vitest cases: 966 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -658,9 +658,10 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 291 web cases across 27 files (shared contract re-exports, NDJSON
+real socket) and 297 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat queue claim, slash/skill
-resolution, request-form mapping, docs helpers and Help overlay, the source link, board,
+resolution, request-form mapping, docs helpers and Help overlay, documentation links and
+Help anchors, the source link, board,
 create modal, composer, cell bar, cell creation, config/process and pricing editor,
 budget and alert-delivery cards including chat bot routing, delivery history, and
 spend-cap overrides, budget banner, master detail and scorecard, the usage page and
@@ -696,7 +697,10 @@ SPA. It also runs `bash -n` and `shellcheck --severity=warning` over `deploy/*.s
 error, workflow error, or unit diagnostic. It runs `markdownlint-cli2` over every tracked
 `*.md` (the root docs, `docs/`, `deploy/vps.md`, and `.opencode/skills`) with a
 120-column prose cap and tables, fences, and headings exempt from MD013, and a Markdown
-finding fails it too. The unit gate runs `systemd-analyze verify`, treats a diagnostic
+finding fails it too. Link and anchor correctness is a test rather than a lint step:
+`npm test` (or `npm run check:docs` alone) resolves every local `*.md` link, image, and
+`#fragment` against the Help heading ids and fails on a broken one, without fetching
+external URLs. The unit gate runs `systemd-analyze verify`, treats a diagnostic
 naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
 values, asserts the reviewed sandboxing directives, and fails when the offline
 `systemd-analyze security` exposure exceeds 5.5. The security review needs systemd 250 or

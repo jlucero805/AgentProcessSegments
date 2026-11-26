@@ -21,6 +21,7 @@
 set -Eeuo pipefail
 
 ORIGINAL_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$ORIGINAL_SCRIPT")" && pwd)"
 
 HOME_ARG="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
 CLONE_ARG=""
@@ -35,6 +36,9 @@ DETACH=0
 ALLOW_BUSY=0
 INTERNAL_RUN=0
 RUN_DIR_ARG=""
+KEEP_RUNS=5
+KEEP_DAYS=30
+NO_PRUNE=0
 
 PAUSED=0
 MERGED=0
@@ -80,7 +84,18 @@ Options:
                         (default 90).
   --allow-busy          Do not wait for active turns. This kills in-flight work;
                         use only when the operator accepts that.
+  --keep-runs N         Keep the N newest upgrade run directories (default 5).
+  --keep-days D         Keep upgrade run directories modified within D days
+                        (default 30). Zero disables the age rule.
+  --no-prune            Do not prune older upgrade run directories. Use this
+                        when you schedule pruning yourself.
   --help                Show this help.
+
+A real upgrade prunes older run directories under ~/.aps-cutover/upgrades after
+it writes a terminal state. It keeps the current/latest run, the newest
+successful run, the newest N runs, any run modified within D days, and
+incomplete runs for a 7-day grace window. Use --keep-runs/--keep-days to tune it
+or --no-prune to opt out.
 
 The run writes ~/.aps-cutover/upgrades/<UTC>/ with upgrade.log, state,
 before.json, after.json, config-before.json, config-after.json, the database
@@ -114,6 +129,72 @@ write_state() {
   if [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]]; then
     printf '%s\n' "$1" >"$RUN_DIR/state"
   fi
+}
+
+pruner_path() {
+  local candidate
+  for candidate in "$SCRIPT_DIR/prune-cutover-runs.mjs" \
+    "$SCRIPT_DIR/../scripts/prune-cutover-runs.mjs"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_pruner() {
+  local pruner
+  if ! pruner="$(pruner_path)"; then
+    printf 'upgrade pruner not found; run from a checkout with scripts/prune-cutover-runs.mjs or pass --no-prune\n' >&2
+    log "ERROR: upgrade pruner not found; expected $SCRIPT_DIR/prune-cutover-runs.mjs or $SCRIPT_DIR/../scripts/prune-cutover-runs.mjs"
+    return 1
+  fi
+  printf '%s' "$pruner"
+}
+
+point_upgrade_latest() {
+  [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
+  mkdir -p "$UPGRADE_ROOT" || {
+    log "WARNING: could not create $UPGRADE_ROOT; skipping prune"
+    return 1
+  }
+  ln -sfn "$RUN_DIR" "$UPGRADE_ROOT/latest" || {
+    log "WARNING: could not point $UPGRADE_ROOT/latest at $RUN_DIR; skipping prune"
+    return 1
+  }
+  return 0
+}
+
+retention_after() {
+  local phase="$1"
+  [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    log "pruning skipped (--no-prune)"
+    return 0
+  fi
+  point_upgrade_latest || return 0
+  local pruner
+  if ! pruner="$(pruner_path)"; then
+    log "WARNING: upgrade pruner not found; skipping post-$phase prune"
+    return 0
+  fi
+  local output status
+  if output="$(node "$pruner" --kind upgrade --root "$CUTOVER_ROOT" \
+    --keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS" 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+  log "prune $phase (--keep-runs $KEEP_RUNS --keep-days $KEEP_DAYS)"
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output" >>"$RUN_DIR/upgrade.log"
+    printf '%s\n' "$output"
+  fi
+  if (( status != 0 )); then
+    log "WARNING: prune $phase failed (exit $status); older run directories may remain"
+  fi
+  return 0
 }
 
 require_cmd() {
@@ -472,14 +553,40 @@ plan() {
   log "plan: would run npm run build"
   log "plan: would restart $UNIT and verify health, build, database, and harness"
   log "plan: would restore master.enabled"
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    log "plan: would skip pruning upgrade runs (--no-prune)"
+  else
+    local pruner preview status
+    pruner="$(check_pruner)" || exit 2
+    log "plan: would prune upgrade runs (--keep-runs $KEEP_RUNS --keep-days $KEEP_DAYS)"
+    if preview="$(node "$pruner" --kind upgrade --root "$CUTOVER_ROOT" \
+      --keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS" --dry-run 2>&1)"; then
+      status=0
+    else
+      status=$?
+    fi
+    if [[ -n "$preview" ]]; then
+      printf '%s\n' "$preview"
+    fi
+    if (( status != 0 )); then
+      log "plan: WARNING: prune preview failed (exit $status)"
+    fi
+  fi
   log "dry run complete; nothing was changed"
 }
 
 detach_upgrade() {
+  local pruner=""
+  if [[ "$NO_PRUNE" -eq 0 ]]; then
+    pruner="$(check_pruner)" || exit 2
+  fi
   RUN_DIR="$UPGRADE_ROOT/$(date -u +%Y%m%dT%H%M%SZ)"
   prepare_run_dir "$RUN_DIR"
   cp "$ORIGINAL_SCRIPT" "$RUN_DIR/upgrade.sh"
   chmod +x "$RUN_DIR/upgrade.sh"
+  if [[ -n "$pruner" ]]; then
+    cp "$pruner" "$RUN_DIR/prune-cutover-runs.mjs"
+  fi
   touch "$RUN_DIR/upgrade.log"
   write_state launched
   ln -sfn "$RUN_DIR" "$UPGRADE_ROOT/latest"
@@ -493,6 +600,11 @@ detach_upgrade() {
   [[ -n "$TO" ]] && args+=(--to "$TO")
   [[ -n "$REQUEST_ID" ]] && args+=(--request-id "$REQUEST_ID")
   [[ "$ALLOW_BUSY" -eq 1 ]] && args+=(--allow-busy)
+  if [[ "$NO_PRUNE" -eq 1 ]]; then
+    args+=(--no-prune)
+  else
+    args+=(--keep-runs "$KEEP_RUNS" --keep-days "$KEEP_DAYS")
+  fi
 
   if ! systemd-run --user --unit="$unit" --collect --property=Type=oneshot \
     --setenv=HOME="$HOME" --setenv=PATH="$PATH" \
@@ -824,34 +936,12 @@ restore_master() {
   log "master.enabled restored to $MASTER_ENABLED"
 }
 
-run_retention() {
-  local keep=5 kept=0 dir state
-  [[ -d "$UPGRADE_ROOT" ]] || return 0
-  while IFS= read -r dir; do
-    [[ -z "$dir" ]] && continue
-    [[ "$dir" == "$RUN_DIR" ]] && continue
-    state="$(cat "$dir/state" 2>/dev/null || true)"
-    case "$state" in
-      success|failed|rolled_back) ;;
-      *)
-        log "keeping upgrade run $dir (state=${state:-unknown})"
-        continue
-        ;;
-    esac
-    kept=$((kept + 1))
-    if (( kept > keep )); then
-      rm -rf "$dir"
-      log "pruned old upgrade run $dir"
-    fi
-  done < <(find "$UPGRADE_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
-    | sort -rn | cut -d' ' -f2-)
-}
-
 rollback() {
   if [[ "$ROLLED_BACK" -eq 1 ]]; then
     return 0
   fi
   ROLLED_BACK=1
+  local phase="failed"
   set +e
   log "rolling back"
 
@@ -865,6 +955,7 @@ rollback() {
       log "rolled back; $UNIT is healthy again on $(short_sha "$OLD_SHA")"
       restore_master
       write_state rolled_back
+      phase="rolled_back"
     else
       log "ERROR: $UNIT did not become healthy after the rollback"
       write_state failed
@@ -888,6 +979,7 @@ rollback() {
       log "migrations are additive, so the previous build can usually read the upgraded database without a restore"
     fi
   fi
+  retention_after "$phase"
   set -e
 }
 
@@ -908,6 +1000,9 @@ on_signal() {
 }
 
 run_upgrade() {
+  if [[ "$NO_PRUNE" -eq 0 ]]; then
+    check_pruner >/dev/null || exit 2
+  fi
   prepare_run_dir "$RUN_DIR"
   touch "$RUN_DIR/upgrade.log"
   write_state running
@@ -922,6 +1017,7 @@ run_upgrade() {
     log "already up to date: $CLONE is at $(short_sha "$TARGET") ($BRANCH)"
     write_state success
     ln -sfn "$RUN_DIR" "$UPGRADE_ROOT/latest"
+    retention_after success
     return 0
   fi
 
@@ -938,11 +1034,25 @@ run_upgrade() {
 
   verify_live
   restore_master
-  run_retention
   rm -rf "$RUN_DIR/node_modules.bak"
   write_state success
+  retention_after success
   log "upgrade finished; state success"
   log "verify: systemctl --user is-active $UNIT && curl -fsS $(api_url /health)"
+}
+
+read_count() {
+  local flag="$1" value="$2" parsed
+  if [[ ! "$value" =~ ^[0-9]{1,6}$ ]]; then
+    printf '%s needs a non-negative integer (maximum 100000)\n' "$flag" >&2
+    exit 2
+  fi
+  parsed=$((10#$value))
+  if (( parsed > 100000 )); then
+    printf '%s must be at most 100000\n' "$flag" >&2
+    exit 2
+  fi
+  printf '%s' "$parsed"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -958,6 +1068,15 @@ while [[ $# -gt 0 ]]; do
     --wait-seconds) WAIT_SECONDS="$2"; shift 2 ;;
     --health-timeout) HEALTH_TIMEOUT="$2"; shift 2 ;;
     --allow-busy) ALLOW_BUSY=1; shift ;;
+    --keep-runs)
+      [[ $# -ge 2 ]] || { printf '%s\n' '--keep-runs needs a value' >&2; exit 2; }
+      KEEP_RUNS="$(read_count --keep-runs "$2")"
+      shift 2 ;;
+    --keep-days)
+      [[ $# -ge 2 ]] || { printf '%s\n' '--keep-days needs a value' >&2; exit 2; }
+      KEEP_DAYS="$(read_count --keep-days "$2")"
+      shift 2 ;;
+    --no-prune) NO_PRUNE=1; shift ;;
     --run) INTERNAL_RUN=1; shift ;;
     --run-dir) RUN_DIR_ARG="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
@@ -967,7 +1086,8 @@ done
 
 HOME="$(normalize_path "$HOME_ARG")"
 export HOME
-UPGRADE_ROOT="$HOME/.aps-cutover/upgrades"
+CUTOVER_ROOT="$HOME/.aps-cutover"
+UPGRADE_ROOT="$CUTOVER_ROOT/upgrades"
 
 if [[ "$DRY_RUN" -eq 1 && "$DETACH" -eq 1 ]]; then
   printf '%s\n' '--dry-run and --detach cannot be combined' >&2

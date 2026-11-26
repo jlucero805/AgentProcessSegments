@@ -303,9 +303,10 @@ bash /tmp/aps-upgrade/deploy/upgrade-vps.sh --detach
 ```
 
 Options: `--unit NAME`, `--branch NAME`, `--to REF`, `--wait-seconds N`,
-`--health-timeout N`, `--allow-busy`, `--home DIR`, `--clone DIR`, `--request-id ID`.
-`--clone` must resolve to the unit's `WorkingDirectory`; the script refuses any other
-directory because that is not the live deployment.
+`--health-timeout N`, `--allow-busy`, `--home DIR`, `--clone DIR`, `--request-id ID`,
+`--keep-runs N` (default 5), `--keep-days D` (default 30; `0` disables the age rule),
+and `--no-prune`. `--clone` must resolve to the unit's `WorkingDirectory`; the script
+refuses any other directory because that is not the live deployment.
 
 Watch the run, and read the evidence afterwards:
 
@@ -319,10 +320,12 @@ journalctl --user -f | grep aps-upgrade
 while it still exists. `state` is one of `launched`, `running`, `success`, `failed`, or
 `rolled_back`. Each run directory is created (or tightened) `0700` and keeps `before.json`,
 `after.json`, `config-before.json`, `config-after.json`, `db-backup.sqlite`, and the
-previous `dist` and `node_modules` trees; the snapshot itself is written `0600`. The
-script prunes all but the 5 newest finished runs; a run still marked `launched` or
-`running` is never pruned. Run directories left by an older version are not retroactively
-changed.
+previous `dist` and `node_modules` trees; the snapshot itself is written `0600`. After
+every terminal state the script keeps the current/`latest` run, the newest successful run,
+the newest 5 finished runs, any run modified in the last 30 days, and incomplete runs for
+a 7-day grace window, then removes the older terminal runs. Use `--keep-runs` and
+`--keep-days` to tune those windows, or `--no-prune` to leave pruning to an external
+schedule. Run directories left by an older version are not retroactively changed.
 
 Notes:
 

@@ -195,7 +195,8 @@ App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config p
 block and notification channel validates on its own; an invalid one falls back to that
 block's defaults, is reported as `settings.invalid`, and the Config page names it in a
 banner until the next save. Before that save rewrites the file, the original bytes are
-copied aside.
+copied aside. The same rule applies to an invalid `process.json`, which reports
+`process.backupFailed` if the copy cannot be written.
 
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
 Config page. The default is 90 days; `0` keeps raw usage history forever. Before raw
@@ -617,7 +618,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1172 vitest cases: 912 server cases across 51 files (state machine,
+`npm test` runs 1179 vitest cases: 919 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

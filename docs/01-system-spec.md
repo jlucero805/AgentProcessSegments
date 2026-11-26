@@ -125,6 +125,11 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   units that load reset (with `block: null` for a whole-file fallback), and
   `preservedPath`, the copy this process made (or `null`); the Config page names the
   reset units until the next successful save and shows where the preserved original went.
+- **Process config file** (`process.json`): a missing, unreadable, or invalid file falls
+  back to the policy derived from `master` until a valid patch saves one. Loading never
+  writes the file. Before the first save replaces an unusable file, its exact bytes are
+  copied to a sibling `process.json.invalid-<UTC>` (owner-only, never overwriting an
+  earlier copy); a failed copy refuses the save and reports `process.backupFailed`.
 
 ---
 

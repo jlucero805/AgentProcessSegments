@@ -35,6 +35,10 @@ Each cell also has its own **ticker** and **master chat**:
   (`~/.config/agent-process-segments/process.json` when `XDG_CONFIG_HOME` is unset).
 - Override: `APS_PROCESS=/path/to/process.json`.
 - Writes are atomic and mode `0600`.
+- Loading never writes. If an existing file is unusable — unreadable, not JSON, or
+  failing validation — the first successful save copies its exact bytes to a sibling
+  `process.json.invalid-<UTC>` (owner-only, never overwriting an earlier copy) before
+  replacing it. A failed copy refuses the save and reports `process.backupFailed`.
 - Missing or invalid files fall back to a conservative policy derived from
   `config.json`’s `master` section until you save a valid process.
 - Once the file exists, it is authoritative. The legacy `master.idleMinutes`,

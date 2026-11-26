@@ -386,7 +386,7 @@ describe('legacy branch migration', () => {
     const badTip = commitFile(repo, 'sbox/bad-orphan', 'bad.txt', 'bad');
 
     const failingGit: GitRunner = async (cwd, args) => {
-      if (args[0] === 'update-ref' && args[1] !== '-d' && args[1].includes('/bad-orphan-')) {
+      if (args[0] === 'update-ref' && args[1] !== '-d' && args[1]?.includes('/bad-orphan-')) {
         throw new Error('backup denied');
       }
       return realGit(cwd, args);

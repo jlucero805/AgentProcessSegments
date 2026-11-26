@@ -99,7 +99,7 @@ digests.
 ```bash
 npm ci --include=dev           # keeps devDependencies under an inherited NODE_ENV=production;
                                # use npm install --include=dev when the lockfile changes
-npm run typecheck              # server then web app + config, must print nothing
+npm run typecheck              # server src + tests, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
 npm test                       # 837 server + 231 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the

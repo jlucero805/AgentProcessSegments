@@ -86,7 +86,7 @@ describe('event notification routing and windows', () => {
     turnId: 'turn-1',
     requestId: 'req-1',
     requestTitle: 'Fix the parser',
-    state: 'implement' as const,
+    state: 'dispatch' as const,
     cellId: 'cell-a',
     harness: 'opencode' as const,
     model: null,
@@ -156,7 +156,7 @@ describe('notification event builders', () => {
     turnId: 'turn-1',
     requestId: 'req-1',
     requestTitle: 'Fix the parser',
-    state: 'implement' as const,
+    state: 'dispatch' as const,
     cellId: 'cell-1',
     harness: 'opencode' as const,
     model: 'model-1',
@@ -190,7 +190,7 @@ describe('notification event builders', () => {
     const envelope = turnFailedEnvelope(turn, null);
     expect(envelope.title).toBe('Turn failed: Fix the parser');
     expect(envelope.text).toBe(
-      'Turn failed for "Fix the parser" in implement, Deleted cell: timeout after 10m.',
+      'Turn failed for "Fix the parser" in dispatch, Deleted cell: timeout after 10m.',
     );
     expect(envelope.turn).toEqual(turn);
   });

@@ -8,6 +8,7 @@ import {
   budgetPeriod,
   type BudgetAlert,
   type ChatSettings,
+  type DeliveryHistoryItem,
   type EmailSettings,
   type WebhookSettings,
 } from '../src/domain/budget.js';
@@ -36,6 +37,12 @@ import {
 
 const NOW = Date.UTC(2026, 10, 15, 12, 0, 0);
 const PERIOD = budgetPeriod(NOW);
+
+function budgetAlertFrom(deliveries: DeliveryHistoryItem[]) {
+  const delivery = deliveries[0];
+  if (delivery?.source !== 'budget') throw new Error('expected a budget delivery');
+  return delivery.alert;
+}
 
 interface Sent {
   url: string;
@@ -925,13 +932,13 @@ describe('NotificationService delivery history', () => {
     const record = addAlert(context.alerts, { scope: 'cell', scopeId: cell.id });
     enqueueWebhook(context, record);
 
-    expect(context.notifier.history({}).deliveries[0]?.alert).toMatchObject({
+    expect(budgetAlertFrom(context.notifier.history({}).deliveries)).toMatchObject({
       cellId: cell.id,
       cellName: 'Alpha',
     });
 
     context.db.prepare('DELETE FROM cells WHERE id = ?').run(cell.id);
-    expect(context.notifier.history({}).deliveries[0]?.alert.cellName).toBe('Deleted cell');
+    expect(budgetAlertFrom(context.notifier.history({}).deliveries).cellName).toBe('Deleted cell');
   });
 
   it('keeps history and refuses resend after the alert is deleted', () => {
@@ -980,7 +987,7 @@ describe('NotificationService delivery history', () => {
       status: 'skipped',
       attempts: 0,
     });
-    expect(context.notifier.history({}).deliveries[0]?.alert.spendUsd).toBe(85);
+    expect(budgetAlertFrom(context.notifier.history({}).deliveries).spendUsd).toBe(85);
   });
 
   it('resends a failed row under the current destination exactly once', async () => {
@@ -1375,7 +1382,7 @@ it('merges operational events into history with filters and pagination', () => {
     turnId: 'turn-1',
     requestId: 'req-1',
     requestTitle: 'Fix the parser',
-    state: 'implement',
+    state: 'dispatch',
     cellId: null,
     harness: 'opencode',
     model: null,
@@ -1386,6 +1393,7 @@ it('merges operational events into history with filters and pagination', () => {
   const firstEvent = context.events.enqueue({
     dedupeKey: 'turn:req-1:engine.exit:process_exited_with_code_1:1',
     kind: 'turn.failed',
+    cellId: null,
     channel: 'webhook',
     format: 'json',
     destinationHash: destinationHash(budget),
@@ -1395,6 +1403,7 @@ it('merges operational events into history with filters and pagination', () => {
   const secondEvent = context.events.enqueue({
     dedupeKey: 'turn:req-2:engine.exit:process_exited_with_code_1:1',
     kind: 'turn.failed',
+    cellId: null,
     channel: 'webhook',
     format: 'json',
     destinationHash: destinationHash(budget),

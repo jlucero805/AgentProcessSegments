@@ -152,6 +152,7 @@ describe('SummaryScheduler', () => {
       cellId: null,
       cellName: null,
       label: 'Overall',
+      reason: 'cap_reached',
       periodStart: Date.UTC(2026, 0, 1),
       periodEnd: Date.UTC(2026, 1, 1),
       budgetUsd: 10,

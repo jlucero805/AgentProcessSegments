@@ -24,6 +24,7 @@ function request(patch: Partial<Request> = {}): Request {
     branch: null,
     crUrl: null,
     cellId: null,
+    harness: null,
     createdAt: 0,
     updatedAt: 0,
     ...patch,

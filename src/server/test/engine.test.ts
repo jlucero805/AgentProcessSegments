@@ -42,6 +42,7 @@ function spendPause(overrides: Partial<SpendPause> = {}): SpendPause {
     cellId: null,
     cellName: null,
     label: 'Overall',
+    reason: 'cap_reached',
     periodStart: Date.UTC(2026, 10, 1),
     periodEnd: Date.UTC(2026, 11, 1),
     budgetUsd: 100,

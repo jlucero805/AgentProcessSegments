@@ -498,6 +498,12 @@ cat ~/.aps-cutover/latest/cutover.log
 The launch prints the exact transient unit name; use `journalctl --user -u <name>` for
 that unit if it is still present.
 
+Each real cutover creates (or tightens) its run directory under `~/.aps-cutover/runs/` to
+`0700`, so the evidence, `cutover.log`, `state`, and the `backup/` rollback copy stay
+owner-only. A missing `~/.aps-cutover` or `~/.aps-cutover/runs` ancestor is created `0700`
+too; an existing ancestor is left alone. Run directories left by an older version are not
+retroactively changed.
+
 After it finishes, verify the new unit and paths:
 
 ```bash
@@ -539,11 +545,12 @@ Notes for similar installs:
 
 ## Prune cutover run directories and backups
 
-Each real cutover leaves a run directory under `~/.aps-cutover/runs/<UTC>/`. A real
-cutover prunes older runs automatically before it starts and after it finishes; each one
-is roughly 6 MB on a typical host: `dist/` holds the pre-build bundles,
-`errors.log.before` the old error log, and `backup/systemd/` the rollback unit and
-drop-ins. Prune them by hand with:
+Each real cutover leaves a run directory under `~/.aps-cutover/runs/<UTC>/`. Run
+directories are created `0700`, and pruning removes whole directories without changing
+the mode of the ones it keeps. A real cutover prunes older runs automatically before it
+starts and after it finishes; each one is roughly 6 MB on a typical host: `dist/` holds
+the pre-build bundles, `errors.log.before` the old error log, and `backup/systemd/` the
+rollback unit and drop-ins. Prune them by hand with:
 
 ```bash
 npm run prune:cutover -- --dry-run   # list what would be removed

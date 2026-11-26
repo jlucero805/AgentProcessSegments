@@ -639,7 +639,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1233 vitest cases: 957 server cases across 55 files (state machine,
+`npm test` runs 1236 vitest cases: 960 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

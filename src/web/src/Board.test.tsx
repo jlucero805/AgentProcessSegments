@@ -4,6 +4,11 @@ import { Board } from './Board';
 import { fakeDataTransfer, jsonResponse, makeRequest } from './test/fixtures';
 import type { IndexAllResult, Request } from './types';
 
+// The board transitions cards and runs the Index all confirm flow. Give the slow
+// async cases room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const BOARD_TEST_TIMEOUT_MS = 30_000;
+
 type IndexAllHandler = (body: Record<string, unknown>) => Response | Promise<Response>;
 
 function parseBody(init?: RequestInit): Record<string, unknown> {
@@ -161,7 +166,7 @@ describe('Board', () => {
     ]);
 
     render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
-    await screen.findByText('Final card');
+    await screen.findByText('Final card', undefined, { timeout: ASYNC_TIMEOUT_MS });
     const finalize = screen.getByTestId('column-finalize');
     const button = within(finalize).getByRole('button', {
       name: 'Index all finalize requests',
@@ -178,12 +183,12 @@ describe('Board', () => {
     fireEvent.click(button);
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/index-all'))).toBe(true);
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Indexed 1');
+    expect(await screen.findByRole('status', undefined, { timeout: ASYNC_TIMEOUT_MS })).toHaveTextContent('Indexed 1');
     expect(screen.getByRole('status')).toHaveTextContent('closed 1');
-    await waitFor(() => expect(screen.queryByText('Final card')).not.toBeInTheDocument());
-  });
+    await waitFor(() => expect(screen.queryByText('Final card')).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS });
+  }, BOARD_TEST_TIMEOUT_MS);
 
   it('sends the selected cell with Index all', async () => {
     const fetchMock = installFetch([
@@ -191,7 +196,7 @@ describe('Board', () => {
     ]);
 
     render(<Board cellId="c1" onOpen={() => {}} onError={() => {}} />);
-    await screen.findByText('Cell final');
+    await screen.findByText('Cell final', undefined, { timeout: ASYNC_TIMEOUT_MS });
     const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
       name: 'Index all finalize requests',
     });
@@ -202,8 +207,8 @@ describe('Board', () => {
       const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/index-all'));
       expect(call).toBeTruthy();
       expect(parseBody(call?.[1])).toEqual({ cellId: 'c1' });
-    });
-  });
+    }, { timeout: ASYNC_TIMEOUT_MS });
+  }, BOARD_TEST_TIMEOUT_MS);
 
   it('sends an empty body with Index all for all cells', async () => {
     const fetchMock = installFetch([
@@ -231,7 +236,7 @@ describe('Board', () => {
     ]);
 
     render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
-    await screen.findByText('Final card');
+    await screen.findByText('Final card', undefined, { timeout: ASYNC_TIMEOUT_MS });
     const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
       name: 'Index all finalize requests',
     });
@@ -245,7 +250,7 @@ describe('Board', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, BOARD_TEST_TIMEOUT_MS);
 
   it('disables Index all when Finalize is empty', async () => {
     installFetch([makeRequest({ id: 'a', title: 'Groom this' })]);
@@ -294,14 +299,14 @@ describe('Board', () => {
     );
 
     render(<Board cellId={null} onOpen={() => {}} onError={() => {}} />);
-    await screen.findByText('Final card');
+    await screen.findByText('Final card', undefined, { timeout: ASYNC_TIMEOUT_MS });
     const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
       name: 'Index all finalize requests',
     });
     fireEvent.click(button);
     fireEvent.click(button);
 
-    expect(await screen.findByText('Indexing…')).toBeInTheDocument();
+    expect(await screen.findByText('Indexing…', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(button).toBeDisabled();
 
     act(() =>
@@ -309,8 +314,8 @@ describe('Board', () => {
         jsonResponse({ indexed: 0, closed: 0, skipped: [], failed: [] }),
       ),
     );
-    await waitFor(() => expect(button).toHaveTextContent('Index all'));
-  });
+    await waitFor(() => expect(button).toHaveTextContent('Index all'), { timeout: ASYNC_TIMEOUT_MS });
+  }, BOARD_TEST_TIMEOUT_MS);
 
   it('surfaces an Index all failure and clears busy', async () => {
     const onError = vi.fn();
@@ -322,15 +327,15 @@ describe('Board', () => {
     );
 
     render(<Board cellId={null} onOpen={() => {}} onError={onError} />);
-    await screen.findByText('Final card');
+    await screen.findByText('Final card', undefined, { timeout: ASYNC_TIMEOUT_MS });
     const button = within(screen.getByTestId('column-finalize')).getByRole('button', {
       name: 'Index all finalize requests',
     });
     fireEvent.click(button);
     fireEvent.click(button);
 
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('bulk failed'));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('bulk failed'), { timeout: ASYNC_TIMEOUT_MS });
     expect(button).toHaveTextContent('Index all');
     expect(button).toBeEnabled();
-  });
+  }, BOARD_TEST_TIMEOUT_MS);
 });

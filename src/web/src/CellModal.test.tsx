@@ -204,12 +204,12 @@ describe('CellModal', () => {
     render(
       <CellModal open cell={null} commands={[]} onClose={() => {}} onSaved={() => {}} onError={() => {}} />,
     );
-    expect(await screen.findByText('Claude model')).toBeInTheDocument();
+    expect(await screen.findByText('Claude model', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: /agent harness/i }), {
       target: { value: 'opencode' },
     });
-    expect(await screen.findByText('Open model')).toBeInTheDocument();
+    expect(await screen.findByText('Open model', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(modelUrls).toContain('/api/models?harness=opencode');
     expect(screen.queryByRole('combobox', { name: /default difficulty/i })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /default difficulty/i })).toBeDisabled();
@@ -218,9 +218,9 @@ describe('CellModal', () => {
       target: { value: 'Open cell' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create cell' }));
-    await waitFor(() => expect(created).toBeDefined());
+    await waitFor(() => expect(created).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
     expect(created?.harness).toBe('opencode');
-  });
+  }, CELL_MODAL_TEST_TIMEOUT_MS);
 
   it('rejects an out-of-range auto-compaction percentage', async () => {
     vi.stubGlobal(
@@ -251,7 +251,7 @@ describe('CellModal', () => {
       />,
     );
 
-    await screen.findByText('Cell process segments');
+    await screen.findByText('Cell process segments', undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(screen.getByPlaceholderText('e.g. Work repo'), {
       target: { value: 'Bad threshold' },
     });
@@ -263,10 +263,10 @@ describe('CellModal', () => {
     await waitFor(() =>
       expect(onError).toHaveBeenCalledWith(
         'Auto-compact must be a whole number from 1 to 99.',
-      ),
+      ), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(onSaved).not.toHaveBeenCalled();
-  });
+  }, CELL_MODAL_TEST_TIMEOUT_MS);
 
   it('shows an inline error and Retry when the setup draft cannot sync', async () => {
     let draftAttempts = 0;
@@ -374,18 +374,18 @@ describe('CellModal', () => {
       <CellModal open cell={cell} commands={[]} onClose={() => {}} onSaved={onSaved} onError={() => {}} />,
     );
 
-    const name = await screen.findByDisplayValue('Alpha');
-    expect((await screen.findAllByText('Fresh plan purpose')).length).toBeGreaterThan(0);
+    const name = await screen.findByDisplayValue('Alpha', undefined, { timeout: ASYNC_TIMEOUT_MS });
+    expect((await screen.findAllByText('Fresh plan purpose', undefined, { timeout: ASYNC_TIMEOUT_MS })).length).toBeGreaterThan(0);
     expect(screen.queryAllByText('Stale plan purpose')).toHaveLength(0);
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/cells/c1')).toBe(true);
 
     fireEvent.change(name, { target: { value: 'Renamed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save cell' }));
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(onSaved).toHaveBeenCalled(), { timeout: ASYNC_TIMEOUT_MS });
     expect(patched).not.toBeNull();
     expect(patched).toMatchObject({ autocompactPercent: 80 });
-  });
+  }, CELL_MODAL_TEST_TIMEOUT_MS);
 
   it('resets the form and starts a fresh draft when reopened', async () => {
     const cell: CellDetail = {

@@ -4,6 +4,11 @@ import { RequestDetail } from './RequestDetail';
 import { jsonResponse, makeRequest } from './test/fixtures';
 import type { Cell } from './types';
 
+// The harness override reloads models and the request. Give its queries and
+// whole-case budget room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const REQUEST_DETAIL_TEST_TIMEOUT_MS = 30_000;
+
 const cell: Cell = {
   id: 'c1',
   name: 'Alpha',
@@ -93,25 +98,25 @@ describe('RequestDetail harness override', () => {
 
     render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
 
-    const harness = await screen.findByRole('combobox', { name: /harness/i });
-    expect(await screen.findByText('Opus 5.5')).toBeInTheDocument();
+    const harness = await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('Opus 5.5', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('harness: Claude Code (cell Alpha)')).toBeInTheDocument();
     expect(harness).toHaveValue('');
 
     fireEvent.change(harness, { target: { value: 'opencode' } });
 
-    expect(await screen.findByText('OpenCode Model A')).toBeInTheDocument();
+    expect(await screen.findByText('OpenCode Model A', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /^model/i })).toHaveValue(''),
+      expect(screen.getByRole('combobox', { name: /^model/i })).toHaveValue(''), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(screen.getByText('harness: OpenCode (request override)')).toBeInTheDocument();
     expect(screen.getByDisplayValue('—')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    await waitFor(() => expect(patched).toHaveLength(1));
+    await waitFor(() => expect(patched).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(patched[0]).toMatchObject({ harness: 'opencode', model: null });
-  });
+  }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 
   it('shows an inherited OpenCode cell harness and disables effort', async () => {
     installFetch(

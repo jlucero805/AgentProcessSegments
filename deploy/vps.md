@@ -325,7 +325,21 @@ every terminal state the script keeps the current/`latest` run, the newest succe
 the newest 5 finished runs, any run modified in the last 30 days, and incomplete runs for
 a 7-day grace window, then removes the older terminal runs. Use `--keep-runs` and
 `--keep-days` to tune those windows, or `--no-prune` to leave pruning to an external
-schedule. Run directories left by an older version are not retroactively changed.
+schedule.
+
+Runs left by an older version have not been tightened. After the first upgrade to a build
+with the owner-only modes, repair them explicitly:
+
+```bash
+npm run build
+npm run repair:upgrades              # preview
+npm run repair:upgrades -- --apply   # tighten old upgrade run dirs and snapshots
+```
+
+The command scans only `~/.aps-cutover/upgrades`. It sets the `upgrades` directory and
+each direct run directory to `0700`, and each top-level `db-backup.sqlite` to `0600`. It
+never follows symlinks, deletes anything, opens the database, changes snapshot contents,
+or touches `~/.aps-cutover/runs` (cutover evidence is separate).
 
 Notes:
 
@@ -357,9 +371,11 @@ The script also probes a route added in the target build (currently
 `/api/notifications/status`, which returns 404 on older builds) so a green `/health`
 alone cannot hide a restart on the previous binary.
 
-Then run the one-time workdir repair: `npm run repair:permissions` to preview and
-`npm run repair:permissions -- --apply` to change modes. It is not part of the upgrade
-script yet.
+Then run the one-time repairs. `npm run repair:permissions` previews and
+`npm run repair:permissions -- --apply` changes modes for request workdirs created by an
+older version. `npm run repair:upgrades` previews and
+`npm run repair:upgrades -- --apply` changes modes for upgrade run directories and
+snapshots created by an older version. Neither is part of the upgrade script yet.
 
 ## Upgrade from Sandbox Harness
 

@@ -30,6 +30,7 @@
     "migrate:paths": "node scripts/migrate-paths.mjs",
     "migrate:branches": "node src/server/dist/maintenance/legacy-branches-cli.js",
     "repair:permissions": "node src/server/dist/maintenance/repair-permissions-cli.js",
+    "repair:upgrades": "node src/server/dist/maintenance/repair-upgrade-permissions-cli.js",
     "cutover:vps": "bash deploy/cutover-vps.sh",
     "upgrade:vps": "bash deploy/upgrade-vps.sh",
     "prune:cutover": "node scripts/prune-cutover-runs.mjs",

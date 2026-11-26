@@ -604,7 +604,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1137 vitest cases: 881 server cases across 51 files (state machine,
+`npm test` runs 1138 vitest cases: 882 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -715,8 +715,9 @@ credentials, `LANG`, and `TZ` cannot change the staged board; `npm run test:e2e-
 guards the pins. Interrupting the run with `SIGINT` or `SIGTERM` closes the capture
 browser, stops the spawned brain, and removes the temp board.
 
-CI (`deploy/ci-workflow.yml`) runs lint, typecheck, the full test suite, the build, the
-E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also
-re-runs the web suite with `NODE_ENV=production`, exercising the inherited-production
+CI (`deploy/ci-workflow.yml`) runs an `npm audit --omit=dev --audit-level=high`
+runtime dependency gate, lint, typecheck, the full test suite, the build, the E2E API
+workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also re-runs
+the web suite with `NODE_ENV=production`, exercising the inherited-production
 React-resolution path. Copy it to `.github/workflows/ci.yml` with a credential that has
 the `workflow` scope to activate it.

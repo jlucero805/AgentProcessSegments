@@ -400,7 +400,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1137 vitest cases (one environmental root-skip): 881 server across 51 files and 256 web across 27 files,
+- 1138 vitest cases (one environmental root-skip): 882 server across 51 files and 256 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -447,8 +447,9 @@ built and vended by the brain; real-CLI verification is still pending.
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
   that leaks the host env into either proof fails the build;
   `src/server/test/ci-workflow.test.ts` fails if the two blocks drift.
-- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
-  full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
+- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, an
+  `npm audit --omit=dev --audit-level=high` runtime dependency gate, lint, typecheck,
+  the full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
   `scripts/mcp-smoke.mjs` on pushes and pull requests. It also re-runs the web suite
   with `NODE_ENV=production` to exercise the inherited-production React resolution. It
   is not active on the remote:

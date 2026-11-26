@@ -30,6 +30,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y make g++ python3
 
       - run: npm ci
+
+      # Fail on high/critical advisories in the runtime dependency tree. Dev-only
+      # advisories are reported by npm but do not gate here.
+      - name: Runtime dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

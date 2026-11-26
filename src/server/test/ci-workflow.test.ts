@@ -80,6 +80,26 @@ describe('deploy/ci-workflow.yml', () => {
     expect(compact).toContain('run: NODE_ENV=production npm test --workspace src/web');
   });
 
+  it('fails on high runtime advisories before lint', () => {
+    const block = stepBlock('Runtime dependency audit');
+    expect(block).toContain('run: npm audit --omit=dev --audit-level=high\n');
+    expect(block).not.toContain('continue-on-error');
+    const runLine = block
+      .split('\n')
+      .find((line) => line.trimStart().startsWith('run: '));
+    expect(runLine).not.toContain('|| true');
+    expect(runLine).not.toContain('; true');
+
+    const install = workflow.indexOf('- run: npm ci');
+    const audit = workflow.indexOf('- name: Runtime dependency audit');
+    const lint = workflow.indexOf('- run: npm run lint');
+    const typecheck = workflow.indexOf('- run: npm run typecheck');
+    expect(install).toBeGreaterThan(-1);
+    expect(audit).toBeGreaterThan(install);
+    expect(audit).toBeLessThan(lint);
+    expect(audit).toBeLessThan(typecheck);
+  });
+
   it('runs every proof step under the hostile sentinel set', () => {
     for (const { name, run } of proofSteps) {
       const block = stepBlock(name);

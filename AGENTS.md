@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1137 vitest cases: 881 server across 51 files (one environmental root-skip) and 256 web across 27 files, all green.
+- 1138 vitest cases: 882 server across 51 files (one environmental root-skip) and 256 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -106,7 +106,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 881 server + 256 web, plus the e2e env guard
+npm test                       # 882 server + 256 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -604,6 +604,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `openExistingDb`, which hardens the database and sidecars without touching schema or
     request state. Test fixtures and the proof scripts are exempt because they use
     throwaway temp roots. `src/server/test/db.test.ts` guards the rule.
+44. **The runtime dependency audit is high-severity and guarded.** CI runs
+    `npm audit --omit=dev --audit-level=high` after `npm ci` and before lint, so a high
+    or critical advisory in the production dependency tree fails the build; dev-only
+    advisories are reported but do not gate. The step is fail-closed (no
+    `continue-on-error` or shell fallback), and its exact command, runtime scope,
+    threshold, and order are guarded by `src/server/test/ci-workflow.test.ts`. Do not
+    weaken any of them without updating the guard and this invariant.
 
 ## Extension recipes
 

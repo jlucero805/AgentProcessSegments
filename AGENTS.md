@@ -109,7 +109,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # project-local tsc/vitest/eslint/markdownlint-cli2/vite/concurrently/tsx binaries; a
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
-npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
+npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
 npm test                       # 966 server + 291 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -588,13 +588,17 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `eslint . --max-warnings=0`, `bash -n` plus `shellcheck --severity=warning` over
     `deploy/*.sh` and `scripts/*.sh`,
     `actionlint deploy/ci-workflow.yml .github/workflows/ci.yml`,
-    `systemd-analyze verify` over `deploy/agent-process-segments.service`, and
+    the unit gate over `deploy/agent-process-segments.service` (`systemd-analyze verify`,
+    the reviewed sandboxing directives, and the offline `systemd-analyze security`
+    exposure ceiling), and
     `markdownlint-cli2 "**/*.md"`, so an ESLint or ShellCheck warning, a shell syntax
     error, a workflow error, a non-zero verify exit, any verify diagnostic naming the
-    unit, or a Markdown finding fails the gate just like an error. The unit check treats
-    diagnostics as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
-    values; it is skipped with a visible line on non-Linux hosts and fails on Linux when
-    the tool is missing. The scripts, root lint devDependencies, flat-config scope
+    unit, a missing, changed, or forbidden hardening directive, an exposure level above
+    5.5, or a Markdown finding fails the gate just like an error. The unit gate
+    treats diagnostics as fatal because `systemd-analyze` exits 0 for unknown keys and
+    invalid values, needs systemd 250 or newer for the security review (failing closed
+    below that), is skipped with a visible line on non-Linux hosts, and fails on Linux
+    when the tool is missing. The scripts, root lint devDependencies, flat-config scope
     (`src/**/*.{ts,tsx}` plus JS/MJS/CJS tooling and `.opencode` plugin sources,
     `dist`/`node_modules` ignored, unused suppressions fatal), the Markdown config
     (`.markdownlint-cli2.jsonc`: a 120-column prose cap with tables, fences, and headings

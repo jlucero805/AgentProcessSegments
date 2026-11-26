@@ -77,7 +77,8 @@ once and is ignored.
   over `src`, the JS tooling, and `.opencode` plugin sources, plus `bash -n` and
   `shellcheck --severity=warning` over the deploy and `scripts/` shell scripts,
   `actionlint` over `deploy/ci-workflow.yml` and `.github/workflows/ci.yml`,
-  `systemd-analyze verify` on the deploy unit, and `markdownlint-cli2` over every
+  `systemd-analyze verify` plus the reviewed sandboxing directives and the offline
+  security exposure ceiling on the deploy unit, and `markdownlint-cli2` over every
   tracked `*.md`; zero warnings), `dev` (both).
 
 ---
@@ -1094,7 +1095,7 @@ npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for server src + tests + vitest config and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
-npm run lint                # eslint; bash -n + shellcheck; actionlint; systemd-analyze verify; markdownlint
+npm run lint                # eslint; bash -n + shellcheck; actionlint; unit verify + sandbox + security; markdownlint
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 

@@ -174,6 +174,39 @@ systemctl --user daemon-reload
 systemctl --user restart agent-process-segments
 ```
 
+## Sandboxing
+
+The unit ships a reviewed `[Service]` sandbox: `NoNewPrivileges`, `PrivateTmp`,
+`ProtectSystem=full`, the kernel protections, `RestrictAddressFamilies`, a private
+keyring, and `UMask=0077`. `systemd-analyze security --offline=yes --user
+deploy/agent-process-segments.service` reports about 4.3; `npm run lint` pins the
+directives and fails above a 5.5 exposure ceiling.
+
+What changes at runtime:
+
+- A command run from the brain's terminal cannot gain privileges (`sudo`, setuid
+  binaries) and cannot write under `/etc`, `/usr`, or `/boot`.
+- `/tmp` and `/var/tmp` are private to the service, so files there are not visible to your
+  other sessions; files the service creates start at `0600` and directories at `0700`.
+- 32-bit binaries do not run (`SystemCallArchitectures=native`).
+
+The excluded directives (`ProtectHome`, `ProtectSystem=strict`, `PrivateNetwork`,
+`PrivateUsers`, `MemoryDenyWriteExecute`, `RestrictNamespaces`, `SystemCallFilter`,
+`PrivateDevices`, and `ProtectProc`/`ProcSubset`) would break writable repos, the
+loopback listener, V8's JIT, PTYs, or the agent CLIs' own tooling. Read D96 in
+`docs/03-decisions.md` before adding any of them.
+
+Prove the host's user manager can apply the sandbox before restarting a live brain:
+
+```bash
+systemd-run --user --unit=aps-sandbox-probe --wait --collect \
+  -p PrivateTmp=yes -p ProtectSystem=full -p NoNewPrivileges=yes /bin/true
+```
+
+If the unit refuses to start after an update, remove the sandboxing block from the
+installed copy, run `systemctl --user daemon-reload`, and restart. Inspect the applied
+values with `systemd-analyze security --user agent-process-segments`.
+
 ## Tailscale
 
 Serve publishes the loopback port to your tailnet. The brain stays bound to
@@ -356,7 +389,8 @@ Notes:
   can usually read the upgraded database; restore the snapshot by hand only if it cannot.
 - The script refuses a dirty clone, a non-fast-forward target, a branch mismatch, or a
   target commit that changes `deploy/agent-process-segments.service`; install a changed
-  unit deliberately instead of letting an upgrade replace it.
+  unit deliberately instead of letting an upgrade replace it. The sandboxing block from
+  D96 is one such change: copy the new unit, run `daemon-reload`, and restart by hand.
 - Re-running when the clone is already at the target prints `already up to date` and
   changes nothing.
 
@@ -602,6 +636,25 @@ Environment=APS_DOCS_DIR=/srv/agent-process-segments/docs
 Environment=APS_DATA_DIR=/home/sandbox/.agent-process-segments
 Environment=PATH=/home/sandbox/.local/bin:/home/sandbox/.opencode/bin:/usr/local/bin:/usr/bin:/bin
 # Optional: Environment=APS_HARNESS=opencode
+# Same reviewed sandboxing set as the user unit; see D96 in docs/03-decisions.md.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+KeyringMode=private
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10

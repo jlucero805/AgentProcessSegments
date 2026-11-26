@@ -193,10 +193,11 @@ last five.
    are counted and shown as unknown or a lower bound, never as zero.
 8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
    paste an HTTPS URL (loopback may use http), pick JSON, Slack, or Discord, and optionally
-   set a 16-256 character signing secret. Save, then press **Send test** to verify. If
-   you use the JSON format, verify `X-APS-Signature` before acting (see
-   [Verify webhook signatures](#verify-webhook-signatures)); Slack and Discord ignore
-   it. The card also shows pending/failed counts and the latest delivery.
+   set a 16-256 character signing secret. Save, then press **Send test** to verify. Verify
+   `X-APS-Signature-V2` before acting; the legacy body-only `X-APS-Signature` remains for
+   compatibility (see [Verify webhook signatures](#verify-webhook-signatures)). Slack and
+   Discord ignore both headers. The card also shows pending/failed counts and the latest
+   delivery.
 9. For email, use the separate **Email delivery** card: enable it, set the SMTP host and
    port (465 for implicit TLS, 587 for STARTTLS), optional username and password, a From
    address, and up to ten recipients. Save, then **Send test email**. A blank password
@@ -253,15 +254,29 @@ last five.
 
 ### Verify webhook signatures
 
-APS signs the exact bytes it sends. Verify the signature over the raw request body
-before parsing or trusting it. When a signing secret is saved, every webhook request
-carries `X-APS-Signature: sha256=<64 hex>`, where the hex is HMAC-SHA256 of the raw body
-using that secret. The signature covers the body for every format (`json`, `slack`,
-`discord`); Slack and Discord servers ignore it. A request without a saved secret has
-no signature header.
+APS signs the exact bytes it sends. When a signing secret is saved, every webhook request
+carries two signature headers:
+
+- `X-APS-Signature-V2: t=<ms>,v2=<64 hex>` is the recommended signature. The `t` value is
+  milliseconds since epoch and is the same value as `X-APS-Timestamp`. The `v2` value is
+  HMAC-SHA256 over the exact ASCII timestamp digits, a literal `.`, and the exact raw body
+  bytes. Because the timestamp is inside the HMAC, changing it invalidates the signature.
+- `X-APS-Signature: sha256=<64 hex>` is the legacy body-only signature. It remains for
+  compatibility and does not prove freshness.
+
+A request without a saved secret has neither signature header. Slack and Discord servers
+ignore both headers; the signature covers the raw body for every format (`json`, `slack`,
+`discord`).
+
+Verify V2 before parsing or trusting the body, and reject a timestamp outside your
+freshness window. Five minutes is a good default: reject stale and far-future values and
+keep the receiver clock synchronized. Every APS retry is re-signed with the attempt's
+current timestamp, so a retry after 5 minutes, 30 minutes, or 2 hours is fresh and must
+not be rejected as stale.
 
 A complete zero-dependency receiver lives in the repo at
-`scripts/webhook-receiver-example.mjs`. Run it on loopback:
+`scripts/webhook-receiver-example.mjs`. It requires V2, uses a 5-minute window by default,
+and accepts `--tolerance-ms` to change it. Run it on loopback:
 
 ```bash
 APS_WEBHOOK_SECRET='the exact 16-256 character secret' \
@@ -271,19 +286,30 @@ APS_WEBHOOK_SECRET='the exact 16-256 character secret' \
 Point the webhook at `http://127.0.0.1:8787` (loopback may use HTTP). For a remote
 receiver, terminate HTTPS in front and keep the example on loopback. It prints the
 bound URL and, after a verified request, the event kind and a safe id; replace its
-`onVerified` handler with your durable work.
+`onVerified` handler with your durable work. Pointed at an older APS that sends only the
+legacy header, the example returns 401; upgrade the sender first or use
+`verifyWebhookSignature` and accept body-only security.
 
-The core check is:
+The core V2 check is:
 
 ```js
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-function verify(rawBody, header, secret) {
-  if (typeof header !== 'string' || !header.startsWith('sha256=')) return false;
-  const hex = header.slice('sha256='.length);
-  if (!/^[0-9a-f]{64}$/i.test(hex)) return false;
-  const expected = createHmac('sha256', secret).update(rawBody).digest();
-  const provided = Buffer.from(hex, 'hex');
+const TOLERANCE_MS = 5 * 60 * 1000;
+
+function verifyV2(rawBody, header, secret, now = Date.now()) {
+  if (typeof header !== 'string') return false;
+  const match = /^t=([0-9]{1,15}),v2=([0-9a-fA-F]{64})$/.exec(header);
+  if (match === null) return false;
+  const timestamp = Number(match[1]);
+  if (!Number.isSafeInteger(timestamp) || Math.abs(now - timestamp) > TOLERANCE_MS) {
+    return false;
+  }
+  const expected = createHmac('sha256', secret)
+    .update(`${match[1]}.`)
+    .update(rawBody)
+    .digest();
+  const provided = Buffer.from(match[2], 'hex');
   return provided.length === expected.length && timingSafeEqual(expected, provided);
 }
 ```
@@ -304,16 +330,23 @@ and re-serializing will fail verification.
 Every request carries these headers:
 
 - `content-type`: `application/json`, including Slack and Discord text bodies.
-- `x-aps-timestamp`: milliseconds since epoch. It is informational and **not**
-  covered by the HMAC.
+- `x-aps-signature-v2`: `t=<ms>,v2=<64 hex>` when a secret is saved. The embedded `t` is
+  authoritative and must be within the freshness window.
+- `x-aps-signature`: the legacy `sha256=<64 hex>` body-only signature when a secret is
+  saved. It does not prove freshness.
+- `x-aps-timestamp`: milliseconds since epoch. It matches V2's `t` but is informational;
+  verify the `t` inside `X-APS-Signature-V2`, not this header alone.
 - `idempotency-key`: the alert id for budget alerts, or the event dedupe key for
   event notifications. It is informational and **not** signed.
 - `user-agent`: `aps-budget-alert/1` or `aps-notify/1`. It is informational only.
 
-`X-APS-Timestamp` cannot prove freshness: it is outside the HMAC, so replaying a
-captured request with a new timestamp still verifies. Likewise, `Idempotency-Key` is
-a hint, not authentication. After verifying, dedupe on authenticated body data such
-as `alert.id`, `turn.turnId`, or a hash of the raw body.
+A signed timestamp bounds replay: a captured request is rejected once its `t` is outside
+the tolerance. A replay inside the window cannot be distinguished cryptographically
+without a nonce or receiver state. Return 2xx only after durable acceptance, dedupe on
+authenticated body data such as `alert.id`, `turn.turnId`, `master.*`, or a hash of the raw
+body, and treat an already-processed event as a successful no-op. `Idempotency-Key` is a
+hint, not authentication, and legitimate retries carry the same event identity with a
+fresh timestamp.
 
 One webhook can receive both budget alerts and event notifications. Branch on the
 body's `event` field:

@@ -1876,9 +1876,10 @@ export function ConfigPage({ onError, onEditCell, budgetFeed }: ConfigPageProps)
         </div>
 
         <p className="text-[11px] text-zinc-600">
-          JSON payloads carry an HMAC-SHA256 signature in{' '}
-          <code className="text-zinc-500">X-APS-Signature</code>. Slack and Discord incoming
-          webhooks accept the text-only format and ignore that header.
+          Signed webhooks carry the legacy{' '}
+          <code className="text-zinc-500">X-APS-Signature</code> and the timestamped{' '}
+          <code className="text-zinc-500">X-APS-Signature-V2</code>. Slack and Discord
+          incoming webhooks accept the text-only format and ignore both headers.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">

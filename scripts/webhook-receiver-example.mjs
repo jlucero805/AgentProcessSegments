@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Runnable example: verify APS webhook signatures over the exact raw body.
 //
-// APS sends `X-APS-Signature: sha256=<hex>` (HMAC-SHA256 of the request body)
-// only when a signing secret is configured. `X-APS-Timestamp` and
-// `Idempotency-Key` are not covered by that HMAC. Verify before parsing, compare
-// digests with crypto.timingSafeEqual, and dedupe on authenticated body ids.
+// When a signing secret is configured APS sends the legacy
+// `X-APS-Signature: sha256=<hex>` over the body only and the recommended
+// `X-APS-Signature-V2: t=<ms>,v2=<hex>` over the timestamp and body. This
+// example requires V2, enforces a freshness window, verifies before parsing,
+// compares digests with crypto.timingSafeEqual, and dedupes on authenticated
+// body ids. `Idempotency-Key` is not signed.
 //
 // This is an example receiver, not a production queue: replace onVerified with
 // your durable work. Run with --help for the CLI.
@@ -16,21 +18,24 @@ import { pathToFileURL } from 'node:url';
 export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 8787;
 export const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
+export const DEFAULT_TOLERANCE_MS = 5 * 60 * 1000;
 export const MIN_SECRET_LENGTH = 16;
 export const MAX_SECRET_LENGTH = 256;
 
 const SIGNATURE_PREFIX = 'sha256=';
 const HEX_SIGNATURE = /^[0-9a-f]{64}$/i;
+const SIGNATURE_V2 = /^t=([0-9]{1,15}),v2=([0-9a-fA-F]{64})$/;
 
 const USAGE = `Usage: node scripts/webhook-receiver-example.mjs --secret <secret> [options]
 
 Verify APS webhook signatures over the exact raw request body.
 
 Options:
-  --secret <secret>  Signing secret from Config (or set APS_WEBHOOK_SECRET)
-  --host <host>      Bind address (default ${DEFAULT_HOST})
-  --port <port>      Port, 0 for an ephemeral port (default ${DEFAULT_PORT})
-  --help, -h         Show this help
+  --secret <secret>        Signing secret from Config (or set APS_WEBHOOK_SECRET)
+  --host <host>            Bind address (default ${DEFAULT_HOST})
+  --port <port>            Port, 0 for an ephemeral port (default ${DEFAULT_PORT})
+  --tolerance-ms <ms>      V2 freshness window (default ${DEFAULT_TOLERANCE_MS})
+  --help, -h               Show this help
 
 Point the APS webhook at the printed loopback URL, or send a signed request with
 the same secret. For a remote receiver, terminate HTTPS in front and keep this
@@ -46,6 +51,14 @@ export function secretError(secret) {
   return null;
 }
 
+function bodyBytes(rawBody) {
+  if (Buffer.isBuffer(rawBody)) return rawBody;
+  if (rawBody instanceof Uint8Array) return Buffer.from(rawBody);
+  if (typeof rawBody === 'string') return Buffer.from(rawBody, 'utf8');
+  return null;
+}
+
+/** Verify the legacy body-only signature. It does not prove freshness. */
 export function verifyWebhookSignature(rawBody, signatureHeader, secret) {
   if (typeof secret !== 'string' || secret === '') return false;
   if (
@@ -58,14 +71,49 @@ export function verifyWebhookSignature(rawBody, signatureHeader, secret) {
   const providedHex = signatureHeader.slice(SIGNATURE_PREFIX.length);
   if (!HEX_SIGNATURE.test(providedHex)) return false;
 
-  let body;
-  if (Buffer.isBuffer(rawBody)) body = rawBody;
-  else if (rawBody instanceof Uint8Array) body = Buffer.from(rawBody);
-  else if (typeof rawBody === 'string') body = Buffer.from(rawBody, 'utf8');
-  else return false;
+  const body = bodyBytes(rawBody);
+  if (body === null) return false;
 
   const expected = createHmac('sha256', secret).update(body).digest();
   const provided = Buffer.from(providedHex, 'hex');
+  return provided.length === expected.length && timingSafeEqual(expected, provided);
+}
+
+/**
+ * Verify the timestamped V2 signature and its freshness window.
+ * `now` is milliseconds; `toleranceMs` must be non-negative.
+ */
+export function verifyWebhookSignatureV2(
+  rawBody,
+  signatureHeader,
+  secret,
+  { now = Date.now(), toleranceMs = DEFAULT_TOLERANCE_MS } = {},
+) {
+  if (typeof secret !== 'string' || secret === '') return false;
+  if (typeof signatureHeader !== 'string') return false;
+
+  const match = SIGNATURE_V2.exec(signatureHeader);
+  if (match === null) return false;
+  const timestampText = match[1];
+  const timestamp = Number(timestampText);
+  if (!Number.isSafeInteger(timestamp)) return false;
+  if (
+    !Number.isFinite(now) ||
+    !Number.isFinite(toleranceMs) ||
+    toleranceMs < 0 ||
+    Math.abs(now - timestamp) > toleranceMs
+  ) {
+    return false;
+  }
+
+  const body = bodyBytes(rawBody);
+  if (body === null) return false;
+
+  const expected = createHmac('sha256', secret)
+    .update(`${timestampText}.`)
+    .update(body)
+    .digest();
+  const provided = Buffer.from(match[2], 'hex');
   return provided.length === expected.length && timingSafeEqual(expected, provided);
 }
 
@@ -80,6 +128,7 @@ export function parseArgs(argv, env = {}) {
     secret: typeof env.APS_WEBHOOK_SECRET === 'string' ? env.APS_WEBHOOK_SECRET : '',
     host: DEFAULT_HOST,
     port: DEFAULT_PORT,
+    toleranceMs: DEFAULT_TOLERANCE_MS,
     help: false,
   };
 
@@ -107,6 +156,19 @@ export function parseArgs(argv, env = {}) {
       const port = Number(raw);
       if (port > 65535) throw new Error('--port must be an integer from 0 to 65535');
       options.port = port;
+      index += 1;
+      continue;
+    }
+    if (arg === '--tolerance-ms') {
+      const raw = nextValue(argv, index, arg);
+      if (!/^\d+$/.test(raw)) {
+        throw new Error('--tolerance-ms must be a positive integer');
+      }
+      const toleranceMs = Number(raw);
+      if (!Number.isSafeInteger(toleranceMs) || toleranceMs <= 0) {
+        throw new Error('--tolerance-ms must be a positive integer');
+      }
+      options.toleranceMs = toleranceMs;
       index += 1;
       continue;
     }
@@ -152,6 +214,8 @@ export async function startReceiver(options = {}) {
     host = DEFAULT_HOST,
     port = DEFAULT_PORT,
     maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
+    toleranceMs = DEFAULT_TOLERANCE_MS,
+    now = Date.now,
     onVerified,
     log = console,
   } = options;
@@ -165,6 +229,10 @@ export async function startReceiver(options = {}) {
   if (!Number.isInteger(maxBodyBytes) || maxBodyBytes <= 0) {
     throw new Error('maxBodyBytes must be a positive integer');
   }
+  if (!Number.isInteger(toleranceMs) || toleranceMs <= 0) {
+    throw new Error('toleranceMs must be a positive integer');
+  }
+  if (typeof now !== 'function') throw new Error('now must be a function');
   if (onVerified !== undefined && typeof onVerified !== 'function') {
     throw new Error('onVerified must be a function');
   }
@@ -208,9 +276,20 @@ export async function startReceiver(options = {}) {
       }
 
       const rawBody = Buffer.concat(chunks, size);
-      if (!verifyWebhookSignature(rawBody, req.headers['x-aps-signature'], secret)) {
+      const signature = req.headers['x-aps-signature-v2'];
+      if (typeof signature !== 'string') {
         sendJson(res, 401, { ok: false, error: 'invalid signature' });
-        logger.warn?.('webhook receiver: rejected invalid signature');
+        logger.warn?.('webhook receiver: rejected missing v2 signature');
+        return;
+      }
+      if (
+        !verifyWebhookSignatureV2(rawBody, signature, secret, {
+          now: now(),
+          toleranceMs,
+        })
+      ) {
+        sendJson(res, 401, { ok: false, error: 'invalid signature' });
+        logger.warn?.('webhook receiver: rejected invalid or stale signature');
         return;
       }
 
@@ -306,6 +385,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       secret: options.secret,
       host: options.host,
       port: options.port,
+      toleranceMs: options.toleranceMs,
     });
   } catch (error) {
     console.error(`webhook receiver: ${error instanceof Error ? error.message : error}`);

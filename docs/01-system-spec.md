@@ -510,7 +510,8 @@ scope is still paused and for a single observed expiry that leaves it paused wit
 covering override; a revoke, pre-authorized under-budget grant, or covered expiry is
 silent. JSON event bodies are a v1 envelope (`version`, `event`, `severity`, `title`,
 `occurredAt`, `text`, and a typed `turn`/`master`/`summary`/`override` object); Slack is
-`{text}` and Discord is `{content}`. Events reuse the budget HMAC headers, 10-second
+`{text}` and Discord is `{content}`. Events reuse the budget signature headers (the
+legacy body-only `X-APS-Signature` and the timestamped `X-APS-Signature-V2`), 10-second
 timeout, bounded retry,
 `Retry-After`, destination hash, `X-APS-Event-Kind`/`X-APS-Event-Id` email headers, and
 the configurable event-retention window. The same failure signature in the same configured window creates one row

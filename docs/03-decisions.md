@@ -2081,3 +2081,27 @@ work, as it is for `config.json`. The snapshot is not encrypted, is never read b
 is not repaired automatically. A file edited on disk after the process loaded it follows
 the latest load attempt, so the copy is always the bytes being replaced. The process
 editor still has no equivalent of D88's `preservedPath` notice.
+
+## D91. Webhook signatures version the timestamp with the body
+
+**Context.** D55 signed only the raw webhook body. `X-APS-Timestamp` was sent but stayed
+outside the HMAC, so a captured request could be replayed with any timestamp and a
+receiver had no way to enforce freshness. The receiver example shipped later had to warn
+that the timestamp proved nothing.
+
+**Decision.** Keep `X-APS-Signature: sha256=<hex>` unchanged for compatibility and add
+`X-APS-Signature-V2: t=<ms>,v2=<hex>` whenever a signing secret is set. `t` is the same
+send-time millisecond value as `X-APS-Timestamp`; `v2` is HMAC-SHA256 over the exact ASCII
+timestamp digits, a literal `.`, and the exact raw body. Every format is signed the same
+way. Each attempt, including retries and Send test, uses the attempt's current clock, so
+retries are fresh rather than stale. The receiver example requires V2, enforces a
+five-minute window by default, and rejects stale or far-future timestamps. The old
+body-only header and `verifyWebhookSignature` remain for older receivers and weaker
+compatibility; legacy-only requests do not prove freshness. The same 16-256 character
+secret signs both headers, with no setting, API, or storage change.
+
+**Cost.** Every request computes one extra HMAC. Operators who only check the legacy
+header stay replayable until they migrate, and clocks skewed by more than the tolerance
+will reject valid deliveries. A replay inside the window still needs receiver dedupe on
+authenticated body ids; the timestamp is not a nonce and the example intentionally adds no
+seen-set. Removing the legacy header is a separate, breaking change.

@@ -391,13 +391,16 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1095 vitest cases (one environmental root-skip): 854 server across 49 files and 241 web across 26 files,
+- 1101 vitest cases (one environmental root-skip): 860 server across 50 files and 241 web across 26 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
   `PATH` and validated by its `--version` output), and `scripts/e2e.mjs` (built brain +
   deterministic
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
+- Dev-command preflight: the root `typecheck`/`test`/`lint` commands check for
+  project-local `tsc`/`vitest`/`eslint` and print an `npm ci --include=dev` hint instead
+  of a raw `not found`.
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
   streamed turn with an `mcp__aps__*` tool call, merged `aps` plus user MCP config,
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No

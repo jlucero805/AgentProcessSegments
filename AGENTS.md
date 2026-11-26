@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1095 vitest cases: 854 server across 49 files (one environmental root-skip) and 241 web across 26 files, all green.
+- 1101 vitest cases: 860 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -101,9 +101,11 @@ digests.
 ```bash
 npm ci --include=dev           # keeps devDependencies under an inherited NODE_ENV=production;
                                # use npm install --include=dev when the lockfile changes
+# The root dev commands preflight project-local tsc/vitest/eslint; a missing
+# install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 854 server + 241 web, plus the e2e env guard
+npm test                       # 860 server + 241 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -244,7 +246,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `NODE_ENV=development npm ci`); a fresh `npm ci` under the inherited env prunes them
   again, so pass the flag every time. `npm config get omit` printing `dev` confirms the
   cause. Use `npm install --include=dev` when you are changing the lockfile, not for a
-  fresh checkout.
+  fresh checkout. The root `typecheck`/`test`/`lint` commands run
+  `scripts/check-dev-deps.mjs` first and print this hint when a project-local binary is
+  missing.
 - **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
   On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
   `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.

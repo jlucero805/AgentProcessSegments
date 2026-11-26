@@ -159,7 +159,9 @@ The brain's systemd unit exports `NODE_ENV=production`, and agent shells inherit
 a bare `npm install` or `npm ci` installs production dependencies only and
 `npm run typecheck` fails with `tsc: not found`. Use the `npm ci --include=dev` above
 (or `NODE_ENV=development npm ci`); a fresh `npm ci` under the inherited env prunes
-`typescript`, `vite`, `vitest`, and ESLint again, so pass the flag every time. See the
+`typescript`, `vite`, `vitest`, and ESLint again, so pass the flag every time. The root
+`typecheck`, `test`, and `lint` commands check for the project-local binaries first and
+print the `npm ci --include=dev` hint if they are missing. See the
 `AGENTS.md` environment-facts bullet for the sibling failures and the
 `npm config get omit` check.
 
@@ -600,7 +602,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1095 vitest cases: 854 server cases across 49 files (state machine,
+`npm test` runs 1101 vitest cases: 860 server cases across 50 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

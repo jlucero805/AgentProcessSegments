@@ -37,6 +37,7 @@ import { SpendCapEnforcer } from '../src/usage/spend-cap-enforcer.js';
 import { SpendCapOverrideError } from '../src/usage/spend-cap.js';
 import { SpendCapOverrideRepository } from '../src/usage/spend-cap-overrides.js';
 import { UsageRepository } from '../src/usage/repository.js';
+import type { UsageTotals } from '../src/usage/types.js';
 import { spendPauseMessage } from '../src/usage/spend-cap.js';
 import { UsageRollups } from '../src/usage/rollups.js';
 
@@ -53,14 +54,34 @@ function emptyTotals(): BudgetUsageTotals {
   };
 }
 
+/** Fills the non-budget counters `BudgetService` never reads. */
+function asUsageTotals(totals: BudgetUsageTotals): UsageTotals {
+  return {
+    ...totals,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+    totalCostUsd:
+      totals.costUsd === null && totals.estimatedCostUsd === null
+        ? null
+        : (totals.costUsd ?? 0) + (totals.estimatedCostUsd ?? 0),
+    reportedCostTurns: totals.turns - totals.unknownCostTurns,
+    estimatedCostTurns: 0,
+  };
+}
+
 class FakeUsageSource {
   overall: BudgetUsageTotals = emptyTotals();
   cells = new Map<string, BudgetUsageTotals>();
   throwOnTotals = false;
 
-  totals(filter: { cellId?: string }): BudgetUsageTotals {
+  totals(filter: { cellId?: string }): UsageTotals {
     if (this.throwOnTotals) throw new Error('ledger unavailable');
-    return filter.cellId ? this.cells.get(filter.cellId) ?? emptyTotals() : this.overall;
+    const totals = filter.cellId ? this.cells.get(filter.cellId) ?? emptyTotals() : this.overall;
+    return asUsageTotals(totals);
   }
 }
 
@@ -197,8 +218,8 @@ describe('budgets', () => {
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
     const cell = cells.create('Alpha');
     cells.setMonthlyBudget(cell.id, 50);
-    usage.overall = { turns: 4, costUsd: 85, unknownCostTurns: 1 };
-    usage.cells.set(cell.id, { turns: 2, costUsd: 10, unknownCostTurns: 0 });
+    usage.overall = { turns: 4, costUsd: 85, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 1 };
+    usage.cells.set(cell.id, { turns: 2, costUsd: 10, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 });
 
     const response = service.statuses(NOW);
 
@@ -227,7 +248,7 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 2, costUsd: null, unknownCostTurns: 2 };
+    usage.overall = { turns: 2, costUsd: null, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 2 };
 
     const status = service.statuses(NOW).statuses[0];
     expect(status?.state).toBe('unknown');
@@ -242,7 +263,7 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 3, costUsd: 85, unknownCostTurns: 1 };
+    usage.overall = { turns: 3, costUsd: 85, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 1 };
 
     service.evaluate(NOW);
     const first = service.statuses(NOW).alerts;
@@ -263,11 +284,11 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 1, costUsd: 80, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 80, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     expect(service.statuses(NOW).alerts[0]?.threshold).toBe('warning');
 
-    usage.overall = { turns: 1, costUsd: 100, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 100, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     const alerts = service.statuses(NOW).alerts;
     expect(alerts).toHaveLength(1);
@@ -278,11 +299,11 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 100 } });
-    usage.overall = { turns: 1, costUsd: 99, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 99, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     expect(service.statuses(NOW).alerts).toEqual([]);
 
-    usage.overall = { turns: 1, costUsd: 100, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 100, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     expect(service.statuses(NOW).alerts[0]?.threshold).toBe('exceeded');
   });
@@ -291,7 +312,7 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, alerts, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 1, costUsd: 90, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 90, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     const alert = service.statuses(NOW).alerts[0];
     expect(alert).toBeDefined();
@@ -310,12 +331,12 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 1, costUsd: 120, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 120, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     const exceeded = service.statuses(NOW).alerts[0]!;
     service.acknowledge(exceeded.id);
 
-    usage.overall = { turns: 1, costUsd: 85, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 85, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     expect(service.statuses(NOW).alerts).toEqual([]);
   });
@@ -324,7 +345,7 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 1, costUsd: 90, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 90, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     const first = service.statuses(NOW).alerts[0]!;
     service.acknowledge(first.id);
@@ -333,7 +354,7 @@ describe('budgets', () => {
     service.evaluate(NOW);
     expect(service.statuses(NOW).alerts).toEqual([]);
 
-    usage.overall = { turns: 1, costUsd: 210, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 210, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     const second = service.statuses(NOW).alerts[0]!;
     expect(second.id).not.toBe(first.id);
@@ -350,8 +371,8 @@ describe('budgets', () => {
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
     const cell = cells.create('Alpha');
     cells.setMonthlyBudget(cell.id, 50);
-    usage.overall = { turns: 1, costUsd: 90, unknownCostTurns: 0 };
-    usage.cells.set(cell.id, { turns: 1, costUsd: 60, unknownCostTurns: 0 });
+    usage.overall = { turns: 1, costUsd: 90, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
+    usage.cells.set(cell.id, { turns: 1, costUsd: 60, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 });
     service.evaluate(NOW);
     expect(service.statuses(NOW).alerts).toHaveLength(2);
 
@@ -369,7 +390,7 @@ describe('budgets', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
-    usage.overall = { turns: 1, costUsd: 90, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 90, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     service.evaluate(NOW);
     const first = service.statuses(NOW).alerts[0]!;
 
@@ -1315,7 +1336,7 @@ describe('budgets', () => {
   it('starts, reacts to settings changes, and stops idempotently', () => {
     const usage = new FakeUsageSource();
     const { service, settings } = makeService(usage);
-    usage.overall = { turns: 1, costUsd: 90, unknownCostTurns: 0 };
+    usage.overall = { turns: 1, costUsd: 90, estimatedCostUsd: null, unpricedTurns: 0, unknownCostTurns: 0 };
     settings.patch({ budget: { monthlyUsd: 100, alertAtPercent: 80 } });
 
     service.start();

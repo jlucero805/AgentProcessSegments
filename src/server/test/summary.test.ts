@@ -282,7 +282,11 @@ describe('SummaryService', () => {
     } = {},
   ) {
     const base = tmpDir('summary');
-    const harness = createHarness(script, () => ({ model: 'cell-model', effort: 'high' }));
+    const harness = createHarness(script, () => ({
+      model: 'cell-model',
+      effort: 'high',
+      harness: null,
+    }));
     open = harness;
     const events = new MasterEventRepository(harness.db);
     const summaries = new SummaryRepository(harness.db);
@@ -470,6 +474,7 @@ describe('SummaryService', () => {
       cellId: cell.id,
       cellName: 'Alpha',
       label: 'Alpha',
+      reason: 'cap_reached' as const,
       periodStart: Date.UTC(2026, 10, 1),
       periodEnd: Date.UTC(2026, 11, 1),
       budgetUsd: 50,

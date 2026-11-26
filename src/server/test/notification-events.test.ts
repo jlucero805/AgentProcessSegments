@@ -41,7 +41,7 @@ const TURN: TurnFailureNotification = {
   turnId: 'turn-1',
   requestId: 'req-1',
   requestTitle: 'Fix the parser',
-  state: 'implement',
+  state: 'dispatch',
   cellId: 'cell-1',
   harness: 'opencode',
   model: 'model-1',
@@ -631,7 +631,7 @@ describe('notification event deliveries', () => {
       event: 'turn.failed',
       severity: 'error',
       title: 'Turn failed: Fix the parser',
-      text: 'Turn failed for "Fix the parser" in implement, Acme: process exited with code 1.',
+      text: 'Turn failed for "Fix the parser" in dispatch, Acme: process exited with code 1.',
     });
     expect(body.turn).toMatchObject({
       turnId: 'turn-1',
@@ -652,7 +652,7 @@ describe('notification event deliveries', () => {
     slack.notifier.observeTurnFailure({ ...TURN, cellId: slack.cellId });
     await slack.notifier.flush();
     expect(bodyOf(slackFake.calls[0]!)).toEqual({
-      text: 'Turn failed for "Fix the parser" in implement, Acme: process exited with code 1.',
+      text: 'Turn failed for "Fix the parser" in dispatch, Acme: process exited with code 1.',
     });
 
     const discordFake = sender(() => new Response(null, { status: 204 }));
@@ -916,6 +916,7 @@ describe('operational event delivery history', () => {
     return context.events.enqueue({
       dedupeKey: input.dedupeKey,
       kind: input.kind,
+      cellId: null,
       channel: input.channel,
       format: input.channel === 'email' ? 'email' : 'json',
       destinationHash: 'event-hash-fixture',
@@ -1021,7 +1022,7 @@ describe('operational event delivery history', () => {
       event: {
         kind: 'turn.failed',
         title: 'Turn failed: Fix the parser',
-        text: 'Turn failed for "Fix the parser" in implement, Acme: process exited with code 1.',
+        text: 'Turn failed for "Fix the parser" in dispatch, Acme: process exited with code 1.',
         source: 'engine.exit',
         reason: 'process exited with code 1',
         cellId: context.cellId,

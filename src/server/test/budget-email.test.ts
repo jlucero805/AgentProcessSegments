@@ -46,10 +46,10 @@ function transport(
 }
 
 function factory(result: EmailTransport): {
-  calls: Parameters<TransportFactory>[];
+  calls: Array<Parameters<TransportFactory>[0]>;
   createTransport: TransportFactory;
 } {
-  const calls: Parameters<TransportFactory>[] = [];
+  const calls: Array<Parameters<TransportFactory>[0]> = [];
   return {
     calls,
     createTransport: async (options) => {

@@ -255,6 +255,7 @@ function seedEvent(status: 'pending' | 'delivered' | 'failed' = 'failed') {
   const row = events.enqueue({
     dedupeKey: `turn:${requestId}:engine.exit:process_exited_with_code_1:1`,
     kind: 'turn.failed',
+    cellId: null,
     channel: 'webhook',
     format: 'json',
     destinationHash: 'event-hash-fixture',
@@ -262,7 +263,7 @@ function seedEvent(status: 'pending' | 'delivered' | 'failed' = 'failed') {
       turnId: `turn-${requestId}`,
       requestId,
       requestTitle: 'Fix the parser',
-      state: 'implement',
+      state: 'dispatch',
       cellId: null,
       harness: 'opencode',
       model: null,
@@ -1766,7 +1767,7 @@ describe('http api', () => {
           event: {
             kind: 'turn.failed',
             title: 'Turn failed: Fix the parser',
-            text: 'Turn failed for "Fix the parser" in implement: process exited with code 1.',
+            text: 'Turn failed for "Fix the parser" in dispatch: process exited with code 1.',
             source: 'engine.exit',
             reason: 'process exited with code 1',
             cellId: null,

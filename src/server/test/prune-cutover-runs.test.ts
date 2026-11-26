@@ -94,14 +94,18 @@ describe('prune-cutover-runs script', () => {
   it('never removes the latest target or the only successful run', () => {
     const { root, runs } = workspace();
     const dirs = names(6);
-    makeRun(runs, dirs[0], { state: 'success', ageDays: 40 });
+    const [first, second, , , , sixth] = dirs;
+    if (first === undefined || second === undefined || sixth === undefined) {
+      throw new Error('expected six run directories');
+    }
+    makeRun(runs, first, { state: 'success', ageDays: 40 });
     for (const name of dirs.slice(1)) makeRun(runs, name, { state: 'failed', ageDays: 40 });
-    symlinkSync(path.join(runs, dirs[1]), path.join(root, 'latest'), 'dir');
+    symlinkSync(path.join(runs, second), path.join(root, 'latest'), 'dir');
 
     const result = run(root, ['--keep-runs', '1', '--keep-days', '0']);
 
     expect(result.status).toBe(0);
-    expect(list(runs)).toEqual([dirs[0], dirs[1], dirs[5]]);
+    expect(list(runs)).toEqual([first, second, sixth]);
     expect(result.stdout).toContain('(latest)');
     expect(result.stdout).toContain('(rollback point)');
   });
@@ -109,9 +113,13 @@ describe('prune-cutover-runs script', () => {
   it('gives incomplete runs a grace window and then removes them', () => {
     const { root, runs } = workspace();
     const older = ['20250101T000000Z', '20250102T000000Z', '20250103T000000Z'];
-    makeRun(runs, older[0], { state: null, ageDays: 2 });
-    makeRun(runs, older[1], { state: 'running', ageDays: 2 });
-    makeRun(runs, older[2], { state: 'launched', ageDays: 2 });
+    const [firstOlder, secondOlder, thirdOlder] = older;
+    if (firstOlder === undefined || secondOlder === undefined || thirdOlder === undefined) {
+      throw new Error('expected three older run directories');
+    }
+    makeRun(runs, firstOlder, { state: null, ageDays: 2 });
+    makeRun(runs, secondOlder, { state: 'running', ageDays: 2 });
+    makeRun(runs, thirdOlder, { state: 'launched', ageDays: 2 });
     const recent = ['20260110T000000Z', '20260111T000000Z', '20260112T000000Z'];
     for (const name of recent) makeRun(runs, name, { state: 'success' });
 

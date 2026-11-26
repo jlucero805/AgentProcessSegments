@@ -83,7 +83,7 @@ const INVALID_UNIT_VALUES: Record<string, unknown> = {
   'notifications.events': { failedTurns: { webhook: 'yes' } },
 };
 
-function asMutable(settings: typeof DEFAULT_SETTINGS): Record<string, unknown> {
+function asMutable<T extends object>(settings: T): Record<string, unknown> {
   return settings as unknown as Record<string, unknown>;
 }
 
@@ -971,8 +971,8 @@ describe('settings recovery', () => {
 
   it('reports every invalid unit when several fail', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const saved = asMutable(sentinelSettings());
-    saved.budget = INVALID_UNIT_VALUES.budget;
+    const saved = sentinelSettings();
+    asMutable(saved).budget = INVALID_UNIT_VALUES.budget;
     asMutable(saved.notifications).webhook = INVALID_UNIT_VALUES['notifications.webhook'];
     const file = tempFile();
     writeFileSync(file, JSON.stringify(saved));

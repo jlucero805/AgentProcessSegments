@@ -93,6 +93,7 @@ describe('deploy/ci-workflow.yml', () => {
 
   it('keeps the E2E and MCP env blocks identical', () => {
     const [e2e, mcp] = proofSteps;
+    if (e2e === undefined || mcp === undefined) throw new Error('proof steps missing');
     expect(stepEnv(stepBlock(mcp.name))).toEqual(stepEnv(stepBlock(e2e.name)));
   });
 

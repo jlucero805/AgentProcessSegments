@@ -16,7 +16,7 @@
     "lint:sh": "for f in deploy/*.sh scripts/*.sh; do bash -n \"$f\" || exit 1; done",
     "pretest": "node scripts/check-dev-deps.mjs test",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",
-    "test:e2e-env": "node --test scripts/e2e/env.test.mjs scripts/e2e/claude-bin.test.mjs scripts/e2e/puppeteer.test.mjs scripts/screenshots.test.mjs scripts/ui-smoke.test.mjs scripts/webhook-receiver-example.test.mjs",
+    "test:e2e-env": "node --test scripts/e2e/env.test.mjs scripts/e2e/claude-bin.test.mjs scripts/e2e/puppeteer.test.mjs scripts/e2e/signal-cleanup.test.mjs scripts/screenshots.test.mjs scripts/ui-smoke.test.mjs scripts/webhook-receiver-example.test.mjs",
     "e2e": "npm run build && node scripts/e2e.mjs",
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm run dev --workspace src/server\" \"npm run dev --workspace src/web\"",
     "start": "node src/server/dist/app.js",

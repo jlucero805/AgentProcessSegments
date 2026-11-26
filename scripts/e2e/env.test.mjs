@@ -716,7 +716,7 @@ test('every proof script builds child env through the shared helper', () => {
   }
 });
 
-test('the screenshot browser launch pins its language and env', () => {
+test('the screenshot browser launch pins its env and leaves signals to the script', () => {
   const source = readFileSync(path.join(repoRoot, 'scripts', 'screenshots.mjs'), 'utf8');
   assert.match(
     source,
@@ -724,4 +724,8 @@ test('the screenshot browser launch pins its language and env', () => {
     'the browser must get the pinned env',
   );
   assert.match(source, /'--lang=en-US'/, 'the browser locale must be pinned');
+  // Puppeteer's own signal handlers exit immediately and bypass the shared
+  // cleanup; the script's coordinator must own SIGINT/SIGTERM.
+  assert.match(source, /handleSIGINT:\s*false/, 'Puppeteer must not handle SIGINT');
+  assert.match(source, /handleSIGTERM:\s*false/, 'Puppeteer must not handle SIGTERM');
 });

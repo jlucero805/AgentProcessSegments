@@ -632,8 +632,8 @@ this file, `AGENTS.md`, and `docs/02-status.md`, and
 `src/server/test/doc-counts.test.ts` fails when they drift apart.
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
-environments they hand to their children and the missing-Puppeteer policy; it is not
-counted in the vitest totals.
+environments they hand to their children, the missing-Puppeteer policy, and the interrupt
+cleanup coordinator; it is not counted in the vitest totals.
 
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing
@@ -707,7 +707,8 @@ It needs `npm run build` first and exits non-zero when Puppeteer is absent; pass
 image timestamps). The spawned server and the capture browser both get a pinned
 environment from `scripts/e2e/env.mjs`, so inherited `APS_*`/`SBOX_*` settings,
 credentials, `LANG`, and `TZ` cannot change the staged board; `npm run test:e2e-env`
-guards the pins.
+guards the pins. Interrupting the run with `SIGINT` or `SIGTERM` closes the capture
+browser, stops the spawned brain, and removes the temp board.
 
 CI (`deploy/ci-workflow.yml`) runs lint, typecheck, the full test suite, the build, the
 E2E API workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also

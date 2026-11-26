@@ -32,6 +32,7 @@ import {
   SCREENSHOT_BROWSER_PINS,
 } from './e2e/env.mjs';
 import { resolvePuppeteer } from './e2e/puppeteer.mjs';
+import { createSignalCleanup } from './e2e/signal-cleanup.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const appPath = path.join(root, 'src', 'server', 'dist', 'app.js');
@@ -95,6 +96,122 @@ const masterConfig = {
 let server = null;
 let browser = null;
 const serverLogs = [];
+const CLEANUP_TIMEOUT_MS = 3000;
+let cleanupFailed = false;
+
+async function closeBrowser() {
+  const current = browser;
+  if (!current) return;
+
+  let timer;
+  try {
+    const needsKill = await Promise.race([
+      Promise.resolve()
+        .then(() => current.close())
+        .then(
+          () => false,
+          () => true,
+        ),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(true), CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+
+    if (needsKill) {
+      try {
+        current.process()?.kill('SIGKILL');
+      } catch {
+        // The browser already exited; nothing left to release.
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    if (browser === current) browser = null;
+  }
+}
+
+async function stopServer() {
+  const current = server;
+  if (!current) return;
+  if (current.exitCode !== null || current.signalCode !== null) {
+    server = null;
+    return;
+  }
+
+  const exited = new Promise((resolve) => current.once('exit', resolve));
+  current.kill('SIGTERM');
+  let timer;
+  try {
+    await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          try {
+            current.kill('SIGKILL');
+          } catch {
+            // The server exited between SIGTERM and the timeout.
+          }
+          resolve();
+        }, CLEANUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (server === current) server = null;
+  }
+}
+
+function removeTemp() {
+  rmSync(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+}
+
+async function cleanup() {
+  const steps = [
+    ['browser', closeBrowser],
+    ['server', stopServer],
+    ['temp dir', removeTemp],
+  ];
+  for (const [label, step] of steps) {
+    try {
+      await step();
+    } catch (error) {
+      cleanupFailed = true;
+      console.error(
+        `screenshots: ${label} cleanup failed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+}
+
+// A second signal cannot await cleanup, so release every handle synchronously
+// and let the coordinator exit immediately.
+function forceCleanup() {
+  if (browser) {
+    try {
+      browser.process()?.kill('SIGKILL');
+    } catch {
+      // The browser already exited.
+    }
+    browser = null;
+  }
+  if (server) {
+    try {
+      server.kill('SIGKILL');
+    } catch {
+      // The server already exited.
+    }
+    server = null;
+  }
+  try {
+    rmSync(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch {
+    // Best effort on the forced path; the coordinator exits anyway.
+  }
+}
+
+// Installed before capture() can spawn the brain or browser, so Ctrl-C during
+// startup still routes through the one cleanup path.
+const signalCleanup = createSignalCleanup({ cleanup, force: forceCleanup });
 
 async function freePort() {
   return new Promise((resolve, reject) => {
@@ -434,6 +551,11 @@ async function capture() {
 
   browser = await puppeteer.launch({
     headless: true,
+    // Puppeteer's default handlers call process.exit(130/143) as soon as the
+    // signal arrives, which would skip our async cleanup. Let the coordinator
+    // own both signals instead.
+    handleSIGINT: false,
+    handleSIGTERM: false,
     env: buildPinnedEnv(process.env, SCREENSHOT_BROWSER_PINS),
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--lang=en-US'],
   }).catch((error) => {
@@ -546,19 +668,7 @@ try {
   }
   process.exitCode = 1;
 } finally {
-  if (browser) await browser.close().catch(() => {});
-  if (server && server.exitCode === null) {
-    server.kill('SIGTERM');
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        server.kill('SIGKILL');
-        resolve();
-      }, 3000);
-      server.once('exit', () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    });
-  }
-  rmSync(temp, { recursive: true, force: true });
+  await signalCleanup.run();
+  signalCleanup.dispose();
+  if (cleanupFailed && process.exitCode === undefined) process.exitCode = 1;
 }

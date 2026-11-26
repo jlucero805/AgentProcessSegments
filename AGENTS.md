@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1242 vitest cases: 966 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
+- 1257 vitest cases: 966 server across 55 files (one environmental root-skip) and 291 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -110,7 +110,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 966 server + 276 web, plus the e2e env guard
+npm test                       # 966 server + 291 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -346,7 +346,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     with `409 turn_active` while a turn runs; the client requeues the text at the front
     and reattaches instead of surfacing an error. A queued item is claimed from storage
     under a Web Lock before it is sent, so two tabs cannot deliver it twice; without Web
-    Locks one tab still drains, but the cross-tab guarantee is lost.
+    Locks one tab still drains, but the cross-tab guarantee is lost. A claim is journaled
+    under `aps-queue-inflight:<id>` before the item leaves the queue; the marker clears
+    when the send is proven accepted and is reconciled against the `/clarify` transcript
+    on the next mount, so a tab crash does not lose the message.
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and finishes it so the partial transcript is saved; never delete a live
     turn's maps without resolving its promise. `finishTurn` is the single settlement

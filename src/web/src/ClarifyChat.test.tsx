@@ -1,11 +1,24 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClarifyChat } from './ClarifyChat';
-import { enqueueBack } from './queue';
+import { enqueueBack, inflightKey } from './queue';
 import { jsonResponse, ndjsonResponse } from './test/fixtures';
 import { installFakeLocks, uninstallFakeLocks } from './test/fakeLocks';
 
 const encoder = new TextEncoder();
+
+function seedClaim(requestId: string, text: string, claimedAt: number, id = 'claim-1'): void {
+  window.localStorage.setItem(
+    inflightKey(`aps-queue:${requestId}`),
+    JSON.stringify([{ id, text, claimedAt }]),
+  );
+}
+
+function doneWithUser(text: string, ts: number): string {
+  return `{"t":"done","request":null,"transcript":[{"role":"you","kind":"text","text":${JSON.stringify(
+    text,
+  )},"ts":${ts}}]}\n`;
+}
 
 function controllableStream() {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -142,6 +155,7 @@ describe('ClarifyChat live turns', () => {
 
     render(<ClarifyChat requestId="req-stop" started commands={[]} onError={() => {}} />);
     expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    seedClaim('req-stop', 'in flight', Date.now());
 
     const composer = screen.getByPlaceholderText('Queue a message…');
     fireEvent.change(composer, { target: { value: 'do not send' } });
@@ -151,6 +165,9 @@ describe('ClarifyChat live turns', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     await waitFor(() => expect(stopped).toHaveLength(1));
     await waitFor(() => expect(screen.queryByText('do not send')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-stop'))).toBeNull(),
+    );
 
     await act(async () => {
       live.controller.enqueue(encoder.encode(doneEvent('partial reply')));
@@ -188,6 +205,7 @@ describe('ClarifyChat live turns', () => {
 
     render(<ClarifyChat requestId="req-paused" started commands={[]} onError={() => {}} />);
     expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    seedClaim('req-paused', 'in flight', Date.now());
 
     const composer = screen.getByPlaceholderText('Queue a message…');
     fireEvent.change(composer, { target: { value: 'queued behind the cap' } });
@@ -215,6 +233,9 @@ describe('ClarifyChat live turns', () => {
 
     expect(await screen.findByText('⏸ stopped by the cap')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('1 queued')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-paused'))).toBeNull(),
+    );
     expect(sendBodies).toHaveLength(0);
     expect(screen.getAllByText(/⏸/)).toHaveLength(1);
     expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled();
@@ -727,6 +748,7 @@ describe('ClarifyChat reload during a live turn', () => {
         JSON.stringify(['race text']),
       ),
     );
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-race'))).toBeNull();
 
     await act(async () => {
       live.controller.enqueue(encoder.encode(doneEvent('live finished')));
@@ -768,6 +790,7 @@ describe('ClarifyChat reload during a live turn', () => {
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-cap')).toBeNull(),
     );
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-cap'))).toBeNull();
   });
 });
 
@@ -969,3 +992,293 @@ describe('ClarifyChat queue across tabs', () => {
     expect(screen.getByText('from another tab')).toBeInTheDocument();
   });
 });
+
+describe('ClarifyChat crash-safe queue claims', () => {
+  it('recovers a claimed item when the tab closes before the send is accepted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          // Hold the POST open so the claim is written but never accepted.
+          return new Promise<Response>(() => {});
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-crash', JSON.stringify(['lost message']));
+
+    const first = render(
+      <ClarifyChat requestId="req-crash" started commands={[]} onError={() => {}} />,
+    );
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-crash'))).not.toBeNull(),
+    );
+    expect(window.localStorage.getItem('aps-queue:req-crash')).toBeNull();
+    first.unmount();
+
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([
+            '{"t":"text","text":"recovered reply"}\n',
+            doneEvent('recovered reply'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-crash" started commands={[]} onError={() => {}} />);
+
+    await waitFor(() => expect(sendBodies).toEqual(['lost message']));
+    expect(await screen.findByText('recovered reply')).toBeInTheDocument();
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-crash'))).toBeNull();
+    expect(window.localStorage.getItem('aps-queue:req-crash')).toBeNull();
+    expect(screen.queryByText(/queued/)).not.toBeInTheDocument();
+  });
+
+  it('does not resend a claim the transcript already proves delivered', async () => {
+    const sendBodies: string[] = [];
+    const now = Date.now();
+    seedClaim('req-delivered', 'already sent', now);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({
+            started: true,
+            active: false,
+            transcript: [{ role: 'you', kind: 'text', text: 'already sent', ts: now + 1 }],
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-delivered" started commands={[]} onError={() => {}} />);
+
+    expect(await screen.findByText('already sent')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-delivered'))).toBeNull(),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(sendBodies).toHaveLength(0);
+    expect(window.localStorage.getItem('aps-queue:req-delivered')).toBeNull();
+  });
+
+  it('defers a claim until a live turn ends and drops it when done proves delivery', async () => {
+    const live = controllableStream();
+    const sendBodies: string[] = [];
+    const now = Date.now();
+    seedClaim('req-live-claim', 'in flight', now);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-live-claim" started commands={[]} onError={() => {}} />);
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-live-claim'))).not.toBeNull();
+    expect(sendBodies).toHaveLength(0);
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneWithUser('in flight', now + 1)));
+      live.controller.close();
+    });
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-live-claim'))).toBeNull(),
+    );
+    expect(sendBodies).toHaveLength(0);
+  });
+
+  it('requeues an unproven claim after a live turn ends and sends it once', async () => {
+    const live = controllableStream();
+    const sendBodies: string[] = [];
+    const now = Date.now();
+    seedClaim('req-live-miss', 'retry after live', now);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([
+            '{"t":"text","text":"recovered after live"}\n',
+            doneEvent('recovered after live'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-live-miss" started commands={[]} onError={() => {}} />);
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('live finished')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sendBodies).toEqual(['retry after live']));
+    expect(await screen.findByText('recovered after live')).toBeInTheDocument();
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-live-miss'))).toBeNull();
+    expect(window.localStorage.getItem('aps-queue:req-live-miss')).toBeNull();
+  });
+
+  it('clears a claim when a send completes without any NDJSON events', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) return ndjsonResponse([]);
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-silent', JSON.stringify(['silent send']));
+
+    render(<ClarifyChat requestId="req-silent" started commands={[]} onError={() => {}} />);
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-silent'))).toBeNull(),
+    );
+    expect(window.localStorage.getItem('aps-queue:req-silent')).toBeNull();
+  });
+
+  it('keeps a claim across a retryable send failure and clears it on retry', async () => {
+    let attempts = 0;
+    const sends: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          const body = JSON.parse(String(init?.body)) as { text: string };
+          sends.push(body.text);
+          attempts += 1;
+          if (attempts === 1) {
+            return jsonResponse({ error: 'internal', message: 'send failed' }, 500);
+          }
+          return ndjsonResponse(['{"t":"text","text":"recovered"}\n', doneEvent('recovered')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem(
+      'aps-queue:req-retry-claim',
+      JSON.stringify(['retry claimed']),
+    );
+
+    render(
+      <ClarifyChat
+        requestId="req-retry-claim"
+        started
+        commands={[]}
+        onError={() => {}}
+        inlineErrors
+      />,
+    );
+
+    expect(await screen.findByText('send failed')).toBeInTheDocument();
+    expect(sends).toEqual(['retry claimed']);
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-retry-claim'))).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('recovered')).toBeInTheDocument();
+    expect(sends).toEqual(['retry claimed', 'retry claimed']);
+    await waitFor(() =>
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-retry-claim'))).toBeNull(),
+    );
+  });
+
+  it('clears an in-flight marker when the user clears the queue', async () => {
+    const live = controllableStream();
+    seedClaim('req-clear-marker', 'in flight', Date.now());
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat requestId="req-clear-marker" started commands={[]} onError={() => {}} />,
+    );
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+
+    const composer = screen.getByPlaceholderText('Queue a message…');
+    fireEvent.change(composer, { target: { value: 'queued behind the claim' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem('aps-queue:req-clear-marker')).toBeNull(),
+    );
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-clear-marker'))).toBeNull();
+    expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+  });
+});
+

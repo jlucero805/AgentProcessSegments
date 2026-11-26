@@ -9,14 +9,19 @@ import {
 } from './chat';
 import { useChatRuntime } from './runtime';
 import {
+  acceptClaim,
   claimHead,
+  claimWasDelivered,
   clearQueue,
   enqueueBack,
   enqueueFront,
+  readClaims,
   readQueue,
+  releaseClaim,
+  settleClaims,
 } from './queue';
 import { Thread } from './Thread';
-import type { ClarifyEvent, CommandInfo, Request } from './types';
+import type { ClarifyEvent, CommandInfo, Request, TranscriptMsg } from './types';
 
 interface ClarifyChatProps {
   requestId: string;
@@ -33,7 +38,9 @@ interface ClarifyChatProps {
   inlineErrors?: boolean;
 }
 
-type FailedAttempt = { kind: 'hydrate' } | { kind: 'send'; text: string };
+type FailedAttempt =
+  | { kind: 'hydrate' }
+  | { kind: 'send'; text: string; claimId?: string };
 
 function toolLabel(name: string): string {
   return normalizeToolName(name)
@@ -72,6 +79,7 @@ export function ClarifyChat({
   const syncedRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const failedAttempt = useRef<FailedAttempt | null>(null);
@@ -118,6 +126,35 @@ export function ClarifyChat({
     setSynced(true);
   }, []);
 
+  /** Drop claims the snapshot already proves delivered, e.g. while a turn is live. */
+  const dropDeliveredClaims = useCallback(
+    async (transcript: TranscriptMsg[]) => {
+      for (const claim of readClaims(queueKey)) {
+        if (claimWasDelivered(claim, transcript)) await acceptClaim(queueKey, claim.id);
+      }
+    },
+    [queueKey],
+  );
+
+  /** Prove or requeue every unsettled claim; used once no turn is live. */
+  const settleRecoveredClaims = useCallback(
+    async (transcript: TranscriptMsg[]) => {
+      if (readClaims(queueKey).length === 0) return;
+      setQueue(await settleClaims(queueKey, transcript));
+    },
+    [queueKey],
+  );
+
+  /** After done, hold the drain gate until recovered claims are back in the queue. */
+  const settleAfterDone = useCallback(
+    (transcript: TranscriptMsg[]) => {
+      if (readClaims(queueKey).length === 0) return;
+      setReconciling(true);
+      void settleRecoveredClaims(transcript).finally(() => setReconciling(false));
+    },
+    [queueKey, settleRecoveredClaims],
+  );
+
   const handleEvent = useCallback(
     (event: ClarifyEvent) => {
       if (event.t === 'done') {
@@ -128,6 +165,7 @@ export function ClarifyChat({
         setStopping(false);
         setInlineError(null);
         failedAttempt.current = null;
+        settleAfterDone(event.transcript);
         return;
       }
       if (event.t === 'paused') {
@@ -147,7 +185,7 @@ export function ClarifyChat({
       }
       setMessages((current) => applyEvent(current, event));
     },
-    [queueKey, setBusy],
+    [queueKey, setBusy, settleAfterDone],
   );
 
   const hydrate = useCallback(async () => {
@@ -161,10 +199,14 @@ export function ClarifyChat({
     try {
       const state = await api.getClarify(requestId);
       if (controller.signal.aborted) return;
+      const transcript = state.transcript ?? [];
+      if (state.active) await dropDeliveredClaims(transcript);
+      else await settleRecoveredClaims(transcript);
+      if (controller.signal.aborted) return;
       markSynced();
       setInlineError(null);
       failedAttempt.current = null;
-      setMessages(fromTranscript(state.transcript ?? []));
+      setMessages(fromTranscript(transcript));
       if (state.active) {
         setBusy(true);
         await api.streamClarify(requestId, handleEvent, controller.signal);
@@ -183,7 +225,14 @@ export function ClarifyChat({
         setStopping(false);
       }
     }
-  }, [requestId, handleEvent, setBusy, markSynced]);
+  }, [
+    requestId,
+    handleEvent,
+    setBusy,
+    markSynced,
+    dropDeliveredClaims,
+    settleRecoveredClaims,
+  ]);
 
   useEffect(() => {
     // Always read the snapshot: a live turn can exist even if the request row
@@ -196,9 +245,12 @@ export function ClarifyChat({
   useEffect(() => () => activeStream.current?.abort(), []);
 
   const sendText = useCallback(
-    async (raw: string, retry = false) => {
+    async (raw: string, retry = false, claimId?: string) => {
       const text = raw.trim();
-      if (text === '') return;
+      if (text === '') {
+        if (claimId) void acceptClaim(queueKey, claimId);
+        return;
+      }
       const controller = new AbortController();
       activeStream.current?.abort();
       activeStream.current = controller;
@@ -212,11 +264,15 @@ export function ClarifyChat({
         await streamNdjson(
           `/api/requests/${encodeURIComponent(requestId)}/clarify/send`,
           (event) => {
-            received = true;
+            if (!received) {
+              received = true;
+              if (claimId) void acceptClaim(queueKey, claimId);
+            }
             handleEvent(event);
           },
           { method: 'POST', body: JSON.stringify({ text }), signal: controller.signal },
         );
+        if (claimId) await acceptClaim(queueKey, claimId);
         setInlineError(null);
         failedAttempt.current = null;
         markSynced();
@@ -227,14 +283,23 @@ export function ClarifyChat({
             // it drains once that turn ends instead of being dropped server-side.
             // Requeue before hydrating: hydrate clears `synced`, which holds the
             // queue until the reattach snapshot proves whether a turn is live.
-            setQueue(await enqueueFront(queueKey, text));
+            const next = claimId
+              ? await releaseClaim(queueKey, claimId)
+              : await enqueueFront(queueKey, text);
+            setQueue(next);
             void hydrate();
             return;
           }
+          const definitive = error instanceof ApiError && error.status >= 400 && error.status < 500;
+          if (claimId && definitive) await acceptClaim(queueKey, claimId);
           const message = describeError(error);
           // A failure after events were received may already have started the
           // turn on the server; reattach instead of sending the text twice.
-          failedAttempt.current = received ? { kind: 'hydrate' } : { kind: 'send', text };
+          failedAttempt.current = received
+            ? { kind: 'hydrate' }
+            : definitive
+              ? { kind: 'send', text }
+              : { kind: 'send', text, claimId };
           setInlineError(message);
           onErrorRef.current(message);
         }
@@ -253,7 +318,7 @@ export function ClarifyChat({
     const failed = failedAttempt.current;
     setInlineError(null);
     if (failed?.kind === 'send') {
-      void sendText(failed.text, true);
+      void sendText(failed.text, true, failed.claimId);
       return;
     }
     failedAttempt.current = null;
@@ -287,6 +352,7 @@ export function ClarifyChat({
       !started ||
       disabled ||
       queue.length === 0 ||
+      reconciling ||
       drainingRef.current
     ) {
       return;
@@ -294,14 +360,24 @@ export function ClarifyChat({
     drainingRef.current = true;
     void (async () => {
       try {
-        const next = await claimHead(queueKey);
+        const claim = await claimHead(queueKey);
         setQueue(readQueue(queueKey, legacyQueueKey));
-        if (next !== null) void sendText(next);
+        if (claim !== null) void sendText(claim.text, false, claim.id);
       } finally {
         drainingRef.current = false;
       }
     })();
-  }, [synced, running, started, disabled, queue, sendText, queueKey, legacyQueueKey]);
+  }, [
+    synced,
+    running,
+    started,
+    disabled,
+    queue,
+    reconciling,
+    sendText,
+    queueKey,
+    legacyQueueKey,
+  ]);
 
   const stop = useCallback(async () => {
     if (!runningRef.current) return;

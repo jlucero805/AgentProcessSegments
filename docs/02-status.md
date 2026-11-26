@@ -222,11 +222,13 @@ built and vended by the brain; real-CLI verification is still pending.
   mid-turn does not push it into the running turn; `POST /clarify/send` refuses with
   `409 turn_active` while a turn runs and the client requeues the text. Queued items
   are claimed under a per-request Web Lock before sending, and tabs mirror the queue
-  through `storage` events, so two tabs deliver each message once. A
-  queue left under the pre-rename `sbox-queue:<id>` key is migrated on first load and the
-  legacy key is removed. Stop calls `POST /clarify/stop`, kills the child, saves the
-  partial transcript, keeps the saved session for the next message, and clears the queue
-  so the human can interject.
+  through `storage` events, so two tabs deliver each message once. A claimed item is
+  journaled under `aps-queue-inflight:<id>` before it leaves the queue; if the tab dies
+  before the send is accepted, the next mount proves delivery from the transcript or
+  puts the item back at the front. A queue left under the pre-rename
+  `sbox-queue:<id>` key is migrated on first load and the legacy key is removed. Stop
+  calls `POST /clarify/stop`, kills the child, saves the partial transcript, keeps the
+  saved session for the next message, and clears the queue so the human can interject.
 - One thread across segments: the drawer renders the same chat for clarify, dispatch,
   review, and finalize (terminal states stay read-only), so the human can interject at
   any point in the workflow.
@@ -431,7 +433,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1242 vitest cases (one environmental root-skip): 966 server across 55 files and 276 web across 27 files,
+- 1257 vitest cases (one environmental root-skip): 966 server across 55 files and 291 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

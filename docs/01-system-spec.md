@@ -1056,6 +1056,8 @@ carried in the `done` event:
   is live; while one is, it waits for `done`, and a `409 turn_active` from
   `/clarify/send` requeues the text and reattaches. Each queued item is claimed from
   storage under a per-request Web Lock before it is sent, so two tabs deliver it once.
+  A claim is journaled under `aps-queue-inflight:<requestId>` before the item leaves the
+  queue and is reclaimed on the next mount unless the transcript already proves delivery.
   `Thread.tsx` holds assistant-ui primitives, markdown, tool cards, and code diffs.
   `Composer.tsx` is a custom input with a `/` slash-command autocomplete from
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.

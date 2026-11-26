@@ -8,17 +8,35 @@
  * (and jsdom) still serialize inside one tab through a promise chain, but lose the
  * cross-tab guarantee; the queue itself is best-effort either way.
  *
+ * A claim is journaled under `aps-queue-inflight:<requestId>` before the item is
+ * removed from the queue. If the tab dies before the send is accepted, the marker
+ * survives and the next mount can prove delivery from the transcript or put the
+ * message back at the front of the queue.
+ *
  * Storage failures are not fatal. When a read throws, the helper falls back to the
  * copy kept in memory; when a write throws, that copy stays authoritative for this
  * tab until a later write succeeds.
  */
 
+import type { TranscriptMsg } from './types';
+
 const QUEUE_PREFIX = 'aps-queue:';
+const INFLIGHT_PREFIX = 'aps-queue-inflight:';
 const LOCK_PREFIX = 'aps-queue-lock:';
+
+/** One message removed from the queue and not yet proven accepted by the server. */
+export interface QueueClaim {
+  id: string;
+  text: string;
+  claimedAt: number;
+}
 
 const memory = new Map<string, string[]>();
 const unsynced = new Set<string>();
+const claimsMemory = new Map<string, QueueClaim[]>();
+const claimsUnsynced = new Set<string>();
 const chains = new Map<string, Promise<unknown>>();
+let claimCounter = 0;
 
 function parseQueue(raw: string): string[] | null {
   try {
@@ -30,9 +48,34 @@ function parseQueue(raw: string): string[] | null {
   }
 }
 
+function parseClaims(raw: string): QueueClaim[] | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const claims: QueueClaim[] = [];
+    for (const item of parsed) {
+      if (typeof item !== 'object' || item === null) return null;
+      const { id, text, claimedAt } = item as Record<string, unknown>;
+      if (typeof id !== 'string' || typeof text !== 'string' || typeof claimedAt !== 'number') {
+        return null;
+      }
+      claims.push({ id, text, claimedAt });
+    }
+    return claims;
+  } catch {
+    return null;
+  }
+}
+
 function lockName(key: string): string {
   const id = key.startsWith(QUEUE_PREFIX) ? key.slice(QUEUE_PREFIX.length) : key;
   return `${LOCK_PREFIX}${id}`;
+}
+
+/** The in-flight marker key for a queue key. */
+export function inflightKey(key: string): string {
+  const id = key.startsWith(QUEUE_PREFIX) ? key.slice(QUEUE_PREFIX.length) : key;
+  return `${INFLIGHT_PREFIX}${id}`;
 }
 
 /** Serialize queue mutations inside this tab, with or without Web Locks. */
@@ -71,6 +114,16 @@ function discardQueue(key: string): void {
   }
 }
 
+function discardClaims(key: string): void {
+  claimsMemory.delete(key);
+  claimsUnsynced.delete(key);
+  try {
+    window.localStorage.removeItem(inflightKey(key));
+  } catch {
+    // Private mode: nothing to clean up.
+  }
+}
+
 function readStored(key: string): string[] {
   if (!unsynced.has(key)) {
     try {
@@ -102,6 +155,44 @@ function writeQueue(key: string, queue: string[]): void {
   } catch {
     // Private mode or a full quota: the queue stays in memory for this tab.
     unsynced.add(key);
+  }
+}
+
+function readStoredClaims(key: string): QueueClaim[] {
+  const markerKey = inflightKey(key);
+  if (!claimsUnsynced.has(key)) {
+    try {
+      const raw = window.localStorage.getItem(markerKey);
+      if (raw === null) {
+        claimsMemory.delete(key);
+        return [];
+      }
+      const parsed = parseClaims(raw);
+      if (parsed !== null) {
+        claimsMemory.set(key, parsed);
+        return parsed;
+      }
+      discardClaims(key);
+      return [];
+    } catch {
+      // Fall through to this tab's copy.
+    }
+  }
+  return claimsMemory.get(key) ?? [];
+}
+
+function writeClaims(key: string, claims: QueueClaim[]): void {
+  claimsMemory.set(key, claims);
+  try {
+    if (claims.length > 0) {
+      window.localStorage.setItem(inflightKey(key), JSON.stringify(claims));
+    } else {
+      window.localStorage.removeItem(inflightKey(key));
+    }
+    claimsUnsynced.delete(key);
+  } catch {
+    // Private mode or a full quota: the claims stay in memory for this tab.
+    claimsUnsynced.add(key);
   }
 }
 
@@ -157,19 +248,99 @@ export function readQueue(key: string, legacyKey: string): string[] {
   return parsed;
 }
 
+/** The claims still in flight for this queue, oldest first. */
+export function readClaims(key: string): QueueClaim[] {
+  return readStoredClaims(key);
+}
+
 /**
  * Remove and return the first queued message, or null when the queue is empty.
- * The read, shift, and write all happen under the per-request lock, so exactly
- * one tab can claim a given message.
+ * The read, marker write, shift, and queue write all happen under the per-request
+ * lock, so exactly one tab can claim a given message and the marker lands before
+ * the message leaves the queue.
  */
-export function claimHead(key: string): Promise<string | null> {
+export function claimHead(key: string): Promise<QueueClaim | null> {
   return withLock(key, () => {
     const current = readStored(key);
     const [head, ...rest] = current;
     if (head === undefined) return null;
+    claimCounter += 1;
+    const claimedAt = Date.now();
+    const claim: QueueClaim = {
+      id: `${claimedAt}-${claimCounter}`,
+      text: head,
+      claimedAt,
+    };
+    writeClaims(key, [...readStoredClaims(key), claim]);
     writeQueue(key, rest);
-    return head;
+    return claim;
   });
+}
+
+/** Drop one claim after its send was accepted or definitively rejected. */
+export function acceptClaim(key: string, claimId: string): Promise<void> {
+  return withLock(key, () => {
+    const claims = readStoredClaims(key);
+    const next = claims.filter((claim) => claim.id !== claimId);
+    if (next.length !== claims.length) writeClaims(key, next);
+  });
+}
+
+/**
+ * Move a claim back to the front of the queue in one critical section. The queue
+ * write happens first, so a crash between the writes leaves the text in both the
+ * queue and the marker; reconciliation drops the marker while the text is at the head.
+ */
+export function releaseClaim(key: string, claimId: string): Promise<string[]> {
+  return withLock(key, () => {
+    const claims = readStoredClaims(key);
+    const claim = claims.find((entry) => entry.id === claimId);
+    const next = claims.filter((entry) => entry.id !== claimId);
+    if (!claim) return readStored(key);
+    writeQueue(key, [claim.text, ...readStored(key)]);
+    writeClaims(key, next);
+    return readStored(key);
+  });
+}
+
+/**
+ * Reconcile every claim after a snapshot. Claims the transcript already proves
+ * delivered are dropped; the rest are prepended in claim order so the normal drain
+ * sends them. A claim whose text is still at the queue head never completed its
+ * removal, so it is dropped rather than queued twice. The transcript decision happens
+ * under the same lock as the queue write, so a concurrent claim cannot be requeued
+ * from a stale read.
+ */
+export function settleClaims(
+  key: string,
+  transcript: readonly TranscriptMsg[],
+): Promise<string[]> {
+  return withLock(key, () => {
+    const claims = readStoredClaims(key);
+    const queue = readStored(key);
+    if (claims.length === 0) return queue;
+    const restored: string[] = [];
+    for (const claim of claims) {
+      if (claimWasDelivered(claim, transcript)) continue;
+      if (queue[0] === claim.text) continue;
+      restored.push(claim.text);
+    }
+    const next = restored.length > 0 ? [...restored, ...queue] : queue;
+    if (restored.length > 0) writeQueue(key, next);
+    writeClaims(key, []);
+    return next;
+  });
+}
+
+/** Whether a persisted transcript entry proves the claim reached the server. */
+export function claimWasDelivered(claim: QueueClaim, transcript: readonly TranscriptMsg[]): boolean {
+  return transcript.some(
+    (entry) =>
+      entry.role === 'you' &&
+      entry.kind === 'text' &&
+      entry.text === claim.text &&
+      entry.ts >= claim.claimedAt,
+  );
 }
 
 export function enqueueBack(key: string, text: string): Promise<string[]> {
@@ -190,6 +361,7 @@ export function enqueueFront(key: string, text: string): Promise<string[]> {
 
 export function clearQueue(key: string): Promise<string[]> {
   return withLock(key, () => {
+    writeClaims(key, []);
     writeQueue(key, []);
     return [];
   });

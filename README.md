@@ -628,10 +628,12 @@ src/web
   src/MasterDetail.tsx first-class master drawer: status, prompts, activity, chat
   src/TerminalPanel.tsx desktop-only maximizable xterm/PTY drawer
   src/ui.tsx          hand-rolled shadcn-style kit
+.github
+  workflows/ci.yml         published CI workflow (runs on main pushes and PRs)
 deploy
   agent-process-segments.service  systemd user unit for the brain
   vps.md                   install, tunnel, update, and restart runbook
-  ci-workflow.yml          ready GitHub Actions workflow (needs workflow scope)
+  ci-workflow.yml          CI workflow source template (copied to .github/workflows/ci.yml)
 ```
 
 ## API
@@ -641,7 +643,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1238 vitest cases: 962 server cases across 55 files (state machine,
+`npm test` runs 1239 vitest cases: 963 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -687,8 +689,9 @@ an hour, and add `--apply` to delete them.
 TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.opencode`
 plugin sources when present, with the `react-hooks` `recommended-latest` preset for the
 SPA. It also runs `bash -n` and `shellcheck --severity=warning` over `deploy/*.sh` and
-`scripts/*.sh`, `actionlint` over `deploy/ci-workflow.yml`, and `systemd-analyze verify`
-over `deploy/agent-process-segments.service`, and fails on any warning, shell syntax
+`scripts/*.sh`, `actionlint` over `deploy/ci-workflow.yml` and
+`.github/workflows/ci.yml`, and `systemd-analyze verify` over
+`deploy/agent-process-segments.service`, and fails on any warning, shell syntax
 error, workflow error, or unit diagnostic. It runs `markdownlint-cli2` over every tracked
 `*.md` (the root docs, `docs/`, `deploy/vps.md`, and `.opencode/skills`) with a
 120-column prose cap and tables, fences, and headings exempt from MD013, and a Markdown
@@ -732,7 +735,8 @@ CI runs the E2E, MCP stdio, and Claude mock smoke steps with hostile overrides e
 (`SBOX_HARNESS_BIN=/bin/false`, `APS_HARNESS=opencode`, `APS_CLAUDE_BIN=/bin/false`,
 `APS_BRAIN_URL=http://127.0.0.1:1`, `APS_REQUEST_ID=hostile-request`, and similar), so a
 regression that lets the host env through fails the build.
-`src/server/test/ci-workflow.test.ts` keeps the E2E and MCP steps' env blocks identical.
+`src/server/test/ci-workflow.test.ts` keeps the E2E and MCP steps' env blocks identical
+and fails if the published `.github/workflows/ci.yml` drifts from the template.
 Reproduce it locally after building:
 
 ```bash
@@ -763,9 +767,10 @@ credentials, `LANG`, and `TZ` cannot change the staged board; `npm run test:e2e-
 guards the pins. Interrupting the run with `SIGINT` or `SIGTERM` closes the capture
 browser, stops the spawned brain, and removes the temp board.
 
-CI (`deploy/ci-workflow.yml`) runs an `npm audit --omit=dev --audit-level=high`
+CI (`.github/workflows/ci.yml`, published byte-for-byte from the
+`deploy/ci-workflow.yml` template) runs an `npm audit --omit=dev --audit-level=high`
 runtime dependency gate, lint, typecheck, the full test suite, the build, the E2E API
-workflow, and the HTTP/MCP smoke scripts on pushes and pull requests. It also re-runs
-the web suite with `NODE_ENV=production`, exercising the inherited-production
-React-resolution path. Copy it to `.github/workflows/ci.yml` with a credential that has
-the `workflow` scope to activate it.
+workflow, and the HTTP/MCP smoke scripts on pushes to `main` and on pull requests. It
+also re-runs the web suite with `NODE_ENV=production`, exercising the inherited-production
+React-resolution path. Edit the template, copy it over the published file, and let
+`src/server/test/ci-workflow.test.ts` fail if the two diverge.

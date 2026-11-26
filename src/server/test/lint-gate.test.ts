@@ -30,7 +30,7 @@ describe('zero-warning lint gate', () => {
     expect(packageJson.scripts?.['lint:md']).toBe('markdownlint-cli2 "**/*.md"');
     expect(workflow).toContain('make g++ python3 shellcheck');
     expect(packageJson.scripts?.['lint:actions']).toBe(
-      'actionlint deploy/ci-workflow.yml',
+      'actionlint deploy/ci-workflow.yml .github/workflows/ci.yml',
     );
     expect(packageJson.scripts?.['lint:unit']).toBe(
       'node scripts/verify-systemd-unit.mjs',

@@ -17,9 +17,9 @@ const tsconfigTest = JSON.parse(
 ) as { include?: string[] };
 
 describe('zero-warning lint gate', () => {
-  it('runs ESLint, the ShellCheck shell gate, and actionlint', () => {
+  it('runs ESLint, ShellCheck, actionlint, and systemd-analyze verify', () => {
     expect(packageJson.scripts?.['lint']).toBe(
-      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:actions',
+      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:actions && npm run --silent lint:unit',
     );
     expect(packageJson.scripts?.['lint:js']).toBe('eslint . --max-warnings=0');
     expect(packageJson.scripts?.['lint:sh']).toBe(
@@ -29,6 +29,9 @@ describe('zero-warning lint gate', () => {
     expect(workflow).toContain('make g++ python3 shellcheck');
     expect(packageJson.scripts?.['lint:actions']).toBe(
       'actionlint deploy/ci-workflow.yml',
+    );
+    expect(packageJson.scripts?.['lint:unit']).toBe(
+      'node scripts/verify-systemd-unit.mjs',
     );
   });
 

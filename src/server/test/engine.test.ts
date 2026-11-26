@@ -42,6 +42,7 @@ function spendPause(overrides: Partial<SpendPause> = {}): SpendPause {
     cellId: null,
     cellName: null,
     label: 'Overall',
+    reason: 'cap_reached',
     periodStart: Date.UTC(2026, 10, 1),
     periodEnd: Date.UTC(2026, 11, 1),
     budgetUsd: 100,
@@ -393,6 +394,99 @@ describe('turn engine', () => {
     await next.promise;
     await settle();
     expect(h.harness.sessions[1]?.sessionId).toBe('sess-cap');
+  });
+
+  it('stops only the paused cell with unknown-cost copy when spend cannot be verified', async () => {
+    const errors = { error: vi.fn() };
+    harness = createHarness(
+      () => [initLine('sess-unknown')],
+      undefined,
+      undefined,
+      errors,
+    );
+    const h = harness;
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+    const strict = spendPause({
+      scope: 'cell',
+      cellId: alpha.id,
+      cellName: 'Alpha',
+      label: 'Alpha',
+      reason: 'unknown_cost',
+      budgetUsd: 100,
+      spendUsd: 5,
+      spendIsLowerBound: true,
+      unpricedTurns: 2,
+      percentUsed: 5,
+    });
+    const alphaRequest = h.repo.create({ title: 'Unpriced Alpha', cellId: alpha.id });
+    const betaRequest = h.repo.create({ title: 'Unaffected Beta', cellId: beta.id });
+
+    const alphaTurn = await h.engine.start(alphaRequest.id);
+    await settle();
+    const alphaProcess = h.harness.process;
+    const betaTurn = await h.engine.start(betaRequest.id);
+    await settle();
+    const betaProcess = h.harness.process;
+
+    const enforcer = new SpendCapEnforcer({
+      engine: h.engine,
+      admission: (cellId) => (cellId === alpha.id ? strict : null),
+      errors,
+    });
+    enforcer.check();
+    await alphaTurn.promise;
+    await settle();
+
+    expect(alphaTurn.stoppedBy).toEqual(strict);
+    expect(alphaTurn.stoppedBy?.reason).toBe('unknown_cost');
+    expect(alphaTurn.events.map((event) => event.t)).toEqual(['paused', 'done']);
+    expect(alphaTurn.events[0]).toMatchObject({ t: 'paused', pause: strict });
+    expect(alphaTurn.failure).toBeNull();
+    expect(alphaProcess?.killed).toBe(true);
+    expect(h.engine.hasLive(alphaRequest.id)).toBe(false);
+    expect(h.repo.require(alphaRequest.id).agentStatus).toBe('idle');
+    expect(h.repo.require(alphaRequest.id).unchecked).toBe(true);
+    expect(h.usage.query({}).totals.turns).toBe(0);
+
+    const stopped = h.engine
+      .transcript(alphaRequest.id)
+      .filter((message) => message.kind === 'text' && message.text.startsWith('⏸'));
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.text).toContain('Alpha monthly spend cap cannot be verified');
+    expect(stopped[0]?.text).toContain('2 unpriced turns');
+    expect(stopped[0]?.text).toContain('at least $5.00 of $100.00');
+    expect(stopped[0]?.text).toContain('add a matching price');
+    expect(stopped[0]?.text).toContain('pause-on-unknown-cost');
+    expect(stopped[0]?.text).toContain('This turn was stopped');
+    expect(stopped[0]?.text).not.toContain('raise the budget');
+
+    const done = alphaTurn.events.find((event) => event.t === 'done');
+    expect(done).toBeDefined();
+    if (done?.t === 'done') {
+      expect(done.transcript).toContainEqual(stopped[0]);
+    }
+
+    // The sibling cell is untouched and still running.
+    expect(h.engine.hasLive(betaRequest.id)).toBe(true);
+    expect(betaTurn.events.some((event) => event.t === 'paused')).toBe(false);
+    expect(betaTurn.events.some((event) => event.t === 'done')).toBe(false);
+    expect(h.engine.liveTurns()).toEqual([{ id: betaRequest.id, cellId: beta.id, scope: 'request' }]);
+    expect(betaProcess?.killed).toBe(false);
+    expect(errors.error).not.toHaveBeenCalled();
+
+    h.engine.cancel(betaRequest.id);
+    await betaTurn.promise;
+    await settle();
+
+    // The stopped turn keeps its harness session for the next message.
+    const next = await h.engine.send(alphaRequest.id, 'continue');
+    await settle();
+    h.harness.process?.emit(resultLine());
+    await next.promise;
+    await settle();
+    expect(h.harness.sessions[2]?.sessionId).toBe('sess-unknown');
+    expect(errors.error).not.toHaveBeenCalled();
   });
 
   it('stops sibling turns when a completed usage row crosses the overall cap', async () => {

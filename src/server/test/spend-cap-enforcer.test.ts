@@ -8,6 +8,7 @@ function pause(overrides: Partial<SpendPause> = {}): SpendPause {
     cellId: null,
     cellName: null,
     label: 'Overall',
+    reason: 'cap_reached',
     periodStart: Date.UTC(2026, 10, 1),
     periodEnd: Date.UTC(2026, 11, 1),
     budgetUsd: 100,
@@ -91,6 +92,30 @@ describe('SpendCapEnforcer', () => {
     expect(fixture.order).toEqual(['a-request', 'a-master', 'a-summary']);
     expect(fixture.cancelled.every((entry) => entry.pause.cellId === 'cell-a')).toBe(true);
     expect(fixture.engine.liveTurns).toHaveBeenCalledTimes(1);
+    expect(fixture.errors.error).not.toHaveBeenCalled();
+  });
+
+  it('forwards an unknown-cost pause unchanged', () => {
+    const strict = pause({
+      scope: 'cell',
+      cellId: 'cell-a',
+      cellName: 'Alpha',
+      label: 'Alpha',
+      reason: 'unknown_cost',
+      budgetUsd: 100,
+      spendUsd: 5,
+      spendIsLowerBound: true,
+      unpricedTurns: 2,
+      percentUsed: 5,
+    });
+    const fixture = setup(
+      [{ id: 'a-request', cellId: 'cell-a', scope: 'request' }],
+      (cellId) => (cellId === 'cell-a' ? strict : null),
+    );
+
+    fixture.enforcer.check();
+
+    expect(fixture.cancelled).toEqual([{ id: 'a-request', pause: strict }]);
     expect(fixture.errors.error).not.toHaveBeenCalled();
   });
 

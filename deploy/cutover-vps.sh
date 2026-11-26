@@ -119,7 +119,7 @@ check_pruner() {
 
 point_latest() {
   [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
-  mkdir -p "$RUN_ROOT" || {
+  (umask 077; mkdir -p "$RUN_ROOT") || {
     log "WARNING: could not create $RUN_ROOT; leaving $RUN_ROOT/latest unchanged"
     return 1
   }
@@ -186,6 +186,14 @@ require_cmd() {
 
 normalize_path() {
   realpath -m "$1"
+}
+
+# Create (or tighten) a run directory that holds the evidence and rollback backup.
+# A missing ancestor chain is created owner-only; an existing ancestor is left alone.
+prepare_run_dir() {
+  local dir="$1"
+  (umask 077; mkdir -p "$dir")
+  chmod 700 "$dir"
 }
 
 unit_active() {
@@ -541,6 +549,7 @@ detach_cutover() {
   pre_launch_prune "$prune_buffer"
 
   RUN_DIR="${RUN_ROOT}/runs/$(date -u +%Y%m%dT%H%M%SZ)"
+  prepare_run_dir "$RUN_DIR"
   mkdir -p "$RUN_DIR/backup/systemd"
   cp "$ORIGINAL_SCRIPT" "$RUN_DIR/cutover.sh"
   chmod +x "$RUN_DIR/cutover.sh"
@@ -976,6 +985,7 @@ run_cutover() {
   if [[ "$NO_PRUNE" -eq 0 ]]; then
     check_pruner >/dev/null || exit 2
   fi
+  prepare_run_dir "$RUN_DIR"
   mkdir -p "$RUN_DIR/backup/systemd"
   touch "$RUN_DIR/cutover.log"
   write_state running

@@ -1980,7 +1980,7 @@ the rest of the run keeps its current behavior.
 snapshot contents, timing, `VACUUM INTO`, retention, and manual restore path are unchanged.
 This is not encryption at rest, and root can still read the files. Run directories and
 snapshots left by an earlier version are tightened by `npm run repair:upgrades` (D93).
-`cutover-vps.sh` uses its own duplicated helper set and is also separate work.
+The cutover sibling is covered by D94.
 
 ## D87. Maintenance opens share the owner-only database path
 
@@ -1995,16 +1995,16 @@ sidecar files at `0644`.
 tightens the database before SQLite opens it so new sidecars inherit `0600`, opens with
 `{ fileMustExist: true }`, and sweeps again to repair sidecars already on disk. The helper
 sets no pragmas and never migrates or reconciles, so maintenance cannot change a live
-brain's schema or request state. The CLI calls it and keeps its own `busy_timeout` and
-`query_only` ordering. A chmod failure propagates (fail closed). `src/server/src` may
-contain `better-sqlite3`/`new Database` only in `db.ts`; a source-scan test in
-`test/db.test.ts` enforces it. Test fixtures and the proof scripts are exempt because they
-run on throwaway temp roots.
+brain's schema or request state. The CLI calls it and keeps its own `busy_timeout`; it
+selects the read-only open for a dry run (D95). A chmod failure propagates (fail closed).
+`src/server/src` may contain `better-sqlite3`/`new Database` only in `db.ts`; a
+source-scan test in `test/db.test.ts` enforces it. Test fixtures and the proof scripts are
+exempt because they run on throwaway temp roots.
 
 **Cost.** One more exported open path and a source-scan guard that must be updated
 deliberately if a future maintenance command needs a different open mode. The dry run
-still opens read-write and only then sets `query_only`; making it truly read-only is
-separate work. This is not encryption at rest, and root can still read the files.
+uses the read-only option (D95); `--apply` still opens read-write. This is not encryption
+at rest, and root can still read the files.
 
 ## D88. The Config page names the preserved settings file
 
@@ -2161,5 +2161,62 @@ step, not a hook in `upgrade-vps.sh`.
 
 **Cost.** Operators must run the repair once after the first fixed upgrade, and the built
 CLI needs `npm run build` first, like `repair:permissions`. It is not encryption at rest,
-root can still read the files, and `cutover-vps.sh` runs remain separate work. Snapshot
+root can still read the files, and `cutover-vps.sh` runs are covered by D94. Snapshot
 contents are unchanged.
+
+## D94. Cutover run directories are owner-only
+
+**Context.** `deploy/cutover-vps.sh` created
+`~/.aps-cutover/runs/<UTC>/` with a bare `mkdir -p` on both the detached launch and the
+internal `--run --run-dir` path. Under the usual `umask 022`, `~/.aps-cutover`,
+`runs`, and the run directory were `0755`, so any local account could read the cutover
+evidence: `config-before.json`/`config-after.json`, `errors.log.before`,
+`before.json`/`after.json`, `cutover.log`, `state`, `worktrees.before`, the copied
+`cutover.sh`, the pre-build `dist/` tree, and `backup/systemd/` — the unit and drop-in
+copies that are the only in-place rollback artifact. The run directory is the evidence
+an operator reads after the detached turn dies with the old unit.
+
+**Decision.** Mirror D86. `prepare_run_dir` runs `mkdir -p` under a local `umask 077`,
+then forces the leaf to `0700`. It runs on both creation sites; the internal path's
+`check_pruner` still runs first, so the existing "fails before creating the run
+directory" contract is unchanged. A retried `--run --run-dir` tightens a directory left
+at `0755`. A missing `~/.aps-cutover`/`runs` ancestor chain is created `0700`; existing
+ancestors are never chmodded, matching D73/D86. `point_latest` also creates a missing
+`~/.aps-cutover` under `umask 077`, because an internal run whose `--run-dir` is outside
+the root would otherwise leave the `latest` symlink parent world-readable. Mode failures
+fail closed through `set -Eeuo pipefail` and, inside `run_cutover`, `on_error`; the
+detached launch fails before any service or config mutation. No global umask is set.
+
+Directory-level `0700` is the protection boundary; individual evidence files and the
+copied script keep their current modes, exactly as D86 chose for upgrades. There is no
+`db-backup.sqlite` here, so no file-level `0600` rule applies.
+
+**Cost.** One shell helper, two call sites, one root `mkdir` change, three tests, and
+doc updates. Run contents, timing, names, retention, pruning, and the `latest` target are
+unchanged. This is not encryption at rest, and root can still read the files. Run
+directories left by an earlier version are not repaired retroactively; a dry-run-first
+`npm run repair:runs` follow-up owns that, including old ancestors, symlinks, and
+per-entry failures.
+
+## D95. The legacy-branch dry run opens SQLite read-only
+
+**Context.** D87 routed the maintenance `migrate:branches` CLI through
+`openExistingDb`, but the dry run still opened the live database read-write and only then
+set `query_only = ON`. A read-write WAL open can replay or checkpoint the WAL and needs
+write access, so the default dry run was not non-mutating.
+
+**Decision.** `openExistingDb` takes an options object with `readonly?: boolean`; the
+default is unchanged read-write. It passes `readonly: true` to `better-sqlite3` (SQLite's
+own read-only flag) rather than using `immutable=1`, which assumes no concurrent writer
+and would be wrong for a live brain. `legacy-branches-cli.ts` opens with
+`{ readonly: !options.apply }`, keeps `busy_timeout = 5000`, and drops `query_only`. The
+owner-only `ensurePrivateFile`/`hardenDbFiles` sweep still runs in both modes, and a chmod
+failure still aborts (fail closed). The guarantee is no database-content mutation: a
+read-only WAL connection may still create an empty `-wal`/`-shm` or update `-shm` locks
+through the wal-index, so it needs the same filesystem access as before. A database that
+needs rollback-journal recovery now fails closed with SQLite's read-only-recovery error
+instead of being mutated; operators can run `--apply` or open it once normally.
+
+**Cost.** One option on the existing helper and one call-site branch. `--apply` keeps the
+read-write open and remains the only path that writes `requests.branch`. Making a dry run
+work without ownership/chmod is separate work, and this is not encryption at rest.

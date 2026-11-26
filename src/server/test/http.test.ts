@@ -3474,6 +3474,45 @@ describe('http api', () => {
     expect(missing.json()).toEqual({ error: 'not_found' });
   });
 
+  it('returns the app JSON 404 for unknown routes without a web build', async () => {
+    await makeApp({});
+
+    for (const url of ['/api/nope', '/boards/abc']) {
+      const response = await call('GET', url);
+      expect(response.status).toBe(404);
+      expect(response.json()).toEqual({ error: 'not_found' });
+      expect(response.text).not.toContain('statusCode');
+      expect(response.text).not.toContain('Route GET:');
+    }
+  });
+
+  it('uses the SPA fallback only while index.html exists', async () => {
+    const dir = tmpDir('web');
+    mkdirSync(path.join(dir, 'assets'));
+    writeFileSync(path.join(dir, 'assets', 'app.js'), 'console.log("asset")');
+    const records: string[] = [];
+    const errors: ErrorSink = {
+      error(source) {
+        records.push(source);
+      },
+    };
+    await makeApp({ webDir: dir }, undefined, undefined, undefined, errors);
+
+    const partial = await call('GET', '/boards/abc');
+    expect(partial.status).toBe(404);
+    expect(partial.json()).toEqual({ error: 'not_found' });
+
+    writeFileSync(path.join(dir, 'index.html'), '<!doctype html><body>spa-index</body>');
+    const late = await call('GET', '/boards/abc');
+    expect(late.status).toBe(200);
+    expect(late.text).toContain('spa-index');
+
+    const missing = await call('GET', '/assets/missing.js');
+    expect(missing.status).toBe(404);
+    expect(missing.json()).toEqual({ error: 'not_found' });
+    expect(records).not.toContain('http.request');
+  });
+
   it('does not escape webDir via encoded traversal paths', async () => {
     const dir = tmpDir('web');
     mkdirSync(path.join(dir, 'assets'));

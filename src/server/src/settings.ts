@@ -4,9 +4,11 @@ import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_CHAT_SETTINGS,
+  DEFAULT_EVENT_COALESCE_MINUTES,
   DEFAULT_EVENT_NOTIFICATIONS,
   DEFAULT_NOTIFICATIONS,
   DEFAULT_SMTP_PORT,
+  EVENT_CHANNELS,
   MAX_BOT_TOKEN_LENGTH,
   MAX_BUDGET_USD,
   MAX_CHAT_DESTINATIONS,
@@ -14,7 +16,10 @@ import {
   MAX_CHAT_ROUTES,
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_EMAIL_RECIPIENTS,
+  MAX_EVENT_COALESCE_MINUTES,
+  MAX_EVENT_ROUTES,
   MIN_BOT_TOKEN_LENGTH,
+  MIN_EVENT_COALESCE_MINUTES,
   WEBHOOK_FORMATS,
   chatBotTokenError,
   chatChannelIdError,
@@ -29,10 +34,12 @@ import {
   type EmailSettings,
   type EventChannelSettings,
   type EventNotificationSettings,
+  type EventRoute,
   type NotificationsSettings,
   type NotificationsView,
   type WebhookSettings,
 } from './domain/budget.js';
+import { EVENT_NOTIFICATION_KINDS } from './domain/notifications.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 import {
@@ -304,6 +311,30 @@ const eventChannelSchema: z.ZodType<EventChannelSettings, unknown> = z.object({
   email: z.boolean().default(false),
 });
 
+const eventRouteSchema: z.ZodType<EventRoute, unknown> = z.object({
+  kind: z.enum(EVENT_NOTIFICATION_KINDS),
+  channel: z.enum(EVENT_CHANNELS),
+  cellId: z.string().min(1).max(64),
+});
+
+const eventRoutesSchema = z
+  .array(eventRouteSchema)
+  .max(MAX_EVENT_ROUTES)
+  .superRefine((routes, ctx) => {
+    const seen = new Set<string>();
+    routes.forEach((route, index) => {
+      const key = `${route.kind}\u0000${route.channel}\u0000${route.cellId}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: 'duplicate event route',
+        });
+      }
+      seen.add(key);
+    });
+  });
+
 const eventsSchema: z.ZodType<EventNotificationSettings, unknown> = z.object({
   failedTurns: eventChannelSchema.default(() => ({
     ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns,
@@ -314,6 +345,13 @@ const eventsSchema: z.ZodType<EventNotificationSettings, unknown> = z.object({
   summaryFailures: eventChannelSchema.default(() => ({
     ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures,
   })),
+  coalesceMinutes: z
+    .number()
+    .int()
+    .min(MIN_EVENT_COALESCE_MINUTES)
+    .max(MAX_EVENT_COALESCE_MINUTES)
+    .default(DEFAULT_EVENT_COALESCE_MINUTES),
+  routes: eventRoutesSchema.default(() => []),
 });
 
 const notificationsSchema: z.ZodType<NotificationsSettings, unknown> = z.object({
@@ -325,6 +363,8 @@ const notificationsSchema: z.ZodType<NotificationsSettings, unknown> = z.object(
     failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
     masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
     summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
+    coalesceMinutes: DEFAULT_EVENT_NOTIFICATIONS.coalesceMinutes,
+    routes: [],
   })),
 });
 
@@ -368,6 +408,13 @@ const eventsPatchSchema = z.object({
   failedTurns: eventChannelPatchSchema.optional(),
   masterErrors: eventChannelPatchSchema.optional(),
   summaryFailures: eventChannelPatchSchema.optional(),
+  coalesceMinutes: z
+    .number()
+    .int()
+    .min(MIN_EVENT_COALESCE_MINUTES)
+    .max(MAX_EVENT_COALESCE_MINUTES)
+    .optional(),
+  routes: eventRoutesSchema.optional(),
 });
 
 
@@ -423,6 +470,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
       failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
       masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
       summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
+      coalesceMinutes: DEFAULT_EVENT_NOTIFICATIONS.coalesceMinutes,
+      routes: [],
     },
   },
 };
@@ -473,6 +522,8 @@ export function redactSettings(settings: AppSettings): RedactedSettings {
         failedTurns: { ...settings.notifications.events.failedTurns },
         masterErrors: { ...settings.notifications.events.masterErrors },
         summaryFailures: { ...settings.notifications.events.summaryFailures },
+        coalesceMinutes: settings.notifications.events.coalesceMinutes,
+        routes: settings.notifications.events.routes.map((route) => ({ ...route })),
       },
     },
   };
@@ -701,6 +752,13 @@ export class SettingsStore {
             ...current.notifications.events.summaryFailures,
             ...(parsed.notifications?.events?.summaryFailures ?? {}),
           },
+          coalesceMinutes:
+            parsed.notifications?.events?.coalesceMinutes ??
+            current.notifications.events.coalesceMinutes,
+          routes: (
+            parsed.notifications?.events?.routes ??
+            current.notifications.events.routes
+          ).map((route) => ({ ...route })),
         },
       },
     });

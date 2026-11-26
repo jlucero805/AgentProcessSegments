@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1013 vitest cases: 799 server across 49 files (one environmental root-skip) and 214 web across 24 files, all green.
+- 1024 vitest cases: 808 server across 49 files and 216 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -100,7 +100,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 799 server + 214 web, plus the e2e env guard
+npm test                       # 808 server + 216 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -477,13 +477,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     resent. A row whose alert was deleted returns `409 alert_deleted` and can never be
     resent. Resend failures reuse `budget.notify` with delivery/alert ids and phase only.
     Operational events use the sibling `notification_event_deliveries` outbox, keyed
-    `UNIQUE(dedupe_key, channel)` with a one-hour failure signature, drain through
+    `UNIQUE(dedupe_key, channel)` with a configurable failure window, drain through
     `notifications/service.ts`, and send classification-only payloads to the enabled
     webhook/email routes. Failed request turns, master errors, and scorecard failures are
     the event kinds; a scorecard cap stop, the already-running guard, and a deleted cell
     do not notify. The `kind` CHECK is extended by a one-time table rebuild in `db.ts`.
-    A delivered event is never resent; event failures use `notifications.event` with ids
-    and a short reason only. `retention.budgetAlertsDays`
+    The window is an epoch-anchored tumbling bucket (`notifications.events.coalesceMinutes`,
+    default 60, allowed 1–1440), and the key includes its length and start. Optional
+    `notifications.events.routes` entries limit a kind/channel to exact cell ids; no entry
+    for that pair means every cell. Narrowing a route skips pending rows for excluded
+    cells, and routes/windows never backfill. A delivered event is never resent; event
+    failures use `notifications.event` with ids and a short reason only.
+    `retention.budgetAlertsDays`
     (default 400, `0` = forever) prunes terminal delivery rows and acknowledged alerts in
     the hourly `DataRetention` pass. The effective cutoff is capped at the current UTC
     period start, so the current month is never pruned: a delivery row is the idempotency
@@ -565,9 +570,10 @@ SMTP email, and Slack/Discord bots are the current budget channels; see
 `usage/budget-chat.ts` for the chat payload/classification seam and `usage/budget-email.ts`
 for nodemailer. Operational event notifications use the sibling
 `notification_event_deliveries` outbox and deliberately route only to webhook and email;
-add a new event kind in `domain/notifications.ts`, the event route settings, the
-engine/master/summary hook that observes it, and a `db.ts` migration when the `kind`
-CHECK changes.
+add a new event kind in `domain/notifications.ts`, its `EventChannelSettings` pair, the
+`EventRoute` kind union, the engine/master/summary hook that observes it, and a `db.ts`
+migration when the `kind` CHECK changes. The coalescing window is global to event
+notifications; per-kind windows are not supported.
 
 **Add a scorecard fact.** Extend `SummaryStats` in `summary/types.ts`, fill it in
 `collectSummaryStats`, and assert it in `test/summary.test.ts`. The prompt already points

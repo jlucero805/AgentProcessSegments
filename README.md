@@ -425,9 +425,12 @@ agent exit, or timeout), **master errors** (a failed master turn or scheduler cy
 and email checkboxes; the channel must also be enabled above. Event bodies carry ids, the
 request title/state or cell, and a failure classification only, never a prompt, transcript,
 diff, stderr block, or raw error text. A cap-stopped scorecard is a pause, not a failure.
-Repeated failures with the same signature are coalesced to one message per UTC hour per
-channel, and enabling a route never backfills old events. Event deliveries use the same
-durable retry, signing, timeout, and destination-rotation rules as budget alerts.
+Repeat failures with the same signature are coalesced inside a configurable window (default
+60 minutes, one UTC hour; allowed 1–1440) per channel. Optional **cell routes** limit an
+event kind/channel to specific cells; with no route the channel follows the all-cells
+default. Narrowing a route skips pending rows for excluded cells, and enabling a route or
+widening the window never backfills old events. Event deliveries use the same durable
+retry, signing, timeout, and destination-rotation rules as budget alerts.
 
 `GET /api/notifications/status` shows per-channel and per-destination queue, failure, and
 last-delivery state, plus aggregate and per-kind event counts. `POST /api/notifications/{webhook,email,slack,discord}/test` sends a
@@ -552,7 +555,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1013 vitest cases: 799 server cases across 49 files (state machine,
+`npm test` runs 1024 vitest cases: 808 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -566,7 +569,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 214 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 216 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

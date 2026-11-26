@@ -202,17 +202,20 @@ creates a second row for that destination.
 ### `notification_event_deliveries`
 
 `id` (uuid PK), `dedupe_key`, `kind` (`turn.failed|master.error|summary.failed`),
+`cell_id`,
 `channel` (`webhook|email`), `format` (`json|slack|discord|email`), `destination_hash`,
 `payload_json`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
 `next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
 `UNIQUE(dedupe_key, channel)` is the event idempotency key;
 `idx_notification_event_deliveries_due` covers `(status, next_attempt_at)`. The row has no
 alert foreign key, so it survives request/cell deletion and carries a self-contained,
-sanitized payload. `dedupe_key` is a request+source+reason+UTC-hour signature for a failed
-turn, a cell+source+segment+UTC-hour signature for a master error, or a
-cell+source+reason+UTC-hour signature for a failed scorecard. Rows older than 400 days are
-pruned on notifier start. A database created with only the first two kinds is rebuilt once
-by `migrate()` so `summary.failed` can be enqueued.
+sanitized payload. `cell_id` is nullable and exists only so the drain can skip pending rows
+outside a route allowlist. `dedupe_key` is a request+source+reason+window signature for a
+failed turn, a cell+source+segment+window signature for a master error, or a
+cell+source+reason+window signature for a failed scorecard; the key includes the window
+length and start. Rows older than 400 days are pruned on notifier start. A database created
+with only the first two kinds is rebuilt once by `migrate()` so `summary.failed` can be
+enqueued.
 
 ### `spend_cap_overrides`
 
@@ -257,9 +260,16 @@ with `botToken: null`/`botTokenSet`.
 
 `notifications.events` defaults to
 `{ failedTurns: { webhook: false, email: false }, masterErrors: { webhook: false, email:
-false }, summaryFailures: { webhook: false, email: false } }`; a route only sends when its
-webhook/email channel is also enabled and configured. Settings patches merge every event
-kind and channel independently, and enabling a route never replays old events.
+false }, summaryFailures: { webhook: false, email: false }, coalesceMinutes: 60,
+routes: [] }`; a route only sends when its webhook/email channel is also enabled and
+configured. `coalesceMinutes` is an integer from 1 to 1440; the window is a fixed UTC
+bucket anchored at the Unix epoch, so 60 preserves the old hourly behavior. `routes` holds
+`{ kind: 'turn.failed'|'master.error'|'summary.failed', channel: 'webhook'|'email',
+cellId }` entries. For one kind/channel pair, no entries means every cell; entries restrict
+delivery to those exact cell ids. A `turn.failed` with no cell only matches the no-route
+default. Settings patches merge every event kind and channel independently, and replace
+`routes` wholesale when supplied. Enabling a route or widening the window never replays old
+events; narrowing a route skips pending rows for excluded cells.
 
 `BudgetService` reads aggregate totals directly from `UsageRepository.totals`; the early
 budget usage reader adapter was removed once the ledger landed. Advisory alert spend is the
@@ -441,11 +451,15 @@ JSON event bodies are a v1 envelope (`version`, `event`, `severity`, `title`, `o
 `text`, and a typed `turn`/`master`/`summary` object); Slack is `{text}` and Discord is
 `{content}`. Events reuse the budget HMAC headers, 10-second timeout, bounded retry,
 `Retry-After`, destination hash, `X-APS-Event-Kind`/`X-APS-Event-Id` email headers, and
-400-day prune. The same signature in the same UTC hour creates one row per channel; the
-first row wins, and disabling a route or channel marks pending rows `skipped`. Payloads
-contain ids, title/state, harness/model, and a safe classification only; raw error text
-stays in the transcript and error log. Event failures go to `notifications.event` with
-kind/delivery ids and a short reason only.
+400-day prune. The same signature in the same configured window creates one row per
+channel; the window defaults to 60 minutes and is a fixed UTC bucket anchored at the Unix
+epoch. The first row wins, and disabling a route or channel marks pending rows `skipped`.
+Cell routes restrict an event kind/channel to exact cell ids; with no route for that pair
+every cell, including unassigned turns, is eligible. Narrowing a route skips pending rows
+for excluded cells, and skipped signatures are never revived. Payloads contain ids,
+title/state, harness/model, and a safe classification only; raw error text stays in the
+transcript and error log. Event failures go to `notifications.event` with kind/delivery ids
+and a short reason only.
 
 
 `GET /api/notifications/status` reports per-channel enabled/configured, pending, failed,

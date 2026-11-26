@@ -4,7 +4,7 @@ import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { openDb, type Db } from '../src/db.js';
-import type { EmailSettings } from '../src/domain/budget.js';
+import type { EmailSettings, EventRoute } from '../src/domain/budget.js';
 import type {
   MasterErrorNotification,
   SummaryFailureNotification,
@@ -97,6 +97,8 @@ interface SetupOptions {
   failedTurns?: { webhook?: boolean; email?: boolean };
   masterErrors?: { webhook?: boolean; email?: boolean };
   summaryFailures?: { webhook?: boolean; email?: boolean };
+  coalesceMinutes?: number;
+  routes?: (cellId: string) => EventRoute[];
   timeoutMs?: number;
   maxAttempts?: number;
   errors?: ErrorSink;
@@ -123,6 +125,8 @@ function setup(options: SetupOptions) {
         failedTurns: { webhook: false, email: false, ...options.failedTurns },
         masterErrors: { webhook: false, email: false, ...options.masterErrors },
         summaryFailures: { webhook: false, email: false, ...options.summaryFailures },
+        coalesceMinutes: options.coalesceMinutes ?? 60,
+        routes: options.routes?.(cell.id) ?? [],
       },
     },
   });
@@ -178,6 +182,174 @@ describe('notification event deliveries', () => {
         'summary.failed': { pending: 0, failed: 0 },
       },
     });
+  });
+
+  it('routes a channel only for listed cells while leaving the default alone', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      failedTurns: { webhook: true },
+      routes: (cellId) => [
+        { kind: 'turn.failed', channel: 'webhook', cellId },
+      ],
+    });
+
+    context.notifier.observeTurnFailure({ ...TURN, cellId: context.cellId });
+    context.notifier.observeTurnFailure({
+      ...TURN,
+      turnId: 'turn-other',
+      requestId: 'req-other',
+      cellId: 'other-cell',
+    });
+    context.notifier.observeTurnFailure({
+      ...TURN,
+      turnId: 'turn-null',
+      requestId: 'req-null',
+      cellId: null,
+    });
+
+    expect(context.events.status('turn.failed').pending).toBe(1);
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('stores each event cell and skips rows outside a route allowlist', () => {
+    const context = setup({ failedTurns: { webhook: true } });
+    const base = {
+      kind: 'turn.failed' as const,
+      channel: 'webhook' as const,
+      format: 'json' as const,
+      destinationHash: 'hash',
+      payloadJson: '{}',
+      now: NOW,
+    };
+    const kept = context.events.enqueue({
+      ...base,
+      dedupeKey: 'turn:r1',
+      cellId: 'cell-b',
+    });
+    const excluded = context.events.enqueue({
+      ...base,
+      dedupeKey: 'turn:r2',
+      cellId: 'cell-a',
+    });
+    const unassigned = context.events.enqueue({
+      ...base,
+      dedupeKey: 'turn:r3',
+      cellId: null,
+    });
+
+    expect(kept.cellId).toBe('cell-b');
+    expect(context.events.skipUnrouted('turn.failed', 'webhook', ['cell-b'], NOW)).toBe(2);
+    expect(context.events.get(kept.id)?.status).toBe('pending');
+    expect(context.events.get(excluded.id)?.status).toBe('skipped');
+    expect(context.events.get(unassigned.id)?.status).toBe('skipped');
+  });
+
+  it('delivers an unassigned turn when the pair has no routes', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({ send: fake.send, failedTurns: { webhook: true } });
+
+    context.notifier.observeTurnFailure({ ...TURN, cellId: null });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('keeps event kinds and channels independently routed', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const messages: EmailMessage[] = [];
+    const sendEmail: EmailSendLike = async (_email, message) => {
+      messages.push(message);
+    };
+    const context = setup({
+      send: fake.send,
+      sendEmail,
+      email: {},
+      failedTurns: { webhook: true, email: true },
+      routes: (cellId) => [
+        { kind: 'turn.failed', channel: 'webhook', cellId },
+      ],
+    });
+
+    context.notifier.observeTurnFailure({ ...TURN, cellId: 'other-cell' });
+    await context.notifier.flush();
+
+    expect(fake.calls).toHaveLength(0);
+    expect(messages).toHaveLength(1);
+  });
+
+  it('skips pending rows when a route narrows and never revives skipped signatures', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({ send: fake.send, failedTurns: { webhook: true } });
+
+    context.notifier.observeTurnFailure({ ...TURN, cellId: context.cellId });
+    context.settings.patch({
+      notifications: {
+        events: {
+          routes: [
+            { kind: 'turn.failed', channel: 'webhook', cellId: 'other-cell' },
+          ],
+        },
+      },
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(0);
+    expect(context.events.status('turn.failed').pending).toBe(0);
+
+    context.settings.patch({ notifications: { events: { routes: [] } } });
+    context.notifier.observeTurnFailure({ ...TURN, turnId: 'turn-2' });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(0);
+
+    context.notifier.observeTurnFailure({
+      ...TURN,
+      turnId: 'turn-3',
+      requestId: 'req-3',
+      cellId: 'other-cell',
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('coalesces within a configurable window and leaves stored keys untouched', async () => {
+    const fake = sender(() => new Response(null, { status: 204 }));
+    const context = setup({
+      send: fake.send,
+      failedTurns: { webhook: true },
+      coalesceMinutes: 30,
+    });
+
+    context.notifier.observeTurnFailure(TURN);
+    context.clock.advance(25 * 60_000);
+    context.notifier.observeTurnFailure({
+      ...TURN,
+      turnId: 'turn-2',
+      occurredAt: NOW + 25 * 60_000,
+    });
+    expect(context.events.status('turn.failed').pending).toBe(1);
+
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(1);
+    expect((fake.calls[0]!.init.headers as Record<string, string>)['idempotency-key']).toMatch(
+      /^turn:req-1:engine\.exit:.*:30:\d+$/,
+    );
+
+    const row = context.db
+      .prepare('SELECT id, dedupe_key FROM notification_event_deliveries LIMIT 1')
+      .get() as { id: string; dedupe_key: string };
+
+    context.clock.advance(10 * 60_000);
+    context.notifier.observeTurnFailure({
+      ...TURN,
+      turnId: 'turn-3',
+      occurredAt: NOW + 35 * 60_000,
+    });
+    await context.notifier.flush();
+    expect(fake.calls).toHaveLength(2);
+
+    context.settings.patch({ notifications: { events: { coalesceMinutes: 60 } } });
+    await context.notifier.flush();
+    expect(context.events.get(row.id)?.dedupeKey).toBe(row.dedupe_key);
   });
 
   it('sends a signed JSON envelope with a safe classification only', async () => {

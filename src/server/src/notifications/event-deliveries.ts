@@ -11,6 +11,7 @@ export interface EventDeliveryRecord {
   id: string;
   dedupeKey: string;
   kind: NotificationEventKind;
+  cellId: string | null;
   channel: DeliveryChannel;
   format: DeliveryFormat;
   destinationHash: string;
@@ -27,6 +28,7 @@ export interface EventDeliveryRecord {
 export interface EventDeliveryInput {
   dedupeKey: string;
   kind: NotificationEventKind;
+  cellId: string | null;
   channel: DeliveryChannel;
   format: DeliveryFormat;
   destinationHash: string;
@@ -46,6 +48,7 @@ interface EventDeliveryRow {
   id: string;
   dedupe_key: string;
   kind: NotificationEventKind;
+  cell_id: string | null;
   channel: string;
   format: DeliveryFormat;
   destination_hash: string;
@@ -64,6 +67,7 @@ function toRecord(row: EventDeliveryRow): EventDeliveryRecord {
     id: row.id,
     dedupeKey: row.dedupe_key,
     kind: row.kind,
+    cellId: row.cell_id,
     channel: row.channel as DeliveryChannel,
     format: row.format,
     destinationHash: row.destination_hash,
@@ -90,14 +94,15 @@ export class NotificationEventDeliveryRepository {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO notification_event_deliveries
-           (id, dedupe_key, kind, channel, format, destination_hash, payload_json,
+           (id, dedupe_key, kind, cell_id, channel, format, destination_hash, payload_json,
             status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL, ?, ?, NULL)`,
       )
       .run(
         randomUUID(),
         input.dedupeKey,
         input.kind,
+        input.cellId,
         input.channel,
         input.format,
         input.destinationHash,
@@ -231,6 +236,30 @@ export class NotificationEventDeliveryRepository {
           WHERE status = 'pending' AND kind = ? AND channel = ?`,
       )
       .run(now, kind, channel).changes;
+  }
+
+  /**
+   * Skip pending rows whose cell is outside the current allowlist. A pair with
+   * no routes keeps unrestricted behavior and should not call this method.
+   */
+  skipUnrouted(
+    kind: NotificationEventKind,
+    channel: DeliveryChannel,
+    allowedCellIds: readonly string[],
+    now: number,
+  ): number {
+    if (allowedCellIds.length === 0) {
+      return this.skipKindChannel(kind, channel, now);
+    }
+    const placeholders = allowedCellIds.map(() => '?').join(', ');
+    return this.db
+      .prepare(
+        `UPDATE notification_event_deliveries
+            SET status = 'skipped', updated_at = ?
+          WHERE status = 'pending' AND kind = ? AND channel = ?
+            AND (cell_id IS NULL OR cell_id NOT IN (${placeholders}))`,
+      )
+      .run(now, kind, channel, ...allowedCellIds).changes;
   }
 
   skipStaleDestination(

@@ -1365,8 +1365,9 @@ events; disabling a route marks pending rows `skipped`. Failures use error sourc
 
 **Cost.** A second small outbox table and a new Config card, no migration of existing
 budget rows and no new dependency. Event history/resend is not part of the existing budget
-history view; that, bot event routes, and configurable coalescing windows remain
-follow-ups. D80 later adds scorecard failures as a third event kind.
+history view; that and bot event routes remain follow-ups. D80 later adds scorecard
+failures as a third event kind, and D81 adds the configurable window and per-cell event
+routes.
 
 ## D67. Strict unknown-cost caps fail closed on unpriced turns
 
@@ -1760,3 +1761,30 @@ table rebuild. Event delivery history/resend, bot event routes, per-cell routing
 configurable coalescing windows remain out of scope. A scorecard failure emits after the
 generation has already rejected, so the hook is advisory and cannot change scheduler
 backoff or an HTTP response.
+## D81. Event notifications expose a coalescing window and per-cell routes
+
+**Context.** D66 and D80 put `turn.failed`, `master.error`, and `summary.failed` into
+`notification_event_deliveries` with one row per failure signature per UTC hour, and every
+enabled webhook/email route received every cell's events. Operators with several teams need
+a shorter or longer noise window and a way to send one event kind/channel only for selected
+cells. The outbox already has a stable per-signature identity, a destination hash, and a
+drain that skips pending rows, so this is a policy extension rather than a second transport.
+
+**Decision.** Add `notifications.events.coalesceMinutes` (integer 1–1440, default 60) and
+`notifications.events.routes` (`{ kind, channel, cellId }`, default empty, at most 200).
+The coalescing window is a fixed tumbling bucket anchored at the Unix epoch, so the default
+60 exactly preserves the old UTC hour; the dedupe key includes the signature, window
+length, and window start. Routes are an optional allowlist per `(kind, channel)`: no route
+for that pair means every cell (including unassigned turn failures), and one or more routes
+mean only exact cell-id matches. The kind/channel boolean and global channel enablement
+still gate delivery. A nullable `cell_id` on each event row lets the drain mark pending
+rows outside the current allowlist `skipped`; delivered/failed history and destination-hash
+rotation keep their existing behavior. Arrays replace wholesale in a patch, and the event
+settings remain one recovery unit.
+
+**Cost.** The event settings and Readme/API shape grow by two fields and the table by one
+nullable column; no row rebuild or new dependency. Narrowing a route is terminal for
+already-pending rows, and enabling a route later never revives them. Changing the window
+starts a new key space, so one duplicate message is possible in the transition window;
+existing rows are never re-keyed. Per-cell destination URLs, per-kind windows, native
+Slack/Discord event routes, and an explicit per-destination rate cap remain separate work.

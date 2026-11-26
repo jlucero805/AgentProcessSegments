@@ -49,6 +49,7 @@ import type {
   EmailPatch,
   EmailTestResult,
   EventChannelSettings,
+  EventRoute,
 } from './types';
 
 export interface SpendCapOverrideRequest {
@@ -370,6 +371,8 @@ export const api = {
         failedTurns?: Partial<EventChannelSettings>;
         masterErrors?: Partial<EventChannelSettings>;
         summaryFailures?: Partial<EventChannelSettings>;
+        coalesceMinutes?: number;
+        routes?: EventRoute[];
       };
     };
   }): Promise<ConfigResponse> {

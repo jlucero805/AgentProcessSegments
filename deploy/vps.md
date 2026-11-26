@@ -363,6 +363,8 @@ a 7-day grace window, then removes the older terminal runs. Use `--keep-runs` an
 `--keep-days` to tune those windows, or `--no-prune` to leave pruning to an external
 schedule.
 
+### Prune upgrade run directories
+
 Prune upgrade evidence by hand (for example after running with `--no-prune`, or on a
 schedule) with the same pruner:
 
@@ -376,9 +378,15 @@ newest 10 runs, anything modified in the last 30 days, `upgrades/latest`, the ne
 successful run, and incomplete runs for a 7-day grace window. The upgrade script's
 automatic pass defaults to the newest 5, so pass `--keep-runs 5` to match it. Tune with
 `--keep-runs N`, `--keep-days D` (0 disables the age rule), and
-`--incomplete-grace-days D`; `--root DIR` points at a different cutover root. Deleting a
-run directory also deletes its `db-backup.sqlite` and previous build trees, so inspect
-`upgrades/latest` and the newest successful run before an aggressive prune.
+`--incomplete-grace-days D`; `--root DIR` points at a different cutover root, and
+`--help` lists every flag. Deleting a run directory also deletes its `db-backup.sqlite`
+and previous build trees, so inspect `upgrades/latest` and the newest successful run
+before an aggressive prune.
+
+The command is a plain `.mjs` script: it needs no `npm run build`, and it only touches the
+selected `upgrades` directory, so the brain can keep running. `--no-prune` on
+`upgrade:vps` disables only that automatic pass; this command still works and can be
+scheduled instead.
 
 To schedule it instead of using the automatic pass:
 

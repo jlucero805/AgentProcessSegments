@@ -394,6 +394,11 @@ when the lockfile moved, rebuilds, restarts, verifies the new build, and restore
 previous commit and build in place when anything fails. See
 [`deploy/vps.md`](deploy/vps.md#upgrade-a-live-self-hosted-brain).
 
+Each upgrade leaves evidence under `~/.aps-cutover/upgrades/` and prunes older runs
+automatically after every terminal state. You can also prune by hand with
+`npm run prune:upgrades -- --dry-run` and then `npm run prune:upgrades`; see the same
+runbook section.
+
 ## Spend budgets
 
 The Config page edits an **overall monthly budget** and warning percentage; each cell has
@@ -643,7 +648,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1257 vitest cases: 966 server cases across 55 files (state machine,
+`npm test` runs 1258 vitest cases: 967 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

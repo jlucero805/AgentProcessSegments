@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -13,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
 
+const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const script = fileURLToPath(new URL('../../../scripts/prune-cutover-runs.mjs', import.meta.url));
 
 interface Workspace {
@@ -66,6 +68,16 @@ function names(count: number): string[] {
 }
 
 describe('prune-cutover-runs script', () => {
+  it('maps npm run prune:upgrades to the upgrade layout', () => {
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(manifest.scripts?.['prune:upgrades']).toBe(
+      'node scripts/prune-cutover-runs.mjs --kind upgrade',
+    );
+  });
+
   it('keeps the newest runs and removes the rest', () => {
     const { root, runs } = workspace();
     const dirs = names(12);

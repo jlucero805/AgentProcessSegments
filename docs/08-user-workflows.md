@@ -203,9 +203,10 @@ last five.
     unacknowledged current-month alert shows **Resend** when its current destination still
     matches. Pressing it re-queues the same outbox row under the current destination and
     format, resets its attempt count, and shows a queued message; the next notifier flush
-    sends it. Delivered rows never show Resend. History is pruned after 400 days, and
-    clearing a budget, changing its threshold, or deleting a cell removes its
-    unacknowledged rows.
+    sends it. Delivered rows never show Resend. History is pruned under the Config
+    **Budget alert retention** window (default 400 days; `0` keeps it forever), the
+    current UTC month is always kept, and clearing a budget, changing its threshold, or
+    deleting a cell removes its unacknowledged rows.
 12. The **Event notifications** card can send failed request turns and master turn/cycle
     errors. Check Webhook and/or Email per event kind, then **Save event notifications**;
     each selected channel must also be enabled above. Notifications contain the request
@@ -276,10 +277,10 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Per-cell harness | `cells.harness` in SQLite (NULL = `APS_HARNESS`) |
 | Overall spend budget | `budget` in `config.json` (`monthlyUsd`, `pauseOnExceeded`, `pauseOnUnknownCost`) |
 | Cell spend budget | `cells.monthly_budget_usd`, `cells.pause_on_exceeded` in SQLite |
-| Budget alert history | `budget_alerts` in SQLite |
+| Budget alert history | `budget_alerts` in SQLite (acknowledged rows expire under `retention.budgetAlertsDays`) |
 | Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |
 | Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |
-| Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and channel |
+| Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and destination; terminal rows expire under `retention.budgetAlertsDays` |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |

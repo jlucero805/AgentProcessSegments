@@ -479,12 +479,6 @@ export class BudgetAlertDeliveryRepository {
       .run(now, now).changes;
   }
 
-  pruneBefore(cutoff: number): number {
-    return this.db
-      .prepare('DELETE FROM budget_alert_deliveries WHERE created_at < ?')
-      .run(cutoff).changes;
-  }
-
   /** Summary for one channel, one destination, or every channel when omitted. */
   status(channel?: DeliveryChannel, destinationId?: string): DeliveryStatusSummary {
     const clauses: string[] = [];

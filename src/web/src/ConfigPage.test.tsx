@@ -38,6 +38,7 @@ const retention: RetentionSettings = {
   masterEventsDays: 90,
   cellSummariesDays: 90,
   requestArtifactsDays: 30,
+  budgetAlertsDays: 400,
 };
 
 const cell: Cell = {
@@ -616,6 +617,31 @@ describe('ConfigPage', () => {
     expect(captured.config?.usage).toBeUndefined();
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(summaries).toHaveValue(30);
+  });
+
+  it('loads and saves budget alert retention independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const alerts = await screen.findByRole('spinbutton', {
+      name: 'Budget alert retention (days)',
+    });
+    expect(alerts).toHaveValue(400);
+    expect(
+      screen.getByText('0 keeps alert and delivery history forever'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/current UTC month is always kept/)).toBeInTheDocument();
+    expect(screen.getByText(/pending and in-flight deliveries/)).toBeInTheDocument();
+
+    fireEvent.change(alerts, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save budget alert retention' }));
+
+    await waitFor(() =>
+      expect(captured.config?.retention).toEqual({ budgetAlertsDays: 30 }),
+    );
+    expect(captured.config?.usage).toBeUndefined();
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(alerts).toHaveValue(30);
   });
 
   it('loads and saves request artifact retention independently', async () => {

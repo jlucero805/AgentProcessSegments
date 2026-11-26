@@ -1,4 +1,5 @@
 import type { Db } from '../db.js';
+import { budgetPeriod } from '../domain/budget.js';
 import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import { deleteInBatches } from './batches.js';
@@ -40,6 +41,35 @@ const CELL_SUMMARIES_DELETE_SQL = `
   )
 `;
 
+// Budget alerts and their outbox are keyed to the current UTC period: a
+// delivery row is the idempotency record for an alert, and an acknowledged
+// alert suppresses a lower-severity one. The cutoff is capped at the period
+// start so no current-month row is pruned even with a short window.
+const BUDGET_ALERT_DELIVERIES_DELETE_SQL = `
+  DELETE FROM budget_alert_deliveries
+  WHERE id IN (
+    SELECT id FROM budget_alert_deliveries
+    WHERE created_at < ?
+      AND status IN ('delivered', 'failed', 'skipped')
+    ORDER BY created_at
+    LIMIT ?
+  )
+`;
+
+// Unacknowledged alerts belong to budget reconciliation, which removes them
+// when the budget changes or the period rolls over. Retention only bounds the
+// acknowledged history; deleting an alert cascades its remaining deliveries.
+const BUDGET_ALERTS_DELETE_SQL = `
+  DELETE FROM budget_alerts
+  WHERE id IN (
+    SELECT id FROM budget_alerts
+    WHERE created_at < ?
+      AND acknowledged_at IS NOT NULL
+    ORDER BY created_at
+    LIMIT ?
+  )
+`;
+
 export interface TablePruneResult {
   deleted: number;
   /** Null when retention is disabled, so there is no cutoff to report. */
@@ -49,6 +79,8 @@ export interface TablePruneResult {
 export interface RetentionRunResult {
   masterEvents: TablePruneResult;
   cellSummaries: TablePruneResult;
+  budgetAlertDeliveries: TablePruneResult;
+  budgetAlerts: TablePruneResult;
 }
 
 export interface DataRetentionOptions {
@@ -61,13 +93,18 @@ export interface DataRetentionOptions {
   batchSize?: number;
 }
 
-type PruneTable = 'master_events' | 'cell_summaries';
+type PruneTable =
+  | 'master_events'
+  | 'cell_summaries'
+  | 'budget_alert_deliveries'
+  | 'budget_alerts';
 
 /**
- * Deletes raw `master_events` rows and old `cell_summaries` reports outside the
+ * Deletes raw `master_events` rows, old `cell_summaries` reports, terminal
+ * budget-alert deliveries, and acknowledged budget alerts outside their
  * configured retention windows. Runs once at startup, hourly after that, and
  * again whenever settings change. Each table prunes independently: one failure
- * is reported and retried on the next tick without blocking the other table.
+ * is reported and retried on the next tick without blocking the other tables.
  */
 export class DataRetention {
   private readonly db: Db;
@@ -144,7 +181,22 @@ export class DataRetention {
       retention.cellSummariesDays,
       CELL_SUMMARIES_DELETE_SQL,
     );
-    return { masterEvents, cellSummaries };
+    const budgetCutoff = budgetPeriod(now).start;
+    const budgetAlertDeliveries = await this.pruneTable(
+      now,
+      'budget_alert_deliveries',
+      retention.budgetAlertsDays,
+      BUDGET_ALERT_DELIVERIES_DELETE_SQL,
+      budgetCutoff,
+    );
+    const budgetAlerts = await this.pruneTable(
+      now,
+      'budget_alerts',
+      retention.budgetAlertsDays,
+      BUDGET_ALERTS_DELETE_SQL,
+      budgetCutoff,
+    );
+    return { masterEvents, cellSummaries, budgetAlertDeliveries, budgetAlerts };
   }
 
   private async pruneTable(
@@ -152,10 +204,13 @@ export class DataRetention {
     table: PruneTable,
     days: number,
     sql: string,
+    maxCutoff = Number.POSITIVE_INFINITY,
   ): Promise<TablePruneResult> {
     if (days <= 0) return { deleted: 0, cutoff: null };
 
-    const cutoff = now - days * DAY_MS;
+    // `maxCutoff` caps the age window at the current UTC period start for the
+    // budget tables, so the current month is never pruned.
+    const cutoff = Math.min(now - days * DAY_MS, maxCutoff);
     let deleted = 0;
     try {
       const statement = this.db.prepare(sql);

@@ -435,7 +435,7 @@ describe('http api', () => {
       path: h.config.configPath,
       master: { intervalMinutes: 5, idleMinutes: 10, enabled: true },
       usage: { retentionDays: 90 },
-      retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30 },
+      retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400 },
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -479,13 +479,14 @@ describe('http api', () => {
       masterEventsDays: 30,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
 
     const afterRetention = await call('GET', '/api/config');
     expect(afterRetention.json()).toMatchObject({
       master: { intervalMinutes: 7 },
       usage: { retentionDays: 30 },
-      retention: { masterEventsDays: 30, cellSummariesDays: 90, requestArtifactsDays: 30 },
+      retention: { masterEventsDays: 30, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400 },
     });
 
     const summaryRetentionPatch = await call('PATCH', '/api/config', {
@@ -496,6 +497,7 @@ describe('http api', () => {
       masterEventsDays: 30,
       cellSummariesDays: 30,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
 
     const artifactPatch = await call('PATCH', '/api/config', {
@@ -506,6 +508,7 @@ describe('http api', () => {
       masterEventsDays: 30,
       cellSummariesDays: 30,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
 
     const afterArtifact = await call('GET', '/api/config');
@@ -513,6 +516,18 @@ describe('http api', () => {
       masterEventsDays: 30,
       cellSummariesDays: 30,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
+    });
+
+    const budgetAlertsPatch = await call('PATCH', '/api/config', {
+      retention: { budgetAlertsDays: 30 },
+    });
+    expect(budgetAlertsPatch.status).toBe(200);
+    expect(budgetAlertsPatch.json().retention).toEqual({
+      masterEventsDays: 30,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
     });
 
     const badRetention = await call('PATCH', '/api/config', {
@@ -529,6 +544,11 @@ describe('http api', () => {
       retention: { requestArtifactsDays: 3651 },
     });
     expect(badArtifacts.status).toBe(400);
+
+    const badBudgetAlerts = await call('PATCH', '/api/config', {
+      retention: { budgetAlertsDays: -1 },
+    });
+    expect(badBudgetAlerts.status).toBe(400);
   });
 
   it('reads and patches budget settings and exposes budget status', async () => {

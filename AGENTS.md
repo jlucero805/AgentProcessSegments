@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 977 vitest cases: 765 server across 49 files and 212 web across 24 files, all green.
+- 984 vitest cases: 771 server across 49 files and 213 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -75,7 +75,8 @@ digests.
   with per-request
   target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
   request-level card, configurable master-activity retention for `master_events`,
-  configurable scorecard-history retention for `cell_summaries`, cell-delete cleanup for
+  configurable scorecard-history retention for `cell_summaries`, configurable
+  budget-alert and delivery-history retention, cell-delete cleanup for
   activity and reserved master/summary session directories,
   configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
@@ -98,7 +99,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 765 server + 212 web, plus the e2e env guard
+npm test                       # 771 server + 213 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -464,7 +465,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `UNIQUE(dedupe_key, channel)` with a one-hour failure signature, drain through
     `notifications/service.ts`, and send classification-only payloads to the enabled
     webhook/email routes. A delivered event is never resent; event failures use
-    `notifications.event` with ids and a short reason only.
+    `notifications.event` with ids and a short reason only. `retention.budgetAlertsDays`
+    (default 400, `0` = forever) prunes terminal delivery rows and acknowledged alerts in
+    the hourly `DataRetention` pass. The effective cutoff is capped at the current UTC
+    period start, so the current month is never pruned: a delivery row is the idempotency
+    record and an acknowledged alert suppresses a lower-severity alert in the same
+    period. Never prune `pending`/`delivering` rows, and never delete an unacknowledged
+    alert through retention; reconciliation owns those. Deleting an expired acknowledged
+    alert cascades its delivery rows.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose

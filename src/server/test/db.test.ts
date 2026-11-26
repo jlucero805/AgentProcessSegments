@@ -120,6 +120,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_requests_state');
     expect(indexes).toContain('idx_cell_summaries_cell_created');
     expect(indexes).toContain('idx_cell_summaries_created');
+    expect(indexes).toContain('idx_budget_alert_deliveries_created');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
@@ -133,6 +134,7 @@ describe('db migrations', () => {
     expect(indexes).toContain('idx_usage_events_turn');
     expect(indexes).toContain('idx_budget_alerts_identity');
     expect(indexes).toContain('idx_budget_alert_deliveries_due');
+    expect(indexes).toContain('idx_budget_alert_deliveries_created');
     expect(indexes).toContain('idx_notification_event_deliveries_due');
     expect(indexes).toContain('idx_spend_cap_overrides_active');
     expect(indexes).toContain('idx_spend_cap_overrides_period');

@@ -1256,7 +1256,8 @@ flush. For chat, the current route must still resolve to the row's destination i
 `pending`/`delivering` is an idempotent no-op; delivered rows are immutable.
 
 **Cost.** No schema change, migration, new dependency, or background job. The audit is an
-ops list bounded by monthly alerts, two channels, and the existing 400-day prune. History
+ops list bounded by monthly alerts, two channels, and the configurable budget-alert
+retention window (D75). History
 rows still cascade with their alert, so clearing a budget, changing a threshold, deleting
 a cell, or a month rollover removes unacknowledged history; snapshotting alert fields is a
 separate follow-up. Resends are not attributed to an operator because the app has no
@@ -1348,8 +1349,9 @@ banner.
 turns that end in `engine.result`, `engine.exit`, `engine.timeout`, or `engine.turn`;
 `master.error` covers `master.turn`/`master.cycle` failures and skips expected spend-cap
 refusals. Events drain through the same `NotificationService`, channel settings,
-destination hash, HMAC signing, 10-second timeout, retry schedule, `Retry-After`, crash
-recovery, and 400-day prune as budget alerts. The sibling
+destination hash, HMAC signing, 10-second timeout, retry schedule, and `Retry-After` as
+budget alerts. Event rows keep their own 400-day notifier-start prune rather than the
+configurable budget-alert window. The sibling
 `notification_event_deliveries` table keys `UNIQUE(dedupe_key, channel)`; a failed-turn key
 is request+source+safe reason+UTC hour and a master key is cell+source+segment+UTC hour, so
 a deterministic failure loop sends at most one message per signature per hour per channel.
@@ -1431,8 +1433,9 @@ turns in a scope that is still over its cap; expiry is observed at the next eval
 override before the overall pause and then the cell override, and `SpendCapEnforcer`
 therefore leaves covered live turns running on its next check. A failed override read
 still fails open and is reported to
-`usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching delivery
-history. Policy edits and cell deletion do not rewrite or revoke override rows; an inert
+`usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching the
+budget-alert retention default. Policy edits and cell deletion do not rewrite or revoke
+override rows; an inert
 row simply expires.
 
 **Cost.** One additive table and two routes, plus one shared SPA control. Turns already
@@ -1589,3 +1592,31 @@ worktrees, SQLite, the error log, or unrelated siblings, and never opens the dat
 encryption at rest and root can still read the files. A boot-time recursive repair is
 rejected because `cwd/` contains unrelated git checkouts and repository files. The
 automatic post-upgrade hook and the error-log/data-root modes are separate work.
+
+## D75. Budget alert history has a configurable, period-safe retention window
+
+**Context.** `budget_alerts` kept every acknowledged alert forever, and
+`budget_alert_deliveries` was pruned only once at notifier start with a hardcoded 400-day
+age. That made the outbox grow with every alert/destination attempt, ignored settings
+changes until a restart, and could not be disabled or tuned by an operator.
+
+**Decision.** Add `retention.budgetAlertsDays` (default 400, `0` = keep forever, max
+3650) and prune both tables from the existing startup/hourly `DataRetention` pass. Delete
+only terminal `budget_alert_deliveries` rows (`delivered`, `failed`, `skipped`) and only
+acknowledged `budget_alerts` rows, in 1000-row batches with an event-loop yield. Cap the
+effective cutoff at the start of the current UTC period: a delivery row is the
+`(alert_id, destination_id)` idempotency record, a current-month acknowledged alert
+suppresses a lower-severity alert through `hasAcknowledged()`, and current-month
+failed/skipped rows must stay resendable. `pending`/`delivering` rows are never pruned,
+and unacknowledged alerts stay under budget reconciliation. Deleting an expired
+acknowledged alert cascades its delivery rows. Add
+`idx_budget_alert_deliveries_created` for the cutoff scan; `budget_alerts` already has a
+`created_at` index. Each table reports its own result and one `retention.prune` failure,
+and the old notifier-start delivery prune is removed. The operational event outbox keeps
+its separate 400-day start prune.
+
+**Cost.** The current UTC month is never pruned, so a window shorter than a month behaves
+as "keep the current month"; the default 400 days preserves the previous delivery
+behaviour. Expired acknowledged alerts lose their joined delivery history. There is no
+rollup, per-channel window, manual prune, or `VACUUM`, and
+`notification_event_deliveries` retention remains separate work.

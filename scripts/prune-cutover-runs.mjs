@@ -2,8 +2,11 @@
 // Bounded retention for `~/.aps-cutover` run directories. Every real
 // `deploy/cutover-vps.sh` run leaves a permanent directory under
 // `~/.aps-cutover/runs/<UTC>/` holding its log, before/after evidence, the
-// pre-build dist copy, and the systemd rollback backup. This script keeps the
-// newest runs and the rollback point and removes the rest.
+// pre-build dist copy, and the systemd rollback backup. Every real
+// `deploy/upgrade-vps.sh` run leaves a similar directory under
+// `~/.aps-cutover/upgrades/<UTC>/` with the database snapshot and previous
+// build trees. This script keeps the newest runs and the rollback point and
+// removes the rest.
 //
 // It only touches files under `--root`, so it is safe while the brain runs.
 // Run with `--dry-run` first. See `deploy/vps.md`.
@@ -19,7 +22,20 @@ import os from 'node:os';
 import path from 'node:path';
 
 const RUN_NAME = /^\d{8}T\d{6}Z$/;
-const TERMINAL_STATES = new Set(['success', 'failed', 'rolled-back']);
+const TERMINAL_STATES = {
+  cutover: new Set(['success', 'failed', 'rolled-back']),
+  upgrade: new Set(['success', 'failed', 'rolled_back']),
+};
+const LAYOUTS = {
+  cutover: {
+    runsDir: (root) => path.join(root, 'runs'),
+    latest: (root) => path.join(root, 'latest'),
+  },
+  upgrade: {
+    runsDir: (root) => path.join(root, 'upgrades'),
+    latest: (root) => path.join(root, 'upgrades', 'latest'),
+  },
+};
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_VALUE = 100_000;
 
@@ -34,7 +50,9 @@ function usage() {
     '',
     'Options:',
     '  --dry-run                    Report what would be removed; change nothing.',
-    '  --root DIR                   Cutover root (default: $HOME/.aps-cutover).',
+    '  --kind KIND                  Run family: cutover (runs/) or upgrade (upgrades/).',
+    '                               Default: cutover.',
+    '  --root DIR                   APS cutover root (default: $HOME/.aps-cutover).',
     '  --keep-runs N                Keep the N newest run directories (default: 10).',
     '  --keep-days D                Keep run directories modified within D days (default: 30).',
     '  --incomplete-grace-days D    Keep runs with a non-terminal state for D days',
@@ -58,10 +76,19 @@ function readDirectory(flag, value) {
   return path.resolve(value);
 }
 
+function readKind(flag, value) {
+  if (value === undefined) throw new UsageError(`${flag} needs a value`);
+  if (!Object.hasOwn(LAYOUTS, value)) {
+    throw new UsageError(`${flag} must be cutover or upgrade`);
+  }
+  return value;
+}
+
 function parseArgs(argv) {
   const options = {
     dryRun: false,
     help: false,
+    kind: 'cutover',
     root: path.join(os.homedir(), '.aps-cutover'),
     keepRuns: 10,
     keepDays: 30,
@@ -72,6 +99,9 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--kind') {
+      options.kind = readKind(arg, argv[index + 1]);
+      index += 1;
     } else if (arg === '--root') {
       options.root = readDirectory(arg, argv[index + 1]);
       index += 1;
@@ -156,9 +186,9 @@ function formatBytes(bytes) {
   return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${units[unit]}`;
 }
 
-function readLatestTarget(root) {
+function readLatestTarget(latestPath) {
   try {
-    return path.resolve(root, readlinkSync(path.join(root, 'latest')));
+    return path.resolve(path.dirname(latestPath), readlinkSync(latestPath));
   } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'EINVAL') return null;
     throw error;
@@ -169,6 +199,7 @@ function collectRuns(runsDir) {
   const runs = [];
   const skipped = [];
   for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
+    if (entry.name === 'latest') continue;
     if (!entry.isDirectory() || !RUN_NAME.test(entry.name)) {
       skipped.push(entry.name);
       continue;
@@ -186,6 +217,7 @@ function classify(runs, options, now, latestTarget) {
     run.size = directorySize(run.dir);
   }
 
+  const terminalStates = TERMINAL_STATES[options.kind];
   const newestSuccess = runs.find((run) => run.state === 'success')?.name ?? null;
   const keepWindow = options.keepDays * DAY_MS;
   const graceWindow = options.incompleteGraceDays * DAY_MS;
@@ -193,7 +225,7 @@ function classify(runs, options, now, latestTarget) {
   for (let index = 0; index < runs.length; index += 1) {
     const run = runs[index];
     const age = now - run.mtimeMs;
-    const terminal = TERMINAL_STATES.has(run.state);
+    const terminal = terminalStates.has(run.state);
 
     run.keep = true;
     if (latestTarget !== null && path.resolve(run.dir) === latestTarget) {
@@ -228,15 +260,17 @@ function removeRun(run, runsDir) {
 
 function prune(options) {
   const root = path.resolve(options.root);
-  const runsDir = path.join(root, 'runs');
+  const layout = LAYOUTS[options.kind];
+  const runsDir = layout.runsDir(root);
+  const latestPath = layout.latest(root);
   if (!isDirectory(runsDir)) {
     process.stdout.write('nothing to prune\n');
     return 0;
   }
 
-  let latestTarget = readLatestTarget(root);
+  let latestTarget = readLatestTarget(latestPath);
   if (latestTarget !== null && !isDirectory(latestTarget)) {
-    process.stderr.write(`warning: ${path.join(root, 'latest')} points at a missing run directory\n`);
+    process.stderr.write(`warning: ${latestPath} points at a missing run directory\n`);
     latestTarget = null;
   }
 

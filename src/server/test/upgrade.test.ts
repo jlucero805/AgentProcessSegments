@@ -1,5 +1,16 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
@@ -280,6 +291,37 @@ function latestRun(fixture: Fixture): string {
   return realpathSync(path.join(fixture.home, '.aps-cutover', 'upgrades', 'latest'));
 }
 
+function upgradeRuns(fixture: Fixture): string[] {
+  const dir = path.join(fixture.home, '.aps-cutover', 'upgrades');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((name) => /^\d{8}T\d{6}Z$/.test(name))
+    .sort();
+}
+
+function seedUpgradeRun(
+  fixture: Fixture,
+  name: string,
+  options: { state?: string; ageDays?: number } = {},
+): string {
+  const dir = path.join(fixture.home, '.aps-cutover', 'upgrades', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'upgrade.log'), 'old run\n');
+  writeFileSync(path.join(dir, 'state'), `${options.state ?? 'success'}\n`);
+  const seconds = Date.now() / 1000 - (options.ageDays ?? 0) * 86_400;
+  utimesSync(dir, seconds, seconds);
+  return dir;
+}
+
+function seedSuccessfulRuns(fixture: Fixture, count: number, ageDays = 40): string[] {
+  const names = Array.from({ length: count }, (_, index) => {
+    const day = String(index + 1).padStart(2, '0');
+    return `202501${day}T000000Z`;
+  });
+  for (const name of names) seedUpgradeRun(fixture, name, { state: 'success', ageDays });
+  return names;
+}
+
 function modeOf(target: string): number {
   return statSync(target).mode & 0o777;
 }
@@ -313,9 +355,210 @@ describe('deploy/upgrade-vps.sh', () => {
       '--wait-seconds',
       '--health-timeout',
       '--allow-busy',
+      '--keep-runs',
+      '--keep-days',
+      '--no-prune',
     ]) {
       expect(result.stdout).toContain(flag);
     }
+  });
+
+  it('rejects invalid retention counts before doing any work', () => {
+    const fixture = createFixture();
+    for (const args of [
+      ['--keep-runs'],
+      ['--keep-runs', '-1'],
+      ['--keep-runs', 'abc'],
+      ['--keep-runs', '100001'],
+      ['--keep-days'],
+      ['--keep-days', '-1'],
+      ['--keep-days', 'abc'],
+      ['--keep-days', '100001'],
+    ]) {
+      const result = runScript(fixture, args);
+      expect(result.status).toBe(2);
+      expect(`${result.stdout}${result.stderr}`).toMatch(
+        /needs a value|needs a non-negative integer|must be at most 100000/,
+      );
+    }
+    expect(calls(fixture, 'npm.calls')).toBe('');
+    expect(calls(fixture, 'restarts')).toBe('');
+  });
+
+  it('previews upgrade-run retention during a dry run without changing runs', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 4);
+    const oldest = seeded[0];
+    if (oldest === undefined) throw new Error('expected a seeded run');
+    const before = upgradeRuns(fixture);
+
+    const result = runScript(fixture, [
+      '--dry-run',
+      '--keep-runs',
+      '1',
+      '--keep-days',
+      '0',
+    ]);
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(0);
+    expect(output).toContain('plan: would prune upgrade runs (--keep-runs 1 --keep-days 0)');
+    expect(output).toContain(oldest);
+    expect(output).toContain('(dry run: nothing removed)');
+    expect(upgradeRuns(fixture)).toEqual(before);
+    expect(head(fixture.clone)).toBe(fixture.v1);
+    expect(calls(fixture, 'npm.calls')).toBe('');
+    expect(calls(fixture, 'restarts')).toBe('');
+  });
+
+  it('forwards custom retention settings and prunes old runs after success', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+
+    const result = runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '3',
+      '--keep-days',
+      '0',
+    ]);
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(0);
+    expect(stateOf(fixture)).toBe('success');
+    expect(calls(fixture, 'systemd-run.calls')).toContain('--keep-runs 3 --keep-days 0');
+    expect(readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8')).toContain(
+      'prune success (--keep-runs 3 --keep-days 0)',
+    );
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([...seeded.slice(5), current].sort());
+    expect(output).toContain('pruned');
+  });
+
+  it('keeps runs modified inside the keep-days window', () => {
+    const fixture = createFixture();
+    const recent = seedSuccessfulRuns(fixture, 2, 2);
+    const old = Array.from({ length: 3 }, (_, index) => {
+      const name = `2024010${index + 1}T000000Z`;
+      seedUpgradeRun(fixture, name, { state: 'success', ageDays: 40 });
+      return name;
+    });
+
+    const result = runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '0',
+      '--keep-days',
+      '30',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(stateOf(fixture)).toBe('success');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([...recent, current].sort());
+    for (const name of old) expect(existsSync(path.join(fixture.home, '.aps-cutover', 'upgrades', name))).toBe(false);
+  });
+
+  it('prunes old runs after a failed upgrade', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+    writeFileSync(path.join(fixture.root, 'fail-build'), '1\n');
+
+    runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '1',
+      '--keep-days',
+      '0',
+    ]);
+
+    expect(stateOf(fixture)).toBe('failed');
+    const newest = seeded.at(-1);
+    if (newest === undefined) throw new Error('expected seeded runs');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([newest, current].sort());
+  });
+
+  it('prunes old runs after a rollback', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+    writeFileSync(path.join(fixture.root, 'fail-health-once'), '1\n');
+
+    runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '3',
+      '--keep-runs',
+      '1',
+      '--keep-days',
+      '0',
+    ]);
+
+    expect(stateOf(fixture)).toBe('rolled_back');
+    const newest = seeded.at(-1);
+    if (newest === undefined) throw new Error('expected seeded runs');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([newest, current].sort());
+  });
+
+  it('skips pruning with --no-prune', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+
+    const result = runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '0',
+      '--keep-days',
+      '0',
+      '--no-prune',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(stateOf(fixture)).toBe('success');
+    for (const name of seeded) {
+      expect(existsSync(path.join(fixture.home, '.aps-cutover', 'upgrades', name))).toBe(true);
+    }
+    expect(readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8')).toContain(
+      'pruning skipped (--no-prune)',
+    );
+  });
+
+  it('fails closed when the pruning helper is missing', () => {
+    const fixture = createFixture();
+    const checkout = path.join(fixture.root, 'script-checkout');
+    mkdirSync(path.join(checkout, 'deploy'), { recursive: true });
+    copyFileSync(script, path.join(checkout, 'deploy', 'upgrade-vps.sh'));
+    const copiedScript = path.join(checkout, 'deploy', 'upgrade-vps.sh');
+
+    const result = spawnSync(
+      'bash',
+      [copiedScript, '--home', fixture.home, '--clone', fixture.clone, '--dry-run'],
+      { encoding: 'utf8', env: fixture.env, timeout: 60_000 },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(2);
+    expect(output).toContain('upgrade pruner not found');
+    expect(output).toContain('--no-prune');
+
+    const noPrune = spawnSync(
+      'bash',
+      [copiedScript, '--home', fixture.home, '--clone', fixture.clone, '--dry-run', '--no-prune'],
+      { encoding: 'utf8', env: fixture.env, timeout: 60_000 },
+    );
+    expect(noPrune.status).toBe(0);
+    expect(`${noPrune.stdout}${noPrune.stderr}`).toContain(
+      'plan: would skip pruning upgrade runs (--no-prune)',
+    );
   });
 
   it('prints the plan and changes nothing on --dry-run', () => {

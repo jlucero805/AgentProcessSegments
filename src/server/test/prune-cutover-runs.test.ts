@@ -20,9 +20,9 @@ interface Workspace {
   runs: string;
 }
 
-function workspace(): Workspace {
-  const root = tmpDir('prune-cutover');
-  const runs = path.join(root, 'runs');
+function workspace(kind: 'cutover' | 'upgrade' = 'cutover'): Workspace {
+  const root = tmpDir(`prune-${kind}`);
+  const runs = path.join(root, kind === 'upgrade' ? 'upgrades' : 'runs');
   mkdirSync(runs, { recursive: true });
   return { root, runs };
 }
@@ -51,8 +51,11 @@ function list(dir: string): string[] {
   return readdirSync(dir).sort();
 }
 
-function run(root: string, args: string[] = []) {
-  return spawnSync(process.execPath, [script, '--root', root, ...args], { encoding: 'utf8' });
+function run(root: string, args: string[] = [], kind: 'cutover' | 'upgrade' = 'cutover') {
+  const kindArgs = kind === 'upgrade' ? ['--kind', 'upgrade'] : [];
+  return spawnSync(process.execPath, [script, '--root', root, ...kindArgs, ...args], {
+    encoding: 'utf8',
+  });
 }
 
 function names(count: number): string[] {
@@ -108,6 +111,81 @@ describe('prune-cutover-runs script', () => {
     expect(list(runs)).toEqual([first, second, sixth]);
     expect(result.stdout).toContain('(latest)');
     expect(result.stdout).toContain('(rollback point)');
+  });
+
+  it('keeps upgrade runs by the upgrade layout and terminal states', () => {
+    const { root, runs } = workspace('upgrade');
+    const dirs = names(6);
+    const [first, second, third, fourth, fifth, sixth] = dirs;
+    if (
+      first === undefined ||
+      second === undefined ||
+      third === undefined ||
+      fourth === undefined ||
+      fifth === undefined ||
+      sixth === undefined
+    ) {
+      throw new Error('expected six run directories');
+    }
+
+    makeRun(runs, first, { state: 'success', ageDays: 40 });
+    makeRun(runs, second, { state: 'failed', ageDays: 40 });
+    makeRun(runs, third, { state: 'rolled_back', ageDays: 2 });
+    makeRun(runs, fourth, { state: 'launched', ageDays: 2 });
+    makeRun(runs, fifth, { state: 'rolled_back', ageDays: 40 });
+    makeRun(runs, sixth, { state: 'failed', ageDays: 40 });
+    symlinkSync(path.join(runs, second), path.join(runs, 'latest'), 'dir');
+
+    const result = run(
+      root,
+      ['--keep-runs', '1', '--keep-days', '0', '--incomplete-grace-days', '7'],
+      'upgrade',
+    );
+
+    expect(result.status).toBe(0);
+    expect(list(runs)).toEqual([first, second, fourth, sixth, 'latest']);
+    expect(result.stdout).toContain('(latest)');
+    expect(result.stdout).toContain('(rollback point)');
+    expect(result.stdout).toContain('incomplete within 7d');
+  });
+
+  it('protects upgrades/latest and does not report it as a foreign entry', () => {
+    const { root, runs } = workspace('upgrade');
+    makeRun(runs, '20260101T000000Z', { state: 'success', ageDays: 40 });
+    makeRun(runs, '20260102T000000Z', { state: 'failed', ageDays: 40 });
+    symlinkSync(path.join(runs, '20260102T000000Z'), path.join(runs, 'latest'), 'dir');
+
+    const result = run(
+      root,
+      ['--keep-runs', '0', '--keep-days', '0', '--incomplete-grace-days', '0'],
+      'upgrade',
+    );
+
+    expect(result.status).toBe(0);
+    expect(list(runs)).toEqual(['20260101T000000Z', '20260102T000000Z', 'latest']);
+    expect(result.stdout).toContain('(latest)');
+    expect(result.stdout).toContain('(rollback point)');
+    expect(result.stdout).not.toContain('skip   latest');
+  });
+
+  it('scans only the upgrade directory for --kind upgrade', () => {
+    const root = tmpDir('prune-upgrade-layout');
+    const cutoverRuns = path.join(root, 'runs');
+    const upgradeRuns = path.join(root, 'upgrades');
+    mkdirSync(cutoverRuns, { recursive: true });
+    mkdirSync(upgradeRuns, { recursive: true });
+    makeRun(cutoverRuns, '20260101T000000Z', { state: 'failed', ageDays: 40 });
+    makeRun(upgradeRuns, '20260102T000000Z', { state: 'failed', ageDays: 40 });
+
+    const result = run(
+      root,
+      ['--keep-runs', '0', '--keep-days', '0', '--incomplete-grace-days', '0'],
+      'upgrade',
+    );
+
+    expect(result.status).toBe(0);
+    expect(list(cutoverRuns)).toEqual(['20260101T000000Z']);
+    expect(list(upgradeRuns)).toEqual([]);
   });
 
   it('gives incomplete runs a grace window and then removes them', () => {
@@ -195,6 +273,7 @@ describe('prune-cutover-runs script', () => {
     expect(help.status).toBe(0);
     for (const flag of [
       '--dry-run',
+      '--kind',
       '--root',
       '--keep-runs',
       '--keep-days',
@@ -203,7 +282,12 @@ describe('prune-cutover-runs script', () => {
       expect(help.stdout).toContain(flag);
     }
 
-    for (const args of [['--keep-runs', '-1'], ['--keep-days', 'abc'], ['--bogus']]) {
+    for (const args of [
+      ['--keep-runs', '-1'],
+      ['--keep-days', 'abc'],
+      ['--kind', 'bogus'],
+      ['--bogus'],
+    ]) {
       const result = run(root, args);
       expect(result.status).toBe(2);
       expect(result.stderr).toContain('Usage: node scripts/prune-cutover-runs.mjs');

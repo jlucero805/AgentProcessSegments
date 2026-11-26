@@ -9,6 +9,7 @@ import {
   describeMissingPuppeteer,
   parseScreenshotArgs,
   resolvePuppeteer,
+  resolveUiSmokePuppeteer,
 } from './puppeteer.mjs';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -185,4 +186,79 @@ test('scripts/screenshots.mjs routes the decision through the guard', () => {
   assert.match(source, /await resolvePuppeteer\(/);
   assert.doesNotMatch(source, /skipping screenshot capture/);
   assert.doesNotMatch(source, /process\.exit\(0\)/);
+});
+
+test('ui smoke: a missing puppeteer fails and says the smoke did not run', async () => {
+  const result = await resolveUiSmokePuppeteer({ argv: [], load: missingPuppeteer });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.exitCode, 1);
+  const text = result.lines.join('\n');
+  assert.match(text, /ui smoke: puppeteer is not installed/);
+  assert.match(text, /UI smoke did NOT run/);
+  assert.match(text, /npm install --no-save puppeteer/);
+  assert.match(text, /npx puppeteer browsers install chrome/);
+  assert.match(text, new RegExp(ALLOW_MISSING_PUPPETEER));
+  assert.doesNotMatch(text, /ui smoke ok/);
+  assert.doesNotMatch(text, /SKIPPED/);
+});
+
+test('ui smoke: the opt-out skips loudly instead of reporting a pass', async () => {
+  const result = await resolveUiSmokePuppeteer({
+    argv: [ALLOW_MISSING_PUPPETEER],
+    load: missingPuppeteer,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.exitCode, 0);
+  const text = result.lines.join('\n');
+  assert.match(text, /SKIPPED/);
+  assert.match(text, /nothing was run/);
+  assert.match(text, /not a pass/);
+  assert.doesNotMatch(text, /ui smoke ok/);
+});
+
+test('ui smoke: a broken puppeteer install surfaces the underlying error', async () => {
+  const result = await resolveUiSmokePuppeteer({ argv: [], load: brokenLoader });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.exitCode, 1);
+  const text = result.lines.join('\n');
+  assert.match(text, /ui smoke: puppeteer is installed but failed to load/);
+  assert.match(text, /Cannot find package 'ws'/);
+  assert.doesNotMatch(text, /not installed/);
+  assert.doesNotMatch(text, /SKIPPED/);
+});
+
+test('ui smoke: unknown and repeated arguments fail before the loader runs', async () => {
+  const loader = countingLoader({ error: new Error('should not load') });
+
+  const unknown = await resolveUiSmokePuppeteer({
+    argv: ['--allow-missing-pupeteer'],
+    load: loader.load,
+  });
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.exitCode, 1);
+  assert.equal(loader.count, 0);
+  assert.match(unknown.lines.join('\n'), /unknown argument "--allow-missing-pupeteer"/);
+  assert.match(unknown.lines.join('\n'), /usage: node scripts\/ui-smoke\.mjs/);
+
+  const repeated = await resolveUiSmokePuppeteer({
+    argv: [ALLOW_MISSING_PUPPETEER, ALLOW_MISSING_PUPPETEER],
+    load: loader.load,
+  });
+  assert.equal(repeated.ok, false);
+  assert.equal(repeated.exitCode, 1);
+  assert.equal(loader.count, 0);
+  assert.match(repeated.lines.join('\n'), /more than once/);
+});
+
+test('ui smoke: a successful load runs even with the opt-out flag', async () => {
+  const result = await resolveUiSmokePuppeteer({
+    argv: [ALLOW_MISSING_PUPPETEER],
+    load: async () => fakeModule,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.puppeteer, fakeModule.default);
 });

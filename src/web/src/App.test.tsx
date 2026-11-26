@@ -188,6 +188,7 @@ function installFetch(
         retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400 },
         budget: { monthlyUsd: null, alertAtPercent: 80 },
         path: '/tmp/config.json',
+        warnings: [],
       });
     }
     if (url.startsWith('/api/budgets/alerts/') && init?.method === 'POST') {

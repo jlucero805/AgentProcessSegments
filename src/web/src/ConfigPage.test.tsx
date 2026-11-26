@@ -14,6 +14,7 @@ import type {
   ModelPriceInput,
   RetentionSettings,
   SegmentConfig,
+  SettingsWarning,
   SpendCapOverrideHistoryResponse,
   SummaryConfig,
   UsageSettings,
@@ -620,6 +621,7 @@ function installFetch(
           events: patchedEvents,
         },
         path: '/tmp/agent-process-segments/config.json',
+        warnings: [],
       });
     }
     if (url === '/api/config') {
@@ -637,6 +639,7 @@ function installFetch(
           events: eventSettings,
         },
         path: '/tmp/agent-process-segments/config.json',
+        warnings: [],
       });
     }
     if (url === '/api/notifications/status') return jsonResponse(notificationStatus);
@@ -724,6 +727,46 @@ function installFetch(
   return captured;
 }
 
+/**
+ * Wrap the installed mock so `/api/config` reports recovered-settings warnings.
+ * `null` omits the field, matching a brain that predates it. A successful save
+ * clears the warnings, as the server does.
+ */
+function stubConfigWarnings(warnings: SettingsWarning[] | null): void {
+  const base = globalThis.fetch as typeof fetch;
+  const configBody = {
+    master,
+    summary: scorecard,
+    usage,
+    retention,
+    budget,
+    notifications: {
+      webhook,
+      email,
+      slack: emptyChat,
+      discord: emptyChat,
+      events: eventSettings,
+    },
+    path: '/tmp/agent-process-segments/config.json',
+  };
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/config' && init?.method === 'PATCH') {
+        return jsonResponse({ ...configBody, warnings: [] });
+      }
+      if (url === '/api/config') {
+        return jsonResponse({
+          ...configBody,
+          ...(warnings === null ? {} : { warnings }),
+        });
+      }
+      return base(input, init);
+    }),
+  );
+}
+
 describe('ConfigPage', () => {
   it('loads settings, saves a patch, and shows the path', async () => {
     const captured = installFetch();
@@ -749,6 +792,55 @@ describe('ConfigPage', () => {
     expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
     expect(captured.config?.summary).toMatchObject({ intervalMinutes: 360, windowMinutes: 180 });
     expect(captured.config?.master).not.toHaveProperty('includeUnassigned');
+  });
+
+  it('names the settings blocks recovered at load', async () => {
+    installFetch();
+    stubConfigWarnings([
+      { block: 'budget', message: 'alert threshold is invalid' },
+      { block: 'notifications.email', message: 'port is invalid' },
+    ]);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Some saved settings were reset to defaults');
+    expect(alert).toHaveTextContent('Budgets: alert threshold is invalid');
+    expect(alert).toHaveTextContent('Email: port is invalid');
+    expect(alert).toHaveTextContent('copies the original aside');
+  });
+
+  it('labels a whole-file warning', async () => {
+    installFetch();
+    stubConfigWarnings([
+      { block: null, message: 'is not valid JSON; all settings loaded as defaults' },
+    ]);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Settings file: is not valid JSON');
+  });
+
+  it('clears the recovered settings banner after a successful save', async () => {
+    installFetch();
+    stubConfigWarnings([{ block: 'budget', message: 'alert threshold is invalid' }]);
+
+    render(<ConfigPage onError={() => {}} />);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('renders no banner when the brain omits warnings', async () => {
+    installFetch();
+    stubConfigWarnings(null);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByRole('spinbutton', { name: /interval/i })).toHaveValue(5);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('loads and saves usage retention', async () => {

@@ -334,7 +334,9 @@ built and vended by the brain; real-CLI verification is still pending.
   reports `settings.backupFailed`. `GET/PATCH
   /api/config` expose all blocks and redact the signing secret as `secret: null` with
   `secretSet`, the SMTP password as `password: null` with `passwordSet`, and bot tokens as
-  `botToken: null` with `botTokenSet`.
+  `botToken: null` with `botTokenSet`. They also return `warnings`: the units the load
+  reset to defaults (`block` null when the whole file was unusable). The Config page names
+  each reset block in a banner until the next successful save.
   `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
@@ -389,7 +391,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1081 vitest cases (one environmental root-skip): 844 server across 49 files and 237 web across 26 files,
+- 1095 vitest cases (one environmental root-skip): 854 server across 49 files and 241 web across 26 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -539,7 +541,7 @@ POST   /api/plugins                       {url,subdir?,name?}
 DELETE /api/plugins/:name
 GET    /api/commands
 GET    /api/skills[?requestId=…]
-GET    /api/config
+GET    /api/config                        all blocks, path, and recovered-settings warnings
 PATCH  /api/config                        {master?, summary?, usage?, retention?, budget?, notifications?:{webhook?,email?,slack?,discord?,events?}}
 GET    /api/budgets                       statuses + unacknowledged alerts + active pauses + active overrides
 GET    /api/budgets/overrides/history     read-only retained overrides; scope/cell/state/period filters + limit/offset

@@ -58,6 +58,7 @@ async function makeApp(
   send?: FetchLike,
   sendEmail?: EmailSendLike,
   errors?: ErrorSink,
+  settingsText?: string,
 ): Promise<Open> {
   let admission: ((cellId: string | null) => SpendPause | null) | null = null;
   let enforcement: SpendCapEnforcer | null = null;
@@ -69,6 +70,7 @@ async function makeApp(
     config,
     () => enforcement?.check(),
   );
+  if (settingsText !== undefined) writeFileSync(h.config.configPath, settingsText);
   const settings = new SettingsStore(h.config.configPath);
   const process = new ProcessStore(h.config.processPath, () => defaultProcess(settings.get().master));
   const skills = new SkillCatalog({ home: h.config.dataDir, cwd: h.config.dataDir, env: {} });
@@ -588,6 +590,64 @@ describe('http api', () => {
       retention: { budgetAlertsDays: -1 },
     });
     expect(badBudgetAlerts.status).toBe(400);
+  });
+
+  it('reports recovered settings warnings until the next save', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { h } = await makeApp(
+        {},
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        JSON.stringify({ budget: { alertAtPercent: 0 } }),
+      );
+
+      const before = await call('GET', '/api/config');
+      expect(before.status).toBe(200);
+      expect(before.json()).toMatchObject({ path: h.config.configPath });
+      expect(before.json().warnings).toEqual([
+        { block: 'budget', message: expect.any(String) },
+      ]);
+      expect(before.json().budget).toEqual({
+        monthlyUsd: null,
+        alertAtPercent: 80,
+        pauseOnExceeded: false,
+        pauseOnUnknownCost: false,
+      });
+
+      const rejected = await call('PATCH', '/api/config', {
+        budget: { alertAtPercent: 0 },
+      });
+      expect(rejected.status).toBe(400);
+      const still = await call('GET', '/api/config');
+      expect(still.json().warnings).toHaveLength(1);
+
+      const saved = await call('PATCH', '/api/config', {
+        master: { intervalMinutes: 7 },
+      });
+      expect(saved.status).toBe(200);
+      expect(saved.json().warnings).toEqual([]);
+      const after = await call('GET', '/api/config');
+      expect(after.json().warnings).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('reports one whole-file warning when the settings file is not JSON', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await makeApp({}, undefined, undefined, undefined, undefined, '{not json');
+      const response = await call('GET', '/api/config');
+      expect(response.status).toBe(200);
+      expect(response.json().warnings).toEqual([
+        { block: null, message: expect.stringContaining('JSON') },
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('reads and patches budget settings and exposes budget status', async () => {

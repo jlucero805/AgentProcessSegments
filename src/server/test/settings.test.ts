@@ -1401,3 +1401,123 @@ describe('chat notification settings', () => {
     expect(() => readFileSync(file)).toThrow();
   });
 });
+
+describe('settings recovery warnings', () => {
+  it('is empty for a valid file and a missing file', () => {
+    const valid = tempFile();
+    writeFileSync(valid, JSON.stringify(sentinelSettings()));
+    expect(new SettingsStore(valid).warnings()).toEqual([]);
+    expect(new SettingsStore(tempFile()).warnings()).toEqual([]);
+  });
+
+  it('names a recovered block and never repeats its saved values', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const store = new SettingsStore(file);
+    const warnings = store.warnings();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.block).toBe('budget');
+    expect(warnings[0]?.message).toEqual(expect.any(String));
+
+    const text = JSON.stringify(warnings);
+    expect(text).not.toContain(sentinelSettings().notifications.webhook.url);
+    expect(text).not.toContain(sentinelSettings().notifications.webhook.secret);
+    expect(text).not.toContain(sentinelSettings().notifications.email.password);
+    expect(text).not.toContain(sentinelSettings().notifications.slack.botToken);
+    warn.mockRestore();
+  });
+
+  it('lists every recovered unit in settings order', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = sentinelSettings();
+    asMutable(saved).master = INVALID_UNIT_VALUES.master;
+    asMutable(saved).budget = INVALID_UNIT_VALUES.budget;
+    asMutable(saved.notifications).webhook = INVALID_UNIT_VALUES['notifications.webhook'];
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    expect(new SettingsStore(file).warnings().map((warning) => warning.block)).toEqual([
+      'master',
+      'budget',
+      'notifications.webhook',
+    ]);
+    warn.mockRestore();
+  });
+
+  it('reports one whole-file warning for malformed, non-object, or unreadable files', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const malformed = tempFile();
+    writeFileSync(malformed, '{not json');
+    expect(new SettingsStore(malformed).warnings()).toEqual([
+      { block: null, message: expect.stringContaining('JSON') },
+    ]);
+
+    const nonObject = tempFile();
+    writeFileSync(nonObject, '[]');
+    expect(new SettingsStore(nonObject).warnings()).toEqual([
+      { block: null, message: expect.stringContaining('JSON object') },
+    ]);
+
+    const unreadable = tempFile();
+    mkdirSync(unreadable);
+    expect(new SettingsStore(unreadable).warnings()).toEqual([
+      { block: null, message: expect.stringContaining('could not be read') },
+    ]);
+    warn.mockRestore();
+  });
+
+  it('returns a copy callers cannot mutate', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const store = new SettingsStore(file);
+    const first = store.warnings();
+    first[0]!.block = 'mutated';
+    first.push({ block: 'master', message: 'injected' });
+    expect(store.warnings()).toEqual([
+      { block: 'budget', message: expect.any(String) },
+    ]);
+    warn.mockRestore();
+  });
+
+  it('clears after a successful save and keeps the original aside', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const store = new SettingsStore(file);
+    expect(store.warnings()).toHaveLength(1);
+    expect(backupNames(file)).toEqual([]);
+
+    store.patch({ master: { intervalMinutes: 2 } });
+    expect(store.warnings()).toEqual([]);
+    expect(backupNames(file)).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it('keeps the warnings when a patch is rejected', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = asMutable(sentinelSettings());
+    saved.budget = INVALID_UNIT_VALUES.budget;
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(saved));
+
+    const store = new SettingsStore(file);
+    expect(store.warnings()).toHaveLength(1);
+    expect(() => store.patch({ master: { intervalMinutes: 0 } })).toThrow();
+    expect(store.warnings()).toEqual([
+      { block: 'budget', message: expect.any(String) },
+    ]);
+    warn.mockRestore();
+  });
+});

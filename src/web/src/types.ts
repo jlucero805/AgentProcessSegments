@@ -122,6 +122,7 @@ export {
   MAX_USAGE_RETENTION_DAYS,
 } from '../../server/src/usage/settings';
 export type { RetentionSettings } from '../../server/src/retention/settings';
+export type { SettingsWarning } from '../../server/src/domain/settings-warnings';
 export {
   DEFAULT_BUDGET_ALERTS_RETENTION_DAYS,
   DEFAULT_CELL_SUMMARIES_RETENTION_DAYS,
@@ -170,6 +171,7 @@ export {
 
 import type { HarnessId } from '../../server/src/domain/harness';
 import type { AgentStatus, Effort, Request, State, TranscriptMsg } from '../../server/src/domain/request';
+import type { SettingsWarning } from '../../server/src/domain/settings-warnings';
 import type {
   BudgetSettings,
   DeliveryStatus,
@@ -279,6 +281,8 @@ export type ChatTestResult = WebhookTestResult;
 
 export interface ConfigResponse extends AppConfig {
   path: string;
+  /** Settings units that were reset to defaults by the most recent load. */
+  warnings: SettingsWarning[];
 }
 
 export interface ProcessResponse extends ProcessConfig {

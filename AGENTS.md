@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1165 vitest cases: 906 server across 51 files (one environmental root-skip) and 259 web across 27 files, all green.
+- 1172 vitest cases: 912 server across 51 files (one environmental root-skip) and 260 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -81,7 +81,7 @@ digests.
   per-cell/per-segment cost and wall-clock/active cycle time, and
   request-level card, configurable master-activity retention for `master_events`,
   configurable scorecard-history retention for `cell_summaries`, configurable
-  budget-alert and delivery-history retention, cell-delete cleanup for
+  budget-alert and delivery-outbox retention, cell-delete cleanup for
   activity and reserved master/summary session directories,
   configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
@@ -107,7 +107,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 906 server + 259 web, plus the e2e env guard
+npm test                       # 912 server + 260 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -541,7 +541,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     alert through retention; reconciliation owns those. Deleting an expired acknowledged
     alert leaves its snapshotted delivery history in place; terminal delivery rows are
     bounded by the same retention setting, and orphaned pending rows are skipped by the
-    notifier drain.
+    notifier drain. `retention.notificationEventsDays` (default 400, `0` = forever)
+    bounds terminal `notification_event_deliveries` rows in the same hourly pass; never
+    prune `pending` or `delivering` event rows, and rely on `created_at` with no
+    period cap because the dedupe window is at most one day while retention is whole
+    days.
 36. **Request workdirs are owner-only.** `$APS_DATA_DIR/requests` and each per-session
     workdir are `0700`; `transcript.json` and `session.json` are written atomically as
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose

@@ -1372,8 +1372,8 @@ turns that end in `engine.result`, `engine.exit`, `engine.timeout`, or `engine.t
 `master.error` covers `master.turn`/`master.cycle` failures and skips expected spend-cap
 refusals. Events drain through the same `NotificationService`, channel settings,
 destination hash, HMAC signing, 10-second timeout, retry schedule, and `Retry-After` as
-budget alerts. Event rows keep their own 400-day notifier-start prune rather than the
-configurable budget-alert window. The sibling
+budget alerts. Event rows use the configurable event-retention window from D89 rather
+than the configurable budget-alert window. The sibling
 `notification_event_deliveries` table keys `UNIQUE(dedupe_key, channel)`; a failed-turn key
 is request+source+safe reason+UTC hour and a master key is cell+source+segment+UTC hour, so
 a deterministic failure loop sends at most one message per signature per hour per channel.
@@ -1693,13 +1693,13 @@ rows are pruned by the delivery pass and orphaned pending rows are skipped by th
 drain (D78). Add `idx_budget_alert_deliveries_created` for the cutoff scan; `budget_alerts`
 already has a `created_at` index. Each table reports its own result and one
 `retention.prune` failure, and the old notifier-start delivery prune is removed. The
-operational event outbox keeps its separate 400-day start prune.
+operational event outbox is handled separately by D89.
 
 **Cost.** The current UTC month is never pruned, so a window shorter than a month behaves
 as "keep the current month"; the default 400 days preserves the previous delivery
 behaviour. Expired acknowledged alerts keep their snapshotted delivery history until the
 delivery rows themselves expire. There is no rollup, per-channel window, manual prune, or
-`VACUUM`, and `notification_event_deliveries` retention remains separate work.
+`VACUUM`, and `notification_event_deliveries` retention is handled by D89.
 
 ## D78. Delivery history snapshots its alert instead of cascading with it
 
@@ -1776,7 +1776,8 @@ failures and do not notify. The v1 `summary` envelope carries only cell id, clas
 safe reason, and timestamp; raw failure text stays in the transcript and `summary.generate`.
 The dedupe key is cell+source+safe reason+UTC hour, so a failing scheduler retries produce
 at most one message per channel per hour. Delivery reuses D66's destination hashes, signing,
-timeout, retry, `Retry-After`, crash recovery, and 400-day prune; event routes remain
+timeout, retry, `Retry-After`, crash recovery, and the configurable event-retention window
+from D89; event routes remain
 webhook/email only. SQLite cannot alter the existing `kind` CHECK, so `migrate()` performs
 a one-time table rebuild that preserves every delivery row and the unique key.
 
@@ -1822,10 +1823,9 @@ an idempotent no-op, `delivered` remains immutable, and unknown ids remain `404`
 **Cost.** No table rebuild, new route, or dependency. Merged pagination fetches
 `offset + limit` from each included source and merges in the service; the existing
 100-row page cap bounds it. Event history remains webhook/email only because event routes
-do, and event rows keep their hardcoded 400-day notifier-start prune until the separate
-retention follow-up lands. The event projection is read-time: a renamed or deleted cell
-shows its current name or `Deleted cell`, and malformed legacy payloads show a safe
-fallback rather than their raw body.
+do, and event rows use the configurable retention window from D89. The event projection is
+read-time: a renamed or deleted cell shows its current name or `Deleted cell`, and
+malformed legacy payloads show a safe fallback rather than their raw body.
 
 ## D82. Event notifications expose a coalescing window and per-cell routes
 
@@ -2023,3 +2023,31 @@ restarts.
 the page or server reloads, and a restarted process does not rediscover earlier copies.
 The Config page gains one small state field, one response field on each endpoint, and one
 card; copying, opening, or pruning the file remains separate work.
+
+## D89. Notification event history has a configurable retention window
+
+**Context.** `notification_event_deliveries` was pruned only once at notifier start with a
+hardcoded 400-day age. That ignored settings changes until a restart, could not be
+disabled or tuned, and deleted rows in every status, including a pending or in-flight row
+that happened to be older than the cutoff. The outbox grows with every event signature and
+channel, so operators need the same bounded history they already have for budget alerts.
+
+**Decision.** Add `retention.notificationEventsDays` (default 400, `0` = keep forever, max
+3650) and prune the outbox from the existing startup/hourly `DataRetention` pass. Delete
+only terminal rows (`delivered`, `failed`, `skipped`) whose `created_at` is strictly
+before `now - notificationEventsDays`, in 1000-row batches with an event-loop yield.
+`pending` and `delivering` rows are never pruned; the notifier's crash recovery still
+resets stale `delivering` rows on start. The cutoff is not capped at the current UTC
+period: an event dedupe key is an epoch-anchored window of at most 1440 minutes, and
+retention is whole days, so a terminal row old enough to prune cannot be the dedupe record
+for an open window. Reuse `idx_notification_event_deliveries_created`; no table or index
+change is needed. Each table reports its own result and one `retention.prune` failure, and
+the old notifier-start prune and `NotificationEventDeliveryRepository.pruneBefore()` are
+removed.
+
+**Cost.** A terminal event row is history-only once its window passes: it disappears from
+the delivery-history card and cannot be resent, which is the retention bound rather than a
+new resend rule. `pending` rows stay until the notifier retries, fails, or skips them, so a
+stuck pending row can outlive the window; that is deliberate because pruning live work
+would race the drain. There is no rollup, per-channel window, manual prune, retention
+status endpoint, or `VACUUM`.

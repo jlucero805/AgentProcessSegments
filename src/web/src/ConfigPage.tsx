@@ -17,6 +17,7 @@ import {
   MAX_EVENT_COALESCE_MINUTES,
   MAX_EVENT_ROUTES,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
+  MAX_NOTIFICATION_EVENTS_RETENTION_DAYS,
   MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
   MIN_EVENT_COALESCE_MINUTES,
@@ -242,6 +243,8 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   const [cellSummariesSaved, setCellSummariesSaved] = useState(false);
   const [budgetAlertsSaving, setBudgetAlertsSaving] = useState(false);
   const [budgetAlertsSaved, setBudgetAlertsSaved] = useState(false);
+  const [notificationEventsSaving, setNotificationEventsSaving] = useState(false);
+  const [notificationEventsSaved, setNotificationEventsSaved] = useState(false);
   const [requestArtifactsSaving, setRequestArtifactsSaving] = useState(false);
   const [requestArtifactsSaved, setRequestArtifactsSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
@@ -516,6 +519,13 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     setBudgetAlertsSaved(false);
   };
 
+  const setNotificationEventsDays = (days: number) => {
+    setRetentionSettings((current) =>
+      current ? { ...current, notificationEventsDays: days } : current,
+    );
+    setNotificationEventsSaved(false);
+  };
+
   const setSegment = <K extends keyof SegmentConfig>(
     id: SegmentConfig['id'],
     key: K,
@@ -633,6 +643,23 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       onError(describeError(error));
     } finally {
       setBudgetAlertsSaving(false);
+    }
+  }
+
+  async function saveNotificationEvents() {
+    if (!retention) return;
+    setNotificationEventsSaving(true);
+    try {
+      const config = await api.patchConfig({
+        retention: { notificationEventsDays: retention.notificationEventsDays },
+      });
+      setRetentionSettings(config.retention);
+      applyConfigMeta(config);
+      setNotificationEventsSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setNotificationEventsSaving(false);
     }
   }
 
@@ -1447,6 +1474,46 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
               onClick={() => void saveBudgetAlerts()}
             >
               {budgetAlertsSaving ? <Spinner /> : 'Save budget alert retention'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Notification event retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Finished operational-event delivery rows are pruned in the background. Pending
+          and in-flight deliveries are never pruned.
+        </p>
+        <Field
+          label="Notification event retention (days)"
+          hint="0 keeps event delivery history forever"
+        >
+          <Input
+            type="number"
+            aria-label="Notification event retention (days)"
+            min={0}
+            max={MAX_NOTIFICATION_EVENTS_RETENTION_DAYS}
+            step={1}
+            value={retention.notificationEventsDays}
+            onChange={(event) => setNotificationEventsDays(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. Delivered, failed, and skipped rows
+            older than the window are removed.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {notificationEventsSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={notificationEventsSaving}
+              onClick={() => void saveNotificationEvents()}
+            >
+              {notificationEventsSaving ? <Spinner /> : 'Save notification event retention'}
             </Button>
           </div>
         </div>
@@ -2364,9 +2431,9 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         </div>
 
         <p className="text-[11px] text-zinc-600">
-          Budget rows follow the Budget alert retention window. Event rows are pruned after
-          400 days on notifier start. Clearing a budget, changing its threshold, or deleting
-          a cell removes its unacknowledged alerts and their delivery rows.
+          Budget rows follow the Budget alert retention window. Event rows follow the
+          Notification event retention window; clearing a budget, changing its threshold,
+          or deleting a cell removes its unacknowledged alerts and their delivery rows.
         </p>
       </Card>
 

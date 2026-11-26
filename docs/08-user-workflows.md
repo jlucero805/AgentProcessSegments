@@ -229,9 +229,10 @@ last five.
     Delivered rows never show Resend. Budget history is pruned under the Config **Budget
     alert retention** window (default 400 days; `0` keeps it forever), the current UTC
     month is always kept, and clearing a budget, changing its threshold, or deleting a
-    cell removes its unacknowledged rows. Event rows are pruned after 400 days on notifier
-    start. Full failure text remains in the request transcript and error log, not in the
-    history payload.
+    cell removes its unacknowledged rows. Event rows follow the Config **Notification
+    event retention** window (default 400 days; `0` keeps them forever), and pending or
+    in-flight rows are never pruned. Full failure text remains in the request transcript
+    and error log, not in the history payload.
 13. The **Event notifications** card can send failed request turns, master turn/cycle
     errors, scorecard failures, and spend-cap override grants/extensions/expiries. Check
     Webhook and/or Email per event kind, choose a coalescing window (default 60 minutes;
@@ -393,7 +394,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Webhook delivery settings | `notifications.webhook` in `config.json` (secret redacted by API) |
 | Email delivery settings | `notifications.email` in `config.json` (password redacted by API) |
 | Alert delivery outbox | `budget_alert_deliveries` in SQLite, one row per alert and destination, with a self-contained alert snapshot; terminal rows expire under `retention.budgetAlertsDays` |
-| Event delivery outbox | `notification_event_deliveries` in SQLite, one row per signature and channel, with the safe classification payload; rows prune after 400 days on notifier start |
+| Event delivery outbox | `notification_event_deliveries` in SQLite, one row per signature and channel, with the safe classification payload; terminal rows expire under `retention.notificationEventsDays` |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |

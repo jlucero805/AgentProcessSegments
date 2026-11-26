@@ -1515,6 +1515,9 @@ describe('http api', () => {
     const byKind = await call('GET', '/api/notifications/deliveries?kind=turn.failed');
     expect(byKind.status).toBe(200);
     expect(byKind.json()).toMatchObject({ total: 1 });
+    const summaryKind = await call('GET', '/api/notifications/deliveries?kind=summary.failed');
+    expect(summaryKind.status).toBe(200);
+    expect(summaryKind.json()).toMatchObject({ total: 0 });
     const budget = await call('GET', '/api/notifications/deliveries?source=budget');
     expect(budget.status).toBe(200);
     expect(budget.json().deliveries[0]).toMatchObject({ source: 'budget' });

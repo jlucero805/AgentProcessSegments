@@ -201,9 +201,10 @@ last five.
     never stop work or hide the in-app banner.
 12. The **Delivery history** card below the channel settings lists recent budget and
     operational-event attempts for webhook, email, Slack, and Discord. Filter by type
-    (budget, failed turns, master errors, scorecard failures), channel, or status; use **Refresh** or the
-    Newer/Older buttons to page. Budget subjects show the alert scope/threshold/spend;
-    event subjects show the safe title and reveal the human summary on hover. A failed or
+    (budget, failed turns, master errors, scorecard failures), channel, or status; use
+    **Refresh** or the Newer/Older buttons to page. Budget subjects show the alert
+    scope/threshold/spend; event subjects show the safe title and reveal the human summary
+    on hover. A failed or
     skipped budget row that still belongs to an unacknowledged current-month alert shows
     **Resend** when its destination still matches; an event row shows it only while its
     kind/channel route, channel, and destination remain enabled and configured. Pressing

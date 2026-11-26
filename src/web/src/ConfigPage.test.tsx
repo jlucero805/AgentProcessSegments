@@ -262,6 +262,34 @@ const eventDeliveryRow: DeliveryHistoryItem = {
   },
 };
 
+const summaryDeliveryRow: DeliveryHistoryItem = {
+  id: 'event-2',
+  source: 'event',
+  channel: 'webhook',
+  format: 'json',
+  status: 'failed',
+  attempts: 2,
+  nextAttemptAt: Date.UTC(2026, 10, 15, 14),
+  lastError: 'HTTP 503',
+  createdAt: Date.UTC(2026, 10, 15, 14),
+  updatedAt: Date.UTC(2026, 10, 15, 14),
+  deliveredAt: null,
+  canResend: true,
+  event: {
+    kind: 'summary.failed',
+    title: 'Scorecard failed: Acme',
+    text: 'Scorecard generation failed for cell "Acme": process exited with code 1.',
+    source: 'summary.exit',
+    reason: 'process exited with code 1',
+    cellId: 'c1',
+    cellName: 'Acme',
+    requestId: null,
+    turnId: null,
+    segment: null,
+    occurredAt: Date.UTC(2026, 10, 15, 14),
+  },
+};
+
 const deliveryHistory: DeliveryHistoryResponse = {
   deliveries: [deliveryRow],
   total: 1,
@@ -1424,8 +1452,8 @@ describe('ConfigPage', () => {
       email,
       undefined,
       {
-        deliveries: [deliveryRow, eventDeliveryRow],
-        total: 2,
+        deliveries: [deliveryRow, eventDeliveryRow, summaryDeliveryRow],
+        total: 3,
         limit: 10,
         offset: 0,
       },
@@ -1435,6 +1463,8 @@ describe('ConfigPage', () => {
     expect(await screen.findByText('Turn failed: Fix the parser')).toBeInTheDocument();
     expect(screen.getByText('Turn failed')).toBeInTheDocument();
     expect(screen.getByText('Budget')).toBeInTheDocument();
+    expect(screen.getByText('Scorecard failed: Acme')).toBeInTheDocument();
+    expect(screen.getByText('Scorecard failed')).toBeInTheDocument();
     expect(
       screen.getByRole('button', {
         name: /Resend webhook delivery for Turn failed: Fix the parser/i,
@@ -1451,6 +1481,11 @@ describe('ConfigPage', () => {
       target: { value: 'master.error' },
     });
     await waitFor(() => expect(captured.deliveryQuery).toContain('kind=master.error'));
+
+    fireEvent.change(screen.getByLabelText(/^Type/), {
+      target: { value: 'summary.failed' },
+    });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=summary.failed'));
 
     fireEvent.change(screen.getByLabelText(/^Type/), { target: { value: 'budget' } });
     await waitFor(() => expect(captured.deliveryQuery).toContain('source=budget'));

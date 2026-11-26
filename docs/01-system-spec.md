@@ -460,7 +460,8 @@ They require a configured destination, write no alert or delivery rows, and retu
 or `502`.
 
 `GET /api/notifications/deliveries` is a read-only, offset-paginated audit over both
-outboxes. Filters are `source` (`budget|event`), `kind` (`turn.failed|master.error`),
+outboxes. Filters are `source` (`budget|event`), `kind`
+(`turn.failed|master.error|summary.failed`),
 `channel`, `status`, `alertId`, `from` (inclusive), and `to` (exclusive) on the delivery
 `created_at`, with `limit` 1–100 (default 25) and `offset`. `source` and `kind` are
 mutually exclusive; `alertId` is budget-only and cannot combine with an event filter.
@@ -471,8 +472,8 @@ snapshotted alert scope/cell, threshold, budget/spend, attempts, next attempt, s
 error, timestamps, and `canResend`, so a delivery whose alert was deleted is still
 visible. Event rows return only `kind`, title/text, failure source/reason, ids, resolved
 cell name (`Deleted cell` fallback), segment, occurrence time, lifecycle fields, and
-`canResend`; an unreadable payload renders a fallback title with null details. Neither
-shape includes `destination_hash`, a URL, credentials, recipients, or the raw payload
+`canResend` (scorecard rows have no request or segment); an unreadable payload renders a
+fallback title with null details. Neither shape includes `destination_hash`, a URL, credentials, recipients, or the raw payload
 JSON. History is read-only and newest-first by `(created_at, id)`.
 
 `POST /api/notifications/deliveries/:id/resend` looks up a budget row first and then an

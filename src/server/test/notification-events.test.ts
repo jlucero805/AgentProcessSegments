@@ -486,7 +486,7 @@ describe('operational event delivery history', () => {
     context: ReturnType<typeof setup>,
     input: {
       dedupeKey: string;
-      kind: 'turn.failed' | 'master.error';
+      kind: 'turn.failed' | 'master.error' | 'summary.failed';
       channel: 'webhook' | 'email';
       createdAt: number;
       payload?: unknown;
@@ -500,7 +500,13 @@ describe('operational event delivery history', () => {
       destinationHash: 'event-hash-fixture',
       payloadJson:
         input.payload === undefined
-          ? JSON.stringify(input.kind === 'turn.failed' ? TURN : MASTER)
+          ? JSON.stringify(
+              input.kind === 'turn.failed'
+                ? TURN
+                : input.kind === 'master.error'
+                  ? MASTER
+                  : SUMMARY,
+            )
           : typeof input.payload === 'string'
             ? input.payload
             : JSON.stringify(input.payload),
@@ -627,6 +633,76 @@ describe('operational event delivery history', () => {
         turnId: null,
         segment: null,
         occurredAt: NOW,
+      },
+    });
+  });
+
+  it('projects scorecard failures with the summary envelope', async () => {
+    const context = setup({
+      send: async () => new Response(null, { status: 204 }),
+      summaryFailures: { webhook: true },
+    });
+    context.notifier.observeSummaryFailure({ ...SUMMARY, cellId: context.cellId });
+    await context.notifier.flush();
+
+    expect(context.notifier.history({ kind: 'summary.failed' }).deliveries[0]).toMatchObject({
+      source: 'event',
+      canResend: false,
+      event: {
+        kind: 'summary.failed',
+        title: 'Scorecard failed: Acme',
+        text: 'Scorecard generation failed for cell "Acme": process exited with code 1.',
+        source: 'summary.exit',
+        reason: 'process exited with code 1',
+        cellId: context.cellId,
+        cellName: 'Acme',
+        requestId: null,
+        turnId: null,
+        segment: null,
+        occurredAt: NOW,
+      },
+    });
+  });
+
+  it('guards scorecard resend on summaryFailures, not masterErrors', async () => {
+    const context = setup({
+      send: async () => new Response(null, { status: 404 }),
+      summaryFailures: { webhook: true },
+    });
+    context.notifier.observeSummaryFailure({ ...SUMMARY, cellId: context.cellId });
+    await context.notifier.flush();
+    const row = (context.db
+      .prepare('SELECT id FROM notification_event_deliveries')
+      .get() as { id: string });
+    expect(context.notifier.history({}).deliveries[0]?.canResend).toBe(true);
+
+    context.settings.patch({
+      notifications: {
+        events: {
+          summaryFailures: { webhook: false },
+          masterErrors: { webhook: true },
+        },
+      },
+    });
+    expect(context.notifier.history({}).deliveries[0]?.canResend).toBe(false);
+    expect(context.notifier.resend(row.id)).toEqual({
+      ok: false,
+      reason: 'event_disabled',
+    });
+
+    context.settings.patch({
+      notifications: {
+        events: {
+          summaryFailures: { webhook: true },
+          masterErrors: { webhook: false },
+        },
+      },
+    });
+    expect(context.notifier.resend(row.id)).toMatchObject({
+      ok: true,
+      delivery: {
+        source: 'event',
+        event: { kind: 'summary.failed' },
       },
     });
   });

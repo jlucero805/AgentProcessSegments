@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -109,6 +109,17 @@ describe('ProcessStore', () => {
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).segments).toHaveLength(6);
     expect(segmentBy(new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).get(), 'intake').enabled).toBe(true);
+    expect(readdirSync(path.dirname(file)).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      chmodSync(file, 0o644);
+      const repaired = defaultProcess(DEFAULT_SETTINGS.master);
+      segmentBy(repaired, 'intake').enabled = false;
+      store.patch({ segments: repaired.segments });
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      const reread = JSON.parse(readFileSync(file, 'utf8')) as ProcessConfig;
+      expect(segmentBy(reread, 'intake').enabled).toBe(false);
+    }
   });
 
   it('upgrades an old five-segment process by adding Merge and concurrency', () => {

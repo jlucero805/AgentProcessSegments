@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import type { ErrorSink } from '../logging/errors.js';
+import { writePrivateFile } from '../util/files.js';
 import type { ProcessConfig } from './definition.js';
 import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
 
@@ -73,9 +73,6 @@ export class ProcessStore {
   }
 
   private write(config: ProcessConfig): void {
-    mkdirSync(path.dirname(this.path), { recursive: true });
-    const temp = `${this.path}.tmp-${process.pid}-${Date.now()}`;
-    writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temp, this.path);
+    writePrivateFile(this.path, `${JSON.stringify(config, null, 2)}\n`);
   }
 }

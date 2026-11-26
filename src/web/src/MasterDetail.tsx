@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
-import { markdownComponents } from './Thread';
+import { Scorecard } from './Scorecard';
 import {
   masterSessionId,
   timeAgo,
@@ -40,14 +39,6 @@ function clock(ts: number | null | undefined): string {
 
 function duration(minutes: number): string {
   return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
-}
-
-function Scorecard({ summary }: { summary: Summary }) {
-  return (
-    <div className="break-words rounded-lg border border-zinc-800 bg-black/20 p-3">
-      <ReactMarkdown components={markdownComponents}>{summary.content}</ReactMarkdown>
-    </div>
-  );
 }
 
 /** The cell master as a first-class thread: cron policy, activity, and chat. */

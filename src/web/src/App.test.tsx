@@ -160,6 +160,19 @@ function installFetch(
       });
     }
     if (url.startsWith('/api/master/events')) return jsonResponse([]);
+    if (url.startsWith('/api/summaries/status')) {
+      return jsonResponse({
+        enabled: true,
+        intervalMinutes: 360,
+        windowMinutes: 360,
+        running: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        lastError: null,
+      });
+    }
+    if (url.startsWith('/api/summaries/latest')) return jsonResponse(null);
+    if (url.startsWith('/api/summaries')) return jsonResponse([]);
     if (url.startsWith('/api/usage')) return jsonResponse(makeUsageResponse());
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);
     if (url === `/api/requests/${request.id}/clarify`) {
@@ -347,6 +360,19 @@ describe('App', () => {
 
     expect(await screen.findByText('Cost over time')).toBeInTheDocument();
     expect(window.location.search).toContain('page=usage');
+  });
+
+  it('opens the scorecards page and records it in the URL', async () => {
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Scorecards'));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('No scorecards yet')).toBeInTheDocument();
+    expect(window.location.search).toContain('page=scorecards');
   });
 
   it('shares budget alert acknowledgement between the banner and the usage page', async () => {

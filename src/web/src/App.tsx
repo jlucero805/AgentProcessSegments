@@ -9,6 +9,7 @@ import { HelpPanel } from './HelpPanel';
 import { KbEntries } from './KbEntries';
 import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
+import { ScorecardsPage } from './ScorecardsPage';
 import { SkillsPage } from './SkillsPage';
 import { UsagePage } from './UsagePage';
 import { api, describeError } from './api';
@@ -18,7 +19,7 @@ import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
 import { useBudgets } from './useBudgets';
 
-type Page = 'board' | 'kb' | 'skills' | 'usage' | 'config';
+type Page = 'board' | 'kb' | 'skills' | 'usage' | 'scorecards' | 'config';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -37,7 +38,13 @@ function readRoute(): {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get('page');
   const page: Page =
-    raw === 'kb' || raw === 'skills' || raw === 'usage' || raw === 'config' ? raw : 'board';
+    raw === 'kb' ||
+    raw === 'skills' ||
+    raw === 'usage' ||
+    raw === 'scorecards' ||
+    raw === 'config'
+      ? raw
+      : 'board';
   const cellId = params.get('cell');
   // Only a real cell owns a master; the "all cells" filter cannot open one.
   const masterOpen = params.get('master') === '1' && cellId !== null;
@@ -254,6 +261,9 @@ export function App() {
           <NavButton active={page === 'usage'} onClick={() => go('usage')}>
             Usage
           </NavButton>
+          <NavButton active={page === 'scorecards'} onClick={() => go('scorecards')}>
+            Scorecards
+          </NavButton>
           <NavButton active={page === 'kb'} onClick={() => go('kb')}>
             Knowledge base
           </NavButton>
@@ -442,6 +452,9 @@ export function App() {
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
           {page === 'usage' ? (
             <UsagePage onError={setError} budgetFeed={budgetFeed} />
+          ) : null}
+          {page === 'scorecards' ? (
+            <ScorecardsPage cellId={cellId} onError={setError} />
           ) : null}
           {page === 'config' ? (
             <ConfigPage

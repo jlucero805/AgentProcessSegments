@@ -511,8 +511,9 @@ built and vended by the brain; real-CLI verification is still pending.
 - Help diagrams use mermaid v12.3.0; its transitive KaTeX 0.18.10 clears the last low
   advisory (`GHSA-238p-pmpm-9mq7`). Mermaid 12 targets ES2024/Safari 17.4+, and
   `MermaidDiagram` falls back to the source code block when the lazy chunk or a render
-  fails. Its v12 defaults (ELK layout, `neo` look) are pinned back to `dagre`/`classic`
-  so the Help pages keep their pre-v12 rendering and never load the ELK chunk.
+  fails. The Help pages deliberately use v12's ELK layout and `neo` look; the first
+  diagram loads the lazy ~1.5 MB ELK chunk behind the existing spinner, and later
+  diagrams reuse it.
 - The OpenCode adapter runs one process per turn instead of one long-lived child: the
   CLI is one-shot per message. `--session` carries continuity, `--standalone` isolates
   each turn's config, `--archived` keeps brain sessions out of the user's list, and

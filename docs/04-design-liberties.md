@@ -113,13 +113,15 @@ stays a template until that scope is granted.
 Vitest 5 for the web workspace, Vitest 2 on the server; mermaid 12.3.0 for Help
 diagrams.
 
-**Alternative.** React 19; mermaid 12's default ELK layout and `neo` look.
+**Alternative.** React 19; keeping mermaid 12 pinned to the pre-v12 `dagre` layout and
+`classic` look.
 
 **Why.** The spec names the external-store API and React 18, and 0.15.38 still supports
 both while clearing the vulnerable `nanoid` range that 0.10 pulled in. mermaid 12.3.0
-moves its KaTeX dependency onto the patched 0.18 line (`GHSA-238p-pmpm-9mq7`), and
-`mermaid.initialize` pins `layout: 'dagre'` and `look: 'classic'` so the v12 defaults do
-not restyle the Help pages or fetch the ELK chunk.
+moves its KaTeX dependency onto the patched 0.18 line (`GHSA-238p-pmpm-9mq7`). Its ELK
+layout and `neo` look are adopted for Help diagrams after a deliberate visual review of
+the three README diagrams; the first diagram loads the lazy ~1.5 MB ELK chunk behind the
+existing spinner, and later diagrams reuse it.
 
 ## 9. Cell masters are deterministic and marker-based
 

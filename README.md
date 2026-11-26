@@ -447,7 +447,8 @@ request carries an `X-APS-Timestamp` (milliseconds since epoch; informational an
 not covered by the HMAC). Slack and Discord receivers ignore both headers. See
 [Verify webhook signatures](docs/08-user-workflows.md#verify-webhook-signatures) for
 a runnable raw-body receiver, the constant-time check, and the response/retry and
-replay rules.
+replay rules. The [Webhook payloads](docs/14-webhook-payloads.md) reference lists every
+JSON field, discriminator, and dedupe id for budget alerts and event notifications.
 
 The **Slack alerts** and **Discord alerts** cards add authenticated bot delivery. Paste a
 bot token, add one or more channel IDs, choose a default destination, and optionally route
@@ -528,6 +529,7 @@ backlog items.
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
 - `docs/13-cell-wizard.md` cell creation chat and policy setup
+- `docs/14-webhook-payloads.md` receiver-facing webhook bodies, discriminators, and ids
 - `deploy/vps.md` VPS, systemd, and Tailscale runbook
 - `AGENTS.md` handoff: environment traps, invariants, extension recipes, next units
 
@@ -618,7 +620,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1179 vitest cases: 919 server cases across 51 files (state machine,
+`npm test` runs 1185 vitest cases: 925 server cases across 52 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

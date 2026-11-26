@@ -320,6 +320,10 @@ body's `event` field:
   is signed the same way.
 - `turn.failed`: `turn.turnId`.
 - `master.error`: `master.cellId`, `master.source`, and `master.occurredAt`.
+- `summary.failed`: `summary.cellId`, `summary.source`, and `summary.occurredAt`.
+- `spend.override`: `override.overrideId`, `override.change`, and `override.expiresAt`.
+
+See [Webhook payloads](14-webhook-payloads.md) for every field, type, discriminator, and dedupe id.
 
 Respond with 2xx only after the event is durably accepted. APS retries 408, 429, and
 5xx at 60 s, 5 min, 30 min, and 2 h (five attempts total), honors `Retry-After`, and

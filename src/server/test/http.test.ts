@@ -1315,7 +1315,7 @@ describe('http api', () => {
     expect(result.status).toBe(400);
   });
 
-  it('lists delivery history with joined alerts and no secrets', async () => {
+  it('lists delivery history with snapshotted alerts and no secrets', async () => {
     await makeApp();
     const { row } = seedDelivery('failed');
 
@@ -1350,6 +1350,42 @@ describe('http api', () => {
     });
     expect(response.text).not.toContain('hash-fixture-a');
     expect(response.text).not.toContain('hooks.example.test');
+  });
+
+  it('keeps delivery history after the alert is deleted and blocks resend', async () => {
+    await makeApp();
+    const { alert, row } = seedDelivery('failed');
+
+    open!.h.db.prepare('DELETE FROM budget_alerts WHERE id = ?').run(alert.id);
+
+    const history = await call('GET', '/api/notifications/deliveries');
+    expect(history.status).toBe(200);
+    expect(history.json()).toMatchObject({
+      total: 1,
+      deliveries: [
+        {
+          id: row.id,
+          status: 'failed',
+          canResend: false,
+          alert: {
+            scope: 'overall',
+            cellId: null,
+            cellName: null,
+            threshold: 'warning',
+            alertAtPercent: 80,
+            budgetUsd: 100,
+            spendUsd: 85,
+          },
+        },
+      ],
+    });
+
+    const resend = await call(
+      'POST',
+      `/api/notifications/deliveries/${row.id}/resend`,
+    );
+    expect(resend.status).toBe(409);
+    expect(resend.json()).toMatchObject({ error: 'alert_deleted' });
   });
 
   it('filters delivery history and rejects invalid queries', async () => {

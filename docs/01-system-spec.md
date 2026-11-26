@@ -170,21 +170,30 @@ history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
 
 ### `budget_alert_deliveries`
 
-`id` (uuid PK), `alert_id` (FK to `budget_alerts`, `ON DELETE CASCADE`), `channel`
-(`webhook|email|slack|discord`), `destination_id`, `format` (`json|slack|discord|email|chat`),
-`destination_hash`, `status` (`pending|delivering|delivered|failed|skipped`), `attempts`,
-`next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
+`id` (uuid PK), `alert_id` (no foreign key; the alert may be deleted), `scope`, `scope_id`,
+`threshold` (`warning|exceeded`), `alert_at_percent`, `budget_usd`, `spend_usd`,
+`unknown_cost_turns`, `alert_period_start`, `alert_created_at`, `alert_acknowledged_at`,
+`channel` (`webhook|email|slack|discord`), `destination_id`, `format`
+(`json|slack|discord|email|chat`), `destination_hash`, `status`
+(`pending|delivering|delivered|failed|skipped`), `attempts`, `next_attempt_at`,
+`last_error`, `created_at`, `updated_at`, `delivered_at`.
 `UNIQUE(alert_id, destination_id)` is the delivery idempotency key. Webhook and email
 rows use their channel as `destination_id`; chat rows use `<provider>:<channelId>`.
-`idx_budget_alert_deliveries_due` covers `(status, next_attempt_at)`. `destination_hash`
-is a SHA-256 of the destination route (URL/format/secret, host/port/TLS/from/recipients/
-credentials, or provider/channel/token), never logged or returned, so a configuration
-change cannot send an old alert with new credentials. Deliveries older than 400 days are
-pruned on notifier start. An older table with `UNIQUE(alert_id, channel)` is rebuilt on
-migration and existing rows keep `destination_id = channel`. The Config **Delivery
-history** card reads this table through a read-only join; a manual resend resets the same
-`failed`/`skipped` row under the current destination when the destination still matches
-and never creates a second row for that destination.
+The `scope`/`threshold`/budget/spend/period fields are a snapshot taken when the row is
+enqueued and are never rewritten by later alert evaluation; `alert_acknowledged_at` is
+stamped in the same transaction as the alert acknowledgement. Deleting the alert row
+therefore leaves the delivery history intact and resend becomes history-only.
+`idx_budget_alert_deliveries_due` covers `(status, next_attempt_at)` and
+`idx_budget_alert_deliveries_alert` covers `alert_id`. `destination_hash` is a SHA-256 of
+the destination route (URL/format/secret, host/port/TLS/from/recipients/credentials, or
+provider/channel/token), never logged or returned, so a configuration change cannot send
+an old alert with new credentials. Deliveries older than 400 days are pruned on notifier
+start. An older table with `UNIQUE(alert_id, channel)` or the later cascading table is
+rebuilt on migration; existing rows keep `destination_id = channel` when it was absent and
+backfill their snapshot from `budget_alerts`. The Config **Delivery history** card reads
+this table read-only; a manual resend resets the same `failed`/`skipped` row under the
+current destination when the destination still matches and never creates a second row for
+that destination.
 
 ### `notification_event_deliveries`
 
@@ -387,11 +396,11 @@ DNS-temporary, timeout, and unknown errors to retries. Slack HTTP 200 `{ok:true}
 HTTP 200 `{ok:false,error}` is failure, with rate-limit/internal/transient codes retried and
 auth/permission/channel/format codes permanent. Discord `2xx` delivers, `429` retries with
 `retry_after` (body or header), `408`/`5xx` retry, and other `4xx`/`3xx` fail. Redirects are
-never followed. Acknowledged alerts, prior months, removed/rotated destinations, and rows
-for another route are marked `skipped` per destination; disabling one channel never skips
-another. Failures go to the error sink as `budget.notify` with ids, channel, attempt, and a
-short reason only. A disabled or unreachable destination never affects budgets, turns, or
-the banner.
+never followed. Acknowledged alerts, prior months, deleted alerts, removed/rotated
+destinations, and rows for another route are marked `skipped` per destination; disabling
+one channel never skips another. Failures go to the error sink as `budget.notify` with
+ids, channel, attempt, and a short reason only. A disabled or unreachable destination
+never affects budgets, turns, or the banner.
 The same service drains `notification_event_deliveries` for the opt-in
 `notifications.events` routes. `Engine` emits `turn.failed` once for a request-scoped turn
 whose failure classification is `engine.result`, `engine.exit`, `engine.timeout`, or
@@ -420,18 +429,20 @@ or `502`.
 `GET /api/notifications/deliveries` is a read-only, offset-paginated audit over both
 channels. Filters are `channel`, `status`, `alertId`, `from` (inclusive), and `to`
 (exclusive) on the delivery `created_at`, with `limit` 1–100 (default 25) and `offset`.
-Rows join `budget_alerts` and return the alert scope/cell, threshold, budget/spend,
-attempts, next attempt, sanitized error, timestamps, and `canResend`; they never include
-`destination_hash`, a URL, credentials, recipients, or a payload body. History is
-newest-first by `(created_at, id)`.
+Rows return the snapshotted alert scope/cell, threshold, budget/spend, attempts, next
+attempt, sanitized error, timestamps, and `canResend`, so a delivery whose alert was
+deleted is still visible; they never include `destination_hash`, a URL, credentials,
+recipients, or a payload body. History is newest-first by `(created_at, id)`.
 
 `POST /api/notifications/deliveries/:id/resend` re-queues only a `failed` or `skipped`
 row whose alert is unacknowledged in the current UTC month and whose channel is enabled
 and configured. It resets `attempts` to zero, `next_attempt_at` to now, clears
 `delivered_at`, re-stamps `format`/`destination_hash` to the current route, preserves
 `last_error`, and kicks the notifier. `pending`/`delivering` is an idempotent no-op;
-delivered rows return `409 already_delivered`; acknowledged, prior-month, disabled, and
-unconfigured cases return the matching `409`. Unknown ids return `404`. The one row per
+delivered rows return `409 already_delivered`; a row whose alert was deleted returns
+`409 alert_deleted`; acknowledged, prior-month, disabled, and unconfigured cases return
+the matching `409`. Orphaned pending rows are marked `skipped` by the notifier drain and
+are never sent. Unknown ids return `404`. The one row per
 `(alert_id, channel)` remains the dedupe record; a delivered alert is never resent.
 
 ### `kb_entries`

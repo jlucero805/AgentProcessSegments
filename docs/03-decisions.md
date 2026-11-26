@@ -1256,11 +1256,9 @@ flush. For chat, the current route must still resolve to the row's destination i
 `pending`/`delivering` is an idempotent no-op; delivered rows are immutable.
 
 **Cost.** No schema change, migration, new dependency, or background job. The audit is an
-ops list bounded by monthly alerts, two channels, and the existing 400-day prune. History
-rows still cascade with their alert, so clearing a budget, changing a threshold, deleting
-a cell, or a month rollover removes unacknowledged history; snapshotting alert fields is a
-separate follow-up. Resends are not attributed to an operator because the app has no
-user identity.
+ops list bounded by monthly alerts, two channels, and the existing 400-day prune. D77
+later replaces the join with an alert snapshot so history survives alert deletion.
+Resends are not attributed to an operator because the app has no user identity.
 ## D64. Budget alerts also deliver through native Slack and Discord bots
 
 **Context.** The webhook channel can post Slack/Discord-shaped text to an incoming
@@ -1275,7 +1273,8 @@ per-cell `{ cellId, channelId }` routes. The default receives the overall budget
 fallback for unrouted cells. Change the outbox identity to
 `UNIQUE(alert_id, destination_id)`; webhook/email rows use their channel as the
 destination id, while chat rows use `<provider>:<channelId>`. The old table is rebuilt on
-migration and existing rows keep their behavior. Each row stores a destination hash over
+migration and existing rows keep their behavior; D77 rebuilds it again to snapshot the
+alert fields and drop the cascade. Each row stores a destination hash over
 the provider, channel, and bot token, so a token or channel change skips pending rows
 instead of sending them with new credentials.
 
@@ -1645,3 +1644,33 @@ replaced without one.
 work. The snapshot is not encrypted and is never read back or repaired automatically. A
 file edited on disk after the process loaded it is outside this rule; the store saves
 its in-memory view either way.
+
+## D77. Delivery history snapshots its alert instead of cascading with it
+
+**Context.** D63 built the read-only delivery history as a join over
+`budget_alert_deliveries` and `budget_alerts`, and left the delivery row's
+`ON DELETE CASCADE` in place. Budget evaluation deletes unacknowledged alerts whenever a
+budget is cleared or changed, the warning identity changes, a cell disappears, or the UTC
+month rolls over. Those deletes removed the corresponding history, so an operator could
+not audit why an alert failed after the alert itself was gone.
+
+**Decision.** Store the alert fields on each delivery row at enqueue time: `scope`,
+`scope_id`, `threshold`, `alert_at_percent`, `budget_usd`, `spend_usd`,
+`unknown_cost_turns`, `alert_period_start`, `alert_created_at`, and
+`alert_acknowledged_at`. Drop the `budget_alerts` foreign key and its cascade; keep
+`UNIQUE(alert_id, destination_id)` as the idempotency record. History reads the snapshot
+only, keeps resolving the cell name live with a `Deleted cell` fallback, and never returns
+a destination or payload. Snapshot values are immutable except that acknowledging an alert
+stamps `alert_acknowledged_at` on its delivery rows in the same transaction. The send path
+still refuses to deliver an alert that no longer exists and marks orphaned pending rows
+`skipped` during the drain. Resending an orphan returns `409 alert_deleted`; a missing
+delivery id still returns `404`. The table is rebuilt on migration from either earlier
+shape, backfilling snapshots from `budget_alerts` and keeping `destination_id = channel`
+when the oldest table had no destination id.
+
+**Cost.** One table rebuild and ten columns. Snapshot budget/spend values are point-in-time
+and can differ from the latest alert or budget; that is the intended audit semantics.
+Alert rows and delivery rows are no longer transactionally coupled after enqueue, so the
+orphan sweep is the guard against sending a deleted alert. Migrated rows whose alert was
+already gone get safe default snapshot values; current installs cannot have that state
+because the old cascade removed them first. Resends remain unattributed.

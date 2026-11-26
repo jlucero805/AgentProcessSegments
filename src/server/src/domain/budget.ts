@@ -430,6 +430,7 @@ export interface DeliveryHistoryResponse {
 
 export type ResendBlockReason =
   | 'already_delivered'
+  | 'alert_deleted'
   | 'alert_acknowledged'
   | 'not_current_period'
   | 'channel_disabled'
@@ -439,6 +440,8 @@ export type ResendBlock = ResendBlockReason | 'in_flight';
 
 export interface ResendGuardInput {
   status: DeliveryStatus;
+  /** False when the alert row no longer exists; the delivery is history-only. */
+  alertExists: boolean;
   acknowledgedAt: number | null;
   periodStart: number;
   currentPeriodStart: number;
@@ -454,6 +457,7 @@ export interface ResendGuardInput {
 export function resendBlockReason(input: ResendGuardInput): ResendBlock | null {
   if (input.status === 'delivered') return 'already_delivered';
   if (input.status === 'pending' || input.status === 'delivering') return 'in_flight';
+  if (!input.alertExists) return 'alert_deleted';
   if (input.acknowledgedAt !== null) return 'alert_acknowledged';
   if (input.periodStart !== input.currentPeriodStart) return 'not_current_period';
   if (!input.channelEnabled) return 'channel_disabled';

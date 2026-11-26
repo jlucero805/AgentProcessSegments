@@ -273,13 +273,18 @@ built and vended by the brain; real-CLI verification is still pending.
   `notifications.slack` and `notifications.discord` post to one default channel per
   provider plus optional per-cell routes, using the same outbox and retry policy.
   `budget_alert_deliveries` is a durable outbox keyed by `(alert_id, destination_id)`;
-  it retries transient failures per destination, honors `Retry-After` and Discord
-  `retry_after`, skips acknowledged/prior-month/stale-destination rows, and prunes after
-  400 days. The Config page edits and tests all four channels, and
+  it snapshots the alert's scope, threshold, budget, spend, unknown-cost count, and
+  timestamps at enqueue, so delivery history survives budget/threshold/cell changes and
+  month rollover even after the alert row is deleted. It retries transient failures per
+  destination, honors `Retry-After` and Discord `retry_after`, skips
+  acknowledged/prior-month/deleted-alert/stale-destination rows, and prunes after 400
+  days. The Config page edits and tests all four channels, and
   `GET /api/notifications/status` reports per-channel and per-destination queue state. A
   **Delivery history** card lists recent attempts with filters, pagination, sanitized
   errors, and a guarded Resend for failed/skipped current-month rows; delivered rows are
-  immutable and a chat row is resendable only while its destination still matches.
+  immutable, a chat row is resendable only while its destination still matches, and a row
+  whose alert was deleted is history-only and returns `alert_deleted`. Resend and history
+  never return a destination or payload.
   An opt-in **Event notifications** card routes failed request turns and master
   turn/cycle errors to the same webhook/email channels, per event kind and channel;
   `notification_event_deliveries` dedupes by a one-hour signature, sends
@@ -360,7 +365,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 988 vitest cases, all passing: 776 server across 49 files and 212 web across 24 files,
+- 994 vitest cases, all passing: 782 server across 49 files and 212 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

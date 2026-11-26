@@ -106,12 +106,16 @@ stays a template until that scope is granted.
 ## 8. SPA dependency pins
 
 **Chosen.** React 18 with `@assistant-ui/react` 0.15.38 and Tailwind 3; Vite 8 and
-Vitest 5 for the web workspace, Vitest 2 on the server.
+Vitest 5 for the web workspace, Vitest 2 on the server; mermaid 12.3.0 for Help
+diagrams.
 
-**Alternative.** React 19.
+**Alternative.** React 19; mermaid 12's default ELK layout and `neo` look.
 
 **Why.** The spec names the external-store API and React 18, and 0.15.38 still supports
-both while clearing the vulnerable `nanoid` range that 0.10 pulled in.
+both while clearing the vulnerable `nanoid` range that 0.10 pulled in. mermaid 12.3.0
+moves its KaTeX dependency onto the patched 0.18 line (`GHSA-238p-pmpm-9mq7`), and
+`mermaid.initialize` pins `layout: 'dagre'` and `look: 'classic'` so the v12 defaults do
+not restyle the Help pages or fetch the ELK chunk.
 
 ## 9. Cell masters are deterministic and marker-based
 

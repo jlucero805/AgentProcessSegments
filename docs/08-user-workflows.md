@@ -409,4 +409,6 @@ unchanged. An unreadable or non-JSON file falls back to all defaults. The Config
 shows a banner naming every block the load reset, and keeps it until a save; saving any
 card persists the recovered values and drops the banner. Before the next save replaces
 such a file, the raw bytes are copied to a sibling `config.json.invalid-<UTC>`
-(owner-only); the save is refused if that copy cannot be written.
+(owner-only); the save is refused if that copy cannot be written. After that save the
+Config page shows the copy's path, so an operator can review and delete the original
+without reading the server log.

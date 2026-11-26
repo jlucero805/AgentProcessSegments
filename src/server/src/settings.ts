@@ -713,6 +713,8 @@ export class SettingsStore {
   private readonly listeners = new Set<(settings: AppSettings) => void>();
   /** Set when the loaded file was unusable; the next save preserves its bytes. */
   private preserveSource = false;
+  /** Copy made by the last save of an unusable file, kept for the UI. */
+  private preservedFilePath: string | null = null;
   /** Units reset to defaults by the load that produced the cached settings. */
   private loadWarnings: SettingsWarning[] = [];
 
@@ -730,6 +732,14 @@ export class SettingsStore {
   warnings(): SettingsWarning[] {
     this.get();
     return this.loadWarnings.map((warning) => ({ ...warning }));
+  }
+
+  /**
+   * Path of the copy this process made when a save replaced an unusable file, or
+   * null when no save has needed one. In-memory only; it is not a config key.
+   */
+  preservedPath(): string | null {
+    return this.preservedFilePath;
   }
 
   patch(input: unknown): AppSettings {
@@ -930,6 +940,7 @@ export class SettingsStore {
       throw error;
     }
 
+    this.preservedFilePath = backup;
     this.preserveSource = false;
     console.warn(`preserving unusable settings at ${this.path} as ${backup}`);
   }

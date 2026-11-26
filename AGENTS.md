@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1140 vitest cases: 884 server across 51 files (one environmental root-skip) and 256 web across 27 files, all green.
+- 1144 vitest cases: 885 server across 51 files (one environmental root-skip) and 259 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -106,7 +106,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + bash -n + shellcheck + actionlint + systemd unit gates, zero warnings
-npm test                       # 884 server + 256 web, plus the e2e env guard
+npm test                       # 885 server + 259 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -210,7 +210,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   never overwriting an earlier copy); a failed copy refuses the save and reports
   `settings.backupFailed`. The same load reports are returned as `warnings` by
   `GET/PATCH /api/config`; the Config page names each reset block in a banner until the
-  next successful save. Env still owns paths, ports, and the harness.
+  next successful save and shows the path of the preserved copy (`preservedPath`) after
+  the save that makes it. Env still owns paths, ports, and the harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it

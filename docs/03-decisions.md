@@ -1662,7 +1662,7 @@ replaced without one.
 **Cost.** Copies accumulate until an operator deletes them; bounding them is separate
 work. The snapshot is not encrypted and is never read back or repaired automatically. A
 file edited on disk after the process loaded it is outside this rule; the store saves
-its in-memory view either way.
+its in-memory view either way. D88 surfaces the copy's path on the Config page.
 
 ## D77. Budget alert history has a configurable, period-safe retention window
 
@@ -1990,3 +1990,28 @@ run on throwaway temp roots.
 deliberately if a future maintenance command needs a different open mode. The dry run
 still opens read-write and only then sets `query_only`; making it truly read-only is
 separate work. This is not encryption at rest, and root can still read the files.
+
+## D88. The Config page names the preserved settings file
+
+**Context.** D76 copies an unusable `config.json` to a sibling
+`config.json.invalid-<UTC stamp>` before the first save replaces it, but the only place
+that names the copy is the server console and the error log. D85 puts recovered-settings
+warnings on the Config page, yet the operator who resolves them by saving still has to
+read server output to find the preserved original.
+
+**Decision.** `SettingsStore` keeps the path of the copy made by its own save and exposes
+it as `preservedPath()`, in memory for the life of the process. `GET` and
+`PATCH /api/config` return it as `preservedPath` beside `path` and `warnings`; it is null
+when no save has needed a copy, after a missing or valid load, and when the copy itself
+failed so the save was refused. The Config page remembers the value from the load and from
+every card's save response through the existing metadata helper, and shows a
+non-dismissible `role="status"` notice below the recovery banner: the absolute path, a
+warning that it may contain credentials, and a reminder to delete it after review. Only
+paths cross the API; the store never reads the copy back, and no contents, secrets, or
+metadata are added. The value is not a `config.json` key and is not reconstructed across
+restarts.
+
+**Cost.** The notice can outlive a manual deletion of the copy and keeps naming it until
+the page or server reloads, and a restarted process does not rediscover earlier copies.
+The Config page gains one small state field, one response field on each endpoint, and one
+card; copying, opening, or pruning the file remains separate work.

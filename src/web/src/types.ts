@@ -283,6 +283,8 @@ export interface ConfigResponse extends AppConfig {
   path: string;
   /** Settings units that were reset to defaults by the most recent load. */
   warnings: SettingsWarning[];
+  /** Copy this server process made of an unusable file, or null if none. */
+  preservedPath: string | null;
 }
 
 export interface ProcessResponse extends ProcessConfig {

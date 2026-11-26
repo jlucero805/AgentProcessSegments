@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpDir } from './tmp.js';
@@ -607,6 +607,7 @@ describe('http api', () => {
       const before = await call('GET', '/api/config');
       expect(before.status).toBe(200);
       expect(before.json()).toMatchObject({ path: h.config.configPath });
+      expect(before.json().preservedPath).toBeNull();
       expect(before.json().warnings).toEqual([
         { block: 'budget', message: expect.any(String) },
       ]);
@@ -645,6 +646,44 @@ describe('http api', () => {
       expect(response.json().warnings).toEqual([
         { block: null, message: expect.stringContaining('JSON') },
       ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('reports the preserved settings path after a save replaces an unusable file', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const original =
+        '{"notifications":{"webhook":{"enabled":true,"url":"https://hooks.example.test/x",' +
+        '"format":"json","secret":"super-secret-sentinel"}},"budget":{"alertAtPercent":0';
+      const { h } = await makeApp({}, undefined, undefined, undefined, undefined, original);
+
+      const before = await call('GET', '/api/config');
+      expect(before.status).toBe(200);
+      expect(before.json().preservedPath).toBeNull();
+      expect(JSON.stringify(before.json())).not.toContain('super-secret-sentinel');
+
+      const saved = await call('PATCH', '/api/config', { master: { intervalMinutes: 7 } });
+      expect(saved.status).toBe(200);
+      const preservedPath = saved.json().preservedPath as string;
+      expect(typeof preservedPath).toBe('string');
+      expect(preservedPath).not.toBe(h.config.configPath);
+      expect(preservedPath.startsWith(`${h.config.configPath}.invalid-`)).toBe(true);
+      expect(readFileSync(preservedPath, 'utf8')).toBe(original);
+      expect(JSON.stringify(saved.json())).not.toContain('super-secret-sentinel');
+
+      const after = await call('GET', '/api/config');
+      expect(after.json().preservedPath).toBe(preservedPath);
+      expect(JSON.stringify(after.json())).not.toContain('super-secret-sentinel');
+
+      // Later saves in the same process reuse the same copy and keep naming it.
+      const again = await call('PATCH', '/api/config', { master: { intervalMinutes: 8 } });
+      expect(again.json().preservedPath).toBe(preservedPath);
+      const copies = readdirSync(path.dirname(h.config.configPath)).filter((name) =>
+        name.startsWith(`${path.basename(h.config.configPath)}.invalid-`),
+      );
+      expect(copies).toHaveLength(1);
     } finally {
       warn.mockRestore();
     }

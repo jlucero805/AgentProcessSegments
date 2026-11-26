@@ -345,7 +345,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `secretSet`, the SMTP password as `password: null` with `passwordSet`, and bot tokens as
   `botToken: null` with `botTokenSet`. They also return `warnings`: the units the load
   reset to defaults (`block` null when the whole file was unusable). The Config page names
-  each reset block in a banner until the next successful save.
+  each reset block in a banner until the next successful save, and both endpoints also
+  return `preservedPath`, the copy this process made (or `null`), which the page shows
+  beside the banner so the operator can find and delete the original.
   `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. The legacy `idleMinutes`, `autoReview`, and `prompt` values
@@ -400,7 +402,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1140 vitest cases (one environmental root-skip): 884 server across 51 files and 256 web across 27 files,
+- 1144 vitest cases (one environmental root-skip): 885 server across 51 files and 259 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

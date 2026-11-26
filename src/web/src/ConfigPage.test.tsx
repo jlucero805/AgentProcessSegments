@@ -728,11 +728,16 @@ function installFetch(
 }
 
 /**
- * Wrap the installed mock so `/api/config` reports recovered-settings warnings.
- * `null` omits the field, matching a brain that predates it. A successful save
- * clears the warnings, as the server does.
+ * Wrap the installed mock so `/api/config` reports recovered-settings warnings
+ * and the preserved settings copy. `warnings: null` omits the field, matching a
+ * brain that predates it. A successful save clears the warnings, as the server
+ * does. `before`/`after` set `preservedPath` on the load and save response:
+ * `undefined` omits the field, `null` sends an explicit null.
  */
-function stubConfigWarnings(warnings: SettingsWarning[] | null): void {
+function stubConfigWarnings(
+  warnings: SettingsWarning[] | null,
+  preserved: { before?: string | null; after?: string | null; secret?: string } = {},
+): void {
   const base = globalThis.fetch as typeof fetch;
   const configBody = {
     master,
@@ -741,7 +746,9 @@ function stubConfigWarnings(warnings: SettingsWarning[] | null): void {
     retention,
     budget,
     notifications: {
-      webhook,
+      webhook: preserved.secret
+        ? { ...webhook, secret: preserved.secret, secretSet: true }
+        : webhook,
       email,
       slack: emptyChat,
       discord: emptyChat,
@@ -749,17 +756,21 @@ function stubConfigWarnings(warnings: SettingsWarning[] | null): void {
     },
     path: '/tmp/agent-process-segments/config.json',
   };
+  const beforeMeta =
+    preserved.before === undefined ? {} : { preservedPath: preserved.before };
+  const afterMeta = preserved.after === undefined ? {} : { preservedPath: preserved.after };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === '/api/config' && init?.method === 'PATCH') {
-        return jsonResponse({ ...configBody, warnings: [] });
+        return jsonResponse({ ...configBody, warnings: [], ...afterMeta });
       }
       if (url === '/api/config') {
         return jsonResponse({
           ...configBody,
           ...(warnings === null ? {} : { warnings }),
+          ...beforeMeta,
         });
       }
       return base(input, init);
@@ -847,6 +858,58 @@ describe('ConfigPage', () => {
 
     expect(await screen.findByRole('spinbutton', { name: /interval/i })).toHaveValue(5);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: 'Preserved settings file' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the preserved settings path when the server reports one', async () => {
+    const preserved = '/tmp/agent-process-segments/config.json.invalid-2026-01-01T00-00-00-000Z';
+    installFetch();
+    stubConfigWarnings([], { before: preserved, secret: 'webhook-secret-sentinel' });
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const status = await screen.findByRole('status', { name: 'Preserved settings file' });
+    expect(status).toHaveTextContent(preserved);
+    expect(status).toHaveTextContent('may contain credentials');
+    expect(status).toHaveTextContent('Delete it once you have reviewed it');
+    expect(document.body.textContent).not.toContain('webhook-secret-sentinel');
+  });
+
+  it('shows the preserved settings path after the save that copies the file', async () => {
+    const preserved = '/tmp/agent-process-segments/config.json.invalid-2026-01-01T00-00-01-000Z';
+    installFetch();
+    stubConfigWarnings([{ block: 'budget', message: 'alert threshold is invalid' }], {
+      after: preserved,
+    });
+
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Some saved settings were reset to defaults',
+    );
+    expect(
+      screen.queryByRole('status', { name: 'Preserved settings file' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    const status = await screen.findByRole('status', { name: 'Preserved settings file' });
+    expect(status).toHaveTextContent(preserved);
+  });
+
+  it('renders no preserved settings notice for an explicit null', async () => {
+    installFetch();
+    stubConfigWarnings(null, { before: null });
+
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(await screen.findByRole('spinbutton', { name: /interval/i })).toHaveValue(5);
+    expect(
+      screen.queryByRole('status', { name: 'Preserved settings file' }),
+    ).not.toBeInTheDocument();
   });
 
   it('loads and saves usage retention', async () => {

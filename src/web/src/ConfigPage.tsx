@@ -228,6 +228,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
   const [warnings, setWarnings] = useState<SettingsWarning[]>([]);
+  const [preservedPath, setPreservedPath] = useState<string | null>(null);
   const [processPath, setProcessPath] = useState('');
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
@@ -306,6 +307,11 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   const applyConfigMeta = useCallback((config: ConfigResponse) => {
     setPath(config.path);
     setWarnings(Array.isArray(config.warnings) ? config.warnings : []);
+    setPreservedPath(
+      typeof config.preservedPath === 'string' && config.preservedPath !== ''
+        ? config.preservedPath
+        : null,
+    );
   }, []);
 
   const load = useCallback(async () => {
@@ -1177,6 +1183,23 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
           <p className="text-[11px] text-amber-300/80">
             The rest of the file loaded unchanged. The saved file stays untouched until you save
             any card here, and that first save copies the original aside before rewriting it.
+          </p>
+        </div>
+      ) : null}
+
+      {preservedPath ? (
+        <div
+          role="status"
+          aria-label="Preserved settings file"
+          className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-4 text-sm text-zinc-300"
+        >
+          <p className="font-medium text-zinc-100">
+            The unusable settings file was preserved
+          </p>
+          <p className="break-all font-mono text-[11px] text-zinc-400">{preservedPath}</p>
+          <p className="text-[11px] text-zinc-500">
+            It may contain credentials and is readable only by the account running the server.
+            Delete it once you have reviewed it.
           </p>
         </div>
       ) : null}

@@ -1057,6 +1057,7 @@ describe('settings recovery', () => {
     const errors = { error: vi.fn() };
     const store = new SettingsStore(file, errors);
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
+    expect(store.preservedPath()).toBeNull();
     expect(backupNames(file)).toEqual([]);
 
     store.patch({ master: { intervalMinutes: 2 } });
@@ -1064,13 +1065,18 @@ describe('settings recovery', () => {
     expect(names).toHaveLength(1);
     const backup = backupFile(file, names[0]!);
     expect(readFileSync(backup, 'utf8')).toBe(original);
+    expect(store.preservedPath()).toBe(backup);
     if (process.platform !== 'win32') {
       expect(statSync(backup).mode & 0o777).toBe(0o600);
     }
     expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(2);
 
     store.patch({ master: { intervalMinutes: 3 } });
+    expect(store.preservedPath()).toBe(backup);
     expect(backupNames(file)).toHaveLength(1);
+
+    // The path is per process: a fresh store over the now-valid file has none.
+    expect(new SettingsStore(file).preservedPath()).toBeNull();
     warn.mockRestore();
   });
 
@@ -1084,11 +1090,13 @@ describe('settings recovery', () => {
 
     const store = new SettingsStore(file);
     expect(store.get().budget).toEqual(DEFAULT_SETTINGS.budget);
+    expect(store.preservedPath()).toBeNull();
     expect(backupNames(file)).toEqual([]);
 
     store.patch({ master: { intervalMinutes: 2 } });
     const names = backupNames(file);
     expect(names).toHaveLength(1);
+    expect(store.preservedPath()).toBe(backupFile(file, names[0]!));
     expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe(original);
 
     const written = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
@@ -1114,6 +1122,7 @@ describe('settings recovery', () => {
 
       const names = backupNames(file);
       expect(names).toHaveLength(1);
+      expect(store.preservedPath()).toBe(backupFile(file, names[0]!));
       expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe(original);
     }
     warn.mockRestore();
@@ -1122,10 +1131,19 @@ describe('settings recovery', () => {
   it('never preserves a valid or missing file', () => {
     const file = tempFile();
     const store = new SettingsStore(file);
+    expect(store.preservedPath()).toBeNull();
     store.patch({ master: { intervalMinutes: 2 } });
     store.patch({ master: { intervalMinutes: 3 } });
+    expect(store.preservedPath()).toBeNull();
     expect(backupNames(file)).toEqual([]);
     expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(3);
+
+    const valid = tempFile();
+    writeFileSync(valid, JSON.stringify(DEFAULT_SETTINGS));
+    const validStore = new SettingsStore(valid);
+    validStore.patch({ master: { intervalMinutes: 4 } });
+    expect(validStore.preservedPath()).toBeNull();
+    expect(backupNames(valid)).toEqual([]);
   });
 
   it('refuses to overwrite when the unusable file cannot be copied', () => {
@@ -1143,6 +1161,7 @@ describe('settings recovery', () => {
     });
     expect(statSync(file).isDirectory()).toBe(true);
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
+    expect(store.preservedPath()).toBeNull();
     expect(readdirSync(path.dirname(file))).toEqual([path.basename(file)]);
     warn.mockRestore();
   });

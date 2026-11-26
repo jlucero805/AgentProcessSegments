@@ -1084,6 +1084,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     ...redactSettings(settings.get()),
     path: settings.path,
     warnings: settings.warnings(),
+    preservedPath: settings.preservedPath(),
   }));
   app.patch('/api/config', async (request) => {
     const next = settings.patch(request.body);
@@ -1092,6 +1093,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       ...redactSettings(next),
       path: settings.path,
       warnings: settings.warnings(),
+      preservedPath: settings.preservedPath(),
     };
   });
 

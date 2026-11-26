@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
@@ -22,6 +23,8 @@ interface RunOptions {
   active?: string[];
   systemctl?: boolean;
   brainPort?: string;
+  dataDir?: string;
+  legacyDataDir?: string;
 }
 
 function workspace() {
@@ -72,6 +75,8 @@ function runEnv(
     // A closed port keeps the existing cases hermetic: a developer's brain on the
     // default 7391 must not change their outcome, and a refused probe is silent.
     APS_PORT: options.brainPort ?? '1',
+    ...(options.dataDir !== undefined ? { APS_DATA_DIR: options.dataDir } : {}),
+    ...(options.legacyDataDir !== undefined ? { SBOX_DATA_DIR: options.legacyDataDir } : {}),
   };
 }
 
@@ -222,6 +227,34 @@ async function holdCwd(cwd: string): Promise<ChildProcess> {
 function write(file: string, body = 'x'): void {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, body);
+}
+
+/** Write a heartbeat file; `ageMs` backdates its mtime so no test sleeps. */
+function writeBrainLock(
+  dir: string,
+  body: Record<string, unknown> | string = {},
+  ageMs = 0,
+): string {
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'brain.lock');
+  const text =
+    typeof body === 'string'
+      ? body
+      : JSON.stringify({
+          version: 1,
+          pid: 4321,
+          host: 'brain-host',
+          port: 7391,
+          startedAt: new Date().toISOString(),
+          heartbeatAt: new Date().toISOString(),
+          ...body,
+        });
+  writeFileSync(file, text);
+  if (ageMs > 0) {
+    const seconds = (Date.now() - ageMs) / 1000;
+    utimesSync(file, seconds, seconds);
+  }
+  return file;
 }
 
 function seedLegacy(paths: ReturnType<typeof workspace>) {
@@ -720,6 +753,191 @@ describe('migrate-paths script', () => {
     });
   });
 
+  describe('brain lock guard', () => {
+    it('refuses to move while an opt-in brain lock is fresh', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const lock = writeBrainLock(legacy.data);
+
+      const result = run(paths);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(result.stderr).toContain('pid 4321 on brain-host');
+      expect(result.stderr).toContain('--allow-running');
+      expect(existsSync(legacy.data)).toBe(true);
+      expect(existsSync(legacy.db)).toBe(true);
+      expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+    });
+
+    it('checks an explicit --brain-lock outside the migration tree', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const lock = writeBrainLock(path.join(paths.root, 'elsewhere'));
+
+      const result = run(paths, ['--brain-lock', lock]);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(existsSync(legacy.data)).toBe(true);
+    });
+
+    it('ignores a stale lock and completes the move', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      writeBrainLock(legacy.data, {}, 120_000);
+
+      const result = run(paths);
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain('ignoring stale brain lock');
+      expect(result.stdout).toContain('migration complete');
+      expect(existsSync(legacy.data)).toBe(false);
+      expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(true);
+    });
+
+    it('still blocks a fresh lock with unparseable content', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const lock = writeBrainLock(legacy.data, 'not json');
+
+      const result = run(paths);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(result.stderr).toContain('not a recognized heartbeat');
+      expect(existsSync(legacy.data)).toBe(true);
+    });
+
+    it('warns but previews in dry-run mode while a lock is fresh', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const lock = writeBrainLock(legacy.data);
+
+      const result = run(paths, ['--dry-run']);
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(result.stderr).toContain('a real run would refuse');
+      expect(result.stdout).toContain('would move data directory');
+      expect(result.stdout).toContain('dry run: no files were changed');
+      expect(existsSync(legacy.data)).toBe(true);
+      expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+    });
+
+    it('warns and moves with --allow-running while a lock is fresh', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const lock = writeBrainLock(legacy.data);
+
+      const result = run(paths, ['--allow-running']);
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(result.stderr).toContain('can corrupt the database');
+      expect(result.stdout).toContain('migration complete');
+      expect(existsSync(legacy.data)).toBe(false);
+      expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(true);
+      expect(readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite'), 'utf8')).toBe(
+        'db',
+      );
+      expect(
+        readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite-wal'), 'utf8'),
+      ).toBe('wal');
+      expect(
+        readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite-shm'), 'utf8'),
+      ).toBe('shm');
+    });
+
+    it('reports an active unit and a fresh lock together', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const lock = writeBrainLock(legacy.data);
+
+      const result = run(paths, [], { active: ['user:agent-process-segments.service'] });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('agent-process-segments.service (user) active');
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(existsSync(legacy.data)).toBe(true);
+    });
+
+    it('continues with a note when an explicit lock file is missing', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const missing = path.join(paths.root, 'missing', 'brain.lock');
+
+      const result = run(paths, ['--brain-lock', missing]);
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain(`no brain lock at ${missing}`);
+      expect(result.stdout).toContain('migration complete');
+      expect(existsSync(legacy.data)).toBe(false);
+    });
+
+    it('does not read a lock when there is nothing to migrate', () => {
+      const paths = workspace();
+      const lock = writeBrainLock(path.join(paths.root, 'explicit'));
+
+      const result = run(paths, ['--brain-lock', lock]);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('nothing to migrate');
+      expect(result.stderr).not.toContain('brain lock');
+    });
+
+    it('finds a fresh lock in the canonical data dir while only the legacy DB is planned', () => {
+      const paths = workspace();
+      write(path.join(paths.cwd, 'sandbox-harness.sqlite'), 'db');
+      const lock = writeBrainLock(path.join(paths.home, '.agent-process-segments'));
+
+      const result = run(paths);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(existsSync(path.join(paths.cwd, 'sandbox-harness.sqlite'))).toBe(true);
+      expect(existsSync(path.join(paths.cwd, 'agent-process-segments.sqlite'))).toBe(false);
+    });
+
+    it('finds a fresh lock in the active APS_DATA_DIR', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const active = path.join(paths.root, 'active-data');
+      const lock = writeBrainLock(active);
+
+      const result = run(paths, [], { dataDir: active });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(existsSync(legacy.data)).toBe(true);
+    });
+
+    it('falls back to SBOX_DATA_DIR when APS_DATA_DIR is blank', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const active = path.join(paths.root, 'active-data');
+      const lock = writeBrainLock(active);
+
+      const result = run(paths, [], { dataDir: '', legacyDataDir: active });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`a brain lock is fresh at ${lock}`);
+      expect(existsSync(legacy.data)).toBe(true);
+    });
+
+    it('rejects --brain-lock without a value before planning', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+
+      const result = run(paths, ['--brain-lock']);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('--brain-lock needs a file');
+      expect(result.stderr).toContain('Usage:');
+      expect(existsSync(legacy.data)).toBe(true);
+    });
+  });
+
   it.skipIf(process.platform !== 'linux')(
     'reports nothing to migrate when a process holds a path but every move is skipped',
     async () => {
@@ -773,6 +991,7 @@ describe('migrate-paths script', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--allow-running');
     expect(result.stdout).toContain('--brain-url');
+    expect(result.stdout).toContain('--brain-lock');
     expect(result.stdout).toContain('unsafe');
   });
 

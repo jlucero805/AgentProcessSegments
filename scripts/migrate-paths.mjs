@@ -3,8 +3,9 @@
 // Segments. The brain never runs this automatically: moving a live data directory
 // can break git worktree metadata and an open SQLite database, so the script
 // refuses while a known brain unit is active, a visible process is using the
-// planned paths, or a brain answers its health endpoint. Use --allow-running only
-// when the operator accepts that risk.
+// planned paths, a brain answers its health endpoint, or an opt-in brain
+// heartbeat file (`APS_BRAIN_LOCK=1`) is fresh. Use --allow-running only when
+// the operator accepts that risk.
 // Re-running is safe; existing destinations are never overwritten.
 import { spawnSync } from 'node:child_process';
 import {
@@ -14,6 +15,7 @@ import {
   readlinkSync,
   realpathSync,
   renameSync,
+  statSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,10 +30,14 @@ const BRAIN_UNITS = [
 const PROC_ROOT = '/proc';
 const DEFAULT_BRAIN_PORT = 7391;
 const BRAIN_PROBE_TIMEOUT_MS = 2000;
+const BRAIN_LOCK_FILE = 'brain.lock';
+// Paired with BRAIN_LOCK_INTERVAL_MS (10 s) in src/server/src/brain-lock.ts:
+// six missed beats after a crash must not block a migration forever.
+const BRAIN_LOCK_TTL_MS = 60_000;
 
 function usage() {
   return [
-    'Usage: node scripts/migrate-paths.mjs [--dry-run] [--allow-running] [--brain-url URL] [--home DIR] [--cwd DIR]',
+    'Usage: node scripts/migrate-paths.mjs [--dry-run] [--allow-running] [--brain-url URL] [--brain-lock FILE] [--home DIR] [--cwd DIR]',
     '',
     'Moves the default legacy locations to the APS names:',
     '  ~/.sandbox-harness                 -> ~/.agent-process-segments',
@@ -40,12 +46,13 @@ function usage() {
     '  <cwd>/sandbox-harness.sqlite       -> <cwd>/agent-process-segments.sqlite',
     '',
     'Options:',
-    '  --dry-run        Print the planned moves; change nothing.',
-    '  --allow-running  Move even when a brain unit, process, or health endpoint is active (unsafe).',
-    '  --brain-url URL  Probe this http(s) base URL instead of http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>.',
-    '  --home DIR       Home directory that owns the XDG defaults.',
-    '  --cwd DIR        Directory that holds the SQLite database.',
-    '  --help           Show this help.',
+    '  --dry-run          Print the planned moves; change nothing.',
+    '  --allow-running    Move even when a brain unit, process, health endpoint, or fresh brain lock is active (unsafe).',
+    '  --brain-url URL    Probe this http(s) base URL instead of http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>.',
+    '  --brain-lock FILE  Read this heartbeat file instead of <data dir>/brain.lock.',
+    '  --home DIR         Home directory that owns the XDG defaults.',
+    '  --cwd DIR          Directory that holds the SQLite database.',
+    '  --help             Show this help.',
     '',
     'Explicit APS_* / SBOX_* path overrides are not inspected or moved.',
   ].join('\n');
@@ -76,6 +83,7 @@ function parseArgs(argv) {
     dryRun: false,
     allowRunning: false,
     brainUrl: null,
+    brainLock: null,
     home: os.homedir(),
     cwd: process.cwd(),
     help: false,
@@ -91,6 +99,11 @@ function parseArgs(argv) {
       const value = argv[index + 1];
       if (!value || value.startsWith('--')) throw new Error('--brain-url needs an http(s) URL');
       options.brainUrl = normalizeBrainUrl(value);
+      index += 1;
+    } else if (arg === '--brain-lock') {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--brain-lock needs a file');
+      options.brainLock = path.resolve(value);
       index += 1;
     } else if (arg === '--home' || arg === '--cwd') {
       const value = argv[index + 1];
@@ -274,6 +287,124 @@ function brainProbeUrl(options) {
   return `http://127.0.0.1:${port}/health`;
 }
 
+/** The data dir this host's brain would use, matching the path-override rules. */
+function activeDataDir() {
+  const raw = [process.env.APS_DATA_DIR, process.env.SBOX_DATA_DIR].find(
+    (value) => value !== undefined && value.trim() !== '',
+  );
+  if (raw === undefined) return null;
+  return path.resolve(raw);
+}
+
+/**
+ * Files to inspect for an opt-in heartbeat. An explicit --brain-lock always wins.
+ * Otherwise check every planned directory source plus the legacy, canonical, and
+ * active data dirs: a brain on the new names may still hold a legacy SQLite file.
+ */
+function brainLockCandidates(options, planned) {
+  if (options.brainLock) return [options.brainLock];
+
+  const dirs = new Set();
+  for (const item of planned) {
+    if (item.kind === 'directory') dirs.add(path.resolve(item.from));
+  }
+  dirs.add(path.join(options.home, '.sandbox-harness'));
+  dirs.add(path.join(options.home, '.agent-process-segments'));
+  const active = activeDataDir();
+  if (active) dirs.add(active);
+
+  return [...dirs]
+    .filter((dir) => existsSync(dir))
+    .map((dir) => path.join(dir, BRAIN_LOCK_FILE));
+}
+
+function isMissingFile(error) {
+  return error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+}
+
+/**
+ * A fresh file blocks by mtime alone; its JSON only enriches the message. A
+ * stale or unreadable file is a note, matching the /proc policy: the guard is
+ * best-effort and --allow-running is the explicit override.
+ */
+function readBrainLock(file, explicit) {
+  let stat;
+  try {
+    stat = statSync(file);
+  } catch (error) {
+    if (isMissingFile(error)) {
+      if (explicit) {
+        console.error(
+          `note: no brain lock at ${file}; a brain that does not write one may go undetected`,
+        );
+      }
+      return null;
+    }
+    console.error(
+      `note: could not read brain lock ${file} (${error?.code ?? 'error'}); a live brain may go undetected`,
+    );
+    return null;
+  }
+
+  if (!stat.isFile()) {
+    if (explicit) {
+      console.error(`note: --brain-lock expects a file, not a directory: ${file}`);
+    }
+    return null;
+  }
+
+  const ageMs = Date.now() - stat.mtimeMs;
+  const ageSeconds = Math.max(0, Math.round(ageMs / 1000));
+  if (ageMs > BRAIN_LOCK_TTL_MS) {
+    console.error(
+      `note: ignoring stale brain lock ${file} (last heartbeat ${ageSeconds}s ago; fresh threshold 60s)`,
+    );
+    return null;
+  }
+
+  let raw;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (error) {
+    console.error(
+      `note: could not read brain lock ${file} (${error?.code ?? 'error'}); a live brain may go undetected`,
+    );
+    return null;
+  }
+
+  let info = null;
+  try {
+    const body = JSON.parse(raw);
+    if (body !== null && typeof body === 'object' && !Array.isArray(body)) info = body;
+  } catch {
+    // A fresh but malformed file still blocks; the content only improves the message.
+  }
+  return { path: file, ageSeconds, info };
+}
+
+function freshBrainLocks(options, planned) {
+  const explicit = options.brainLock !== null;
+  const locks = [];
+  for (const file of brainLockCandidates(options, planned)) {
+    const lock = readBrainLock(file, explicit);
+    if (lock) locks.push(lock);
+  }
+  return locks;
+}
+
+function lockBlocker(lock) {
+  const lines = [`refusing to migrate: a brain lock is fresh at ${lock.path}`];
+  if (lock.info && typeof lock.info.pid === 'number') {
+    const host = typeof lock.info.host === 'string' ? lock.info.host : 'an unknown host';
+    lines.push(`  pid ${lock.info.pid} on ${host}; last heartbeat ${lock.ageSeconds}s ago`);
+  } else {
+    lines.push('  the lock content is not a recognized heartbeat; a live brain may be writing it');
+  }
+  lines.push('stop the brain, container, or remote host that writes this lock, then retry.');
+  lines.push('or re-run with --allow-running to move files under a live brain (unsafe).');
+  return lines;
+}
+
 function probeErrorReason(error) {
   if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
     return 'timed out';
@@ -344,8 +475,9 @@ async function checkRunningBrain(options, planned) {
     );
   }
   const brain = probe?.state === 'brain';
+  const locks = freshBrainLocks(options, planned);
 
-  if (active.length === 0 && matches.length === 0 && !brain) return true;
+  if (active.length === 0 && matches.length === 0 && !brain && locks.length === 0) return true;
 
   const names = active.map(unitLabel).join(', ');
 
@@ -384,6 +516,17 @@ async function checkRunningBrain(options, planned) {
         );
       }
     }
+    for (const lock of locks) {
+      if (options.allowRunning) {
+        console.error(
+          `warning: a brain lock is fresh at ${lock.path}; a real run with --allow-running would move files under a live brain`,
+        );
+      } else {
+        console.error(
+          `warning: a brain lock is fresh at ${lock.path}; a real run would refuse. Stop it or pass --allow-running.`,
+        );
+      }
+    }
     return true;
   }
 
@@ -401,6 +544,11 @@ async function checkRunningBrain(options, planned) {
     if (brain) {
       console.error(
         `warning: a brain is answering at ${probeUrl}; moving files under a live brain can corrupt the database, sessions, and worktrees`,
+      );
+    }
+    for (const lock of locks) {
+      console.error(
+        `warning: a brain lock is fresh at ${lock.path}; moving files under a live brain can corrupt the database, sessions, and worktrees`,
       );
     }
     return true;
@@ -427,6 +575,10 @@ async function checkRunningBrain(options, planned) {
       'stop the brain, container, unit, or tunnel that publishes this address, then retry.',
     );
     console.error('or re-run with --allow-running to move files under a live brain (unsafe).');
+  }
+
+  for (const lock of locks) {
+    for (const line of lockBlocker(lock)) console.error(line);
   }
 
   process.exitCode = 1;

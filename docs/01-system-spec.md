@@ -95,6 +95,9 @@ once and is ignored.
   - `dataDir` = `APS_DATA_DIR` ?? `~/.agent-process-segments` (per-request workdirs)
   - `pluginsDir` = `APS_PLUGINS_DIR` ?? `~/.agent-process-segments/plugins`
   - `brainUrl` = `APS_BRAIN_URL` ?? `http://127.0.0.1:<port>`, used by the MCP proxy
+  - `brainLock` = `APS_BRAIN_LOCK` (`1`/`true`), off by default; when on, the brain
+    writes and refreshes `<dataDir>/brain.lock` for `migrate-paths` on a host whose
+    HTTP port is not reachable (see Workdirs below)
   - `harness` = `APS_HARNESS` ?? `claude`; must be `claude` or `opencode`
   - `harnessBins.claude` = `APS_CLAUDE_BIN` ?? `claude`;
     `harnessBins.opencode` = `APS_OPENCODE_BIN` ?? `opencode`.
@@ -912,12 +915,18 @@ defaults.
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That
   script refuses to run while `agent-process-segments.service` or
   `sandbox-harness.service` is active, while a visible process still has those paths
-  open, or while a brain answers its health endpoint. On Linux it checks `/proc` for
-  open file descriptors and cwds, and it probes
+  open, while a brain answers its health endpoint, or while an opt-in brain lock is
+  fresh. On Linux it checks `/proc` for open file descriptors and cwds, and it probes
   `http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health` (`--brain-url` for a container,
-  tunnel, or another host). `--allow-running` is the unsafe override. A brain whose
-  port is unpublished or unreachable, a non-HTTP holder, or a process hidden by
-  permissions is not detected.
+  tunnel, or another host). With `APS_BRAIN_LOCK=1` the brain writes
+  `<dataDir>/brain.lock` and refreshes it every 10 s; the migration treats a lock
+  younger than 60 s as live, on any platform and without a reachable port. It checks
+  planned data dirs plus `~/.sandbox-harness`, `~/.agent-process-segments`, and a
+  non-blank `APS_DATA_DIR`/`SBOX_DATA_DIR`, and `--brain-lock FILE` overrides discovery.
+  The data directory must be on storage shared with the machine running the migration.
+  `--allow-running` is the unsafe override for all four guards. A brain that did not opt
+  in, a shared database whose data directory is not shared, a non-HTTP or non-file
+  holder, or a process hidden by permissions is not detected.
 
 ### Models
 

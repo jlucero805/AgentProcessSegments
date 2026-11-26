@@ -801,14 +801,18 @@ then the new location; explicit env paths always win. Startup never moves data. 
 operator-invoked `npm run migrate:paths` moves the default data, config, and state
 directories and the SQLite file (with WAL/SHM), never overwrites an existing destination,
 and is idempotent. It refuses to run while a known brain unit is active, while a
-visible process still has the planned paths open, or while a brain answers its health
-endpoint. On Linux it checks `/proc` for open file descriptors and cwds, so
-foreground/dev and custom-unit brains are caught when visible; it also probes
+visible process still has the planned paths open, while a brain answers its health
+endpoint, or while an opt-in brain lock is fresh. On Linux it checks `/proc` for open
+file descriptors and cwds, so foreground/dev and custom-unit brains are caught when
+visible; it also probes
 `http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health` and accepts `--brain-url` for a
-container, tunnel, or another host. `--allow-running` bypasses all three guards;
-moving under a live brain can corrupt the database and sessions. A brain whose port is
-unpublished or unreachable, a non-HTTP holder, or a process hidden by permissions is
-not detected. The unit template moves to `deploy/agent-process-segments.service`.
+container, tunnel, or another host. With `APS_BRAIN_LOCK=1` the brain writes
+`<dataDir>/brain.lock` every 10 s, and the migration treats a file younger than 60 s as
+live even when no port is reachable (D97). `--allow-running` bypasses all four guards;
+moving under a live brain can corrupt the database and sessions. A brain that did not
+opt in, a shared database whose data directory is not shared, a non-HTTP or non-file
+holder, or a process hidden by permissions is not detected. The unit template moves to
+`deploy/agent-process-segments.service`.
 Startup logs one warning naming every `SBOX_*` variable that is still set, with names
 only and never values; renaming them to `APS_*` clears it.
 
@@ -2269,3 +2273,39 @@ are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do n
 The security review needs systemd 250 or newer, so older Linux hosts fail `npm run lint`
 (a documented, fail-closed choice). Existing installs must copy the new unit by hand
 because `upgrade-vps.sh` refuses target commits that change it.
+
+## D97. An opt-in heartbeat file covers a brain whose port is unreachable
+
+**Context.** D46's migration guard combines the systemd unit, a Linux `/proc` scan, and
+the brain's `/health` endpoint. None of those sees a brain in another PID or mount
+namespace when its port is unpublished, a brain on another host that the migration host
+cannot route to, or a non-Linux holder. The operator still needs to move the shared data
+directory and SQLite file, and moving them under a live brain can corrupt sessions,
+worktrees, and the database.
+
+**Decision.** An opt-in `APS_BRAIN_LOCK=1` (`1`/`true`, legacy `SBOX_BRAIN_LOCK`) makes
+the brain write `<dataDir>/brain.lock` at startup and atomically refresh it every 10 s
+with its pid, host, port, and timestamps. `migrate-paths` treats a file whose **mtime** is
+at most 60 s old as a live brain and refuses a real run; it warns in `--dry-run` and
+proceeds with the existing `--allow-running` override. The mtime is observed by the
+migration host, so a container or remote clock cannot make a live lock look stale;
+`heartbeatAt` is only for the operator message. A fresh file blocks even if its JSON is
+unreadable, because file existence and age are the evidence. A stale file and a
+permission-denied file are notes and do not block, matching the `/proc` policy. Discovery
+checks planned data directories, `~/.sandbox-harness`, `~/.agent-process-segments`, and a
+non-blank `APS_DATA_DIR`/`SBOX_DATA_DIR`; `--brain-lock FILE` overrides it for a
+nonstandard mount. The writer logs only the first failure of an episode and never stops
+the brain.
+
+The pinning constraint is the data directory: detection works only when the brain's
+`dataDir` is a bind mount, volume, or network share visible to the migration host. The
+alternative, a PID file in a runtime directory, would not cross a container boundary and
+a pid is meaningless in another namespace. A file next to the SQLite database for a
+DB-only shared volume is separate work.
+
+**Cost.** The check is opt-in, so it only helps after the brain is upgraded and restarted
+with the variable. A SIGKILLed brain leaves a file that blocks for at most 60 s; the docs
+tell the operator to wait rather than bypass the guard. Two brains sharing one data
+directory are unsupported: the last writer owns the file and either stop removes it. The
+guard remains point-in-time and does not lock the paths, so a brain that starts between
+the guard and the rename is still a race.

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -382,6 +382,14 @@ describe('SettingsStore', () => {
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(2);
     expect(new SettingsStore(file).get().master.enabled).toBe(false);
+    expect(readdirSync(path.dirname(file)).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      chmodSync(file, 0o644);
+      store.patch({ master: { intervalMinutes: 3 } });
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(readFileSync(file, 'utf8')).master.intervalMinutes).toBe(3);
+    }
   });
 
   it('merges budget patches without disturbing master', () => {

@@ -71,7 +71,8 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
 - **Monorepo:** npm workspaces (`src/server`, `src/web`). Root scripts: `build` (web
   then server), `typecheck`, `test` (server + web + the e2e env guard), `lint` (eslint
   over `src`, the JS tooling, and `.opencode` plugin sources, plus `bash -n` over the
-  deploy shell scripts; zero warnings), `dev` (both).
+  deploy shell scripts and `actionlint` over `deploy/ci-workflow.yml`; zero warnings),
+  `dev` (both).
 
 ---
 
@@ -1042,7 +1043,7 @@ npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for server src + tests + vitest config and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
-npm run lint                # eslint over src + JS tooling; bash -n over deploy scripts
+npm run lint                # eslint over src + JS tooling; bash -n deploy; actionlint workflow
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js
 ```
 

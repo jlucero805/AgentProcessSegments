@@ -649,9 +649,11 @@ an hour, and add `--apply` to delete them.
 `npm run lint` runs ESLint 10 from one flat config (`eslint.config.mjs`) over the
 TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.opencode`
 plugin sources when present, with the `react-hooks` `recommended-latest` preset for the
-SPA. It also runs
-`bash -n` over `deploy/*.sh` and `scripts/smoke.sh`, and fails on any warning. The shell
-check needs `bash`, which the deploy runbooks already require.
+SPA. It also runs `bash -n` over `deploy/*.sh` and `scripts/smoke.sh` and
+`actionlint` over `deploy/ci-workflow.yml`, and fails on any warning. The shell check
+needs `bash`, which the deploy runbooks already require. actionlint is a system tool
+too: install it with `brew install actionlint`, your package manager, or the pinned
+v1.7.12 release binary CI uses (CI verifies the release SHA-256 before running it).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, proves a tool call persists through the API into

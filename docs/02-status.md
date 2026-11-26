@@ -447,8 +447,9 @@ built and vended by the brain; real-CLI verification is still pending.
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
   that leaks the host env into either proof fails the build;
   `src/server/test/ci-workflow.test.ts` fails if the two blocks drift.
-- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
-  full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
+- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint (ESLint, the
+  shell syntax gate, and actionlint over the workflow template), typecheck, the full
+  test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
   `scripts/mcp-smoke.mjs` on pushes and pull requests. It also re-runs the web suite
   with `NODE_ENV=production` to exercise the inherited-production React resolution. It
   is not active on the remote:

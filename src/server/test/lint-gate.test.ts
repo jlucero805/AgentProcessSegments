@@ -17,13 +17,16 @@ const tsconfigTest = JSON.parse(
 ) as { include?: string[] };
 
 describe('zero-warning lint gate', () => {
-  it('runs ESLint over the repo and bash -n over the deploy scripts', () => {
+  it('runs ESLint, the shell syntax gate, and actionlint', () => {
     expect(packageJson.scripts?.['lint']).toBe(
-      'npm run --silent lint:js && npm run --silent lint:sh',
+      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:actions',
     );
     expect(packageJson.scripts?.['lint:js']).toBe('eslint . --max-warnings=0');
     expect(packageJson.scripts?.['lint:sh']).toBe(
       'for f in deploy/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done',
+    );
+    expect(packageJson.scripts?.['lint:actions']).toBe(
+      'actionlint deploy/ci-workflow.yml',
     );
   });
 
@@ -65,5 +68,19 @@ describe('zero-warning lint gate', () => {
     expect(lint).toBeGreaterThan(-1);
     expect(typecheck).toBeGreaterThan(lint);
     expect(workflow).toContain('name: lint, typecheck, test, build, smoke');
+
+    const install = workflow.indexOf('name: Install actionlint');
+    expect(install).toBeGreaterThan(-1);
+    expect(install).toBeLessThan(lint);
+    expect(workflow).toContain(
+      'https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz',
+    );
+    expect(workflow).toContain(
+      '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  /tmp/actionlint.tar.gz',
+    );
+    expect(workflow).toContain(
+      'sudo tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint',
+    );
+    expect(workflow).toContain('actionlint --version');
   });
 });

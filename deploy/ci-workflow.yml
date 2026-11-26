@@ -29,6 +29,17 @@ jobs:
       - name: Install build toolchain
         run: sudo apt-get update && sudo apt-get install -y make g++ python3
 
+      # actionlint has no Ubuntu package; fetch the pinned release binary and
+      # verify its published SHA-256. Bump the version and digest together and
+      # update src/server/test/lint-gate.test.ts.
+      - name: Install actionlint
+        run: |
+          curl -fsSL -o /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  /tmp/actionlint.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint
+          actionlint --version
+
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck

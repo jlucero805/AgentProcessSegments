@@ -867,11 +867,13 @@ defaults.
   below. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That
   script refuses to run while `agent-process-segments.service` or
-  `sandbox-harness.service` is active or while a visible process still has those paths
-  open; on Linux it checks `/proc` for open file descriptors and cwds.
-  `--allow-running` is the unsafe override. A brain in a separate PID
-  namespace/container, a non-Linux host, or a process hidden by permissions is not
-  detected.
+  `sandbox-harness.service` is active, while a visible process still has those paths
+  open, or while a brain answers its health endpoint. On Linux it checks `/proc` for
+  open file descriptors and cwds, and it probes
+  `http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health` (`--brain-url` for a container,
+  tunnel, or another host). `--allow-running` is the unsafe override. A brain whose
+  port is unpublished or unreachable, a non-HTTP holder, or a process hidden by
+  permissions is not detected.
 
 ### Models
 

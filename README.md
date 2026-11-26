@@ -266,13 +266,15 @@ names the variable in a warning. Values are not trimmed or expanded, so `APS_DB=
 and paths with spaces keep working.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
-`sandbox-harness.service` is active (user or system scope), or while a visible process
-still has the legacy data, config, state, or SQLite paths open. On Linux it checks
-`/proc` for open file descriptors and cwds, so a foreground/dev brain or a custom unit
-name is caught when the process is visible. Stop the brain or process first;
-`--allow-running` bypasses both guards and can corrupt an open SQLite database. A brain
-in a separate PID namespace/container, a non-Linux host, or a process hidden by
-permissions is not detected.
+`sandbox-harness.service` is active (user or system scope), while a visible process
+still has the legacy data, config, state, or SQLite paths open, or while a brain
+answers its health endpoint. On Linux it checks `/proc` for open file descriptors and
+cwds, so a foreground/dev brain or a custom unit name is caught when the process is
+visible. It also requests `http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health`; pass
+`--brain-url` to probe a container, tunnel, or another host instead. Stop the brain or
+process first; `--allow-running` bypasses all three guards and can corrupt an open
+SQLite database. A brain whose port is unpublished or unreachable, a non-HTTP holder,
+or a process hidden by permissions is still not detected.
 
 To move an existing install to the new names:
 
@@ -604,7 +606,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1155 vitest cases: 896 server cases across 51 files (state machine,
+`npm test` runs 1165 vitest cases: 906 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

@@ -7,6 +7,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpDir } from './tmp.js';
@@ -20,6 +21,7 @@ const HOLDER_READY_TIMEOUT_MS = 5000;
 interface RunOptions {
   active?: string[];
   systemctl?: boolean;
+  brainPort?: string;
 }
 
 function workspace() {
@@ -57,6 +59,22 @@ function writeSystemctl(bin: string): void {
   chmodSync(file, 0o755);
 }
 
+function runEnv(
+  paths: ReturnType<typeof workspace>,
+  options: RunOptions,
+): NodeJS.ProcessEnv {
+  return {
+    PATH: options.systemctl === false ? paths.emptyBin : paths.bin,
+    HOME: paths.home,
+    XDG_CONFIG_HOME: paths.configHome,
+    XDG_STATE_HOME: paths.stateHome,
+    SYSTEMCTL_ACTIVE: (options.active ?? []).join(' '),
+    // A closed port keeps the existing cases hermetic: a developer's brain on the
+    // default 7391 must not change their outcome, and a refused probe is silent.
+    APS_PORT: options.brainPort ?? '1',
+  };
+}
+
 function run(
   paths: ReturnType<typeof workspace>,
   args: string[] = [],
@@ -64,15 +82,73 @@ function run(
 ): ReturnType<typeof spawnSync> {
   return spawnSync(process.execPath, [script, '--home', paths.home, '--cwd', paths.cwd, ...args], {
     cwd: paths.root,
-    env: {
-      PATH: options.systemctl === false ? paths.emptyBin : paths.bin,
-      HOME: paths.home,
-      XDG_CONFIG_HOME: paths.configHome,
-      XDG_STATE_HOME: paths.stateHome,
-      SYSTEMCTL_ACTIVE: (options.active ?? []).join(' '),
-    },
+    env: runEnv(paths, options),
     encoding: 'utf8',
   });
+}
+
+async function runAsync(
+  paths: ReturnType<typeof workspace>,
+  args: string[] = [],
+  options: RunOptions = {},
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, [script, '--home', paths.home, '--cwd', paths.cwd, ...args], {
+    cwd: paths.root,
+    env: runEnv(paths, options),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (chunk) => {
+    stdout += String(chunk);
+  });
+  child.stderr?.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+  const status = await new Promise<number | null>((resolve, reject) => {
+    child.once('error', reject);
+    // `close` fires after stdio is drained; `exit` can lose the final chunks.
+    child.once('close', (code) => resolve(code));
+  });
+  return { status, stdout, stderr };
+}
+
+interface BrainServer {
+  url: string;
+  port: number;
+  requests: string[];
+  close: () => Promise<void>;
+}
+
+/** A stand-in for the brain's GET /health, reachable on loopback. */
+async function startBrain(
+  options: { status?: number; body?: unknown } = {},
+): Promise<BrainServer> {
+  const requests: string[] = [];
+  const server = createServer((request, response) => {
+    requests.push(request.url ?? '');
+    response.writeHead(options.status ?? 200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(options.body ?? { ok: true }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    server.close();
+    throw new Error('brain test server has no port');
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    port: address.port,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
 }
 
 async function waitForHolder(child: ChildProcess): Promise<void> {
@@ -459,6 +535,190 @@ describe('migrate-paths script', () => {
     },
   );
 
+  describe('brain health probe', () => {
+    it('refuses to move while a brain answers its health endpoint', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const brain = await startBrain();
+
+      try {
+        const result = await runAsync(paths, ['--brain-url', brain.url]);
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(`${brain.url}/health`);
+        expect(result.stderr).toContain('refusing to migrate');
+        expect(result.stderr).toContain('--allow-running');
+        expect(brain.requests).toEqual(['/health']);
+        expect(existsSync(legacy.data)).toBe(true);
+        expect(existsSync(legacy.config)).toBe(true);
+        expect(existsSync(legacy.state)).toBe(true);
+        expect(existsSync(legacy.db)).toBe(true);
+        expect(existsSync(`${legacy.db}-wal`)).toBe(true);
+        expect(existsSync(`${legacy.db}-shm`)).toBe(true);
+        expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+        expect(existsSync(path.join(paths.cwd, 'agent-process-segments.sqlite'))).toBe(false);
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('probes the APS_PORT port when --brain-url is absent', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const brain = await startBrain();
+
+      try {
+        const result = await runAsync(paths, [], { brainPort: String(brain.port) });
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(`http://127.0.0.1:${brain.port}/health`);
+        expect(result.stderr).toContain('--allow-running');
+        expect(brain.requests).toEqual(['/health']);
+        expect(existsSync(legacy.data)).toBe(true);
+        expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('continues with a note when the health endpoint is not an APS brain', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const brain = await startBrain({ body: { ok: false } });
+
+      try {
+        const result = await runAsync(paths, ['--brain-url', brain.url]);
+
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('is not an APS health endpoint');
+        expect(result.stderr).not.toContain('refusing to migrate');
+        expect(result.stdout).toContain('migration complete');
+        expect(existsSync(legacy.data)).toBe(false);
+        expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(true);
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('warns but previews in dry-run mode while a brain answers', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const brain = await startBrain();
+
+      try {
+        const result = await runAsync(paths, ['--dry-run', '--brain-url', brain.url]);
+
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('a real run would refuse');
+        expect(result.stderr).toContain(`${brain.url}/health`);
+        expect(result.stdout).toContain('would move data directory');
+        expect(result.stdout).toContain('dry run: no files were changed');
+        expect(existsSync(legacy.data)).toBe(true);
+        expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('warns and moves with --allow-running while a brain answers', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+      const brain = await startBrain();
+
+      try {
+        const result = await runAsync(paths, ['--allow-running', '--brain-url', brain.url]);
+
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('can corrupt the database');
+        expect(result.stdout).toContain('migration complete');
+        expect(existsSync(legacy.db)).toBe(false);
+        expect(readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite'), 'utf8')).toBe(
+          'db',
+        );
+        expect(
+          readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite-wal'), 'utf8'),
+        ).toBe('wal');
+        expect(
+          readFileSync(path.join(paths.cwd, 'agent-process-segments.sqlite-shm'), 'utf8'),
+        ).toBe('shm');
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('does not probe when there is nothing to migrate', async () => {
+      const paths = workspace();
+      const brain = await startBrain();
+
+      try {
+        const result = await runAsync(paths, ['--brain-url', brain.url]);
+
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain('nothing to migrate');
+        expect(brain.requests).toEqual([]);
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('reports the active unit and the answering brain together', async () => {
+      const paths = workspace();
+      seedLegacy(paths);
+      const brain = await startBrain();
+
+      try {
+        const result = await runAsync(paths, ['--brain-url', brain.url], {
+          active: ['user:agent-process-segments.service'],
+        });
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('agent-process-segments.service (user)');
+        expect(result.stderr).toContain(`${brain.url}/health`);
+        expect(result.stderr).toContain('--allow-running');
+      } finally {
+        await brain.close();
+      }
+    });
+
+    it('continues with a note when an explicit brain URL is unreachable', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+
+      const result = await runAsync(paths, ['--brain-url', 'http://127.0.0.1:1']);
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain('could not reach the brain at http://127.0.0.1:1/health');
+      expect(result.stdout).toContain('migration complete');
+      expect(existsSync(legacy.data)).toBe(false);
+    });
+
+    it('rejects a non-http --brain-url before planning', () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+
+      const result = run(paths, ['--brain-url', 'ftp://example']);
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('--brain-url needs an http(s) URL');
+      expect(result.stderr).toContain('Usage:');
+      expect(existsSync(legacy.data)).toBe(true);
+      expect(existsSync(path.join(paths.home, '.agent-process-segments'))).toBe(false);
+    });
+
+    it('continues with a note when APS_PORT is not a usable port', async () => {
+      const paths = workspace();
+      const legacy = seedLegacy(paths);
+
+      const result = await runAsync(paths, [], { brainPort: 'not-a-port' });
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain('cannot derive the brain port');
+      expect(result.stderr).toContain('--brain-url');
+      expect(result.stdout).toContain('migration complete');
+      expect(existsSync(legacy.data)).toBe(false);
+    });
+  });
+
   it.skipIf(process.platform !== 'linux')(
     'reports nothing to migrate when a process holds a path but every move is skipped',
     async () => {
@@ -511,6 +771,7 @@ describe('migrate-paths script', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--allow-running');
+    expect(result.stdout).toContain('--brain-url');
     expect(result.stdout).toContain('unsafe');
   });
 

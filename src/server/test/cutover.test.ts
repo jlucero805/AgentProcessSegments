@@ -62,6 +62,9 @@ function createEnv(home: string, bin: string): NodeJS.ProcessEnv {
     if (key.startsWith('APS_') || key.startsWith('SBOX_')) delete env[key];
     if (key === 'XDG_CONFIG_HOME' || key === 'XDG_STATE_HOME') delete env[key];
   }
+  // The fixture runs the real migrate script; a closed probe port keeps a live
+  // brain on the developer's default 7391 from changing this suite's outcome.
+  env.APS_PORT = '1';
   return env;
 }
 

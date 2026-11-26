@@ -371,13 +371,16 @@ variables (names only, never values); rename them to `APS_*` to clear it.
 `npm run migrate:paths` moves only the filesystem defaults, not the variable names.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
-`sandbox-harness.service` is active in either user or system scope, or while a visible
-process still has the legacy data, config, state, or SQLite paths open. On Linux the
-script checks `/proc` for open file descriptors and cwds, so a foreground/dev brain or a
-custom unit name is caught when the process is visible. Stop the unit or process first;
-`--allow-running` bypasses both guards and can corrupt an open SQLite database. A brain
-in a separate PID namespace/container, a non-Linux host, or a process hidden by
-permissions is not detected.
+`sandbox-harness.service` is active in either user or system scope, while a visible
+process still has the legacy data, config, state, or SQLite paths open, or while a
+brain answers its health endpoint. On Linux the script checks `/proc` for open file
+descriptors and cwds, so a foreground/dev brain or a custom unit name is caught when
+the process is visible. It also requests
+`http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health`; pass `--brain-url` to probe a
+container, tunnel, or another host instead. Stop the brain or process first;
+`--allow-running` bypasses all three guards and can corrupt an open SQLite database. A
+brain whose port is unpublished or unreachable, a non-HTTP holder, or a process hidden
+by permissions is still not detected.
 
 To move the data and the service to the new names:
 
@@ -499,9 +502,10 @@ Notes for similar installs:
 - The cutover drains **all** active turns, not only `--request-id`, because the service
   stop kills every child. `--allow-busy` skips the drain and accepts that loss; use it
   only for an emergency.
-- The cutover stops the old unit before calling `migrate-paths`, so both the unit and
-  `/proc` process guards pass without a flag. Do not add `--allow-running` to the
-  cutover: moving while a brain unit or process is active can corrupt the database.
+- The cutover stops the old unit before calling `migrate-paths` and waits for the port
+  to stop answering, so the unit, `/proc`, and brain health probes pass without a flag.
+  Do not add `--allow-running` to the cutover: moving while a brain unit, process, or
+  health endpoint is active can corrupt the database.
 - Moving the clone and `~/.sandbox-harness` breaks absolute gitdir links. The script
   runs `git worktree repair` and `git worktree prune`; verify the worktree used by the
   request that launched the cutover before resuming it.

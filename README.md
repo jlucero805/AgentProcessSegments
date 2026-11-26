@@ -626,10 +626,13 @@ scorecard, the usage page and formatters, the scorecards page, and the app shell
 drawer and chat mounted under jsdom).
 
 Those totals are collected Vitest cases, so skipped cases still count toward them.
-When a case or test file is added or removed, refresh all five numbers from
-`vitest list --json` in `src/server` and `src/web`; the totals are quoted identically in
-this file, `AGENTS.md`, and `docs/02-status.md`, and
-`src/server/test/doc-counts.test.ts` fails when they drift apart.
+When a case or test file is added or removed, refresh all five numbers from a clean
+`vitest run` in `src/server` and `src/web` and use the `Tests` line (passed + skipped).
+Do not derive the server total from `vitest list --json` alone: it omits cases skipped at
+runtime, such as the root-only harness permission test, so it reports one fewer case
+than the suite runs. The totals are quoted identically in this file, `AGENTS.md`, and
+`docs/02-status.md`, and `src/server/test/doc-counts.test.ts` fails when they drift
+apart.
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
 environments they hand to their children and the missing-Puppeteer policy; it is not

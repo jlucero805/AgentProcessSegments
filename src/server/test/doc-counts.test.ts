@@ -9,8 +9,9 @@ import { walkFiles } from '../src/util/files.js';
 // will run without running the suite, so it checks what a test can own: every doc
 // quotes the same five numbers, the total adds up, and the quoted file counts match
 // the test files on disk. Case counts are refreshed by hand in the commit that
-// changes them; verify with `vitest list --json` in `src/server` and `src/web`
-// (collected cases include skipped ones).
+// changes them; verify with `vitest run` in `src/server` and `src/web` and use the
+// `Tests` line (collected cases include skipped ones). `vitest list --json` omits
+// runtime-skipped cases such as the root-only harness permission test.
 
 const repo = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 

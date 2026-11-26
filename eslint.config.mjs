@@ -37,7 +37,7 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
-    files: ['src/**/*.{ts,tsx}', '.opencode/**/*.{ts,mts,cts}'],
+    files: ['src/**/*.{ts,tsx,mts,cts}', '.opencode/**/*.{ts,mts,cts}'],
     linterOptions: { reportUnusedDisableDirectives: 'error' },
     extends: [...tseslint.configs.recommended],
     rules: {

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import {
@@ -50,6 +50,7 @@ import {
   MAX_USAGE_RETENTION_DAYS,
   type UsageSettings,
 } from './usage/settings.js';
+import { writePrivateFile } from './util/files.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -629,11 +630,14 @@ function mergeSettings<T>(defaults: T, saved: unknown): T {
  * its own: one invalid unit falls back to its defaults while the rest of the
  * file loads intact. An unreadable or unparseable file falls back to all
  * defaults. Loading never writes, so the operator's file is untouched until a
- * patch saves a valid value.
+ * patch saves a valid value; that first save copies an unusable file aside
+ * first, so recovery never destroys the operator's original bytes.
  */
 export class SettingsStore {
   private cached: AppSettings | null = null;
   private readonly listeners = new Set<(settings: AppSettings) => void>();
+  /** Set when the loaded file was unusable; the next save preserves its bytes. */
+  private preserveSource = false;
 
   constructor(
     readonly path: string,
@@ -701,6 +705,7 @@ export class SettingsStore {
       raw = readFileSync(this.path, 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.preserveSource = true;
         this.errors?.error('settings.unreadable', error, { path: this.path });
         console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
       }
@@ -711,12 +716,14 @@ export class SettingsStore {
     try {
       parsed = JSON.parse(raw);
     } catch (error) {
+      this.preserveSource = true;
       this.errors?.error('settings.unreadable', error, { path: this.path });
       console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
       return structuredClone(DEFAULT_SETTINGS);
     }
 
     if (!isPlainObject(parsed)) {
+      this.preserveSource = true;
       const error = new Error('settings must be a JSON object');
       this.errors?.error('settings.invalid', error, {
         path: this.path,
@@ -750,6 +757,7 @@ export class SettingsStore {
       if (result.success) {
         value = result.data;
       } else {
+        this.preserveSource = true;
         value = structuredClone(unit.fallback);
         this.errors?.error('settings.invalid', new Error(result.error.message), {
           path: this.path,
@@ -768,6 +776,7 @@ export class SettingsStore {
     // above still loads as all defaults instead of a partial object.
     const result = settingsSchema.safeParse(recovered);
     if (!result.success) {
+      this.preserveSource = true;
       this.errors?.error('settings.invalid', new Error(result.error.message), {
         path: this.path,
       });
@@ -777,7 +786,46 @@ export class SettingsStore {
     return result.data;
   }
 
+  /**
+   * Copy an unusable file aside before the first save replaces it. The copy is
+   * the exact original bytes (it can hold credentials), owner-only, and never
+   * overwrites an earlier copy. A failed copy aborts the save so the file is
+   * never destroyed without one.
+   */
+  private preserveUnusableSource(): void {
+    if (!this.preserveSource) return;
+
+    let raw: string;
+    try {
+      raw = readFileSync(this.path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.preserveSource = false;
+        return;
+      }
+      this.errors?.error('settings.backupFailed', error, { path: this.path });
+      throw error;
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    let backup = `${this.path}.invalid-${stamp}`;
+    for (let suffix = 1; existsSync(backup); suffix += 1) {
+      backup = `${this.path}.invalid-${stamp}-${suffix}`;
+    }
+
+    try {
+      writePrivateFile(backup, raw);
+    } catch (error) {
+      this.errors?.error('settings.backupFailed', error, { path: this.path });
+      throw error;
+    }
+
+    this.preserveSource = false;
+    console.warn(`preserving unusable settings at ${this.path} as ${backup}`);
+  }
+
   private write(settings: AppSettings): void {
+    this.preserveUnusableSource();
     mkdirSync(path.dirname(this.path), { recursive: true });
     const temp = `${this.path}.tmp-${process.pid}-${Date.now()}`;
     writeFileSync(temp, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });

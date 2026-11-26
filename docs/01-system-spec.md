@@ -116,7 +116,10 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   validates independently. One invalid unit falls back to that unit's defaults and is
   reported as `settings.invalid` with its `block` name, while every other block loads
   intact; an unreadable or non-JSON file falls back to all defaults. Loading never
-  writes the file; only a successful patch persists.
+  writes the file; only a successful patch persists. Before that first save replaces an
+  unusable file, its exact bytes are copied to a sibling `config.json.invalid-<UTC>`
+  (owner-only, never overwriting an earlier copy); a failed copy refuses the save and
+  reports `settings.backupFailed`.
 
 ---
 

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 982 vitest cases: 770 server across 49 files and 212 web across 24 files, all green.
+- 988 vitest cases: 776 server across 49 files and 212 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -98,7 +98,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 770 server + 212 web, plus the e2e env guard
+npm test                       # 776 server + 212 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -190,8 +190,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   Each settings block and notification channel validates on its own: one invalid unit
   falls back to that unit's defaults, is reported as `settings.invalid` with its `block`
   name, and leaves every other block intact; only an unreadable or non-JSON file falls
-  back to all defaults. Loading never writes. Env still owns paths, ports, and the
-  harness.
+  back to all defaults. Loading never writes. Before the first save after an unusable
+  load, the raw file is copied to a sibling `config.json.invalid-<UTC>` (owner-only,
+  never overwriting an earlier copy); a failed copy refuses the save and reports
+  `settings.backupFailed`. Env still owns paths, ports, and the harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it

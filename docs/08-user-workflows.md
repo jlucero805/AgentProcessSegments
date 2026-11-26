@@ -291,4 +291,6 @@ tunnel or SSO proxy in front for remote access (see `deploy/vps.md`).
 A single invalid block in `config.json` does not reset the rest: that block (or, under
 `notifications`, that channel) falls back to its defaults and is reported in the error
 log with the block name, while other blocks — including webhook URLs and secrets — load
-unchanged. An unreadable or non-JSON file falls back to all defaults.
+unchanged. An unreadable or non-JSON file falls back to all defaults. Before the next save
+replaces such a file, the raw bytes are copied to a sibling `config.json.invalid-<UTC>`
+(owner-only); the save is refused if that copy cannot be written.

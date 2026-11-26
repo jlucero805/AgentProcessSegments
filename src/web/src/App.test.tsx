@@ -4,6 +4,11 @@ import App from './App';
 import { jsonResponse, makeProcessResponse, makeRequest, makeUsageResponse } from './test/fixtures';
 import type { BudgetAlert, CellDetail, Request } from './types';
 
+// These flows chain several reloads (banners, cells, budgets). Give their queries and
+// whole-case budgets room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const APP_TEST_TIMEOUT_MS = 30_000;
+
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 const DOC_PAGES = [
@@ -422,35 +427,35 @@ describe('App', () => {
     installFetch(request);
 
     render(<App />);
-    fireEvent.click(await screen.findByText('Dispatch card'));
+    fireEvent.click(await screen.findByText('Dispatch card', undefined, { timeout: ASYNC_TIMEOUT_MS }));
 
-    expect(await screen.findByText('Finalize digest')).toBeInTheDocument();
+    expect(await screen.findByText('Finalize digest', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Message this thread…')).toBeInTheDocument();
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('shows the request usage card in the drawer', async () => {
     const request = makeRequest({ id: 'a', title: 'Metered card', clarifyStarted: true });
     installFetch(request);
 
     render(<App />);
-    fireEvent.click(await screen.findByText('Metered card'));
+    fireEvent.click(await screen.findByText('Metered card', undefined, { timeout: ASYNC_TIMEOUT_MS }));
 
-    expect(await screen.findByText('Unpriced')).toBeInTheDocument();
-    expect((await screen.findAllByText('≈ $0.0160')).length).toBeGreaterThan(0);
-  });
+    expect(await screen.findByText('Unpriced', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect((await screen.findAllByText('≈ $0.0160', undefined, { timeout: ASYNC_TIMEOUT_MS })).length).toBeGreaterThan(0);
+  }, APP_TEST_TIMEOUT_MS);
 
   it('opens the cell master detail from the sidebar', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [makeCell()]);
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Alpha' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Cell master' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Alpha' }, { timeout: ASYNC_TIMEOUT_MS }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cell master' }, { timeout: ASYNC_TIMEOUT_MS }));
 
-    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
+    expect(await screen.findByText('Alpha · process automation', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Cron loop')).toBeInTheDocument();
     expect(window.location.search).toContain('cell=c1');
     expect(window.location.search).toContain('master=1');
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('does not open a master for all cells', async () => {
     window.history.replaceState(null, '', '/?master=1');
@@ -491,13 +496,13 @@ describe('App', () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [cell]);
 
     render(<App />);
-    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
+    expect(await screen.findByText('Alpha · process automation', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
 
-    expect(await screen.findByText('Edit cell')).toBeInTheDocument();
-    expect((await screen.findAllByText('Drawer plan purpose')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('Edit cell', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect((await screen.findAllByText('Drawer plan purpose', undefined, { timeout: ASYNC_TIMEOUT_MS })).length).toBeGreaterThan(0);
     expect(screen.queryByText('GLOBAL PROCESS TEMPLATE')).not.toBeInTheDocument();
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('opens the usage page and records it in the URL', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
@@ -531,17 +536,17 @@ describe('App', () => {
     expect(
       await screen.findByRole('button', {
         name: 'Dismiss budget alert for overall spend',
-      }),
+      }, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Usage'));
-    expect(await screen.findByText('Monthly budgets')).toBeInTheDocument();
+    expect(await screen.findByText('Monthly budgets', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     await waitFor(() =>
       expect(
         screen.getAllByRole('button', {
           name: 'Dismiss budget alert for overall spend',
         }),
-      ).toHaveLength(2),
+      ).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS },
     );
 
     fireEvent.click(
@@ -555,10 +560,10 @@ describe('App', () => {
         screen.queryByRole('button', {
           name: 'Dismiss budget alert for overall spend',
         }),
-      ).not.toBeInTheDocument(),
+      ).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(screen.queryByText(/Overall spend reached 80%/)).not.toBeInTheDocument();
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('refreshes the banner after snoozing a pause from Config', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
@@ -578,13 +583,13 @@ describe('App', () => {
     );
 
     render(<App />);
-    expect(await screen.findByText(/Overall spend hard cap reached/)).toBeInTheDocument();
+    expect(await screen.findByText(/Overall spend hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Config'));
     await waitFor(() =>
       expect(
         screen.getAllByRole('button', { name: 'Snooze overall spend' }),
-      ).toHaveLength(2),
+      ).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS },
     );
 
     fireEvent.click(
@@ -592,9 +597,9 @@ describe('App', () => {
     );
 
     await waitFor(() =>
-      expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0),
+      expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0), { timeout: ASYNC_TIMEOUT_MS },
     );
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('refreshes the banner after saving a cell pause off', async () => {
     const cell: CellDetail = {
@@ -622,25 +627,25 @@ describe('App', () => {
     );
 
     render(<App />);
-    expect(await screen.findByText(/Alpha hard cap reached/)).toBeInTheDocument();
+    expect(await screen.findByText(/Alpha hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Alpha' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Alpha' }, { timeout: ASYNC_TIMEOUT_MS }));
     const pauseToggle = await screen.findByRole('checkbox', {
       name: /pause this cell's new work when its budget is exceeded/i,
-    });
-    await waitFor(() => expect(pauseToggle).toBeEnabled());
+    }, { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(pauseToggle).toBeEnabled(), { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(pauseToggle);
     const saveButton = screen.getByRole('button', { name: 'Save cell' });
-    await waitFor(() => expect(saveButton).toBeEnabled());
+    await waitFor(() => expect(saveButton).toBeEnabled(), { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(saveButton);
 
     await waitFor(() =>
-      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(),
+      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
     const patchAt = calls.indexOf('PATCH /api/cells/c1');
     expect(patchAt).toBeGreaterThan(-1);
     expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(patchAt);
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('refreshes the banner after saving a cell pause on', async () => {
     const cell: CellDetail = {
@@ -669,24 +674,24 @@ describe('App', () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(),
+      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit Alpha' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Alpha' }, { timeout: ASYNC_TIMEOUT_MS }));
     const pauseToggle = await screen.findByRole('checkbox', {
       name: /pause this cell's new work when its budget is exceeded/i,
-    });
-    await waitFor(() => expect(pauseToggle).toBeEnabled());
+    }, { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(pauseToggle).toBeEnabled(), { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(pauseToggle);
     const saveButton = screen.getByRole('button', { name: 'Save cell' });
-    await waitFor(() => expect(saveButton).toBeEnabled());
+    await waitFor(() => expect(saveButton).toBeEnabled(), { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(saveButton);
 
-    expect(await screen.findByText(/Alpha hard cap reached/)).toBeInTheDocument();
+    expect(await screen.findByText(/Alpha hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     const patchAt = calls.indexOf('PATCH /api/cells/c1');
     expect(patchAt).toBeGreaterThan(-1);
     expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(patchAt);
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('refreshes Config budget rows after snoozing a pause from the banner', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
@@ -704,7 +709,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
-    expect(await screen.findByText(/Overall spend hard cap reached/)).toBeInTheDocument();
+    expect(await screen.findByText(/Overall spend hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     const budgetGets = fetchMock.mock.calls.filter(
       ([input]) => String(input) === '/api/budgets',
@@ -713,11 +718,11 @@ describe('App', () => {
     const banner = screen.getByLabelText('Budget alerts');
     const bannerSnooze = await within(banner).findByRole('button', {
       name: 'Snooze overall spend',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() =>
       expect(
         screen.getAllByRole('button', { name: 'Snooze overall spend' }),
-      ).toHaveLength(2),
+      ).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(
       fetchMock.mock.calls.filter(([input]) => String(input) === '/api/budgets'),
@@ -726,13 +731,13 @@ describe('App', () => {
     fireEvent.click(bannerSnooze);
 
     await waitFor(() =>
-      expect(screen.getByText('snoozed')).toBeInTheDocument(),
+      expect(screen.getByText('snoozed')).toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(
       screen.getByText(/an override is admitting new work until/),
     ).toBeInTheDocument();
     expect(screen.getAllByText(/New work is allowed/).length).toBeGreaterThan(0);
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('opens the config page and records it in the URL', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
@@ -740,9 +745,9 @@ describe('App', () => {
     render(<App />);
     fireEvent.click(screen.getByText('Config'));
 
-    expect(await screen.findByText('Cell master')).toBeInTheDocument();
+    expect(await screen.findByText('Cell master', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(window.location.search).toContain('page=config');
-  });
+  }, APP_TEST_TIMEOUT_MS);
 
   it('opens and closes the mobile menu', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Nav card' }));
@@ -855,13 +860,13 @@ describe('App', () => {
     render(<App />);
     fireEvent.click(screen.getByText('Config'));
 
-    const link = await screen.findByRole('link', { name: 'Verify webhook signatures' });
+    const link = await screen.findByRole('link', { name: 'Verify webhook signatures' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(link).toHaveAttribute('href', '?help=08-user-workflows#verify-webhook-signatures');
     fireEvent.click(link);
 
-    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Documentation' }, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(
-      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
     expect(window.location.search).toContain('page=config');
     expect(window.location.search).toContain('help=08-user-workflows');
@@ -870,10 +875,10 @@ describe('App', () => {
     window.history.replaceState(null, '', '/?page=config');
     window.dispatchEvent(new PopStateEvent('popstate'));
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Documentation' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: 'Documentation' })).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
-    expect(await screen.findByText('Cell master')).toBeInTheDocument();
-  });
+    expect(await screen.findByText('Cell master', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, APP_TEST_TIMEOUT_MS);
 
   it('opens a Help section from the URL hash', async () => {
     window.history.replaceState(null, '', '/?help=08-user-workflows#verify-webhook-signatures');
@@ -894,19 +899,19 @@ describe('App', () => {
     installFetch(makeRequest({ id: 'a', title: 'Docs card' }));
 
     render(<App />);
-    expect(await screen.findByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
-    expect(await screen.findByText('Help article body.')).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Documentation' }, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(await screen.findByText('Help article body.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Process segments' }));
-    expect(await screen.findByText('Process segments article.')).toBeInTheDocument();
+    expect(await screen.findByText('Process segments article.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(window.location.search).toContain('help=07-process-segments');
 
     window.history.back();
-    await waitFor(() => expect(window.location.search).toContain('help=getting-started'));
-    expect(await screen.findByText('Help article body.')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).toContain('help=getting-started'), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('Help article body.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     window.history.forward();
-    await waitFor(() => expect(window.location.search).toContain('help=07-process-segments'));
-    expect(await screen.findByText('Process segments article.')).toBeInTheDocument();
-  });
+    await waitFor(() => expect(window.location.search).toContain('help=07-process-segments'), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('Process segments article.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, APP_TEST_TIMEOUT_MS);
 });

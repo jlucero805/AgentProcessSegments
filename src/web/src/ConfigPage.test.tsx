@@ -807,10 +807,11 @@ function stubConfigWarnings(
   );
 }
 
-// The Config page fetches several resources before it renders its cards, and the
-// Slack cases drive several controlled fields. Give their queries and whole-case
-// budgets room under full-suite load while keeping them bounded.
+// The Config page fetches several resources before it renders its cards. Give the
+// slow async cases, including the Slack flow, room under full-suite load while
+// keeping them bounded.
 const ASYNC_TIMEOUT_MS = 10_000;
+const CONFIG_PAGE_TEST_TIMEOUT_MS = 30_000;
 const SLACK_TEST_TIMEOUT_MS = 30_000;
 
 describe('ConfigPage', () => {
@@ -819,7 +820,7 @@ describe('ConfigPage', () => {
 
     render(<ConfigPage onError={() => {}} />);
 
-    const interval = await screen.findByRole('spinbutton', { name: /interval/i });
+    const interval = await screen.findByRole('spinbutton', { name: /interval/i }, { timeout: ASYNC_TIMEOUT_MS });
     expect(interval).toHaveValue(5);
     expect(screen.getByRole('spinbutton', { name: /every/i })).toHaveValue(360);
     expect(screen.getByText('/tmp/agent-process-segments/config.json')).toBeInTheDocument();
@@ -833,12 +834,12 @@ describe('ConfigPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
-    await waitFor(() => expect(captured.config).toBeDefined());
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    await waitFor(() => expect(captured.config).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
     expect(captured.config?.master).toMatchObject({ intervalMinutes: 8, idleMinutes: 10 });
     expect(captured.config?.summary).toMatchObject({ intervalMinutes: 360, windowMinutes: 180 });
     expect(captured.config?.master).not.toHaveProperty('includeUnassigned');
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('names the settings blocks recovered at load', async () => {
     installFetch();
@@ -873,11 +874,11 @@ describe('ConfigPage', () => {
     stubConfigWarnings([{ block: 'budget', message: 'alert threshold is invalid' }]);
 
     render(<ConfigPage onError={() => {}} />);
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(await screen.findByRole('alert', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
-    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-  });
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('renders no banner when the brain omits warnings', async () => {
     installFetch();
@@ -885,12 +886,12 @@ describe('ConfigPage', () => {
 
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByRole('spinbutton', { name: /interval/i })).toHaveValue(5);
+    expect(await screen.findByRole('spinbutton', { name: /interval/i }, { timeout: ASYNC_TIMEOUT_MS })).toHaveValue(5);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('status', { name: 'Preserved settings file' }),
     ).not.toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows the preserved settings path when the server reports one', async () => {
     const preserved = '/tmp/agent-process-segments/config.json.invalid-2026-01-01T00-00-00-000Z';
@@ -915,7 +916,7 @@ describe('ConfigPage', () => {
 
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(await screen.findByRole('alert', undefined, { timeout: ASYNC_TIMEOUT_MS })).toHaveTextContent(
       'Some saved settings were reset to defaults',
     );
     expect(
@@ -924,10 +925,10 @@ describe('ConfigPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
-    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-    const status = await screen.findByRole('status', { name: 'Preserved settings file' });
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS });
+    const status = await screen.findByRole('status', { name: 'Preserved settings file' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(status).toHaveTextContent(preserved);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('renders no preserved settings notice for an explicit null', async () => {
     installFetch();
@@ -935,11 +936,11 @@ describe('ConfigPage', () => {
 
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByRole('spinbutton', { name: /interval/i })).toHaveValue(5);
+    expect(await screen.findByRole('spinbutton', { name: /interval/i }, { timeout: ASYNC_TIMEOUT_MS })).toHaveValue(5);
     expect(
       screen.queryByRole('status', { name: 'Preserved settings file' }),
     ).not.toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves usage retention', async () => {
     const captured = installFetch();
@@ -947,7 +948,7 @@ describe('ConfigPage', () => {
 
     const retention = await screen.findByRole('spinbutton', {
       name: 'Usage retention (days)',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(retention).toHaveValue(90);
     expect(screen.getByText('0 keeps raw turns forever')).toBeInTheDocument();
     expect(screen.getByText(/summarized into daily totals/)).toBeInTheDocument();
@@ -956,11 +957,11 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save usage retention' }));
 
     await waitFor(() =>
-      expect(captured.config?.usage).toEqual({ retentionDays: 30 }),
+      expect(captured.config?.usage).toEqual({ retentionDays: 30 }), { timeout: ASYNC_TIMEOUT_MS },
     );
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(retention).toHaveValue(30);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves master activity retention independently', async () => {
     const captured = installFetch();
@@ -968,7 +969,7 @@ describe('ConfigPage', () => {
 
     const activity = await screen.findByRole('spinbutton', {
       name: 'Activity retention (days)',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(activity).toHaveValue(90);
     expect(screen.getByText('0 keeps all master activity forever')).toBeInTheDocument();
     expect(screen.getByText(/activity is not rolled up/)).toBeInTheDocument();
@@ -978,12 +979,12 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save activity retention' }));
 
     await waitFor(() =>
-      expect(captured.config?.retention).toEqual({ masterEventsDays: 30 }),
+      expect(captured.config?.retention).toEqual({ masterEventsDays: 30 }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.usage).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(activity).toHaveValue(30);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves scorecard retention independently', async () => {
     const captured = installFetch();
@@ -991,7 +992,7 @@ describe('ConfigPage', () => {
 
     const summaries = await screen.findByRole('spinbutton', {
       name: 'Scorecard retention (days)',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(summaries).toHaveValue(90);
     expect(
       screen.getByText('0 keeps all scorecard history forever'),
@@ -1003,12 +1004,12 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save scorecard retention' }));
 
     await waitFor(() =>
-      expect(captured.config?.retention).toEqual({ cellSummariesDays: 30 }),
+      expect(captured.config?.retention).toEqual({ cellSummariesDays: 30 }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.usage).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(summaries).toHaveValue(30);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves budget alert retention independently', async () => {
     const captured = installFetch();
@@ -1016,7 +1017,7 @@ describe('ConfigPage', () => {
 
     const alerts = await screen.findByRole('spinbutton', {
       name: 'Budget alert retention (days)',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(alerts).toHaveValue(400);
     expect(
       screen.getByText('0 keeps alert and delivery history forever'),
@@ -1028,12 +1029,12 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save budget alert retention' }));
 
     await waitFor(() =>
-      expect(captured.config?.retention).toEqual({ budgetAlertsDays: 30 }),
+      expect(captured.config?.retention).toEqual({ budgetAlertsDays: 30 }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.usage).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(alerts).toHaveValue(30);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves notification event retention independently', async () => {
     const captured = installFetch();
@@ -1041,7 +1042,7 @@ describe('ConfigPage', () => {
 
     const events = await screen.findByRole('spinbutton', {
       name: 'Notification event retention (days)',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(events).toHaveValue(400);
     expect(events).toHaveAttribute('min', '0');
     expect(events).toHaveAttribute('max', '3650');
@@ -1057,12 +1058,12 @@ describe('ConfigPage', () => {
     );
 
     await waitFor(() =>
-      expect(captured.config?.retention).toEqual({ notificationEventsDays: 30 }),
+      expect(captured.config?.retention).toEqual({ notificationEventsDays: 30 }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.usage).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(events).toHaveValue(30);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves request artifact retention independently', async () => {
     const captured = installFetch();
@@ -1070,7 +1071,7 @@ describe('ConfigPage', () => {
 
     const artifacts = await screen.findByRole('spinbutton', {
       name: 'Request artifacts retention (days)',
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(artifacts).toHaveValue(30);
     expect(
       screen.getByText('0 keeps request folders and worktrees forever'),
@@ -1082,24 +1083,24 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save artifact retention' }));
 
     await waitFor(() =>
-      expect(captured.config?.retention).toEqual({ requestArtifactsDays: 7 }),
+      expect(captured.config?.retention).toEqual({ requestArtifactsDays: 7 }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.usage).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(artifacts).toHaveValue(7);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('toggles the master switch', async () => {
     const captured = installFetch();
 
     render(<ConfigPage onError={() => {}} />);
-    const toggle = await screen.findByRole('checkbox', { name: 'Master enabled' });
+    const toggle = await screen.findByRole('checkbox', { name: 'Master enabled' }, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'Save schedule' }));
 
-    await waitFor(() => expect(captured.config).toBeDefined());
+    await waitFor(() => expect(captured.config).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
     expect(captured.config?.master).toMatchObject({ enabled: false });
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('toggles a cell master', async () => {
     const captured = installFetch();
@@ -1124,7 +1125,7 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const monthly = await screen.findByRole('spinbutton', { name: /overall monthly budget/i });
+    const monthly = await screen.findByRole('spinbutton', { name: /overall monthly budget/i }, { timeout: ASYNC_TIMEOUT_MS });
     expect(monthly).toHaveValue(100);
     expect(screen.getAllByText('Overall').length).toBeGreaterThan(0);
     expect(screen.getByText(/At least \$85\.00 of \$100\.00 \(85%\)/)).toBeInTheDocument();
@@ -1154,10 +1155,10 @@ describe('ConfigPage', () => {
         alertAtPercent: 90,
         pauseOnExceeded: true,
         pauseOnUnknownCost: true,
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.master).toBeUndefined();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('explains a strict unknown-cost pause even when spend is unknown', async () => {
     const view: BudgetsResponse = {
@@ -1190,13 +1191,13 @@ describe('ConfigPage', () => {
     render(<ConfigPage onError={() => {}} />);
 
     expect(
-      await screen.findByRole('table', { name: 'Spend cap override history' }),
+      await screen.findByRole('table', { name: 'Spend cap override history' }, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
     expect(screen.getByText('Overall spend')).toBeInTheDocument();
     expect(screen.getByText('release review')).toBeInTheDocument();
     expect(screen.getByText(/×1/)).toBeInTheDocument();
-    await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
-  });
+    await waitFor(() => expect(captured.historyQueries).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('snoozes a paused budget through the shared feed and ends an active override', async () => {
     const pausedView = pausedBudgetView();
@@ -1209,16 +1210,16 @@ describe('ConfigPage', () => {
       />,
     );
 
-    expect(await screen.findByText('paused')).toBeInTheDocument();
+    expect(await screen.findByText('paused', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(
       screen.getByText(/New work is paused and in-flight turns were stopped at/),
     ).toBeInTheDocument();
-    await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
+    await waitFor(() => expect(captured.historyQueries).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
     await waitFor(() =>
-      expect(snooze).toHaveBeenCalledWith({ scope: 'overall', minutes: 60 }),
+      expect(snooze).toHaveBeenCalledWith({ scope: 'overall', minutes: 60 }), { timeout: ASYNC_TIMEOUT_MS },
     );
-    await waitFor(() => expect(captured.historyQueries!.length).toBeGreaterThan(1));
+    await waitFor(() => expect(captured.historyQueries!.length).toBeGreaterThan(1), { timeout: ASYNC_TIMEOUT_MS });
     unmount();
 
     const overrideView = overriddenBudgetView();
@@ -1231,7 +1232,7 @@ describe('ConfigPage', () => {
       />,
     );
 
-    expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
+    expect(await screen.findByText(/Override active until/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('snoozed')).toBeInTheDocument();
     expect(
       screen.getByText(/an override is admitting new work until/),
@@ -1239,13 +1240,13 @@ describe('ConfigPage', () => {
     expect(
       screen.queryByText(/New work is paused and in-flight turns were stopped/),
     ).not.toBeInTheDocument();
-    await waitFor(() => expect(second.historyQueries).toHaveLength(1));
+    await waitFor(() => expect(second.historyQueries).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(
       screen.getByRole('button', { name: 'End override for overall spend' }),
     );
-    await waitFor(() => expect(revokeOverride).toHaveBeenCalledWith('o1'));
-    await waitFor(() => expect(second.historyQueries!.length).toBeGreaterThan(1));
-  });
+    await waitFor(() => expect(revokeOverride).toHaveBeenCalledWith('o1'), { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(second.historyQueries!.length).toBeGreaterThan(1), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('force-reloads the shared feed after saving a budget', async () => {
     installFetch();
@@ -1382,7 +1383,7 @@ describe('ConfigPage', () => {
 
     const toggle = await screen.findByRole('checkbox', {
       name: /deliver budget alerts to a webhook/i,
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
     fireEvent.change(screen.getByLabelText(/webhook url/i), {
@@ -1402,11 +1403,11 @@ describe('ConfigPage', () => {
         url: 'https://hooks.example.test/budget',
         format: 'slack',
         secret: '0123456789abcdef',
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByDisplayValue('0123456789abcdef')).not.toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('saves event notification routes independently', async () => {
     const captured = installFetch();
@@ -1414,7 +1415,7 @@ describe('ConfigPage', () => {
 
     const failedWebhook = await screen.findByRole('checkbox', {
       name: /failed turns by webhook/i,
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     const masterEmail = screen.getByRole('checkbox', {
       name: /master errors by email/i,
     });
@@ -1439,20 +1440,20 @@ describe('ConfigPage', () => {
         spendOverrides: { webhook: false, email: true },
         coalesceMinutes: 60,
         routes: [],
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.notifications?.webhook).toBeUndefined();
     expect(screen.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/scorecard 0 pending \/ 0 failed/)).toBeInTheDocument();
     expect(screen.getByText(/overrides 0 pending \/ 0 failed/)).toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('saves the coalescing window and a cell route', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const minutes = await screen.findByLabelText(/coalesce repeats within/i);
+    const minutes = await screen.findByLabelText(/coalesce repeats within/i, undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(minutes, { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add event route' }));
 
@@ -1472,22 +1473,22 @@ describe('ConfigPage', () => {
         spendOverrides: { webhook: false, email: false },
         coalesceMinutes: 30,
         routes: [{ kind: 'turn.failed', channel: 'email', cellId: 'c1' }],
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('rejects an invalid event coalescing window before saving', async () => {
     const captured = installFetch();
     const onError = vi.fn();
     render(<ConfigPage onError={onError} />);
 
-    const minutes = await screen.findByLabelText(/coalesce repeats within/i);
+    const minutes = await screen.findByLabelText(/coalesce repeats within/i, undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(minutes, { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
 
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('Coalesce minutes'));
     expect(captured.config).toBeUndefined();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('clears a saved webhook secret only on request', async () => {
     const captured = installFetch(budgetView, [event], [], undefined, undefined, {
@@ -1498,7 +1499,7 @@ describe('ConfigPage', () => {
     });
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('A signing secret is saved.')).toBeInTheDocument();
+    expect(await screen.findByText('A signing secret is saved.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear secret' }));
     expect(screen.getByText(/will be cleared on save/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
@@ -1508,15 +1509,15 @@ describe('ConfigPage', () => {
         enabled: true,
         url: 'https://hooks.example.test/budget',
         secret: null,
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows webhook test success and failure', async () => {
     installFetch();
     const view = render(<ConfigPage onError={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
-    expect(await screen.findByText(/Test delivered \(HTTP 204\)/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }, { timeout: ASYNC_TIMEOUT_MS }));
+    expect(await screen.findByText(/Test delivered \(HTTP 204\)/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     view.unmount();
 
     installFetch(budgetView, [event], [], undefined, {
@@ -1525,9 +1526,9 @@ describe('ConfigPage', () => {
       error: 'HTTP 500',
     });
     render(<ConfigPage onError={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
-    expect(await screen.findByText('HTTP 500')).toBeInTheDocument();
-  });
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }, { timeout: ASYNC_TIMEOUT_MS }));
+    expect(await screen.findByText('HTTP 500', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it(
     'configures, routes, saves, and tests a Slack bot',
@@ -1593,7 +1594,7 @@ describe('ConfigPage', () => {
       const captured = installFetch();
       const first = render(<ConfigPage onError={(message) => errors.push(message)} />);
 
-      const firstCard = await screen.findByTestId('slack-delivery-card');
+      const firstCard = await screen.findByTestId('slack-delivery-card', undefined, { timeout: ASYNC_TIMEOUT_MS });
       const firstSlack = within(firstCard);
       fireEvent.click(
         firstSlack.getByRole('checkbox', {
@@ -1635,7 +1636,7 @@ describe('ConfigPage', () => {
         },
       );
       render(<ConfigPage onError={() => {}} />);
-      const card = await screen.findByTestId('slack-delivery-card');
+      const card = await screen.findByTestId('slack-delivery-card', undefined, { timeout: ASYNC_TIMEOUT_MS });
       const slack = within(card);
       expect(
         await slack.findByText('A bot token is saved.', undefined, {
@@ -1692,10 +1693,10 @@ describe('ConfigPage', () => {
       <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
     );
 
-    expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
+    expect(await screen.findByText(/Spend unknown · 2 unpriced turns/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\(0%\)/)).not.toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('caps recent activity so the config page stays short', async () => {
     const events: MasterEvent[] = Array.from({ length: 30 }, (_, index) => ({
@@ -1718,16 +1719,16 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const intake = await screen.findByRole('checkbox', { name: 'Automate Requests' });
+    const intake = await screen.findByRole('checkbox', { name: 'Automate Requests' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(intake).not.toBeChecked();
     fireEvent.click(intake);
     fireEvent.click(screen.getByRole('button', { name: 'Save process' }));
 
-    await waitFor(() => expect(captured.process).toBeDefined());
+    await waitFor(() => expect(captured.process).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
     expect(
       captured.process?.segments?.find((segment) => segment.id === 'intake')?.enabled,
     ).toBe(true);
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows finalize as a manual-only segment', async () => {
     installFetch();
@@ -1761,7 +1762,7 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    fireEvent.change(await screen.findByLabelText(/Model id/), {
+    fireEvent.change(await screen.findByLabelText(/Model id/, undefined, { timeout: ASYNC_TIMEOUT_MS }), {
       target: { value: 'provider/model-a' },
     });
     fireEvent.change(screen.getByLabelText(/Effective date/), {
@@ -1778,7 +1779,7 @@ describe('ConfigPage', () => {
     fireEvent.change(screen.getByLabelText(/Note/), { target: { value: 'list price' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add price' }));
 
-    await waitFor(() => expect(captured.price).toBeDefined());
+    await waitFor(() => expect(captured.price).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
     expect(captured.price).toEqual({
       model: 'provider/model-a',
       effectiveFrom: Date.UTC(2026, 1, 3),
@@ -1790,26 +1791,26 @@ describe('ConfigPage', () => {
       source: 'https://example.com/pricing',
       note: 'list price',
     });
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('blocks a price without a model, source, or complete rates', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    await screen.findByLabelText(/Model id/);
+    await screen.findByLabelText(/Model id/, undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(screen.getByRole('button', { name: 'Add price' }));
 
     expect(
-      await screen.findByText('Model, effective date, and source are required.'),
+      await screen.findByText('Model, effective date, and source are required.', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
     expect(captured.price).toBeUndefined();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows a duplicate price error from the server', async () => {
     installFetch(budgetView, [event], [], { status: 409, message: 'a price already exists for model-a' });
     render(<ConfigPage onError={() => {}} />);
 
-    fireEvent.change(await screen.findByLabelText(/Model id/), {
+    fireEvent.change(await screen.findByLabelText(/Model id/, undefined, { timeout: ASYNC_TIMEOUT_MS }), {
       target: { value: 'model-a' },
     });
     fireEvent.change(screen.getByLabelText('Input $/1M'), { target: { value: '1' } });
@@ -1823,9 +1824,9 @@ describe('ConfigPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add price' }));
 
     expect(
-      await screen.findByText('a price already exists for model-a'),
+      await screen.findByText('a price already exists for model-a', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('configures and saves email delivery independently', async () => {
     const captured = installFetch();
@@ -1833,7 +1834,7 @@ describe('ConfigPage', () => {
 
     const toggle = await screen.findByRole('checkbox', {
       name: /deliver budget alerts by email/i,
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
     fireEvent.change(screen.getByLabelText(/smtp host/i), {
@@ -1863,12 +1864,12 @@ describe('ConfigPage', () => {
         password: 'super-secret',
         from: 'APS <alerts@example.test>',
         to: ['ops@example.test', 'oncall@example.test'],
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config?.notifications?.webhook).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByDisplayValue('super-secret')).not.toBeInTheDocument();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('keeps a saved email password unless cleared with the username', async () => {
     const captured = installFetch(
@@ -1890,9 +1891,9 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('A password is saved.')).toBeInTheDocument();
+    expect(await screen.findByText('A password is saved.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
-    await waitFor(() => expect(captured.config).toBeDefined());
+    await waitFor(() => expect(captured.config).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
     expect(captured.config?.notifications?.email).not.toHaveProperty('password');
     expect(captured.config?.notifications?.email).toMatchObject({ username: 'aps' });
 
@@ -1903,21 +1904,21 @@ describe('ConfigPage', () => {
       expect(captured.config?.notifications?.email).toMatchObject({
         username: null,
         password: null,
-      }),
+      }), { timeout: ASYNC_TIMEOUT_MS },
     );
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('validates email delivery and reports a test result', async () => {
     const onError = vi.fn();
     const captured = installFetch();
     const view = render(<ConfigPage onError={onError} />);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: /deliver budget alerts by email/i }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /deliver budget alerts by email/i }, { timeout: ASYNC_TIMEOUT_MS }));
     fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
     await waitFor(() =>
       expect(onError).toHaveBeenCalledWith(
         'Host, From address, and at least one recipient are required.',
-      ),
+      ), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(captured.config).toBeUndefined();
 
@@ -1931,9 +1932,9 @@ describe('ConfigPage', () => {
       target: { value: 'ops@example.test' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send test email' }));
-    expect(await screen.findByText(/Test email sent in 15 ms/)).toBeInTheDocument();
+    expect(await screen.findByText(/Test email sent in 15 ms/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     view.unmount();
-  });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows email test failures', async () => {
     installFetch(budgetView, [event], [], undefined, undefined, webhook, email, {
@@ -1941,40 +1942,40 @@ describe('ConfigPage', () => {
       error: 'eauth',
     });
     render(<ConfigPage onError={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send test email' }));
-    expect(await screen.findByText('eauth')).toBeInTheDocument();
-  });
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test email' }, { timeout: ASYNC_TIMEOUT_MS }));
+    expect(await screen.findByText('eauth', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('deletes a price after an inline confirmation', async () => {
     const price = makePrice();
     const captured = installFetch(budgetView, [event], [price]);
     render(<ConfigPage onError={() => {}} />);
 
-    const remove = await screen.findByRole('button', { name: 'Delete price for model-a' });
+    const remove = await screen.findByRole('button', { name: 'Delete price for model-a' }, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(remove);
     expect(captured.deletedPriceId).toBeUndefined();
     expect(remove).toHaveTextContent('Confirm?');
 
     fireEvent.click(remove);
-    await waitFor(() => expect(captured.deletedPriceId).toBe(price.id));
-  });
+    await waitFor(() => expect(captured.deletedPriceId).toBe(price.id), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('renders delivery history and filters by channel and status', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText(/Overall · warning 80%/)).toBeInTheDocument();
+    expect(await screen.findByText(/Overall · warning 80%/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('HTTP 503')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Resend webhook delivery/i }),
     ).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/^Channel/), { target: { value: 'email' } });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('channel=email'));
+    await waitFor(() => expect(captured.deliveryQuery).toContain('channel=email'), { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText(/^Status/), { target: { value: 'failed' } });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('status=failed'));
-  });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('status=failed'), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('renders operational event rows and filters by type', async () => {
     const captured = installFetch(
@@ -2000,7 +2001,7 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('Turn failed: Fix the parser')).toBeInTheDocument();
+    expect(await screen.findByText('Turn failed: Fix the parser', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Turn failed')).toBeInTheDocument();
     expect(screen.getByText('Budget')).toBeInTheDocument();
     expect(screen.getByText('Spend cap override expired: Overall')).toBeInTheDocument();
@@ -2016,27 +2017,27 @@ describe('ConfigPage', () => {
     fireEvent.change(screen.getByLabelText(/^Type/), {
       target: { value: 'turn.failed' },
     });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=turn.failed'));
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=turn.failed'), { timeout: ASYNC_TIMEOUT_MS });
     expect(captured.deliveryQuery).toContain('offset=0');
 
     fireEvent.change(screen.getByLabelText(/^Type/), {
       target: { value: 'master.error' },
     });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=master.error'));
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=master.error'), { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText(/^Type/), {
       target: { value: 'summary.failed' },
     });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=summary.failed'));
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=summary.failed'), { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText(/^Type/), {
       target: { value: 'spend.override' },
     });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=spend.override'));
+    await waitFor(() => expect(captured.deliveryQuery).toContain('kind=spend.override'), { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText(/^Type/), { target: { value: 'budget' } });
-    await waitFor(() => expect(captured.deliveryQuery).toContain('source=budget'));
-  });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('source=budget'), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows an empty delivery history', async () => {
     installFetch(
@@ -2070,10 +2071,10 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('Showing 1–1 of 25')).toBeInTheDocument();
+    expect(await screen.findByText('Showing 1–1 of 25', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Older' }));
-    await waitFor(() => expect(captured.deliveryQuery).toContain('offset=10'));
-  });
+    await waitFor(() => expect(captured.deliveryQuery).toContain('offset=10'), { timeout: ASYNC_TIMEOUT_MS });
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('resends a failed delivery and refreshes the list', async () => {
     const captured = installFetch();

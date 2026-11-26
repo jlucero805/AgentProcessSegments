@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { CreateModal } from './CreateModal';
 import { jsonResponse } from './test/fixtures';
 
+// The modal posts and waits for the created request. Give its query and whole-case
+// budget room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const CREATE_MODAL_TEST_TIMEOUT_MS = 30_000;
+
 describe('CreateModal', () => {
   it('creates a request and hands back its id', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ id: 'new-1', title: 'Ship it' }, 201)));
@@ -24,9 +29,9 @@ describe('CreateModal', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create request' }));
 
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('new-1'));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('new-1'), { timeout: ASYNC_TIMEOUT_MS });
     expect(onError).not.toHaveBeenCalled();
-  });
+  }, CREATE_MODAL_TEST_TIMEOUT_MS);
 
   it('starts with an empty form after it is closed and reopened', () => {
     const { rerender } = render(

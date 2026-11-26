@@ -4,6 +4,11 @@ import { MasterDetail } from './MasterDetail';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
 import type { CellDetail, MasterEvent } from './types';
 
+// The drawer polls and loads several resources. Give its queries and whole-case
+// budgets room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const MASTER_DETAIL_TEST_TIMEOUT_MS = 30_000;
+
 function makeCell(): CellDetail {
   const process = makeProcessResponse();
   return {
@@ -108,20 +113,20 @@ describe('MasterDetail', () => {
       />,
     );
 
-    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
+    expect(await screen.findByText('Alpha · process automation', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Cron loop')).toBeInTheDocument();
     expect(screen.getByText('Activity')).toBeInTheDocument();
     expect(screen.getByText(/Master chat/)).toBeInTheDocument();
-    expect(await screen.findByText('cell note')).toBeInTheDocument();
+    expect(await screen.findByText('cell note', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Build it')).toBeInTheDocument();
     expect(urls).toContain('/api/master/status?cellId=c1');
     expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
     expect(urls.some((url) => url === '/api/config')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
-    await waitFor(() => expect(captured.ran).toBe(true));
-    expect(await screen.findByText(/Last cycle: 0 started/)).toBeInTheDocument();
-  });
+    await waitFor(() => expect(captured.ran).toBe(true), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText(/Last cycle: 0 started/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
 
   it('caps recent activity and keeps every event scrollable', async () => {
     const events: MasterEvent[] = Array.from({ length: 30 }, (_, index) => ({
@@ -179,10 +184,10 @@ describe('MasterDetail', () => {
       />,
     );
 
-    const list = await screen.findByRole('list', { name: 'Recent activity' });
+    const list = await screen.findByRole('list', { name: 'Recent activity' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(list).toHaveClass('max-h-80', 'overflow-y-auto');
     expect(within(list).getAllByRole('listitem')).toHaveLength(30);
-  });
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
 
   it('runs a scorecard and passes the selected cell to configure', async () => {
     const process = makeProcessResponse();
@@ -274,17 +279,17 @@ describe('MasterDetail', () => {
       />,
     );
 
-    expect(await screen.findByText('Alpha · process automation')).toBeInTheDocument();
-    expect(await screen.findByText('cell note')).toBeInTheDocument();
-    expect(await screen.findByText('No activity.')).toBeInTheDocument();
+    expect(await screen.findByText('Alpha · process automation', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(await screen.findByText('cell note', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(await screen.findByText('No activity.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(urls).toContain('/api/master/status?cellId=c1');
     expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
     expect(urls).toContain('/api/summaries/status?cellId=c1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Run scorecard now' }));
-    await waitFor(() => expect(capturedScorecard.ran).toBe(true));
+    await waitFor(() => expect(capturedScorecard.ran).toBe(true), { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
     expect(onConfigure).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
-  });
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
 });

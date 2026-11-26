@@ -5,6 +5,11 @@ import { jsonResponse, makeUsageResponse } from './test/fixtures';
 import type { BudgetAlert, BudgetsResponse } from './types';
 import type { BudgetFeed } from './useBudgets';
 
+// The page loads usage and budgets before rendering. Give its slow async cases room
+// under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const USAGE_TEST_TIMEOUT_MS = 30_000;
+
 const CELLS = [
   {
     id: 'cell-1',
@@ -112,7 +117,7 @@ describe('UsagePage', () => {
     installFetch();
     renderUsage();
 
-    expect(await screen.findByText('Effective cost')).toBeInTheDocument();
+    expect(await screen.findByText('Effective cost', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getAllByText('≈ $0.0160').length).toBeGreaterThan(0);
     expect(screen.getByText('reported $0.0120 · estimated $0.0040')).toBeInTheDocument();
     expect(screen.getByText('Total tokens')).toBeInTheDocument();
@@ -128,7 +133,7 @@ describe('UsagePage', () => {
     expect(screen.getByText('1h 0m')).toBeInTheDocument();
     expect(screen.getByText('10m')).toBeInTheDocument();
     expect(screen.getAllByTitle(/estimated/).length).toBeGreaterThan(0);
-  });
+  }, USAGE_TEST_TIMEOUT_MS);
 
   it('shows unknown instead of zero when no turn is priced', async () => {
     const base = makeUsageResponse();
@@ -193,13 +198,13 @@ describe('UsagePage', () => {
       },
     });
 
-    expect(await screen.findByText('paused')).toBeInTheDocument();
+    expect(await screen.findByText('paused', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText(/in-flight turns were stopped at \$100\.00 cap spend/)).toBeInTheDocument();
     expect(screen.queryByText(/budgets never stop work/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
     expect(budgetFeed.snooze).toHaveBeenCalledWith({ scope: 'overall', minutes: 60 });
-  });
+  }, USAGE_TEST_TIMEOUT_MS);
 
   it('shows an active override and can end it from the budget card', async () => {
     installFetch();

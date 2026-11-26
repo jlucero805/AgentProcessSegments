@@ -231,6 +231,14 @@ in-flight deliveries are never pruned. Delivery rows snapshot the alert fields, 
 an alert — including retention expiring an acknowledged alert — leaves its delivery history
 in place; terminal rows are bounded by the same setting and history is not rolled up.
 
+Notification event retention lives in `config.json` as
+`retention.notificationEventsDays`, also editable from the Config page. The default is
+400 days; `0` keeps event delivery history forever. The same startup/hourly job deletes
+`delivered`, `failed`, and `skipped` `notification_event_deliveries` rows older than the
+window in batches; `pending` and `delivering` rows are never pruned. An event delivery
+row is the idempotency record for its epoch-anchored coalescing window, so removing a
+terminal row older than the window cannot re-send a duplicate.
+
 Request artifact retention lives in `config.json` as `retention.requestArtifactsDays`,
 also editable from the Config page. The default is 30 days; `0` keeps request folders and
 worktrees forever. A startup/hourly job deletes the whole
@@ -490,8 +498,9 @@ resend reuses the outbox row,
 re-stamps it to the current destination and format, resets the attempt count, and queues
 it for the next flush; delivered rows are immutable. History is read-only. Budget rows
 are pruned under `retention.budgetAlertsDays` (default 400 days; the current UTC month is
-always kept and pending or in-flight rows are never pruned); event rows are pruned after
-400 days on notifier start. A budget row remains after its alert is deleted (clearing a
+always kept and pending or in-flight rows are never pruned); event rows follow
+`retention.notificationEventsDays` (default 400 days; `0` keeps them forever, and pending
+or in-flight rows are never pruned). A budget row remains after its alert is deleted (clearing a
 budget, changing its threshold, deleting a cell, or retention expiring an acknowledged
 alert); it becomes history-only and cannot be resent. `GET /api/notifications/deliveries`
 filters by `source` (`budget|event`) or `kind` (`turn.failed|master.error|summary.failed`) and
@@ -604,7 +613,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1140 vitest cases: 884 server cases across 51 files (state machine,
+`npm test` runs 1147 vitest cases: 890 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -619,7 +628,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 256 web cases across 27 files (shared contract re-exports, NDJSON
+real socket) and 257 web cases across 27 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab chat queue claim, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

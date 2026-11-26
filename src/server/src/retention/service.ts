@@ -72,6 +72,22 @@ const BUDGET_ALERTS_DELETE_SQL = `
   )
 `;
 
+// Event deliveries are permanent history once sent, failed, or skipped; pending
+// and delivering rows stay for retry and crash recovery. The dedupe key
+// includes an epoch-anchored window of at most one day, and retention is whole
+// days, so an expired terminal row cannot be the dedupe record for an open
+// window.
+const NOTIFICATION_EVENT_DELIVERIES_DELETE_SQL = `
+  DELETE FROM notification_event_deliveries
+  WHERE id IN (
+    SELECT id FROM notification_event_deliveries
+    WHERE created_at < ?
+      AND status IN ('delivered', 'failed', 'skipped')
+    ORDER BY created_at
+    LIMIT ?
+  )
+`;
+
 export interface TablePruneResult {
   deleted: number;
   /** Null when retention is disabled, so there is no cutoff to report. */
@@ -83,6 +99,7 @@ export interface RetentionRunResult {
   cellSummaries: TablePruneResult;
   budgetAlertDeliveries: TablePruneResult;
   budgetAlerts: TablePruneResult;
+  notificationEventDeliveries: TablePruneResult;
 }
 
 export interface DataRetentionOptions {
@@ -99,14 +116,16 @@ type PruneTable =
   | 'master_events'
   | 'cell_summaries'
   | 'budget_alert_deliveries'
-  | 'budget_alerts';
+  | 'budget_alerts'
+  | 'notification_event_deliveries';
 
 /**
  * Deletes raw `master_events` rows, old `cell_summaries` reports, terminal
- * budget-alert deliveries, and acknowledged budget alerts outside their
- * configured retention windows. Runs once at startup, hourly after that, and
- * again whenever settings change. Each table prunes independently: one failure
- * is reported and retried on the next tick without blocking the other tables.
+ * budget-alert deliveries, acknowledged budget alerts, and terminal operational
+ * event deliveries outside their configured retention windows. Runs once at
+ * startup, hourly after that, and again whenever settings change. Each table
+ * prunes independently: one failure is reported and retried on the next tick
+ * without blocking the other tables.
  */
 export class DataRetention {
   private readonly db: Db;
@@ -198,7 +217,19 @@ export class DataRetention {
       BUDGET_ALERTS_DELETE_SQL,
       budgetCutoff,
     );
-    return { masterEvents, cellSummaries, budgetAlertDeliveries, budgetAlerts };
+    const notificationEventDeliveries = await this.pruneTable(
+      now,
+      'notification_event_deliveries',
+      retention.notificationEventsDays,
+      NOTIFICATION_EVENT_DELIVERIES_DELETE_SQL,
+    );
+    return {
+      masterEvents,
+      cellSummaries,
+      budgetAlertDeliveries,
+      budgetAlerts,
+      notificationEventDeliveries,
+    };
   }
 
   private async pruneTable(

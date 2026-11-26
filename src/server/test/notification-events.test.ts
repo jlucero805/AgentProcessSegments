@@ -847,7 +847,7 @@ describe('notification event deliveries', () => {
     expect(row.status).toBe('skipped');
   });
 
-  it('resets stale rows on start and prunes old rows', async () => {
+  it('recovers stale rows but leaves event retention to DataRetention', async () => {
     const fake = sender(() => new Response(null, { status: 204 }));
     const context = setup({ send: fake.send, failedTurns: { webhook: true } });
     context.notifier.observeTurnFailure(TURN);
@@ -860,12 +860,15 @@ describe('notification event deliveries', () => {
     expect(context.events.get(row.id)?.status).toBe('pending');
 
     const old = context.db
-      .prepare('UPDATE notification_event_deliveries SET created_at = ?')
-      .run(NOW - 401 * 24 * HOUR);
+      .prepare(
+        "UPDATE notification_event_deliveries SET created_at = ?, status = 'delivered' WHERE id = ?",
+      )
+      .run(NOW - 401 * 24 * HOUR, row.id);
     expect(old.changes).toBe(1);
     context.notifier.start();
     context.notifier.stop();
-    expect(context.events.get(row.id)).toBeNull();
+    // Event retention lives in DataRetention; the notifier no longer deletes old rows.
+    expect(context.events.get(row.id)).toMatchObject({ status: 'delivered' });
   });
 
   it('reports only ids and a short reason when a send fails', async () => {

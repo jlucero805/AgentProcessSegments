@@ -380,12 +380,6 @@ export class NotificationEventDeliveryRepository {
       .run(now, now).changes;
   }
 
-  pruneBefore(cutoff: number): number {
-    return this.db
-      .prepare('DELETE FROM notification_event_deliveries WHERE created_at < ?')
-      .run(cutoff).changes;
-  }
-
   /** Summary for one event kind, or for every event when omitted. */
   status(kind?: NotificationEventKind): EventDeliveryStatusSummary {
     const where = kind === undefined ? '' : ' WHERE kind = ?';

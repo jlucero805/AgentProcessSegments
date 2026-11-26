@@ -41,6 +41,7 @@ const retention: RetentionSettings = {
   cellSummariesDays: 90,
   requestArtifactsDays: 30,
   budgetAlertsDays: 400,
+  notificationEventsDays: 400,
 };
 
 const cell: Cell = {
@@ -941,6 +942,35 @@ describe('ConfigPage', () => {
     expect(captured.config?.usage).toBeUndefined();
     expect(await screen.findByText('Saved')).toBeInTheDocument();
     expect(alerts).toHaveValue(30);
+  });
+
+  it('loads and saves notification event retention independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const events = await screen.findByRole('spinbutton', {
+      name: 'Notification event retention (days)',
+    });
+    expect(events).toHaveValue(400);
+    expect(events).toHaveAttribute('min', '0');
+    expect(events).toHaveAttribute('max', '3650');
+    expect(events).toHaveAttribute('step', '1');
+    expect(
+      screen.getByText('0 keeps event delivery history forever'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Pending and in-flight deliveries/)).toBeInTheDocument();
+
+    fireEvent.change(events, { target: { value: '30' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save notification event retention' }),
+    );
+
+    await waitFor(() =>
+      expect(captured.config?.retention).toEqual({ notificationEventsDays: 30 }),
+    );
+    expect(captured.config?.usage).toBeUndefined();
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(events).toHaveValue(30);
   });
 
   it('loads and saves request artifact retention independently', async () => {

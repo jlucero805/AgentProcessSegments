@@ -8,7 +8,12 @@ import { SettingsStore } from '../src/settings.js';
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 0, 31, 12);
 
-function makeStore(days = 90, summaryDays = 90, budgetDays = 90): SettingsStore {
+function makeStore(
+  days = 90,
+  summaryDays = 90,
+  budgetDays = 90,
+  eventDays = 90,
+): SettingsStore {
   const dir = tmpDir('activity-retention');
   const store = new SettingsStore(path.join(dir, 'config.json'));
   store.patch({
@@ -16,6 +21,7 @@ function makeStore(days = 90, summaryDays = 90, budgetDays = 90): SettingsStore 
       masterEventsDays: days,
       cellSummariesDays: summaryDays,
       budgetAlertsDays: budgetDays,
+      notificationEventsDays: eventDays,
     },
   });
   return store;
@@ -103,6 +109,37 @@ function deliveryIds(db: Db): string[] {
   ).map((row) => row.id);
 }
 
+function seedEventDeliveries(
+  db: Db,
+  rows: Array<{ id: string; createdAt: number; status?: string }>,
+): void {
+  const insert = db.prepare(
+    `INSERT INTO notification_event_deliveries
+       (id, dedupe_key, kind, cell_id, channel, format, destination_hash, payload_json,
+        status, attempts, next_attempt_at, last_error, created_at, updated_at, delivered_at)
+     VALUES (?, ?, 'turn.failed', NULL, 'webhook', 'json', 'hash', '{}', ?, 0, ?, NULL, ?, ?, NULL)`,
+  );
+  for (const row of rows) {
+    const status = row.status ?? 'delivered';
+    insert.run(
+      row.id,
+      `key-${row.id}`,
+      status,
+      row.createdAt,
+      row.createdAt,
+      row.createdAt,
+    );
+  }
+}
+
+function eventDeliveryIds(db: Db): string[] {
+  return (
+    db
+      .prepare('SELECT id FROM notification_event_deliveries ORDER BY id')
+      .all() as Array<{ id: string }>
+  ).map((row) => row.id);
+}
+
 function seedSummaries(
   db: Db,
   rows: Array<{ id: string; cellId: string; createdAt: number }>,
@@ -150,6 +187,7 @@ describe('DataRetention', () => {
       cellSummaries: { deleted: 0, cutoff: boundary },
       budgetAlertDeliveries: { deleted: 0, cutoff: boundary },
       budgetAlerts: { deleted: 0, cutoff: boundary },
+      notificationEventDeliveries: { deleted: 0, cutoff: boundary },
     });
     expect(ids(db)).toEqual(['boundary', 'recent']);
   });
@@ -163,9 +201,10 @@ describe('DataRetention', () => {
     seedDeliveries(db, [
       { id: 'old-delivery', alertId: 'old-alert', createdAt: NOW - 1000 * DAY },
     ]);
+    seedEventDeliveries(db, [{ id: 'old-event', createdAt: NOW - 1000 * DAY }]);
     const retention = new DataRetention({
       db,
-      settings: makeStore(0, 0, 0),
+      settings: makeStore(0, 0, 0, 0),
       now: () => NOW,
     });
 
@@ -176,10 +215,12 @@ describe('DataRetention', () => {
       cellSummaries: { deleted: 0, cutoff: null },
       budgetAlertDeliveries: { deleted: 0, cutoff: null },
       budgetAlerts: { deleted: 0, cutoff: null },
+      notificationEventDeliveries: { deleted: 0, cutoff: null },
     });
     expect(ids(db)).toEqual(['old']);
     expect(alertIds(db)).toEqual(['old-alert']);
     expect(deliveryIds(db)).toEqual(['old-delivery']);
+    expect(eventDeliveryIds(db)).toEqual(['old-event']);
   });
 
   it('never prunes follow-up rows, because they are the dedupe key', async () => {
@@ -198,6 +239,7 @@ describe('DataRetention', () => {
       cellSummaries: { deleted: 0, cutoff: NOW - 90 * DAY },
       budgetAlertDeliveries: { deleted: 0, cutoff: NOW - 90 * DAY },
       budgetAlerts: { deleted: 0, cutoff: NOW - 90 * DAY },
+      notificationEventDeliveries: { deleted: 0, cutoff: NOW - 90 * DAY },
     });
     expect(ids(db)).toEqual(['followup']);
   });
@@ -300,6 +342,141 @@ describe('DataRetention', () => {
       'd-pending',
       'd-recent',
     ]);
+  });
+
+  it('prunes only terminal event deliveries before the cutoff', async () => {
+    const db = makeDb();
+    const boundary = NOW - 90 * DAY;
+    seedEventDeliveries(db, [
+      { id: 'e-delivered', createdAt: boundary - 1, status: 'delivered' },
+      { id: 'e-failed', createdAt: boundary - 1, status: 'failed' },
+      { id: 'e-skipped', createdAt: boundary - 1, status: 'skipped' },
+      { id: 'e-pending', createdAt: boundary - 1, status: 'pending' },
+      { id: 'e-delivering', createdAt: boundary - 1, status: 'delivering' },
+      { id: 'e-boundary', createdAt: boundary, status: 'delivered' },
+      { id: 'e-recent', createdAt: NOW - DAY, status: 'delivered' },
+    ]);
+    const retention = new DataRetention({ db, settings: makeStore(90), now: () => NOW });
+
+    const result = await retention.runOnce();
+
+    expect(result.notificationEventDeliveries).toEqual({ deleted: 3, cutoff: boundary });
+    expect(eventDeliveryIds(db)).toEqual([
+      'e-boundary',
+      'e-delivering',
+      'e-pending',
+      'e-recent',
+    ]);
+  });
+
+  it('keeps event deliveries when only their window is disabled', async () => {
+    const db = makeDb();
+    const old = NOW - 100 * DAY;
+    seed(db, [{ id: 'old-activity', createdAt: old }]);
+    seedEventDeliveries(db, [{ id: 'old-event', createdAt: old }]);
+    const retention = new DataRetention({
+      db,
+      settings: makeStore(90, 90, 90, 0),
+      now: () => NOW,
+    });
+
+    const result = await retention.runOnce();
+
+    expect(result.masterEvents).toEqual({ deleted: 1, cutoff: NOW - 90 * DAY });
+    expect(result.notificationEventDeliveries).toEqual({ deleted: 0, cutoff: null });
+    expect(eventDeliveryIds(db)).toEqual(['old-event']);
+  });
+
+  it('prunes event deliveries from their own window', async () => {
+    const db = makeDb();
+    seedEventDeliveries(db, [
+      { id: 'e-old', createdAt: NOW - 100 * DAY },
+      { id: 'e-recent', createdAt: NOW - 10 * DAY },
+    ]);
+    const retention = new DataRetention({
+      db,
+      settings: makeStore(0, 0, 0, 30),
+      now: () => NOW,
+    });
+
+    const result = await retention.runOnce();
+
+    expect(result.notificationEventDeliveries).toEqual({
+      deleted: 1,
+      cutoff: NOW - 30 * DAY,
+    });
+    expect(eventDeliveryIds(db)).toEqual(['e-recent']);
+  });
+
+  it('drains an event-delivery backlog larger than one batch', async () => {
+    const db = makeDb();
+    const old = NOW - 200 * DAY;
+    const count = 1200;
+    seedEventDeliveries(
+      db,
+      Array.from({ length: count }, (_, index) => ({
+        id: `e${String(index).padStart(5, '0')}`,
+        createdAt: old + index,
+        status: 'delivered',
+      })),
+    );
+    const retention = new DataRetention({
+      db,
+      settings: makeStore(90),
+      now: () => NOW,
+      batchSize: 1000,
+    });
+
+    const result = await retention.runOnce();
+
+    expect(result.notificationEventDeliveries.deleted).toBe(count);
+    expect(eventDeliveryIds(db)).toEqual([]);
+    await expect(retention.runOnce()).resolves.toMatchObject({
+      notificationEventDeliveries: { deleted: 0 },
+    });
+  });
+
+  it('isolates a notification-event delivery failure from other tables', async () => {
+    const db = makeDb();
+    const old = NOW - 100 * DAY;
+    seed(db, [{ id: 'old-activity', createdAt: old }]);
+    seedEventDeliveries(db, [{ id: 'old-event', createdAt: old }]);
+    let fail = true;
+    const guarded = {
+      prepare(sql: string) {
+        if (fail && sql.includes('DELETE FROM notification_event_deliveries')) {
+          throw new Error('database is busy');
+        }
+        return db.prepare(sql);
+      },
+    } as unknown as Db;
+    const errors = { error: vi.fn() };
+    const retention = new DataRetention({
+      db: guarded,
+      settings: makeStore(90),
+      errors,
+      now: () => NOW,
+    });
+
+    const first = await retention.runOnce();
+    expect(first.masterEvents.deleted).toBe(1);
+    expect(first.notificationEventDeliveries).toEqual({
+      deleted: 0,
+      cutoff: NOW - 90 * DAY,
+    });
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith(
+      'retention.prune',
+      expect.any(Error),
+      expect.objectContaining({ table: 'notification_event_deliveries', deleted: 0 }),
+    );
+    expect(eventDeliveryIds(db)).toEqual(['old-event']);
+
+    fail = false;
+    const second = await retention.runOnce();
+    expect(second.notificationEventDeliveries.deleted).toBe(1);
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(eventDeliveryIds(db)).toEqual([]);
   });
 
   it('prunes acknowledged budget alerts without removing their delivery history', async () => {
@@ -600,7 +777,10 @@ describe('DataRetention', () => {
     const second = retention.runOnce();
     expect(second).toBe(first);
 
-    await expect(first).resolves.toMatchObject({ masterEvents: { deleted: 2500 } });
+    await expect(first).resolves.toMatchObject({
+      masterEvents: { deleted: 2500 },
+      notificationEventDeliveries: { deleted: 0, cutoff: NOW - 90 * DAY },
+    });
     expect(ids(db)).toEqual([]);
   });
 

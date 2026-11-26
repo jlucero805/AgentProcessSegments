@@ -10,6 +10,8 @@ export const DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS = 30;
 export const MAX_REQUEST_ARTIFACTS_RETENTION_DAYS = 3650;
 export const DEFAULT_BUDGET_ALERTS_RETENTION_DAYS = 400;
 export const MAX_BUDGET_ALERTS_RETENTION_DAYS = 3650;
+export const DEFAULT_NOTIFICATION_EVENTS_RETENTION_DAYS = 400;
+export const MAX_NOTIFICATION_EVENTS_RETENTION_DAYS = 3650;
 
 export interface RetentionSettings {
   /** Master activity older than this many days is pruned. 0 keeps it forever. */
@@ -20,4 +22,6 @@ export interface RetentionSettings {
   requestArtifactsDays: number;
   /** Acknowledged alerts and terminal delivery rows older than this are pruned. 0 keeps them. */
   budgetAlertsDays: number;
+  /** Terminal operational-event delivery rows older than this are pruned. 0 keeps them. */
+  notificationEventsDays: number;
 }

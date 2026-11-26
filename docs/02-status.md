@@ -317,7 +317,8 @@ built and vended by the brain; real-CLI verification is still pending.
   allowlists and a configurable coalescing window (default 60 minutes, 1–1440);
   `notification_event_deliveries` dedupes failure kinds by the windowed signature and
   override events by override/change/expiry, sends classification-only payloads, and
-  shares the retry/signing/prune rules. An overall spend-cap override has no cell, so
+  shares the retry/signing rules while using its own `retention.notificationEventsDays`
+  window (default 400; `0` = forever). An overall spend-cap override has no cell, so
   routes do not filter it. A cap-stopped scorecard, the already-running guard, and a
   deleted cell do not notify. Delivery is advisory and never blocks budgets, turns, master
   cycles, scorecards, or the in-app banner.
@@ -325,7 +326,8 @@ built and vended by the brain; real-CLI verification is still pending.
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
   retention (`masterEventsDays`), scorecard retention (`cellSummariesDays`), budget
-  alert retention (`budgetAlertsDays`), request
+  alert retention (`budgetAlertsDays`), notification event retention
+  (`notificationEventsDays`), request
   artifact retention (`requestArtifactsDays`), spend budget (`monthlyUsd`,
   `alertAtPercent`, `pauseOnExceeded`, `pauseOnUnknownCost`), webhook delivery (`enabled`, `url`, `format`,
   `secret`), email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`,
@@ -378,6 +380,14 @@ built and vended by the brain; real-CLI verification is still pending.
   always keeps the newest row per cell so `latest()`/the drawer and the scheduler's
   due-ness stay intact. History is not rolled up; a failed table reports one
   `retention.prune` record without blocking the other table.
+- Notification event retention: `retention.notificationEventsDays` (default 400, `0`
+  keeps event delivery history forever) is edited on its own Config card and stored in
+  `config.json`. The same startup + hourly job deletes `delivered`, `failed`, and
+  `skipped` `notification_event_deliveries` rows older than the window in 1000-row
+  batches; `pending` and `delivering` rows are never pruned. An event delivery row is the
+  dedupe record for its epoch-anchored window, which is at most one day, so an expired
+  terminal row cannot re-send a duplicate. A failed table reports one `retention.prune`
+  record without blocking the other table.
 - Request artifact retention: `retention.requestArtifactsDays` (default 30, `0` keeps
   request artifacts forever) is edited on its own Config card. A startup + hourly job
   deletes the whole `requests/<id>/` workdir (transcripts, session id, generated config,
@@ -400,7 +410,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1140 vitest cases (one environmental root-skip): 884 server across 51 files and 256 web across 27 files,
+- 1147 vitest cases (one environmental root-skip): 890 server across 51 files and 257 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

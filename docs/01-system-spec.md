@@ -223,9 +223,9 @@ outside a route allowlist. `dedupe_key` is a request+source+reason+window signat
 failed turn, a cell+source+segment+window signature for a master error, a
 cell+source+reason+window signature for a failed scorecard, or an
 override+change+stored-expiry signature for a spend-cap override; the failure keys include
-the window length and start. Rows older than 400 days are pruned on notifier start. Older
-tables are rebuilt once by `migrate()` so `spend.override` can be enqueued; the rebuild
-preserves `cell_id`.
+the window length and start. Terminal rows expire under `retention.notificationEventsDays`
+(see `### Notification event retention`). Older tables are rebuilt once by `migrate()` so
+`spend.override` can be enqueued; the rebuild preserves `cell_id`.
 
 ### `spend_cap_overrides`
 
@@ -427,9 +427,25 @@ unacknowledged alerts stay under budget reconciliation. Deleting an expired ackn
 alert leaves its snapshotted delivery history in place; terminal delivery rows are pruned
 by the delivery pass, and orphaned pending rows are skipped by the notifier drain. Each
 table prunes independently; a failure reports one `retention.prune` record with the table,
-cutoff, and deleted count. The event outbox (`notification_event_deliveries`) is separate
-and still pruned on notifier start. History is not rolled up and the job never runs
+cutoff, and deleted count. The operational event outbox has its own window; see
+`### Notification event retention`. History is not rolled up and the job never runs
 `VACUUM`.
+
+### Notification event retention
+
+`retention.notificationEventsDays` in `config.json` (editable from the Config page)
+bounds terminal operational-event deliveries: default 400 days, `0` keeps event history
+forever. The same startup/hourly job deletes `delivered`, `failed`, and `skipped`
+`notification_event_deliveries` rows whose `created_at` is strictly before the cutoff, in
+batches of 1000 with an event-loop yield between batches;
+`idx_notification_event_deliveries_created` serves the scan. The cutoff is
+`now - notificationEventsDays`, with no current-period cap: an event dedupe key is an
+epoch-anchored window of at most 1440 minutes, and retention is whole days, so a terminal
+row old enough to prune cannot be the dedupe record for an open window. `pending` and
+`delivering` rows are never pruned, and the notifier's crash recovery still resets stale
+`delivering` rows on start. Each table prunes independently; a failure reports one
+`retention.prune` record with the table, cutoff, and deleted count. History is not rolled
+up and the job never runs `VACUUM`.
 
 ### Request artifact retention
 
@@ -491,7 +507,7 @@ silent. JSON event bodies are a v1 envelope (`version`, `event`, `severity`, `ti
 `{text}` and Discord is `{content}`. Events reuse the budget HMAC headers, 10-second
 timeout, bounded retry,
 `Retry-After`, destination hash, `X-APS-Event-Kind`/`X-APS-Event-Id` email headers, and
-400-day prune. The same failure signature in the same configured window creates one row
+the configurable event-retention window. The same failure signature in the same configured window creates one row
 per channel; the window defaults to 60 minutes and is a fixed UTC bucket anchored at the
 Unix epoch. A `spend.override` row instead dedupes by override, change, and stored expiry.
 The first row wins, and disabling a route or channel marks pending rows `skipped`.

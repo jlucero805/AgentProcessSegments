@@ -90,7 +90,6 @@ export const DEFAULT_NOTIFY_TIMEOUT_MS = 10_000;
 export const DEFAULT_NOTIFY_MAX_ATTEMPTS = 5;
 export const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000] as const;
 const MAX_RETRY_AFTER_MS = 60 * 60_000;
-const EVENT_PRUNE_AGE_MS = 400 * 24 * 60 * 60_000;
 const DEFAULT_BATCH_SIZE = 20;
 
 export interface NotificationServiceDeps {
@@ -339,7 +338,6 @@ export class NotificationService {
     const now = this.clock();
     this.deliveries.resetStale(now);
     this.events.resetStale(now);
-    this.events.pruneBefore(now - EVENT_PRUNE_AGE_MS);
     this.unsubscribe = this.settings.onChange(() => this.kick());
     this.timer = setInterval(() => this.kick(), this.intervalMs);
     this.timer.unref?.();

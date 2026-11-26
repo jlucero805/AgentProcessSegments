@@ -113,7 +113,8 @@ APS_HARNESS=opencode APS_DB=/tmp/agent-process-segments.sqlite node src/server/d
 ./scripts/smoke.sh             # health, create, list, 400, 404 over a real socket
 node scripts/mcp-smoke.mjs     # tools over stdio, persisted into SQLite
 node scripts/claude-mock-smoke.mjs  # real claude binary + mock Anthropic API
-node scripts/ui-smoke.mjs      # optional: needs `npm i --no-save puppeteer`
+node scripts/ui-smoke.mjs      # optional real-browser check; fails without Puppeteer
+                               # (--allow-missing-puppeteer skips deliberately)
 UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
                                # and optional Puppeteer; fails without Puppeteer
@@ -228,8 +229,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   in the UI; hiding the panel only detaches, closing a session tab kills it. It is
   desktop-only in the UI, but the session API is live. Never expose the brain beyond
   loopback without auth/proxy controls, because the terminal is a direct shell.
-- **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` skips without it;
-  `scripts/screenshots.mjs` fails without it unless `--allow-missing-puppeteer` is passed.
+- **Puppeteer is not a project dependency.** `scripts/ui-smoke.mjs` and
+  `scripts/screenshots.mjs` both fail without it unless `--allow-missing-puppeteer`
+  is passed.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only

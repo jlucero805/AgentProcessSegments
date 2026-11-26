@@ -4,27 +4,39 @@
 // Requires Puppeteer, which is deliberately not a project dependency:
 //   npm install --no-save puppeteer
 //   npx puppeteer browsers install chrome
-//   node scripts/ui-smoke.mjs
+//   node scripts/ui-smoke.mjs [--allow-missing-puppeteer]
 //
 // Set UI_MOBILE=1 for a 390x844 viewport (off-canvas menu, horizontal board,
 // full-width drawer). Set UI_BASE for a different running brain.
 // The script creates a request through the UI, checks the drawer/chat, the Config
 // page, drops the request through the API, and fails on page or console errors.
-// It skips when Puppeteer is not installed.
+// A missing Puppeteer fails the run; --allow-missing-puppeteer skips it
+// deliberately and prints SKIPPED (a skip is not a pass).
+import { resolveUiSmokePuppeteer } from './e2e/puppeteer.mjs';
 
-let puppeteer;
-try {
-  puppeteer = (await import('puppeteer')).default;
-} catch {
-  console.log('puppeteer not installed; skipping UI smoke');
-  process.exit(0);
+const guard = await resolveUiSmokePuppeteer({ argv: process.argv.slice(2) });
+if (!guard.ok) {
+  for (const line of guard.lines) console.error(line);
+  process.exit(guard.exitCode);
 }
+const puppeteer = guard.puppeteer;
 
 const base = process.env.UI_BASE ?? 'http://127.0.0.1:7391';
 const mobile = process.env.UI_MOBILE === '1';
-const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
-const page = await browser.newPage();
-if (mobile) await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+let browser;
+let page;
+try {
+  browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+  page = await browser.newPage();
+  if (mobile) await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+} catch (error) {
+  if (browser) await browser.close().catch(() => {});
+  console.error(`ui smoke FAILED: could not start the browser: ${error.message}`);
+  console.error(
+    '  hint: run `npx puppeteer browsers install chrome` (or set PUPPETEER_EXECUTABLE_PATH)',
+  );
+  process.exit(1);
+}
 
 const errors = [];
 page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));

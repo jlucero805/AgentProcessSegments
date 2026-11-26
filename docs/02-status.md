@@ -189,9 +189,9 @@ built and vended by the brain; real-CLI verification is still pending.
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
   `/api` still returns JSON, and hashed assets are served. Headless Chromium runs
-  (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport, optional Puppeteer)
-  create a request, open the drawer and chat, visit the KB page, and open the Config page
-  with no page or console errors.
+  (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport; Puppeteer required, or
+  pass `--allow-missing-puppeteer` to skip deliberately) create a request, open the
+  drawer and chat, open Help, and open the Config page with no page or console errors.
 - Mobile shell: the sidebar is off-canvas with a hamburger below `md`, board columns
   scroll horizontally with snap, and the drawer fills the screen. A 390 px Chromium run
   verified the menu, board scroll, and full-width drawer.

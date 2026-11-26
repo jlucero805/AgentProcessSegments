@@ -1060,11 +1060,16 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/config', async () => ({
     ...redactSettings(settings.get()),
     path: settings.path,
+    warnings: settings.warnings(),
   }));
   app.patch('/api/config', async (request) => {
     const next = settings.patch(request.body);
     budgets.evaluate();
-    return { ...redactSettings(next), path: settings.path };
+    return {
+      ...redactSettings(next),
+      path: settings.path,
+      warnings: settings.warnings(),
+    };
   });
 
   app.get('/api/notifications/status', async () => notifications.status());

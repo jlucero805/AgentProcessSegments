@@ -40,6 +40,7 @@ import {
   type WebhookSettings,
 } from './domain/budget.js';
 import { EVENT_NOTIFICATION_KINDS } from './domain/notifications.js';
+import type { SettingsWarning } from './domain/settings-warnings.js';
 import type { ErrorSink } from './logging/errors.js';
 import type { MasterConfig } from './master/types.js';
 import {
@@ -571,6 +572,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** One warning for a file every block had to be reset from. */
+function wholeFileWarning(reason: string): SettingsWarning {
+  return { block: null, message: `${reason}; all settings loaded as defaults` };
+}
+
 /** A block or notification channel that recovers to its own defaults when invalid. */
 type SettingsUnitName =
   | 'master'
@@ -708,6 +714,8 @@ export class SettingsStore {
   private readonly listeners = new Set<(settings: AppSettings) => void>();
   /** Set when the loaded file was unusable; the next save preserves its bytes. */
   private preserveSource = false;
+  /** Units reset to defaults by the load that produced the cached settings. */
+  private loadWarnings: SettingsWarning[] = [];
 
   constructor(
     readonly path: string,
@@ -717,6 +725,12 @@ export class SettingsStore {
   get(): AppSettings {
     if (!this.cached) this.cached = this.load();
     return this.cached;
+  }
+
+  /** Units reset to defaults by this load, or [] for a valid or missing file. */
+  warnings(): SettingsWarning[] {
+    this.get();
+    return this.loadWarnings.map((warning) => ({ ...warning }));
   }
 
   patch(input: unknown): AppSettings {
@@ -775,6 +789,9 @@ export class SettingsStore {
     });
     this.write(next);
     this.cached = next;
+    // The save persists valid values and preserves the unusable original, so
+    // the recovery warnings no longer describe the stored file.
+    this.loadWarnings = [];
     for (const listener of this.listeners) listener(next);
     return next;
   }
@@ -785,12 +802,16 @@ export class SettingsStore {
   }
 
   private load(): AppSettings {
+    this.loadWarnings = [];
+
     let raw: string;
     try {
       raw = readFileSync(this.path, 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         this.preserveSource = true;
+        const code = (error as NodeJS.ErrnoException).code ?? 'unknown error';
+        this.loadWarnings = [wholeFileWarning(`could not be read (${code})`)];
         this.errors?.error('settings.unreadable', error, { path: this.path });
         console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
       }
@@ -802,6 +823,7 @@ export class SettingsStore {
       parsed = JSON.parse(raw);
     } catch (error) {
       this.preserveSource = true;
+      this.loadWarnings = [wholeFileWarning('is not valid JSON')];
       this.errors?.error('settings.unreadable', error, { path: this.path });
       console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
       return structuredClone(DEFAULT_SETTINGS);
@@ -810,6 +832,7 @@ export class SettingsStore {
     if (!isPlainObject(parsed)) {
       this.preserveSource = true;
       const error = new Error('settings must be a JSON object');
+      this.loadWarnings = [wholeFileWarning('must be a JSON object')];
       this.errors?.error('settings.invalid', error, {
         path: this.path,
         reason: 'not-an-object',
@@ -844,6 +867,7 @@ export class SettingsStore {
       } else {
         this.preserveSource = true;
         value = structuredClone(unit.fallback);
+        this.loadWarnings.push({ block: unit.name, message: result.error.message });
         this.errors?.error('settings.invalid', new Error(result.error.message), {
           path: this.path,
           block: unit.name,
@@ -862,6 +886,8 @@ export class SettingsStore {
     const result = settingsSchema.safeParse(recovered);
     if (!result.success) {
       this.preserveSource = true;
+      // Every block is now at its defaults, so the per-unit warnings are moot.
+      this.loadWarnings = [wholeFileWarning('failed whole-file validation')];
       this.errors?.error('settings.invalid', new Error(result.error.message), {
         path: this.path,
       });

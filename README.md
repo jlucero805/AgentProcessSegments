@@ -185,6 +185,12 @@ set. The legacy `SBOX_*` names still work. `APS_DEFAULT_MODEL` sets the default 
 fallback model. OpenCode also has an implicit `opencode-go/deepseek-v4.1-flash` default;
 Claude has none unless configured.
 
+App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config page. Each
+block and notification channel validates on its own; an invalid one falls back to that
+block's defaults, is reported as `settings.invalid`, and the Config page names it in a
+banner until the next save. Before that save rewrites the file, the original bytes are
+copied aside.
+
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
 Config page. The default is 90 days; `0` keeps raw usage history forever. Before raw
 `usage_events` rows are deleted, a startup/hourly job summarizes them into `usage_daily`
@@ -588,7 +594,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1072 vitest cases: 841 server cases across 49 files (state machine,
+`npm test` runs 1086 vitest cases: 851 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -603,7 +609,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 231 web cases across 25 files (shared contract re-exports, NDJSON)
+real socket) and 235 web cases across 25 files (shared contract re-exports, NDJSON)
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

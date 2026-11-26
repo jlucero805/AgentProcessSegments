@@ -1900,3 +1900,30 @@ secrets. The table kind CHECK is extended by a guarded rebuild that preserves `c
 expiry sweep, and Config copy. No new HTTP route, dependency, alert, admission, pause,
 banner, or in-flight behavior change; override notifications are advisory and may lag an
 expiry by up to one budget evaluation.
+
+## D85. Recovered settings warnings reach the Config page
+
+**Context.** D70 recovers an invalid settings unit to its defaults and reports
+`settings.invalid` only to the error log and the server console; D76 preserves the
+unusable file on the next save. An operator who opened the Config page after a bad
+hand-edit saw defaults with no explanation and no way to tell which block had been reset.
+
+**Decision.** `SettingsStore` retains the units recovered by the load that produced the
+cached settings and exposes them through `warnings()`. Each entry is `{ block, message }`:
+`block` is the same unit name reported as `settings.invalid` (`master`, `budget`,
+`notifications.email`, and so on), or `null` when the whole file was unusable; `message`
+is the zod issue text for a unit and a fixed reason for a file-level failure. A missing
+file is silent; a read error keeps only the short error code. Reports never carry a saved
+URL, secret, SMTP password, bot token, channel id, or raw file content. `GET` and `PATCH
+/api/config` return `warnings`, so the Config page can name every reset block in one
+non-dismissible banner. The list is per-load in-memory state, not persisted and not a
+`config.json` key. A successful patch rewrites the file with the recovered defaults and
+preserves the original (D76), so it clears the list; a rejected patch leaves both the file
+and the warnings untouched. The banner adds no repair action: saving any card is the
+existing resolution path, and every Config-page save applies the path and warnings from
+the response through one helper. The contract lives in a Node-free module so the SPA can
+re-export the type without pulling `node:fs` into its bundle.
+
+**Cost.** One pure contract module, a store accumulator, two additive response fields, and
+one Config card. No change to validation, recovery, backup, redaction, or which blocks
+exist.

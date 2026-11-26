@@ -119,7 +119,9 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary.
   writes the file; only a successful patch persists. Before that first save replaces an
   unusable file, its exact bytes are copied to a sibling `config.json.invalid-<UTC>`
   (owner-only, never overwriting an earlier copy); a failed copy refuses the save and
-  reports `settings.backupFailed`.
+  reports `settings.backupFailed`. `GET/PATCH /api/config` also return `warnings`, the
+  units that load reset (with `block: null` for a whole-file fallback), and the Config
+  page names them until the next successful save.
 
 ---
 

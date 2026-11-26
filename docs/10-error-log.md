@@ -40,7 +40,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | Source | When |
 | --- | --- |
 | `app.startup` | The brain fails to start |
-| `settings.invalid` / `settings.unreadable` | `config.json` has an invalid block or notification channel (`context.block`; `reason: not-an-object` when the file is not a JSON object), or is unreadable/not JSON |
+| `settings.invalid` / `settings.unreadable` | `config.json` has an invalid block or notification channel (`context.block`; `reason: not-an-object` when the file is not a JSON object), or is unreadable/not JSON. The same units are returned as `warnings` by `GET/PATCH /api/config` and shown on the Config page until the next successful save. |
 | `settings.backupFailed` | Copying an unusable `config.json` aside before a save failed; the save was refused. Includes the config path only. |
 | `process.invalid` / `process.unreadable` | `process.json` is invalid or unreadable |
 | `harness.mcpConfig` | A user MCP/OpenCode config file exists but cannot be read or interpreted; includes `harness`, `path`, and a short `reason` only—never file contents, environment values, or raw parser text. Missing files are silent, and each file is recorded once per process. |

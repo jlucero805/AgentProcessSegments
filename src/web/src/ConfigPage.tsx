@@ -31,6 +31,7 @@ import {
   type BudgetsResponse,
   type CellDetail,
   type ChatView,
+  type ConfigResponse,
   type DeliveryChannel,
   type DeliveryHistoryItem,
   type DeliveryHistoryResponse,
@@ -45,6 +46,7 @@ import {
   type ProcessConfig,
   type RetentionSettings,
   type SegmentConfig,
+  type SettingsWarning,
   type SummaryConfig,
   type UsageSettings,
   type WebhookFormat,
@@ -81,6 +83,24 @@ function moneyLabel(value: number): string {
 
 function pct(value: number): string {
   return `${value.toFixed(0)}%`;
+}
+
+const SETTINGS_BLOCK_LABELS: Record<string, string> = {
+  master: 'Schedule',
+  summary: 'Scorecards',
+  usage: 'Usage retention',
+  retention: 'Retention',
+  budget: 'Budgets',
+  'notifications.webhook': 'Webhook',
+  'notifications.email': 'Email',
+  'notifications.slack': 'Slack',
+  'notifications.discord': 'Discord',
+  'notifications.events': 'Event notifications',
+};
+
+function settingsBlockLabel(block: string | null): string {
+  if (block === null) return 'Settings file';
+  return SETTINGS_BLOCK_LABELS[block] ?? block;
 }
 
 const DELIVERY_TONES: Record<
@@ -207,6 +227,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   const [retention, setRetentionSettings] = useState<RetentionSettings | null>(null);
   const [process, setProcess] = useState<ProcessConfig | null>(null);
   const [path, setPath] = useState('');
+  const [warnings, setWarnings] = useState<SettingsWarning[]>([]);
   const [processPath, setProcessPath] = useState('');
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
@@ -281,6 +302,12 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
   const [priceError, setPriceError] = useState('');
   const [pendingPriceDelete, setPendingPriceDelete] = useState<string | null>(null);
 
+  /** Apply the shared path and recovered-settings warnings from a config response. */
+  const applyConfigMeta = useCallback((config: ConfigResponse) => {
+    setPath(config.path);
+    setWarnings(Array.isArray(config.warnings) ? config.warnings : []);
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const [
@@ -322,7 +349,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       setSummary(config.summary);
       setUsage(config.usage);
       setRetentionSettings(config.retention);
-      setPath(config.path);
+      applyConfigMeta(config);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
       setCells(cellList);
@@ -367,7 +394,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     } catch (error) {
       onError(describeError(error));
     }
-  }, [onError]);
+  }, [applyConfigMeta, onError]);
 
   useEffect(() => {
     void (async () => {
@@ -528,7 +555,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       const config = await api.patchConfig({ master, summary });
       setMaster(config.master);
       setSummary(config.summary);
-      setPath(config.path);
+      applyConfigMeta(config);
       setSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -543,7 +570,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     try {
       const config = await api.patchConfig({ usage });
       setUsage(config.usage);
-      setPath(config.path);
+      applyConfigMeta(config);
       setUsageSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -560,7 +587,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         retention: { masterEventsDays: retention.masterEventsDays },
       });
       setRetentionSettings(config.retention);
-      setPath(config.path);
+      applyConfigMeta(config);
       setRetentionSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -577,7 +604,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         retention: { cellSummariesDays: retention.cellSummariesDays },
       });
       setRetentionSettings(config.retention);
-      setPath(config.path);
+      applyConfigMeta(config);
       setCellSummariesSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -594,7 +621,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         retention: { budgetAlertsDays: retention.budgetAlertsDays },
       });
       setRetentionSettings(config.retention);
-      setPath(config.path);
+      applyConfigMeta(config);
       setBudgetAlertsSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -611,7 +638,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
         retention: { requestArtifactsDays: retention.requestArtifactsDays },
       });
       setRetentionSettings(config.retention);
-      setPath(config.path);
+      applyConfigMeta(config);
       setRequestArtifactsSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -685,6 +712,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
           pauseOnUnknownCost,
         },
       });
+      applyConfigMeta(config);
       const savedBudget = config.budget ?? {
         monthlyUsd,
         alertAtPercent,
@@ -736,6 +764,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     setWebhookSaving(true);
     try {
       const config = await api.patchConfig({ notifications: { webhook: patch } });
+      applyConfigMeta(config);
       const saved =
         config.notifications?.webhook ?? {
           enabled: false,
@@ -839,6 +868,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
     setEmailSaving(true);
     try {
       const config = await api.patchConfig({ notifications: { email: patch } });
+      applyConfigMeta(config);
       const saved = config.notifications?.email ?? {
         ...DEFAULT_NOTIFICATIONS.email,
         password: null,
@@ -921,7 +951,7 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
       const saved = config.notifications?.events ?? { ...DEFAULT_NOTIFICATIONS.events };
       setEventSettings(saved);
       setEventCoalesce(String(saved.coalesceMinutes));
-      setPath(config.path);
+      applyConfigMeta(config);
       const status = await api.getNotificationStatus().catch(() => null);
       setNotificationStatus(status);
       setEventSaved(true);
@@ -1128,6 +1158,29 @@ export function ConfigPage({ onError, onEditCell, reloadBudgets }: ConfigPagePro
 
   return (
     <div className="mx-auto h-full w-full max-w-3xl space-y-4 overflow-y-auto p-4 md:p-6">
+      {warnings.length > 0 ? (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg border border-amber-700/60 bg-amber-950/30 p-4 text-sm text-amber-200"
+        >
+          <p className="font-medium text-amber-100">
+            Some saved settings were reset to defaults
+          </p>
+          <ul className="space-y-1">
+            {warnings.map((warning, index) => (
+              <li key={`${warning.block ?? 'settings'}-${index}`}>
+                <span className="font-medium">{settingsBlockLabel(warning.block)}</span>:{' '}
+                {warning.message}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-amber-300/80">
+            The rest of the file loaded unchanged. The saved file stays untouched until you save
+            any card here, and that first save copies the original aside before rewriting it.
+          </p>
+        </div>
+      ) : null}
+
       <div>
         <h1 className="text-lg font-semibold text-zinc-100">Cell master</h1>
         <p className="mt-1 text-sm text-zinc-500">

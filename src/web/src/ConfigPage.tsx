@@ -1544,7 +1544,7 @@ export function ConfigPage({
         </div>
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4" testId="spend-budgets-card">
         <div>
           <SectionTitle>Spend budgets</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
@@ -1798,7 +1798,7 @@ export function ConfigPage({
         />
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4" testId="webhook-delivery-card">
         <div>
           <SectionTitle>Alert delivery</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
@@ -1952,7 +1952,7 @@ export function ConfigPage({
         </div>
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4" testId="email-delivery-card">
         <div>
           <SectionTitle>Email delivery</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
@@ -2132,7 +2132,7 @@ export function ConfigPage({
         </div>
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4" testId="event-notifications-card">
         <div>
           <SectionTitle>Event notifications</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">
@@ -2298,7 +2298,7 @@ export function ConfigPage({
         </div>
       </Card>
 
-      <Card className="space-y-4 p-4">
+      <Card className="space-y-4 p-4" testId="delivery-history-card">
         <div>
           <SectionTitle>Delivery history</SectionTitle>
           <p className="mt-1 text-sm text-zinc-500">

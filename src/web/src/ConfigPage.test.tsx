@@ -1124,15 +1124,16 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const monthly = await screen.findByRole('spinbutton', { name: /overall monthly budget/i });
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    const monthly = card.getByRole('spinbutton', { name: /overall monthly budget/i });
     expect(monthly).toHaveValue(100);
-    expect(screen.getAllByText('Overall').length).toBeGreaterThan(0);
-    expect(screen.getByText(/At least \$85\.00 of \$100\.00 \(85%\)/)).toBeInTheDocument();
+    expect(card.getByText('Overall')).toBeInTheDocument();
+    expect(card.getByText(/At least \$85\.00 of \$100\.00 \(85%\)/)).toBeInTheDocument();
 
-    const threshold = screen.getByRole('spinbutton', { name: /alert threshold/i });
+    const threshold = card.getByRole('spinbutton', { name: /alert threshold/i });
     expect(threshold).toHaveValue(80);
 
-    const strict = screen.getByRole('checkbox', {
+    const strict = card.getByRole('checkbox', {
       name: /also pause when a turn's cost is unknown/i,
     });
     expect(strict).toBeDisabled();
@@ -1140,13 +1141,13 @@ describe('ConfigPage', () => {
     fireEvent.change(monthly, { target: { value: '250.5' } });
     fireEvent.change(threshold, { target: { value: '90' } });
     fireEvent.click(
-      screen.getByRole('checkbox', {
+      card.getByRole('checkbox', {
         name: /pause new work when the overall budget is exceeded/i,
       }),
     );
     expect(strict).not.toBeDisabled();
     fireEvent.click(strict);
-    fireEvent.click(screen.getByRole('button', { name: 'Save budgets' }));
+    fireEvent.click(card.getByRole('button', { name: 'Save budgets' }));
 
     await waitFor(() =>
       expect(captured.config?.budget).toEqual({
@@ -1179,9 +1180,10 @@ describe('ConfigPage', () => {
       <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
     );
 
-    expect(await screen.findByText(/Spend unknown/)).toBeInTheDocument();
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await card.findByText(/Spend unknown/)).toBeInTheDocument();
     expect(
-      screen.getByText(/Paused: 2 unpriced turns, so cost cannot be verified/i),
+      card.getByText(/Paused: 2 unpriced turns, so cost cannot be verified/i),
     ).toBeInTheDocument();
   });
 
@@ -1209,12 +1211,13 @@ describe('ConfigPage', () => {
       />,
     );
 
-    expect(await screen.findByText('paused')).toBeInTheDocument();
+    const firstCard = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await firstCard.findByText('paused')).toBeInTheDocument();
     expect(
-      screen.getByText(/New work is paused and in-flight turns were stopped at/),
+      firstCard.getByText(/New work is paused and in-flight turns were stopped at/),
     ).toBeInTheDocument();
     await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
+    fireEvent.click(firstCard.getByRole('button', { name: 'Snooze overall spend' }));
     await waitFor(() =>
       expect(snooze).toHaveBeenCalledWith({ scope: 'overall', minutes: 60 }),
     );
@@ -1231,17 +1234,18 @@ describe('ConfigPage', () => {
       />,
     );
 
-    expect(await screen.findByText(/Override active until/)).toBeInTheDocument();
-    expect(screen.getByText('snoozed')).toBeInTheDocument();
+    const secondCard = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await secondCard.findByText(/Override active until/)).toBeInTheDocument();
+    expect(secondCard.getByText('snoozed')).toBeInTheDocument();
     expect(
-      screen.getByText(/an override is admitting new work until/),
+      secondCard.getByText(/an override is admitting new work until/),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText(/New work is paused and in-flight turns were stopped/),
+      secondCard.queryByText(/New work is paused and in-flight turns were stopped/),
     ).not.toBeInTheDocument();
     await waitFor(() => expect(second.historyQueries).toHaveLength(1));
     fireEvent.click(
-      screen.getByRole('button', { name: 'End override for overall spend' }),
+      secondCard.getByRole('button', { name: 'End override for overall spend' }),
     );
     await waitFor(() => expect(revokeOverride).toHaveBeenCalledWith('o1'));
     await waitFor(() => expect(second.historyQueries!.length).toBeGreaterThan(1));
@@ -1252,11 +1256,12 @@ describe('ConfigPage', () => {
     const reload = vi.fn(async () => budgetView);
     render(<ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ reload })} />);
 
-    const save = await screen.findByRole('button', { name: 'Save budgets' });
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    const save = card.getByRole('button', { name: 'Save budgets' });
     fireEvent.click(save);
 
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(await card.findByText('Saved')).toBeInTheDocument();
   });
 
   it('shows loading instead of an empty budget message before the feed resolves', async () => {
@@ -1268,8 +1273,9 @@ describe('ConfigPage', () => {
       />,
     );
 
-    expect(await screen.findByText('Loading budgets…')).toBeInTheDocument();
-    expect(screen.queryByText(/No budgets configured/)).not.toBeInTheDocument();
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await card.findByText('Loading budgets…')).toBeInTheDocument();
+    expect(card.queryByText(/No budgets configured/)).not.toBeInTheDocument();
   });
 
   it('shows a retryable error when the feed has no budget snapshot', async () => {
@@ -1287,9 +1293,10 @@ describe('ConfigPage', () => {
       />,
     );
 
-    expect(await screen.findByText("Couldn't load budget status.")).toBeInTheDocument();
-    expect(screen.getByText('offline')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await card.findByText("Couldn't load budget status.")).toBeInTheDocument();
+    expect(card.getByText('offline')).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   });
 
@@ -1303,11 +1310,12 @@ describe('ConfigPage', () => {
       />,
     );
 
+    const card = within(await screen.findByTestId('spend-budgets-card'));
     expect(
-      await screen.findByText(/showing the last successful snapshot/),
+      await card.findByText(/showing the last successful snapshot/),
     ).toBeInTheDocument();
-    expect(screen.getAllByText('Overall').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(card.getByText('Overall')).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   });
 
@@ -1349,14 +1357,15 @@ describe('ConfigPage', () => {
     render(
       <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
     );
-    expect(await screen.findByText('snoozed')).toBeInTheDocument();
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await card.findByText('snoozed')).toBeInTheDocument();
     expect(
-      screen.getByText(
+      card.getByText(
         /Cost is unknown: 2 unpriced turns, so cost cannot be verified; an override is admitting new work until/,
       ),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText(/New work is paused and in-flight turns were stopped/),
+      card.queryByText(/New work is paused and in-flight turns were stopped/),
     ).not.toBeInTheDocument();
   });
 
@@ -1366,7 +1375,8 @@ describe('ConfigPage', () => {
 
     render(<ConfigPage onError={() => {}} onOpenHelp={onOpenHelp} />);
 
-    const link = await screen.findByRole('link', { name: 'Verify webhook signatures' });
+    const card = within(await screen.findByTestId('webhook-delivery-card'));
+    const link = card.getByRole('link', { name: 'Verify webhook signatures' });
     expect(link).toHaveAttribute('href', '?help=08-user-workflows#verify-webhook-signatures');
 
     fireEvent.click(link);
@@ -1380,21 +1390,22 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const toggle = await screen.findByRole('checkbox', {
+    const card = within(await screen.findByTestId('webhook-delivery-card'));
+    const toggle = card.getByRole('checkbox', {
       name: /deliver budget alerts to a webhook/i,
     });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
-    fireEvent.change(screen.getByLabelText(/webhook url/i), {
+    fireEvent.change(card.getByLabelText(/webhook url/i), {
       target: { value: 'https://hooks.example.test/budget' },
     });
-    fireEvent.change(screen.getByLabelText(/payload format/i), {
+    fireEvent.change(card.getByLabelText(/payload format/i), {
       target: { value: 'slack' },
     });
-    fireEvent.change(screen.getByLabelText(/signing secret/i), {
+    fireEvent.change(card.getByLabelText(/signing secret/i), {
       target: { value: '0123456789abcdef' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+    fireEvent.click(card.getByRole('button', { name: 'Save delivery' }));
 
     await waitFor(() =>
       expect(captured.config?.notifications?.webhook).toEqual({
@@ -1404,24 +1415,25 @@ describe('ConfigPage', () => {
         secret: '0123456789abcdef',
       }),
     );
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('0123456789abcdef')).not.toBeInTheDocument();
+    expect(await card.findByText('Saved')).toBeInTheDocument();
+    expect(card.queryByDisplayValue('0123456789abcdef')).not.toBeInTheDocument();
   });
 
   it('saves event notification routes independently', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const failedWebhook = await screen.findByRole('checkbox', {
+    const card = within(await screen.findByTestId('event-notifications-card'));
+    const failedWebhook = card.getByRole('checkbox', {
       name: /failed turns by webhook/i,
     });
-    const masterEmail = screen.getByRole('checkbox', {
+    const masterEmail = card.getByRole('checkbox', {
       name: /master errors by email/i,
     });
-    const summaryWebhook = screen.getByRole('checkbox', {
+    const summaryWebhook = card.getByRole('checkbox', {
       name: /scorecard failures by webhook/i,
     });
-    const overrideEmail = screen.getByRole('checkbox', {
+    const overrideEmail = card.getByRole('checkbox', {
       name: /spend cap overrides by email/i,
     });
     expect(failedWebhook).not.toBeChecked();
@@ -1429,7 +1441,7 @@ describe('ConfigPage', () => {
     fireEvent.click(masterEmail);
     fireEvent.click(summaryWebhook);
     fireEvent.click(overrideEmail);
-    fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
+    fireEvent.click(card.getByRole('button', { name: 'Save event notifications' }));
 
     await waitFor(() =>
       expect(captured.config?.notifications?.events).toEqual({
@@ -1442,27 +1454,28 @@ describe('ConfigPage', () => {
       }),
     );
     expect(captured.config?.notifications?.webhook).toBeUndefined();
-    expect(screen.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
-    expect(screen.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
-    expect(screen.getByText(/scorecard 0 pending \/ 0 failed/)).toBeInTheDocument();
-    expect(screen.getByText(/overrides 0 pending \/ 0 failed/)).toBeInTheDocument();
+    expect(card.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
+    expect(card.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
+    expect(card.getByText(/scorecard 0 pending \/ 0 failed/)).toBeInTheDocument();
+    expect(card.getByText(/overrides 0 pending \/ 0 failed/)).toBeInTheDocument();
   });
 
   it('saves the coalescing window and a cell route', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const minutes = await screen.findByLabelText(/coalesce repeats within/i);
+    const card = within(await screen.findByTestId('event-notifications-card'));
+    const minutes = card.getByLabelText(/coalesce repeats within/i);
     fireEvent.change(minutes, { target: { value: '30' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add event route' }));
+    fireEvent.click(card.getByRole('button', { name: 'Add event route' }));
 
-    expect(screen.getByLabelText('Route 1 event kind')).toHaveValue('turn.failed');
-    expect(screen.getByLabelText('Route 1 channel')).toHaveValue('webhook');
-    expect(screen.getByLabelText('Route 1 cell')).toHaveValue('c1');
-    fireEvent.change(screen.getByLabelText('Route 1 channel'), {
+    expect(card.getByLabelText('Route 1 event kind')).toHaveValue('turn.failed');
+    expect(card.getByLabelText('Route 1 channel')).toHaveValue('webhook');
+    expect(card.getByLabelText('Route 1 cell')).toHaveValue('c1');
+    fireEvent.change(card.getByLabelText('Route 1 channel'), {
       target: { value: 'email' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
+    fireEvent.click(card.getByRole('button', { name: 'Save event notifications' }));
 
     await waitFor(() =>
       expect(captured.config?.notifications?.events).toEqual({
@@ -1481,9 +1494,10 @@ describe('ConfigPage', () => {
     const onError = vi.fn();
     render(<ConfigPage onError={onError} />);
 
-    const minutes = await screen.findByLabelText(/coalesce repeats within/i);
+    const card = within(await screen.findByTestId('event-notifications-card'));
+    const minutes = card.getByLabelText(/coalesce repeats within/i);
     fireEvent.change(minutes, { target: { value: '0' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
+    fireEvent.click(card.getByRole('button', { name: 'Save event notifications' }));
 
     expect(onError).toHaveBeenCalledWith(expect.stringContaining('Coalesce minutes'));
     expect(captured.config).toBeUndefined();
@@ -1498,10 +1512,11 @@ describe('ConfigPage', () => {
     });
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('A signing secret is saved.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear secret' }));
-    expect(screen.getByText(/will be cleared on save/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Save delivery' }));
+    const card = within(await screen.findByTestId('webhook-delivery-card'));
+    expect(await card.findByText('A signing secret is saved.')).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Clear secret' }));
+    expect(card.getByText(/will be cleared on save/)).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Save delivery' }));
 
     await waitFor(() =>
       expect(captured.config?.notifications?.webhook).toMatchObject({
@@ -1513,10 +1528,30 @@ describe('ConfigPage', () => {
   });
 
   it('shows webhook test success and failure', async () => {
-    installFetch();
+    // A saved Slack destination renders a second "Send test" button, so the
+    // webhook case must resolve its own button from the webhook card.
+    installFetch(
+      budgetView,
+      [event],
+      [],
+      undefined,
+      undefined,
+      webhook,
+      email,
+      undefined,
+      deliveryHistory,
+      200,
+      {
+        ...emptyChat,
+        enabled: true,
+        botTokenSet: true,
+        destinations: [{ channelId: 'C0123456789', label: 'Ops' }],
+      },
+    );
     const view = render(<ConfigPage onError={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
-    expect(await screen.findByText(/Test delivered \(HTTP 204\)/)).toBeInTheDocument();
+    const first = within(await screen.findByTestId('webhook-delivery-card'));
+    fireEvent.click(first.getByRole('button', { name: 'Send test' }));
+    expect(await first.findByText(/Test delivered \(HTTP 204\)/)).toBeInTheDocument();
     view.unmount();
 
     installFetch(budgetView, [event], [], undefined, {
@@ -1525,8 +1560,9 @@ describe('ConfigPage', () => {
       error: 'HTTP 500',
     });
     render(<ConfigPage onError={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send test' }));
-    expect(await screen.findByText('HTTP 500')).toBeInTheDocument();
+    const second = within(await screen.findByTestId('webhook-delivery-card'));
+    fireEvent.click(second.getByRole('button', { name: 'Send test' }));
+    expect(await second.findByText('HTTP 500')).toBeInTheDocument();
   });
 
   it(
@@ -1692,9 +1728,10 @@ describe('ConfigPage', () => {
       <ConfigPage onError={() => {}} budgetFeed={makeBudgetFeed({ budgets: view })} />,
     );
 
-    expect(await screen.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
-    expect(screen.queryByText(/\$0\.00/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/\(0%\)/)).not.toBeInTheDocument();
+    const card = within(await screen.findByTestId('spend-budgets-card'));
+    expect(await card.findByText(/Spend unknown · 2 unpriced turns/)).toBeInTheDocument();
+    expect(card.queryByText(/\$0\.00/)).not.toBeInTheDocument();
+    expect(card.queryByText(/\(0%\)/)).not.toBeInTheDocument();
   });
 
   it('caps recent activity so the config page stays short', async () => {
@@ -1831,27 +1868,28 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    const toggle = await screen.findByRole('checkbox', {
+    const card = within(await screen.findByTestId('email-delivery-card'));
+    const toggle = card.getByRole('checkbox', {
       name: /deliver budget alerts by email/i,
     });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
-    fireEvent.change(screen.getByLabelText(/smtp host/i), {
+    fireEvent.change(card.getByLabelText(/smtp host/i), {
       target: { value: 'smtp.example.test' },
     });
-    fireEvent.change(screen.getByLabelText(/smtp port/i), { target: { value: '465' } });
-    fireEvent.click(screen.getByRole('checkbox', { name: /implicit tls/i }));
-    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: 'aps' } });
-    fireEvent.change(screen.getByLabelText(/^password/i), {
+    fireEvent.change(card.getByLabelText(/smtp port/i), { target: { value: '465' } });
+    fireEvent.click(card.getByRole('checkbox', { name: /implicit tls/i }));
+    fireEvent.change(card.getByLabelText(/username/i), { target: { value: 'aps' } });
+    fireEvent.change(card.getByLabelText(/^password/i), {
       target: { value: 'super-secret' },
     });
-    fireEvent.change(screen.getByLabelText(/from address/i), {
+    fireEvent.change(card.getByLabelText(/from address/i), {
       target: { value: 'APS <alerts@example.test>' },
     });
-    fireEvent.change(screen.getByLabelText(/recipients/i), {
+    fireEvent.change(card.getByLabelText(/recipients/i), {
       target: { value: 'ops@example.test, oncall@example.test\nOPS@example.test' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    fireEvent.click(card.getByRole('button', { name: 'Save email delivery' }));
 
     await waitFor(() =>
       expect(captured.config?.notifications?.email).toEqual({
@@ -1866,8 +1904,8 @@ describe('ConfigPage', () => {
       }),
     );
     expect(captured.config?.notifications?.webhook).toBeUndefined();
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('super-secret')).not.toBeInTheDocument();
+    expect(await card.findByText('Saved')).toBeInTheDocument();
+    expect(card.queryByDisplayValue('super-secret')).not.toBeInTheDocument();
   });
 
   it('keeps a saved email password unless cleared with the username', async () => {
@@ -1890,15 +1928,16 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('A password is saved.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    const card = within(await screen.findByTestId('email-delivery-card'));
+    expect(await card.findByText('A password is saved.')).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Save email delivery' }));
     await waitFor(() => expect(captured.config).toBeDefined());
     expect(captured.config?.notifications?.email).not.toHaveProperty('password');
     expect(captured.config?.notifications?.email).toMatchObject({ username: 'aps' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear password' }));
-    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    fireEvent.click(card.getByRole('button', { name: 'Clear password' }));
+    fireEvent.change(card.getByLabelText(/username/i), { target: { value: '' } });
+    fireEvent.click(card.getByRole('button', { name: 'Save email delivery' }));
     await waitFor(() =>
       expect(captured.config?.notifications?.email).toMatchObject({
         username: null,
@@ -1912,8 +1951,9 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     const view = render(<ConfigPage onError={onError} />);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: /deliver budget alerts by email/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save email delivery' }));
+    const card = within(await screen.findByTestId('email-delivery-card'));
+    fireEvent.click(card.getByRole('checkbox', { name: /deliver budget alerts by email/i }));
+    fireEvent.click(card.getByRole('button', { name: 'Save email delivery' }));
     await waitFor(() =>
       expect(onError).toHaveBeenCalledWith(
         'Host, From address, and at least one recipient are required.',
@@ -1921,17 +1961,17 @@ describe('ConfigPage', () => {
     );
     expect(captured.config).toBeUndefined();
 
-    fireEvent.change(screen.getByLabelText(/smtp host/i), {
+    fireEvent.change(card.getByLabelText(/smtp host/i), {
       target: { value: 'smtp.example.test' },
     });
-    fireEvent.change(screen.getByLabelText(/from address/i), {
+    fireEvent.change(card.getByLabelText(/from address/i), {
       target: { value: 'alerts@example.test' },
     });
-    fireEvent.change(screen.getByLabelText(/recipients/i), {
+    fireEvent.change(card.getByLabelText(/recipients/i), {
       target: { value: 'ops@example.test' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Send test email' }));
-    expect(await screen.findByText(/Test email sent in 15 ms/)).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Send test email' }));
+    expect(await card.findByText(/Test email sent in 15 ms/)).toBeInTheDocument();
     view.unmount();
   });
 
@@ -1941,8 +1981,9 @@ describe('ConfigPage', () => {
       error: 'eauth',
     });
     render(<ConfigPage onError={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send test email' }));
-    expect(await screen.findByText('eauth')).toBeInTheDocument();
+    const card = within(await screen.findByTestId('email-delivery-card'));
+    fireEvent.click(card.getByRole('button', { name: 'Send test email' }));
+    expect(await card.findByText('eauth')).toBeInTheDocument();
   });
 
   it('deletes a price after an inline confirmation', async () => {
@@ -1963,16 +2004,17 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText(/Overall · warning 80%/)).toBeInTheDocument();
-    expect(screen.getByText('HTTP 503')).toBeInTheDocument();
+    const card = within(await screen.findByTestId('delivery-history-card'));
+    expect(await card.findByText(/Overall · warning 80%/)).toBeInTheDocument();
+    expect(card.getByText('HTTP 503')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /Resend webhook delivery/i }),
+      card.getByRole('button', { name: /Resend webhook delivery/i }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/^Channel/), { target: { value: 'email' } });
+    fireEvent.change(card.getByLabelText(/^Channel/), { target: { value: 'email' } });
     await waitFor(() => expect(captured.deliveryQuery).toContain('channel=email'));
 
-    fireEvent.change(screen.getByLabelText(/^Status/), { target: { value: 'failed' } });
+    fireEvent.change(card.getByLabelText(/^Status/), { target: { value: 'failed' } });
     await waitFor(() => expect(captured.deliveryQuery).toContain('status=failed'));
   });
 
@@ -2000,41 +2042,42 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('Turn failed: Fix the parser')).toBeInTheDocument();
-    expect(screen.getByText('Turn failed')).toBeInTheDocument();
-    expect(screen.getByText('Budget')).toBeInTheDocument();
-    expect(screen.getByText('Spend cap override expired: Overall')).toBeInTheDocument();
-    expect(screen.getByText('Override expired')).toBeInTheDocument();
-    expect(screen.getByText('Scorecard failed: Acme')).toBeInTheDocument();
-    expect(screen.getByText('Scorecard failed')).toBeInTheDocument();
+    const card = within(await screen.findByTestId('delivery-history-card'));
+    expect(await card.findByText('Turn failed: Fix the parser')).toBeInTheDocument();
+    expect(card.getByText('Turn failed')).toBeInTheDocument();
+    expect(card.getByText('Budget')).toBeInTheDocument();
+    expect(card.getByText('Spend cap override expired: Overall')).toBeInTheDocument();
+    expect(card.getByText('Override expired')).toBeInTheDocument();
+    expect(card.getByText('Scorecard failed: Acme')).toBeInTheDocument();
+    expect(card.getByText('Scorecard failed')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', {
+      card.getByRole('button', {
         name: /Resend webhook delivery for Turn failed: Fix the parser/i,
       }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/^Type/), {
+    fireEvent.change(card.getByLabelText(/^Type/), {
       target: { value: 'turn.failed' },
     });
     await waitFor(() => expect(captured.deliveryQuery).toContain('kind=turn.failed'));
     expect(captured.deliveryQuery).toContain('offset=0');
 
-    fireEvent.change(screen.getByLabelText(/^Type/), {
+    fireEvent.change(card.getByLabelText(/^Type/), {
       target: { value: 'master.error' },
     });
     await waitFor(() => expect(captured.deliveryQuery).toContain('kind=master.error'));
 
-    fireEvent.change(screen.getByLabelText(/^Type/), {
+    fireEvent.change(card.getByLabelText(/^Type/), {
       target: { value: 'summary.failed' },
     });
     await waitFor(() => expect(captured.deliveryQuery).toContain('kind=summary.failed'));
 
-    fireEvent.change(screen.getByLabelText(/^Type/), {
+    fireEvent.change(card.getByLabelText(/^Type/), {
       target: { value: 'spend.override' },
     });
     await waitFor(() => expect(captured.deliveryQuery).toContain('kind=spend.override'));
 
-    fireEvent.change(screen.getByLabelText(/^Type/), { target: { value: 'budget' } });
+    fireEvent.change(card.getByLabelText(/^Type/), { target: { value: 'budget' } });
     await waitFor(() => expect(captured.deliveryQuery).toContain('source=budget'));
   });
 
@@ -2052,8 +2095,9 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('No deliveries yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Resend/i })).not.toBeInTheDocument();
+    const card = within(await screen.findByTestId('delivery-history-card'));
+    expect(await card.findByText('No deliveries yet.')).toBeInTheDocument();
+    expect(card.queryByRole('button', { name: /Resend/i })).not.toBeInTheDocument();
   });
 
   it('pages through delivery history', async () => {
@@ -2070,8 +2114,9 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={() => {}} />);
 
-    expect(await screen.findByText('Showing 1–1 of 25')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Older' }));
+    const card = within(await screen.findByTestId('delivery-history-card'));
+    expect(await card.findByText('Showing 1–1 of 25')).toBeInTheDocument();
+    fireEvent.click(card.getByRole('button', { name: 'Older' }));
     await waitFor(() => expect(captured.deliveryQuery).toContain('offset=10'));
   });
 
@@ -2079,9 +2124,10 @@ describe('ConfigPage', () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /Resend webhook delivery/i }));
+    const card = within(await screen.findByTestId('delivery-history-card'));
+    fireEvent.click(card.getByRole('button', { name: /Resend webhook delivery/i }));
     await waitFor(() => expect(captured.resendId).toBe('d1'));
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    expect(await card.findByRole('status')).toHaveTextContent(
       'Resend queued; delivery will retry on the next flush.',
     );
   });
@@ -2102,7 +2148,8 @@ describe('ConfigPage', () => {
     );
     render(<ConfigPage onError={onError} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /Resend webhook delivery/i }));
+    const card = within(await screen.findByTestId('delivery-history-card'));
+    fireEvent.click(card.getByRole('button', { name: /Resend webhook delivery/i }));
     await waitFor(() =>
       expect(onError).toHaveBeenCalledWith('already delivered'),
     );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import type { CellDetail, Summary, SummaryStatus } from './types';
@@ -8,6 +8,9 @@ import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
 interface ScorecardGroup {
   cell: CellDetail;
   reports: Summary[];
+  total: number;
+  nextOffset: number;
+  loadingMore: boolean;
 }
 
 /** How many reports to pull per cell when browsing every cell at once. */
@@ -45,8 +48,10 @@ export function ScorecardsPage({
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
       const [cells, summaryStatus] = await Promise.all([
         api.getCells(),
@@ -54,28 +59,101 @@ export function ScorecardsPage({
       ]);
       let next: ScorecardGroup[];
       if (cellId) {
-        const reports = await api.getSummaries({ cellId, limit: SINGLE_CELL_HISTORY });
+        const page = await api.getSummaryHistory({ cellId, limit: SINGLE_CELL_HISTORY });
         const cell = cells.find((item) => item.id === cellId);
-        next = cell ? [{ cell, reports }] : [];
+        next = cell
+          ? [
+              {
+                cell,
+                reports: page.reports,
+                total: page.total,
+                nextOffset: page.reports.length,
+                loadingMore: false,
+              },
+            ]
+          : [];
       } else {
-        const reportsByCell = await Promise.all(
+        const pages = await Promise.all(
           cells.map((cell) =>
-            api.getSummaries({ cellId: cell.id, limit: ALL_CELLS_HISTORY }),
+            api.getSummaryHistory({ cellId: cell.id, limit: ALL_CELLS_HISTORY }),
           ),
         );
         next = cells
-          .map((cell, index) => ({ cell, reports: reportsByCell[index] ?? [] }))
+          .map((cell, index) => {
+            const page = pages[index];
+            return {
+              cell,
+              reports: page?.reports ?? [],
+              total: page?.total ?? 0,
+              nextOffset: page?.reports.length ?? 0,
+              loadingMore: false,
+            };
+          })
           .filter((group) => group.reports.length > 0)
           .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0));
       }
+      if (generation !== loadGeneration.current) return;
       setStatus(summaryStatus);
       setGroups(next);
     } catch (error) {
-      onError(describeError(error));
+      if (generation === loadGeneration.current) {
+        setGroups(
+          (previous) =>
+            previous?.map((item) => ({ ...item, loadingMore: false })) ?? previous,
+        );
+        onError(describeError(error));
+      }
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [cellId, onError]);
+
+  const loadOlder = useCallback(
+    async (cell: CellDetail) => {
+      const group = groups?.find((item) => item.cell.id === cell.id);
+      if (!group || group.loadingMore || group.nextOffset >= group.total) return;
+      const generation = loadGeneration.current;
+      const offset = group.nextOffset;
+      const limit = cellId ? SINGLE_CELL_HISTORY : ALL_CELLS_HISTORY;
+      setGroups(
+        (previous) =>
+          previous?.map((item) =>
+            item.cell.id === cell.id ? { ...item, loadingMore: true } : item,
+          ) ?? previous,
+      );
+      try {
+        const page = await api.getSummaryHistory({ cellId: cell.id, limit, offset });
+        if (generation !== loadGeneration.current) return;
+        setGroups((previous) => {
+          if (!previous) return previous;
+          return previous.map((item) => {
+            if (item.cell.id !== cell.id) return item;
+            const seen = new Set(item.reports.map((report) => report.id));
+            const appended = page.reports.filter((report) => !seen.has(report.id));
+            return {
+              ...item,
+              reports: appended.length > 0 ? [...item.reports, ...appended] : item.reports,
+              total: page.total,
+              nextOffset: page.reports.length === 0 ? page.total : offset + page.reports.length,
+              loadingMore: false,
+            };
+          });
+        });
+      } catch (error) {
+        if (generation === loadGeneration.current) onError(describeError(error));
+      } finally {
+        if (generation === loadGeneration.current) {
+          setGroups(
+            (previous) =>
+              previous?.map((item) =>
+                item.cell.id === cell.id ? { ...item, loadingMore: false } : item,
+              ) ?? previous,
+          );
+        }
+      }
+    },
+    [cellId, groups, onError],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -144,7 +222,7 @@ export function ScorecardsPage({
         />
       ) : (
         <div className="space-y-4">
-          {groups.map(({ cell, reports }) => {
+          {groups.map(({ cell, reports, total, nextOffset, loadingMore }) => {
             const latest = reports[0];
             if (!latest) return null;
             return (
@@ -176,6 +254,19 @@ export function ScorecardsPage({
                       ))}
                     </ul>
                   </details>
+                ) : null}
+
+                {nextOffset < total ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={loadingMore}
+                    onClick={() => void loadOlder(cell)}
+                  >
+                    {loadingMore
+                      ? 'Loading older scorecards…'
+                      : `Load older scorecards (${total - nextOffset} remaining)`}
+                  </Button>
                 ) : null}
               </Card>
             );

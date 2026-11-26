@@ -40,6 +40,7 @@ import type {
   State,
   Summary,
   SummaryConfig,
+  SummaryHistoryResponse,
   SummaryStatus,
   TerminalSessionInfo,
   TerminalStatus,
@@ -515,6 +516,11 @@ export const api = {
   },
   getSummaries(options: { cellId?: string; limit?: number } = {}): Promise<Summary[]> {
     return request(withQuery('/api/summaries', options));
+  },
+  getSummaryHistory(
+    options: { cellId?: string; limit?: number; offset?: number } = {},
+  ): Promise<SummaryHistoryResponse> {
+    return request(withQuery('/api/summaries/history', options));
   },
   getLatestSummary(cellId: string): Promise<Summary | null> {
     return request(withQuery('/api/summaries/latest', { cellId }));

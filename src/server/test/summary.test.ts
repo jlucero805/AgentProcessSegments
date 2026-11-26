@@ -498,6 +498,90 @@ describe('SummaryService', () => {
     ).toBe(true);
   });
 
+  it('pages stored reports and counts with the same cell filter', () => {
+    const fixture = setup(() => []);
+    const alpha = fixture.harness.cells.create('Alpha');
+    const beta = fixture.harness.cells.create('Beta');
+    const alphaIds = [500, 400, 300, 200, 100].map((createdAt) => {
+      const report = fixture.summaries.record({
+        cellId: alpha.id,
+        windowStart: createdAt - 1,
+        windowEnd: createdAt,
+        windowMinutes: 360,
+        content: `alpha ${createdAt}`,
+        stats: emptyStats(alpha.id, createdAt),
+      });
+      fixture.harness.db
+        .prepare('UPDATE cell_summaries SET created_at = ? WHERE id = ?')
+        .run(createdAt, report.id);
+      return report.id;
+    });
+    const betaReport = fixture.summaries.record({
+      cellId: beta.id,
+      windowStart: 599,
+      windowEnd: 600,
+      windowMinutes: 360,
+      content: 'beta',
+      stats: emptyStats(beta.id, 600),
+    });
+    fixture.harness.db
+      .prepare('UPDATE cell_summaries SET created_at = ? WHERE id = ?')
+      .run(600, betaReport.id);
+
+    expect(fixture.summaries.count()).toBe(6);
+    expect(fixture.summaries.count({ cellId: alpha.id })).toBe(5);
+    expect(
+      fixture.summaries.list({ cellId: alpha.id, limit: 2 }).map((report) => report.id),
+    ).toEqual(alphaIds.slice(0, 2));
+    expect(
+      fixture.summaries
+        .list({ cellId: alpha.id, limit: 2, offset: 2 })
+        .map((report) => report.id),
+    ).toEqual(alphaIds.slice(2, 4));
+    expect(
+      fixture.summaries
+        .list({ cellId: alpha.id, limit: 2, offset: 4 })
+        .map((report) => report.id),
+    ).toEqual(alphaIds.slice(4));
+    expect(
+      fixture.summaries.list({ limit: 1 }).map((report) => report.id),
+    ).toEqual([betaReport.id]);
+    expect(
+      fixture.summaries
+        .list({ limit: 2, offset: 1 })
+        .map((report) => report.id),
+    ).toEqual([alphaIds[0], alphaIds[1]]);
+  });
+
+  it('breaks created_at ties by id so paging is stable', () => {
+    const fixture = setup(() => []);
+    const cell = fixture.harness.cells.create('Alpha');
+    const ids = [0, 1].map((index) => {
+      const report = fixture.summaries.record({
+        cellId: cell.id,
+        windowStart: index,
+        windowEnd: index + 1,
+        windowMinutes: 360,
+        content: `tie ${index}`,
+        stats: emptyStats(cell.id, index + 1),
+      });
+      fixture.harness.db
+        .prepare('UPDATE cell_summaries SET created_at = ? WHERE id = ?')
+        .run(1_000, report.id);
+      return report.id;
+    });
+
+    const expected = [...ids].sort().reverse();
+    expect(fixture.summaries.list({ cellId: cell.id, limit: 1 }).map((r) => r.id)).toEqual([
+      expected[0],
+    ]);
+    expect(
+      fixture.summaries
+        .list({ cellId: cell.id, limit: 1, offset: 1 })
+        .map((r) => r.id),
+    ).toEqual([expected[1]]);
+  });
+
   it('removes stored reports with their cell', () => {
     const fixture = setup(() => []);
     const cell = fixture.harness.cells.create('Alpha');

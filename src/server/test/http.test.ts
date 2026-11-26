@@ -2339,6 +2339,68 @@ describe('http api', () => {
     expect((await call('GET', '/api/summaries?limit=0')).status).toBe(400);
   });
 
+  it('pages scorecard history with totals while the legacy list stays an array', async () => {
+    const { h } = await makeApp();
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+    const insert = h.db.prepare(
+      `INSERT INTO cell_summaries
+         (id, cell_id, window_start, window_end, window_minutes, content, stats_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const seed = (id: string, cellId: string, createdAt: number) => {
+      insert.run(id, cellId, createdAt - 1, createdAt, 360, id, '{}', createdAt);
+    };
+    seed('a5', alpha.id, 500);
+    seed('a4', alpha.id, 400);
+    seed('a3', alpha.id, 300);
+    seed('a2', alpha.id, 200);
+    seed('a1', alpha.id, 100);
+    seed('b1', beta.id, 600);
+
+    const first = await call('GET', `/api/summaries/history?cellId=${alpha.id}&limit=2`);
+    expect(first.status).toBe(200);
+    expect(first.json()).toMatchObject({ total: 5, limit: 2, offset: 0 });
+    expect(first.json().reports.map((report: { id: string }) => report.id)).toEqual(['a5', 'a4']);
+
+    const second = await call(
+      'GET',
+      `/api/summaries/history?cellId=${alpha.id}&limit=2&offset=2`,
+    );
+    expect(second.json().reports.map((report: { id: string }) => report.id)).toEqual([
+      'a3',
+      'a2',
+    ]);
+    const third = await call(
+      'GET',
+      `/api/summaries/history?cellId=${alpha.id}&limit=2&offset=4`,
+    );
+    expect(third.json().reports.map((report: { id: string }) => report.id)).toEqual(['a1']);
+
+    const defaults = await call('GET', `/api/summaries/history?cellId=${alpha.id}`);
+    expect(defaults.json()).toMatchObject({ total: 5, limit: 10, offset: 0 });
+
+    const all = await call('GET', '/api/summaries/history?limit=2&offset=1');
+    expect(all.status).toBe(200);
+    expect(all.json()).toMatchObject({ total: 6, limit: 2, offset: 1 });
+    expect(all.json().reports.map((report: { id: string }) => report.id)).toEqual(['a5', 'a4']);
+
+    const gamma = h.cells.create('Gamma');
+    const empty = await call('GET', `/api/summaries/history?cellId=${gamma.id}`);
+    expect(empty.status).toBe(200);
+    expect(empty.json()).toEqual({ reports: [], total: 0, limit: 10, offset: 0 });
+
+    expect((await call('GET', '/api/summaries/history?limit=0')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/history?limit=51')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/history?offset=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/history?cellId=missing')).status).toBe(404);
+
+    const legacy = await call('GET', `/api/summaries?cellId=${alpha.id}&limit=2`);
+    expect(legacy.status).toBe(200);
+    expect(Array.isArray(legacy.json())).toBe(true);
+    expect(legacy.json()).toHaveLength(2);
+  });
+
   it('returns usage totals, filters, buckets, and validation errors', async () => {
     const { h } = await makeApp();
     const empty = await call('GET', '/api/usage');

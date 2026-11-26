@@ -77,6 +77,13 @@ export interface Summary {
   createdAt: number;
 }
 
+export interface SummaryHistoryResponse {
+  reports: Summary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface SummaryStatus {
   enabled: boolean;
   intervalMinutes: number;

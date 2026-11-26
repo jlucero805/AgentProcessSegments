@@ -147,6 +147,8 @@ describe('api client', () => {
     await api.patchConfig({ retention: { requestArtifactsDays: 7 } });
     await api.patchConfig({ retention: { budgetAlertsDays: 30 } });
     await api.patchConfig({ retention: { notificationEventsDays: 30 } });
+    await api.getSummaryHistory({ cellId: 'c1', limit: 2, offset: 4 });
+    await api.getSummaryHistory();
 
     const calls = fetchMock.mock.calls.map((call) => ({
       url: String(call[0]),
@@ -181,6 +183,8 @@ describe('api client', () => {
     expect(calls[9]?.init?.body).toBe(
       JSON.stringify({ retention: { notificationEventsDays: 30 } }),
     );
+    expect(calls[10]?.url).toBe('/api/summaries/history?cellId=c1&limit=2&offset=4');
+    expect(calls[11]?.url).toBe('/api/summaries/history');
   });
 
   it('surfaces the first validation issue when there is no message', async () => {

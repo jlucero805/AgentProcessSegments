@@ -354,6 +354,11 @@ const summariesQuerySchema = z.object({
   cellId: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
+const summariesHistoryQuerySchema = z.object({
+  cellId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
 const summaryCellQuerySchema = z.object({ cellId: z.string().min(1) });
 const summaryStatusQuerySchema = z.object({ cellId: z.string().min(1).optional() });
 const chatTestSchema = z.object({ channelId: z.string().min(1).optional() });
@@ -1263,6 +1268,18 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const query = summariesQuerySchema.parse(request.query);
     if (query.cellId) cells.require(query.cellId);
     return summaries.list(query);
+  });
+  app.get('/api/summaries/history', async (request) => {
+    const query = summariesHistoryQuerySchema.parse(request.query);
+    if (query.cellId) cells.require(query.cellId);
+    const limit = query.limit ?? 10;
+    const offset = query.offset ?? 0;
+    return {
+      reports: summaries.list({ cellId: query.cellId, limit, offset }),
+      total: summaries.count({ cellId: query.cellId }),
+      limit,
+      offset,
+    };
   });
   app.get('/api/summaries/latest', async (request) => {
     const query = summaryCellQuerySchema.parse(request.query);

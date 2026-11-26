@@ -2105,3 +2105,31 @@ header stay replayable until they migrate, and clocks skewed by more than the to
 will reject valid deliveries. A replay inside the window still needs receiver dedupe on
 authenticated body ids; the timestamp is not a nonce and the example intentionally adds no
 seen-set. Removing the legacy header is a separate, breaking change.
+
+## D92. Scorecard history pages by offset behind an additive endpoint
+
+**Context.** `GET /api/summaries` returned a bare `Summary[]` and clamped `limit` to 50
+with no offset or cursor. The Scorecards page therefore showed only the newest ten reports
+per cell in the All cells view and 25 in a focused cell, with no way to reach older
+`cell_summaries` rows. `MasterDetail` and its contract tests depend on the bare array, so
+changing that response would break an existing client.
+
+**Decision.** Add `GET /api/summaries/history` returning
+`{ reports, total, limit, offset }`. `cellId` is optional (404 for an unknown cell),
+`limit` is 1..50 and defaults to 10, and `offset` is non-negative and defaults to 0. Both
+the page and its `total` use the same cell filter and the deterministic
+`created_at DESC, id DESC` order; the existing `/api/summaries` route is unchanged. The SPA
+uses the new endpoint for both Scorecards views, keeps 25/10 row pages, renders appended
+rows deduped by report id, and advances the next offset by raw rows fetched rather than the
+deduped count. A Refresh resets paging, and a generation counter discards a page that
+resolves after a refresh. No schema change or migration is needed: the existing
+`idx_cell_summaries_cell_created` and `idx_cell_summaries_created` indexes serve the
+filtered ordered scans.
+
+**Cost.** Offset paging can repeat a row if a report is inserted between page loads (a
+deletion can skip one); the UI dedupes ids and the default six-hour cadence makes the
+window small.
+`total` and the page are separate reads, so a concurrent insert can make them disagree
+briefly. The All cells view still makes one request per cell; replacing that fan-out with a
+grouped feed is separate work. Cursor paging would remove the insert-shift risk but would
+add a new convention beside the existing offset-based history endpoints.

@@ -25,6 +25,11 @@ export interface SummaryInput {
 export interface SummaryListOptions {
   cellId?: string | undefined;
   limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+interface SummaryCountRow {
+  total: number;
 }
 
 function toSummary(row: SummaryRow): Summary {
@@ -67,17 +72,32 @@ export class SummaryRepository {
 
   list(options: SummaryListOptions = {}): Summary[] {
     const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
+    const offset = Math.max(options.offset ?? 0, 0);
     const rows =
       options.cellId === undefined
         ? (this.db
-            .prepare('SELECT * FROM cell_summaries ORDER BY created_at DESC, id DESC LIMIT ?')
-            .all(limit) as SummaryRow[])
+            .prepare(
+              'SELECT * FROM cell_summaries ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
+            )
+            .all(limit, offset) as SummaryRow[])
         : (this.db
             .prepare(
-              'SELECT * FROM cell_summaries WHERE cell_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
+              'SELECT * FROM cell_summaries WHERE cell_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
             )
-            .all(options.cellId, limit) as SummaryRow[]);
+            .all(options.cellId, limit, offset) as SummaryRow[]);
     return rows.map(toSummary);
+  }
+
+  count(options: Pick<SummaryListOptions, 'cellId'> = {}): number {
+    const row =
+      options.cellId === undefined
+        ? (this.db.prepare('SELECT COUNT(*) AS total FROM cell_summaries').get() as
+            | SummaryCountRow
+            | undefined)
+        : (this.db
+            .prepare('SELECT COUNT(*) AS total FROM cell_summaries WHERE cell_id = ?')
+            .get(options.cellId) as SummaryCountRow | undefined);
+    return row?.total ?? 0;
   }
 
   latest(cellId: string): Summary | null {

@@ -119,7 +119,9 @@ last five.
 - The sidebar's **Scorecards** page browses the same persisted reports: with **All
   cells** selected it lists every cell that has a report, newest cell first, and with a
   cell selected it shows only that cell's history. Each cell's latest report is expanded
-  and the older ones are collapsed under **Earlier scorecards**.
+  and the older ones are collapsed under **Earlier scorecards**. **Load older scorecards**
+  fetches the next page for that cell (or for the focused cell) without hiding the reports
+  already on screen.
 - Old reports expire under the Config page's **Scorecard retention** window
   (`retention.cellSummariesDays`, default 90 days, `0` keeps history). The newest report
   per cell is always kept, so **Earlier scorecards** and the next scheduled run stay

@@ -20,6 +20,11 @@ export function loadMermaid(): Promise<MermaidApi> {
         darkMode: true,
         securityLevel: 'strict',
         suppressErrorRendering: true,
+        // Mermaid 12 defaults to the ELK layout and the `neo` look for flowcharts
+        // and sequence diagrams. Pin the pre-12 choices so this dependency bump
+        // does not restyle the Help pages or load the ~1.5 MB ELK chunk.
+        layout: 'dagre',
+        look: 'classic',
       });
       return mermaid;
     })

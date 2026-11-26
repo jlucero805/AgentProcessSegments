@@ -60,6 +60,7 @@ import {
   type UsageSettings,
 } from './usage/settings.js';
 import { writePrivateFile } from './util/files.js';
+import { jsonParseReason } from './util/json.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -833,8 +834,12 @@ export class SettingsStore {
     } catch (error) {
       this.preserveSource = true;
       this.loadWarnings = [wholeFileWarning('is not valid JSON')];
-      this.errors?.error('settings.unreadable', error, { path: this.path });
-      console.warn(`ignoring unreadable settings at ${this.path}: ${String(error)}`);
+      const reason = jsonParseReason(error);
+      this.errors?.error('settings.unreadable', new Error(reason), {
+        path: this.path,
+        reason: 'invalid-json',
+      });
+      console.warn(`ignoring unreadable settings at ${this.path}: ${reason}`);
       return structuredClone(DEFAULT_SETTINGS);
     }
 

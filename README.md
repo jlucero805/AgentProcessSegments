@@ -748,7 +748,8 @@ env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_CLAUDE_BIN=/bin/false \
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point
 `UI_BASE` at a running brain, then run it. It creates and drops a request, opens the
-drawer/chat, opens Help and Config, and fails on page errors. `UI_MOBILE=1` runs the
+drawer/chat, opens Help and Config, verifies that the Help Getting started page renders
+its Mermaid diagram as an SVG, and fails on page errors. `UI_MOBILE=1` runs the
 same flow at 390×844 with the off-canvas menu checks. It fails when Puppeteer is
 absent; pass `--allow-missing-puppeteer` to skip it deliberately (the skip prints
 `SKIPPED` and is not a pass).

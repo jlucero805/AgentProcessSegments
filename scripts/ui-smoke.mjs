@@ -53,6 +53,32 @@ async function hasText(text) {
   );
 }
 
+const HELP_MERMAID_SELECTOR =
+  '[role="dialog"][aria-label="Documentation"] article svg[id^="help-mermaid-"]';
+
+async function waitForMermaidDiagram() {
+  try {
+    await page.waitForSelector(HELP_MERMAID_SELECTOR, { visible: true, timeout: 15_000 });
+  } catch (error) {
+    const article = await page
+      .evaluate(() => {
+        const node = document.querySelector(
+          '[role="dialog"][aria-label="Documentation"] article',
+        );
+        return node ? node.innerText : '';
+      })
+      .catch(() => '');
+    const state = article.includes('Rendering diagram…')
+      ? 'the diagram is still loading'
+      : 'no rendered diagram appeared';
+    throw new Error(
+      `Help "Getting started" did not render a Mermaid <svg> (${state}): ${error.message}\n` +
+        `article text: ${article.slice(0, 300)}`,
+      { cause: error },
+    );
+  }
+}
+
 async function clickText(text) {
   const found = await page.evaluate((label) => {
     const elements = [...document.querySelectorAll('button, a')];
@@ -271,6 +297,7 @@ try {
       document.body.innerText.toLowerCase().includes('agent process segments'),
     { timeout: 10_000 },
   );
+  await waitForMermaidDiagram();
   if (!mobile) {
     await clickText('Process segments');
     await page.waitForFunction(

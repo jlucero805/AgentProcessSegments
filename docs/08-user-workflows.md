@@ -177,9 +177,10 @@ last five.
    are counted and shown as unknown or a lower bound, never as zero.
 8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
    paste an HTTPS URL (loopback may use http), pick JSON, Slack, or Discord, and optionally
-   set a 16-256 character signing secret. Save, then press **Send test** to verify. JSON
-   receivers should verify `X-APS-Signature`; Slack and Discord ignore it. The card also
-   shows pending/failed counts and the latest delivery.
+   set a 16-256 character signing secret. Save, then press **Send test** to verify. If
+   you use the JSON format, verify `X-APS-Signature` before acting (see
+   [Verify webhook signatures](#verify-webhook-signatures)); Slack and Discord ignore
+   it. The card also shows pending/failed counts and the latest delivery.
 9. For email, use the separate **Email delivery** card: enable it, set the SMTP host and
    port (465 for implicit TLS, 587 for STARTTLS), optional username and password, a From
    address, and up to ten recipients. Save, then **Send test email**. A blank password
@@ -209,13 +210,91 @@ last five.
     **Budget alert retention** window (default 400 days; `0` keeps it forever), the
     current UTC month is always kept, and clearing a budget, changing its threshold, or
     deleting a cell removes its unacknowledged rows.
-12. The **Event notifications** card can send failed request turns and master turn/cycle
+13. The **Event notifications** card can send failed request turns and master turn/cycle
     errors. Check Webhook and/or Email per event kind, then **Save event notifications**;
     each selected channel must also be enabled above. Notifications contain the request
     title/state or cell, ids, and a failure classification only, never prompts,
     transcripts, or raw error text. Repeat failures with the same signature are coalesced
     to one message per hour per channel; enabling a route does not replay old events. The
     card shows aggregate and per-kind pending/failed counts.
+
+### Verify webhook signatures
+
+APS signs the exact bytes it sends. Verify the signature over the raw request body
+before parsing or trusting it. When a signing secret is saved, every webhook request
+carries `X-APS-Signature: sha256=<64 hex>`, where the hex is HMAC-SHA256 of the raw body
+using that secret. The signature covers the body for every format (`json`, `slack`,
+`discord`); Slack and Discord servers ignore it. A request without a saved secret has
+no signature header.
+
+A complete zero-dependency receiver lives in the repo at
+`scripts/webhook-receiver-example.mjs`. Run it on loopback:
+
+```bash
+APS_WEBHOOK_SECRET='the exact 16-256 character secret' \
+  node scripts/webhook-receiver-example.mjs --port 8787
+```
+
+Point the webhook at `http://127.0.0.1:8787` (loopback may use HTTP). For a remote
+receiver, terminate HTTPS in front and keep the example on loopback. It prints the
+bound URL and, after a verified request, the event kind and a safe id; replace its
+`onVerified` handler with your durable work.
+
+The core check is:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(rawBody, header, secret) {
+  if (typeof header !== 'string' || !header.startsWith('sha256=')) return false;
+  const hex = header.slice('sha256='.length);
+  if (!/^[0-9a-f]{64}$/i.test(hex)) return false;
+  const expected = createHmac('sha256', secret).update(rawBody).digest();
+  const provided = Buffer.from(hex, 'hex');
+  return provided.length === expected.length && timingSafeEqual(expected, provided);
+}
+```
+
+`rawBody` must be the exact bytes received, not `JSON.stringify(req.body)`. Key order,
+whitespace, escapes, and a BOM all change the bytes. Read the body as a Buffer before
+any JSON parser runs:
+
+- `node:http`: collect the request chunks as Buffers (the example does this).
+- Express: mount `express.raw({ type: 'application/json' })` on this route before
+  `express.json()`; `req.body` is then the Buffer.
+- Next.js route handlers: `Buffer.from(await request.text(), 'utf8')`.
+- Fastify: use a raw-body content-type parser and verify the Buffer before parsing.
+
+If a framework has already consumed the body, the route is misconfigured; re-parsing
+and re-serializing will fail verification.
+
+Every request carries these headers:
+
+- `content-type`: `application/json`, including Slack and Discord text bodies.
+- `x-aps-timestamp`: milliseconds since epoch. It is informational and **not**
+  covered by the HMAC.
+- `idempotency-key`: the alert id for budget alerts, or the event dedupe key for
+  event notifications. It is informational and **not** signed.
+- `user-agent`: `aps-budget-alert/1` or `aps-notify/1`. It is informational only.
+
+`X-APS-Timestamp` cannot prove freshness: it is outside the HMAC, so replaying a
+captured request with a new timestamp still verifies. Likewise, `Idempotency-Key` is
+a hint, not authentication. After verifying, dedupe on authenticated body data such
+as `alert.id`, `turn.turnId`, or a hash of the raw body.
+
+One webhook can receive both budget alerts and event notifications. Branch on the
+body's `event` field:
+
+- `budget.alert` and `budget.test`: `alert.id`. **Send test** uses `budget.test` and
+  is signed the same way.
+- `turn.failed`: `turn.turnId`.
+- `master.error`: `master.cellId`, `master.source`, and `master.occurredAt`.
+
+Respond with 2xx only after the event is durably accepted. APS retries 408, 429, and
+5xx at 60 s, 5 min, 30 min, and 2 h (five attempts total), honors `Retry-After`, and
+times out after 10 s. Other 4xx responses are permanent, and redirects are not
+followed. A 401 from a wrong secret is permanent: fix the secret in Config, then use
+**Delivery history → Resend** for the failed current-month row.
 
 ## 4d. Read spend and maintain model prices
 

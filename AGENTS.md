@@ -101,8 +101,8 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
 npm test                       # 791 server + 214 web, plus the e2e env guard
-npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
-                               # missing-Puppeteer policy
+npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
+                               # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)

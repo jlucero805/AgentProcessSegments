@@ -2,6 +2,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { ZodError, z } from 'zod';
 import { CellNotFoundError, type CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
@@ -1377,18 +1378,24 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     socket.on('error', () => attachment.detach());
   });
 
-  if (existsSync(config.webDir)) {
+  const hasWebDir = existsSync(config.webDir);
+  if (hasWebDir) {
     await app.register(fastifyStatic, { root: config.webDir });
-    app.setNotFoundHandler((request, reply) => {
-      const wantsSpa =
-        request.method === 'GET' &&
-        !request.url.startsWith('/api') &&
-        !request.url.startsWith('/ws') &&
-        !request.url.startsWith('/assets/');
-      if (wantsSpa) return reply.sendFile('index.html');
-      return reply.code(404).send({ error: 'not_found' });
-    });
   }
+  app.setNotFoundHandler((request, reply) => {
+    const wantsSpa =
+      request.method === 'GET' &&
+      !request.url.startsWith('/api') &&
+      !request.url.startsWith('/ws') &&
+      !request.url.startsWith('/assets/');
+    // Fall back to the built SPA only while index.html exists. Checking per
+    // request keeps files added after boot working; without it a partial build
+    // would answer with the static plugin's plain-text 404.
+    if (hasWebDir && wantsSpa && existsSync(path.join(config.webDir, 'index.html'))) {
+      return reply.sendFile('index.html');
+    }
+    return reply.code(404).send({ error: 'not_found' });
+  });
 
   return app;
 }

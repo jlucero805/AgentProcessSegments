@@ -203,7 +203,8 @@ built and vended by the brain; real-CLI verification is still pending.
   chat with markdown and tool cards, slash-command autocomplete from `/api/commands`,
   a skills page, and a knowledge-base page with the `__kb__` chat. Single-origin vend
   was verified against the built server: `/` and client-side routes serve `index.html`,
-  `/api` still returns JSON, and hashed assets are served. Headless Chromium runs
+  `/api` still returns JSON, and hashed assets are served. Unknown routes return
+  `{ "error": "not_found" }` whether or not a build is present. Headless Chromium runs
   (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport; Puppeteer required, or
   pass `--allow-missing-puppeteer` to skip deliberately) create a request, open the
   drawer and chat, open Help, and open the Config page with no page or console errors.
@@ -429,7 +430,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1239 vitest cases (one environmental root-skip): 963 server across 55 files and 276 web across 27 files,
+- 1241 vitest cases (one environmental root-skip): 965 server across 55 files and 276 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -460,9 +461,9 @@ built and vended by the brain; real-CLI verification is still pending.
   (dry run first).
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`
   with APS paths, bound to `127.0.0.1:7391`; SPA and API are served with `/api` winning
-  over the SPA fallback. The legacy `sandbox-harness.service` is disabled and its
-  unit/drop-ins are backed up under `~/.aps-cutover`. `loginctl enable-linger` is set so
-  the user manager starts at boot.
+  over the SPA fallback, and unknown routes return `{ "error": "not_found" }`. The
+  legacy `sandbox-harness.service` is disabled and its unit/drop-ins are backed up under
+  `~/.aps-cutover`. `loginctl enable-linger` is set so the user manager starts at boot.
 - E2E API workflow: `npm run e2e` boots the built brain with a temp DB and deterministic
   mock Claude CLI, creates a dedicated `E2E` cell, and covers clarify, dispatch,
   master prod/review, follow-up creation, per-cell master chat, finalize, and the

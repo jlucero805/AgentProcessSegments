@@ -43,7 +43,8 @@ paths, so there is no CORS and no second service.
 
 - **Prod:** `tsc` and `vite build` into `src/web/dist`; the brain vends it via
   `@fastify/static` when `webDir` exists. SPA client-side routes fall back to
-  `index.html`.
+  `index.html` while that file exists; every other unknown route returns JSON
+  `{ "error": "not_found" }`, whether or not a web build is served.
 - **Dev:** the Vite dev server hosts the SPA and proxies `/api` and `/ws` to the brain,
   so the same relative paths work. Run both with `npm run dev`.
 
@@ -770,8 +771,9 @@ object per line.
   `autocompactPercent`, an integer 1–99.
 - `GET /ws` is a websocket skeleton (echo plus hello), reserved for an event bridge and
   unused.
-- When `webDir` exists, `@fastify/static` serves the SPA at `/` with an `index.html`
-  fallback for non-`/api`, non-`/ws` GETs.
+- When `webDir` exists, `@fastify/static` serves the SPA at `/`, and non-`/api`,
+  non-`/ws`, non-`/assets/` GETs fall back to `index.html` while it exists. Any other
+  unknown route returns 404 `{ "error": "not_found" }`, with or without a build.
 
 ### Usage
 

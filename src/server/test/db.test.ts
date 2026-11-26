@@ -30,6 +30,7 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('pause_on_exceeded');
     expect(columns(db, 'cells')).toContain('pause_on_unknown_cost');
     expect(columns(db, 'cells')).toContain('autocompact_percent');
+    expect(columns(db, 'notification_event_deliveries')).toContain('cell_id');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
@@ -196,7 +197,7 @@ describe('db migrations', () => {
     db.close();
   });
 
-  it('rebuilds a two-kind event table so summary failures can be enqueued', () => {
+  it('rebuilds a two-kind event table and adds cell_id without losing rows', () => {
     const db = new Database(':memory:');
     db.exec(`CREATE TABLE notification_event_deliveries (
       id               TEXT PRIMARY KEY,
@@ -227,8 +228,9 @@ describe('db migrations', () => {
     migrate(db);
 
     expect(
-      db.prepare('SELECT id, kind, status FROM notification_event_deliveries').get(),
-    ).toEqual({ id: 'old', kind: 'turn.failed', status: 'delivered' });
+      db.prepare('SELECT id, kind, status, cell_id FROM notification_event_deliveries').get(),
+    ).toEqual({ id: 'old', kind: 'turn.failed', status: 'delivered', cell_id: null });
+    expect(columns(db, 'notification_event_deliveries')).toContain('cell_id');
     const insert = db.prepare(
       `INSERT INTO notification_event_deliveries
          (id, dedupe_key, kind, channel, format, destination_hash, payload_json,

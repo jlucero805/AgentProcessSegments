@@ -4,6 +4,7 @@ import type { ErrorSink } from '../logging/errors.js';
 import type { SettingsStore } from '../settings.js';
 import {
   DELIVERY_CHANNELS,
+  EVENT_CHANNELS,
   budgetAlertEvent,
   budgetAlertSubject,
   budgetEmailText,
@@ -13,6 +14,8 @@ import {
   chatDestinationId,
   emailDeliveryConfigured,
   eventResendBlockReason,
+  eventRouteAllows,
+  eventRouteCells,
   resendBlockReason,
   type BudgetAlert,
   type BudgetAlertEvent,
@@ -25,14 +28,15 @@ import {
   type DeliveryHistoryResponse,
   type DeliveryStatus,
   type EmailSettings,
-  type EventChannelSettings,
   type EventDeliveryHistoryItem,
+  type EventNotificationSettings,
   type ResendBlockReason,
   type WebhookFormat,
   type WebhookSettings,
 } from '../domain/budget.js';
 import {
   EVENT_NOTIFICATION_KINDS,
+  eventDedupeKey,
   type EventDeliverySnapshot,
   type MasterErrorNotification,
   type NotificationEventEnvelope,
@@ -239,44 +243,6 @@ export function deliveryErrorReason(error: unknown): string {
   return 'network error';
 }
 
-const HOUR_MS = 60 * 60_000;
-
-function safeKeyPart(value: string): string {
-  const cleaned = value.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
-  return cleaned.slice(0, 60);
-}
-
-function hourBucket(occurredAt: number): number {
-  return Math.floor(occurredAt / HOUR_MS);
-}
-
-/** Stable per-channel idempotency key for one event signature in a UTC hour. */
-export function eventDedupeKey(
-  event:
-    | TurnFailureNotification
-    | MasterErrorNotification
-    | SummaryFailureNotification,
-  kind: NotificationEventKind,
-): string {
-  if (kind === 'turn.failed') {
-    const turn = event as TurnFailureNotification;
-    return `turn:${turn.requestId}:${turn.source}:${safeKeyPart(turn.reason)}:${hourBucket(turn.occurredAt)}`;
-  }
-  if (kind === 'master.error') {
-    const master = event as MasterErrorNotification;
-    return `master:${master.cellId}:${master.source}:${safeKeyPart(master.segment ?? '')}:${hourBucket(master.occurredAt)}`;
-  }
-  const summary = event as SummaryFailureNotification;
-  return `summary:${summary.cellId}:${summary.source}:${safeKeyPart(summary.reason)}:${hourBucket(summary.occurredAt)}`;
-}
-
-function eventChannelEnabled(
-  route: EventChannelSettings | undefined,
-  channel: DeliveryChannel,
-): boolean {
-  return route?.[channel as 'webhook' | 'email'] === true;
-}
-
 function eventBody(format: DeliveryFormat, envelope: NotificationEventEnvelope): string {
   if (format === 'slack') return JSON.stringify({ text: envelope.text });
   if (format === 'discord') return JSON.stringify({ content: envelope.text });
@@ -438,7 +404,7 @@ export class NotificationService {
     this.observeEvent(
       'turn.failed',
       event,
-      this.settings.get().notifications.events.failedTurns,
+      this.settings.get().notifications.events,
     );
   }
 
@@ -447,7 +413,7 @@ export class NotificationService {
     this.observeEvent(
       'master.error',
       event,
-      this.settings.get().notifications.events.masterErrors,
+      this.settings.get().notifications.events,
     );
   }
 
@@ -456,7 +422,7 @@ export class NotificationService {
     this.observeEvent(
       'summary.failed',
       event,
-      this.settings.get().notifications.events.summaryFailures,
+      this.settings.get().notifications.events,
     );
   }
 
@@ -466,19 +432,26 @@ export class NotificationService {
       | TurnFailureNotification
       | MasterErrorNotification
       | SummaryFailureNotification,
-    route: EventChannelSettings,
+    settings: EventNotificationSettings,
   ): void {
     try {
       const now = this.clock();
       const payloadJson = JSON.stringify(event);
-      const dedupeKey = eventDedupeKey(event, kind);
-      for (const channel of DELIVERY_CHANNELS) {
-        if (!eventChannelEnabled(route, channel)) continue;
+      const cellId =
+        kind === 'turn.failed'
+          ? (event as TurnFailureNotification).cellId
+          : kind === 'master.error'
+            ? (event as MasterErrorNotification).cellId
+            : (event as SummaryFailureNotification).cellId;
+      const dedupeKey = eventDedupeKey(event, kind, settings.coalesceMinutes);
+      for (const channel of EVENT_CHANNELS) {
+        if (!eventRouteAllows(settings, kind, channel, cellId)) continue;
         const channelRoute = this.channelRoute(channel);
         if (!channelRoute.enabled || !channelRoute.configured) continue;
         this.events.enqueue({
           dedupeKey,
           kind,
+          cellId,
           channel,
           format: channelRoute.format,
           destinationHash: channelRoute.hash,
@@ -721,9 +694,14 @@ export class NotificationService {
             : kind === 'master.error'
               ? events.masterErrors
               : events.summaryFailures;
-        for (const channel of DELIVERY_CHANNELS) {
-          if (!eventChannelEnabled(route, channel)) {
+        for (const channel of EVENT_CHANNELS) {
+          if (!route[channel]) {
             this.events.skipKindChannel(kind, channel, now);
+            continue;
+          }
+          const allowedCells = eventRouteCells(events, kind, channel);
+          if (allowedCells !== null) {
+            this.events.skipUnrouted(kind, channel, allowedCells, now);
           }
         }
       }
@@ -1211,20 +1189,17 @@ export class NotificationService {
     }
   }
 
-  private eventRoute(kind: NotificationEventKind): EventChannelSettings {
-    const events = this.settings.get().notifications.events;
-    if (kind === 'turn.failed') return events.failedTurns;
-    if (kind === 'master.error') return events.masterErrors;
-    return events.summaryFailures;
-  }
-
   private resendEvent(delivery: EventDeliveryRecord): ResendDeliveryResult {
     try {
       const route = this.channelRoute(delivery.channel);
-      const eventEnabled = eventChannelEnabled(
-        this.eventRoute(delivery.kind),
-        delivery.channel,
-      );
+      const eventEnabled =
+        (delivery.channel === 'webhook' || delivery.channel === 'email') &&
+        eventRouteAllows(
+          this.settings.get().notifications.events,
+          delivery.kind,
+          delivery.channel,
+          delivery.cellId,
+        );
       const block = eventResendBlockReason({
         status: delivery.status,
         eventEnabled,
@@ -1323,10 +1298,14 @@ export class NotificationService {
   ): EventDeliveryHistoryItem {
     const event = this.eventSnapshot(delivery, names);
     const route = this.channelRoute(delivery.channel);
-    const eventEnabled = eventChannelEnabled(
-      this.eventRoute(delivery.kind),
-      delivery.channel,
-    );
+    const eventEnabled =
+      (delivery.channel === 'webhook' || delivery.channel === 'email') &&
+      eventRouteAllows(
+        this.settings.get().notifications.events,
+        delivery.kind,
+        delivery.channel,
+        delivery.cellId,
+      );
     const block = eventResendBlockReason({
       status: delivery.status,
       eventEnabled,

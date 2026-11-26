@@ -62,8 +62,10 @@ export type {
   EmailPatch,
   EmailSettings,
   EmailView,
+  EventChannel,
   EventChannelSettings,
   EventNotificationSettings,
+  EventRoute,
   NotificationsSettings,
   NotificationsView,
   SpendCapOverride,
@@ -78,11 +80,16 @@ export {
   CHAT_PROVIDERS,
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_CHAT_SETTINGS,
+  DEFAULT_EVENT_COALESCE_MINUTES,
   DEFAULT_NOTIFICATIONS,
+  EVENT_CHANNELS,
   MAX_BUDGET_USD,
   MAX_CHAT_DESTINATIONS,
   MAX_CHAT_LABEL_LENGTH,
   MAX_CHAT_ROUTES,
+  MAX_EVENT_COALESCE_MINUTES,
+  MAX_EVENT_ROUTES,
+  MIN_EVENT_COALESCE_MINUTES,
   WEBHOOK_FORMATS,
   budgetAlertText,
   chatBotTokenError,
@@ -95,6 +102,7 @@ export {
 } from '../../server/src/domain/budget';
 export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { SkillInfo } from '../../server/src/skills/types';
+export { EVENT_NOTIFICATION_KINDS } from '../../server/src/domain/notifications';
 export type {
   Summary,
   SummaryConfig,

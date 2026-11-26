@@ -218,13 +218,16 @@ last five.
     start. Full failure text remains in the request transcript and error log, not in the
     history payload.
 13. The **Event notifications** card can send failed request turns, master turn/cycle
-    errors, and scorecard failures. Check Webhook and/or Email per event kind, then
+    errors, and scorecard failures. Check Webhook and/or Email per event kind, choose a
+    coalescing window (default 60 minutes; 1–1440), and optionally add **cell routes** that
+    limit a kind/channel to specific cells; with no route that pair covers every cell. Then
     **Save event notifications**; each selected channel must also be enabled above.
     Notifications contain the request title/state or cell, ids, and a failure
     classification only, never prompts, transcripts, or raw error text. A cap-stopped
     scorecard is a pause and does not notify; the full error remains in the scorecard
     warning and `summary.generate` log. Repeat failures with the same signature are
-    coalesced to one message per hour per channel; enabling a route does not replay old
+    coalesced inside the window per channel; narrowing a route skips pending rows for
+    excluded cells, and enabling a route or widening the window does not replay old
     events. The card shows aggregate and per-kind pending/failed counts.
 
 ### Verify webhook signatures

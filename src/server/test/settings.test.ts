@@ -62,6 +62,8 @@ function sentinelSettings(): typeof DEFAULT_SETTINGS {
     failedTurns: { webhook: true, email: false },
     masterErrors: { webhook: false, email: true },
     summaryFailures: { webhook: false, email: false },
+    coalesceMinutes: 60,
+    routes: [],
   };
   return saved;
 }
@@ -698,6 +700,8 @@ describe('SettingsStore', () => {
       failedTurns: { webhook: false, email: false },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: false },
+      coalesceMinutes: 60,
+      routes: [],
     });
 
     store.patch({
@@ -721,6 +725,8 @@ describe('SettingsStore', () => {
       failedTurns: { webhook: true, email: true },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: true },
+      coalesceMinutes: 60,
+      routes: [],
     });
     expect(first.notifications.webhook).toMatchObject({
       enabled: true,
@@ -738,6 +744,55 @@ describe('SettingsStore', () => {
     expect(() =>
       store.patch({
         notifications: { events: { summaryFailures: { email: 'yes' } } },
+      }),
+    ).toThrow();
+  });
+
+  it('persists the coalescing window and replaces cell routes wholesale', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    const route = {
+      kind: 'turn.failed' as const,
+      channel: 'webhook' as const,
+      cellId: 'cell-a',
+    };
+
+    expect(
+      store.patch({
+        notifications: {
+          events: { coalesceMinutes: 15, routes: [route] },
+        },
+      }).notifications.events,
+    ).toMatchObject({ coalesceMinutes: 15, routes: [route] });
+
+    expect(
+      store.patch({
+        notifications: { events: { failedTurns: { webhook: true } } },
+      }).notifications.events,
+    ).toMatchObject({ coalesceMinutes: 15, routes: [route] });
+
+    expect(
+      store.patch({ notifications: { events: { routes: [] } } }).notifications.events,
+    ).toMatchObject({ coalesceMinutes: 15, routes: [] });
+
+    expect(new SettingsStore(file).get().notifications.events).toMatchObject({
+      coalesceMinutes: 15,
+      routes: [],
+    });
+
+    expect(() =>
+      store.patch({ notifications: { events: { coalesceMinutes: 0 } } }),
+    ).toThrow();
+    expect(() =>
+      store.patch({ notifications: { events: { coalesceMinutes: 1441 } } }),
+    ).toThrow();
+    expect(() =>
+      store.patch({
+        notifications: {
+          events: {
+            routes: [route, { ...route }],
+          },
+        },
       }),
     ).toThrow();
   });
@@ -764,6 +819,7 @@ describe('SettingsStore', () => {
       format: 'json',
       secret: null,
     });
+    expect(settings.notifications.events).toEqual(DEFAULT_SETTINGS.notifications.events);
   });
 
   it('merges a webhook patch field by field', () => {

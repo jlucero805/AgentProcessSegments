@@ -49,6 +49,7 @@ const NOTIFICATION_EVENT_DELIVERIES_DDL = `CREATE TABLE IF NOT EXISTS notificati
   id               TEXT PRIMARY KEY,
   dedupe_key       TEXT NOT NULL,
   kind             TEXT NOT NULL CHECK (kind IN ('turn.failed', 'master.error', 'summary.failed')),
+  cell_id          TEXT,
   channel          TEXT NOT NULL,
   format           TEXT NOT NULL,
   destination_hash TEXT NOT NULL,
@@ -263,6 +264,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['cells', 'pause_on_unknown_cost', 'INTEGER NOT NULL DEFAULT 0'],
   ['cells', 'autocompact_percent', 'INTEGER NOT NULL DEFAULT 80'],
   ['cells', 'process_json', 'TEXT'],
+  ['notification_event_deliveries', 'cell_id', 'TEXT'],
 ];
 
 function addColumn(db: Db, table: string, column: string, ddl: string): void {

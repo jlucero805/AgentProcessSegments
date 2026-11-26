@@ -233,10 +233,29 @@ export interface EventChannelSettings {
   email: boolean;
 }
 
+export const EVENT_CHANNELS = ['webhook', 'email'] as const;
+export type EventChannel = (typeof EVENT_CHANNELS)[number];
+
+/** One optional cell allowlist entry for an event kind/channel pair. */
+export interface EventRoute {
+  kind: NotificationEventKind;
+  channel: EventChannel;
+  cellId: string;
+}
+
+export const DEFAULT_EVENT_COALESCE_MINUTES = 60;
+export const MIN_EVENT_COALESCE_MINUTES = 1;
+export const MAX_EVENT_COALESCE_MINUTES = 1440;
+export const MAX_EVENT_ROUTES = 200;
+
 export interface EventNotificationSettings {
   failedTurns: EventChannelSettings;
   masterErrors: EventChannelSettings;
   summaryFailures: EventChannelSettings;
+  /** Fixed window length for coalescing one failure signature. */
+  coalesceMinutes: number;
+  /** Optional per-kind/channel cell allowlists; empty means every cell. */
+  routes: EventRoute[];
 }
 
 export interface NotificationsSettings {
@@ -285,6 +304,8 @@ export const DEFAULT_EVENT_NOTIFICATIONS: EventNotificationSettings = {
   failedTurns: { webhook: false, email: false },
   masterErrors: { webhook: false, email: false },
   summaryFailures: { webhook: false, email: false },
+  coalesceMinutes: DEFAULT_EVENT_COALESCE_MINUTES,
+  routes: [],
 };
 
 export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
@@ -305,12 +326,47 @@ export const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
     failedTurns: { ...DEFAULT_EVENT_NOTIFICATIONS.failedTurns },
     masterErrors: { ...DEFAULT_EVENT_NOTIFICATIONS.masterErrors },
     summaryFailures: { ...DEFAULT_EVENT_NOTIFICATIONS.summaryFailures },
+    coalesceMinutes: DEFAULT_EVENT_NOTIFICATIONS.coalesceMinutes,
+    routes: [],
   },
 };
 
 /** True when email has enough settings to attempt a send. */
 export function emailDeliveryConfigured(email: EmailSettings): boolean {
   return email.host !== null && email.from !== null && email.to.length > 0;
+}
+
+/**
+ * The cells explicitly allowed for one event kind/channel pair. `null` means the
+ * pair has no routes and therefore follows the all-cells default.
+ */
+export function eventRouteCells(
+  settings: EventNotificationSettings,
+  kind: NotificationEventKind,
+  channel: EventChannel,
+): string[] | null {
+  const routes = settings.routes.filter(
+    (route) => route.kind === kind && route.channel === channel,
+  );
+  return routes.length === 0 ? null : routes.map((route) => route.cellId);
+}
+
+/** True when the kind/channel boolean and any cell allowlist permit this event. */
+export function eventRouteAllows(
+  settings: EventNotificationSettings,
+  kind: NotificationEventKind,
+  channel: EventChannel,
+  cellId: string | null,
+): boolean {
+  const route =
+    kind === 'turn.failed'
+      ? settings.failedTurns
+      : kind === 'master.error'
+        ? settings.masterErrors
+        : settings.summaryFailures;
+  if (!route[channel]) return false;
+  const cells = eventRouteCells(settings, kind, channel);
+  return cells === null || (cellId !== null && cells.includes(cellId));
 }
 
 /** True when a chat provider has the token and route needed to attempt a send. */

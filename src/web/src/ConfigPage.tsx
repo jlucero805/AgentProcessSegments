@@ -6,13 +6,19 @@ import { ProcessEditor } from './ProcessEditor';
 import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideControl';
 import {
   DEFAULT_BUDGET_SETTINGS,
+  DEFAULT_EVENT_COALESCE_MINUTES,
   DEFAULT_NOTIFICATIONS,
+  EVENT_CHANNELS,
+  EVENT_NOTIFICATION_KINDS,
   MAX_BUDGET_ALERTS_RETENTION_DAYS,
   MAX_BUDGET_USD,
   MAX_CELL_SUMMARIES_RETENTION_DAYS,
+  MAX_EVENT_COALESCE_MINUTES,
+  MAX_EVENT_ROUTES,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
   MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
   MAX_USAGE_RETENTION_DAYS,
+  MIN_EVENT_COALESCE_MINUTES,
   WEBHOOK_FORMATS,
   emailAddressError,
   emailRecipientsError,
@@ -234,6 +240,9 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [emailTesting, setEmailTesting] = useState(false);
   const [emailTest, setEmailTest] = useState<{ ok: boolean; message: string } | null>(null);
   const [eventSettings, setEventSettings] = useState<NotificationsView['events'] | null>(null);
+  const [eventCoalesce, setEventCoalesce] = useState(
+    String(DEFAULT_EVENT_COALESCE_MINUTES),
+  );
   const [eventSaving, setEventSaving] = useState(false);
   const [eventSaved, setEventSaved] = useState(false);
   const [slack, setSlack] = useState<ChatView>(emptyChatView);
@@ -327,6 +336,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       setEmailFrom(loadedEmail.from ?? '');
       setEmailTo(loadedEmail.to.join(', '));
       setEventSettings(loadedEvents);
+      setEventCoalesce(String(loadedEvents.coalesceMinutes));
       setSlack(loadedSlack);
       setDiscord(loadedDiscord);
       setNotificationStatus(statusResponse ?? null);
@@ -853,12 +863,40 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
 
   async function saveEvents() {
     if (!eventSettings) return;
+    const minutes = Number(eventCoalesce);
+    if (
+      !Number.isInteger(minutes) ||
+      minutes < MIN_EVENT_COALESCE_MINUTES ||
+      minutes > MAX_EVENT_COALESCE_MINUTES
+    ) {
+      onError(
+        `Coalesce minutes must be a whole number from ${MIN_EVENT_COALESCE_MINUTES} to ${MAX_EVENT_COALESCE_MINUTES}.`,
+      );
+      return;
+    }
+    if (eventSettings.routes.length > MAX_EVENT_ROUTES) {
+      onError(`At most ${MAX_EVENT_ROUTES} event routes are allowed.`);
+      return;
+    }
+    const seen = new Set<string>();
+    for (const route of eventSettings.routes) {
+      const key = `${route.kind}\u0000${route.channel}\u0000${route.cellId}`;
+      if (seen.has(key)) {
+        onError('Each event kind and channel may route a cell only once.');
+        return;
+      }
+      seen.add(key);
+    }
     setEventSaving(true);
     try {
-      const config = await api.patchConfig({ notifications: { events: eventSettings } });
-      setEventSettings(
-        config.notifications?.events ?? { ...DEFAULT_NOTIFICATIONS.events },
-      );
+      const config = await api.patchConfig({
+        notifications: {
+          events: { ...eventSettings, coalesceMinutes: minutes },
+        },
+      });
+      const saved = config.notifications?.events ?? { ...DEFAULT_NOTIFICATIONS.events };
+      setEventSettings(saved);
+      setEventCoalesce(String(saved.coalesceMinutes));
       setPath(config.path);
       const status = await api.getNotificationStatus().catch(() => null);
       setNotificationStatus(status);
@@ -878,6 +916,82 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     setEventSettings((current) =>
       current
         ? { ...current, [kind]: { ...current[kind], [channel]: value } }
+        : current,
+    );
+    setEventSaved(false);
+  }
+
+  function setEventCoalesceValue(value: string): void {
+    setEventCoalesce(value);
+    setEventSaved(false);
+  }
+
+  function addEventRoute(): void {
+    if (!eventSettings) return;
+    if (eventSettings.routes.length >= MAX_EVENT_ROUTES) {
+      onError(`At most ${MAX_EVENT_ROUTES} event routes are allowed.`);
+      return;
+    }
+    const firstCell = cells[0];
+    if (!firstCell) {
+      onError('Create a cell before adding an event route.');
+      return;
+    }
+    for (const kind of EVENT_NOTIFICATION_KINDS) {
+      for (const channel of EVENT_CHANNELS) {
+        for (const cell of cells) {
+          const exists = eventSettings.routes.some(
+            (route) =>
+              route.kind === kind &&
+              route.channel === channel &&
+              route.cellId === cell.id,
+          );
+          if (!exists) {
+            setEventSettings((current) =>
+              current
+                ? {
+                    ...current,
+                    routes: [
+                      ...current.routes,
+                      { kind, channel, cellId: cell.id },
+                    ],
+                  }
+                : current,
+            );
+            setEventSaved(false);
+            return;
+          }
+        }
+      }
+    }
+    onError('Every event kind, channel, and cell already has a route.');
+  }
+
+  function updateEventRoute(
+    index: number,
+    field: 'kind' | 'channel' | 'cellId',
+    value: string,
+  ): void {
+    setEventSettings((current) =>
+      current
+        ? {
+            ...current,
+            routes: current.routes.map((route, position) =>
+              position === index ? { ...route, [field]: value } : route,
+            ),
+          }
+        : current,
+    );
+    setEventSaved(false);
+  }
+
+  function removeEventRoute(index: number): void {
+    setEventSettings((current) =>
+      current
+        ? {
+            ...current,
+            routes: current.routes.filter((_route, position) => position !== index),
+          }
         : current,
     );
     setEventSaved(false);
@@ -1845,9 +1959,101 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
           ))}
         </div>
 
+        <Field
+          label="Coalesce repeats within (minutes)"
+          hint={`${MIN_EVENT_COALESCE_MINUTES}–${MAX_EVENT_COALESCE_MINUTES}; 60 = one UTC hour`}
+        >
+          <Input
+            type="number"
+            min={MIN_EVENT_COALESCE_MINUTES}
+            max={MAX_EVENT_COALESCE_MINUTES}
+            step={1}
+            value={eventCoalesce}
+            onChange={(event) => setEventCoalesceValue(event.target.value)}
+          />
+        </Field>
+
+        <div className="space-y-3">
+          <div>
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Cell routes (optional)
+            </h4>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              No route means every cell. Adding a route limits that event and channel to
+              the listed cells; the event checkbox and global channel must also be
+              enabled. A route that references a deleted cell can be removed here.
+            </p>
+          </div>
+          {eventSettings?.routes.length ? (
+            <div className="space-y-2">
+              {eventSettings.routes.map((route, index) => (
+                <div
+                  key={`${route.kind}:${route.channel}:${route.cellId}:${index}`}
+                  className="grid gap-2 rounded-lg border border-zinc-800 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_auto]"
+                >
+                  <Select
+                    aria-label={`Route ${index + 1} event kind`}
+                    value={route.kind}
+                    onChange={(event) =>
+                      updateEventRoute(index, 'kind', event.target.value)
+                    }
+                  >
+                    <option value="turn.failed">Failed turns</option>
+                    <option value="master.error">Master errors</option>
+                    <option value="summary.failed">Scorecard failures</option>
+                  </Select>
+                  <Select
+                    aria-label={`Route ${index + 1} channel`}
+                    value={route.channel}
+                    onChange={(event) =>
+                      updateEventRoute(index, 'channel', event.target.value)
+                    }
+                  >
+                    {EVENT_CHANNELS.map((channel) => (
+                      <option key={channel} value={channel}>
+                        {channel === 'webhook' ? 'Webhook' : 'Email'}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    aria-label={`Route ${index + 1} cell`}
+                    value={route.cellId}
+                    onChange={(event) =>
+                      updateEventRoute(index, 'cellId', event.target.value)
+                    }
+                  >
+                    {cells.some((cell) => cell.id === route.cellId) ? null : (
+                      <option value={route.cellId}>
+                        Deleted cell ({route.cellId.slice(0, 8)})
+                      </option>
+                    )}
+                    {cells.map((cell) => (
+                      <option key={cell.id} value={cell.id}>
+                        {cell.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    aria-label={`Remove route ${index + 1}`}
+                    onClick={() => removeEventRoute(index)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-zinc-600">All cells are eligible.</p>
+          )}
+          <Button aria-label="Add event route" onClick={addEventRoute}>
+            Add route
+          </Button>
+        </div>
+
         <p className="text-[11px] text-zinc-600">
           A channel must also be enabled above. Repeat failures with the same signature are
-          coalesced to one message per hour; turning a channel off skips pending events.
+          coalesced within the configured window; turning a channel off skips pending
+          events.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">

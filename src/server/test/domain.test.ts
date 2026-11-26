@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { resolveHarness } from '../src/domain/harness.js';
 import {
   clipNotificationText,
+  eventDedupeKey,
+  eventNotificationWindowStart,
   masterErrorEnvelope,
   turnFailedEnvelope,
 } from '../src/domain/notifications.js';
+import {
+  DEFAULT_EVENT_NOTIFICATIONS,
+  eventRouteAllows,
+  eventRouteCells,
+} from '../src/domain/budget.js';
 import {
   cellSessionIds,
   isReservedSessionId,
@@ -66,6 +73,63 @@ describe('request state machine', () => {
     expect(isIntake({ state: 'clarify', clarifyStarted: false })).toBe(true);
     expect(isIntake({ state: 'clarify', clarifyStarted: true })).toBe(false);
     expect(isIntake({ state: 'review', clarifyStarted: false })).toBe(false);
+  });
+});
+
+describe('event notification routing and windows', () => {
+  const events = {
+    ...DEFAULT_EVENT_NOTIFICATIONS,
+    failedTurns: { webhook: true, email: true },
+    masterErrors: { webhook: true, email: false },
+  };
+  const turn = {
+    turnId: 'turn-1',
+    requestId: 'req-1',
+    requestTitle: 'Fix the parser',
+    state: 'implement' as const,
+    cellId: 'cell-a',
+    harness: 'opencode' as const,
+    model: null,
+    source: 'engine.exit' as const,
+    reason: 'process exited with code 1',
+    occurredAt: Date.UTC(2026, 10, 15, 12, 0, 0),
+  };
+
+  it('treats an empty pair as all cells and a route as an exact cell allowlist', () => {
+    expect(eventRouteCells(events, 'turn.failed', 'webhook')).toBeNull();
+    expect(eventRouteAllows(events, 'turn.failed', 'webhook', 'cell-a')).toBe(true);
+    expect(eventRouteAllows(events, 'turn.failed', 'webhook', null)).toBe(true);
+
+    const routed = {
+      ...events,
+      routes: [{ kind: 'turn.failed' as const, channel: 'webhook' as const, cellId: 'cell-a' }],
+    };
+    expect(eventRouteCells(routed, 'turn.failed', 'webhook')).toEqual(['cell-a']);
+    expect(eventRouteAllows(routed, 'turn.failed', 'webhook', 'cell-a')).toBe(true);
+    expect(eventRouteAllows(routed, 'turn.failed', 'webhook', 'cell-b')).toBe(false);
+    expect(eventRouteAllows(routed, 'turn.failed', 'webhook', null)).toBe(false);
+    expect(eventRouteAllows(routed, 'turn.failed', 'email', 'cell-b')).toBe(true);
+    expect(eventRouteAllows(routed, 'master.error', 'webhook', 'cell-a')).toBe(true);
+  });
+
+  it('anchors configurable windows to the Unix epoch', () => {
+    const noon = Date.UTC(2026, 10, 15, 12, 0, 0);
+    expect(eventNotificationWindowStart(noon, 60)).toBe(noon);
+    expect(eventNotificationWindowStart(noon + 25 * 60_000, 30)).toBe(noon);
+    expect(eventNotificationWindowStart(noon + 35 * 60_000, 30)).toBe(
+      noon + 30 * 60_000,
+    );
+    expect(eventNotificationWindowStart(noon + 59 * 60_000, 60)).toBe(noon);
+    expect(eventNotificationWindowStart(noon + 60 * 60_000, 60)).toBe(
+      noon + 60 * 60_000,
+    );
+
+    expect(eventDedupeKey(turn, 'turn.failed', 30)).toBe(
+      `turn:req-1:engine.exit:process_exited_with_code_1:30:${noon}`,
+    );
+    expect(eventDedupeKey(turn, 'turn.failed', 60)).toBe(
+      `turn:req-1:engine.exit:process_exited_with_code_1:60:${noon}`,
+    );
   });
 });
 

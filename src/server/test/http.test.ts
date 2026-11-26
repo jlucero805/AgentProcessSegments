@@ -1196,6 +1196,8 @@ describe('http api', () => {
       failedTurns: { webhook: false, email: false },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: false },
+      coalesceMinutes: 60,
+      routes: [],
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -1203,6 +1205,8 @@ describe('http api', () => {
         events: {
           failedTurns: { webhook: true },
           summaryFailures: { email: true },
+          coalesceMinutes: 30,
+          routes: [{ kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' }],
         },
       },
     });
@@ -1211,6 +1215,8 @@ describe('http api', () => {
       failedTurns: { webhook: true, email: false },
       masterErrors: { webhook: false, email: false },
       summaryFailures: { webhook: false, email: true },
+      coalesceMinutes: 30,
+      routes: [{ kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' }],
     });
 
     const further = await call('PATCH', '/api/config', {
@@ -1220,6 +1226,8 @@ describe('http api', () => {
       failedTurns: { webhook: true, email: false },
       masterErrors: { webhook: false, email: true },
       summaryFailures: { webhook: false, email: true },
+      coalesceMinutes: 30,
+      routes: [{ kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' }],
     });
     expect(new SettingsStore(h.config.configPath).get().notifications.events).toEqual(
       further.json().notifications.events,
@@ -1232,6 +1240,23 @@ describe('http api', () => {
     expect(
       (await call('GET', '/api/config')).json().notifications.events.failedTurns.webhook,
     ).toBe(true);
+
+    const badWindow = await call('PATCH', '/api/config', {
+      notifications: { events: { coalesceMinutes: 0 } },
+    });
+    expect(badWindow.status).toBe(400);
+
+    const duplicate = await call('PATCH', '/api/config', {
+      notifications: {
+        events: {
+          routes: [
+            { kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' },
+            { kind: 'turn.failed', channel: 'webhook', cellId: 'cell-a' },
+          ],
+        },
+      },
+    });
+    expect(duplicate.status).toBe(400);
   });
 
   it('patches, redacts, and reloads email settings', async () => {

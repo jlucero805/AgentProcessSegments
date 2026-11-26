@@ -263,3 +263,38 @@ export function notificationEventEmailText(
   }
   return lines.join('\n');
 }
+
+const MINUTE_MS = 60_000;
+
+function safeKeyPart(value: string): string {
+  const cleaned = value.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return cleaned.slice(0, 60);
+}
+
+/** Fixed coalescing-window start for an occurrence, anchored at the Unix epoch. */
+export function eventNotificationWindowStart(
+  occurredAt: number,
+  coalesceMinutes: number,
+): number {
+  const windowMs = coalesceMinutes * MINUTE_MS;
+  return Math.floor(occurredAt / windowMs) * windowMs;
+}
+
+/** Stable per-channel idempotency key for one event signature in a window. */
+export function eventDedupeKey(
+  event: TurnFailureNotification | MasterErrorNotification | SummaryFailureNotification,
+  kind: NotificationEventKind,
+  coalesceMinutes: number,
+): string {
+  const windowStart = eventNotificationWindowStart(event.occurredAt, coalesceMinutes);
+  if (kind === 'turn.failed') {
+    const turn = event as TurnFailureNotification;
+    return `turn:${turn.requestId}:${turn.source}:${safeKeyPart(turn.reason)}:${coalesceMinutes}:${windowStart}`;
+  }
+  if (kind === 'master.error') {
+    const master = event as MasterErrorNotification;
+    return `master:${master.cellId}:${master.source}:${safeKeyPart(master.segment ?? '')}:${coalesceMinutes}:${windowStart}`;
+  }
+  const summary = event as SummaryFailureNotification;
+  return `summary:${summary.cellId}:${summary.source}:${safeKeyPart(summary.reason)}:${coalesceMinutes}:${windowStart}`;
+}

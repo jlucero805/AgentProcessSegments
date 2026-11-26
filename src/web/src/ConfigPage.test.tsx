@@ -113,6 +113,12 @@ const eventSettings = {
   failedTurns: { webhook: false, email: false },
   masterErrors: { webhook: false, email: false },
   summaryFailures: { webhook: false, email: false },
+  coalesceMinutes: 60,
+  routes: [] as Array<{
+    kind: 'turn.failed' | 'master.error' | 'summary.failed';
+    channel: 'webhook' | 'email';
+    cellId: string;
+  }>,
 };
 
 const notificationStatus = {
@@ -353,6 +359,12 @@ interface Captured {
         failedTurns?: { webhook?: boolean; email?: boolean };
         masterErrors?: { webhook?: boolean; email?: boolean };
         summaryFailures?: { webhook?: boolean; email?: boolean };
+        coalesceMinutes?: number;
+        routes?: Array<{
+          kind: 'turn.failed' | 'master.error' | 'summary.failed';
+          channel: 'webhook' | 'email';
+          cellId: string;
+        }>;
       };
     };
   };
@@ -469,6 +481,8 @@ function installFetch(
           ...eventSettings.summaryFailures,
           ...(eventsPatch?.summaryFailures ?? {}),
         },
+        coalesceMinutes: eventsPatch?.coalesceMinutes ?? eventSettings.coalesceMinutes,
+        routes: eventsPatch?.routes ?? eventSettings.routes,
       };
       return jsonResponse({
         master: { ...master, ...captured.config?.master },
@@ -999,12 +1013,54 @@ describe('ConfigPage', () => {
         failedTurns: { webhook: true, email: false },
         masterErrors: { webhook: false, email: true },
         summaryFailures: { webhook: true, email: false },
+        coalesceMinutes: 60,
+        routes: [],
       }),
     );
     expect(captured.config?.notifications?.webhook).toBeUndefined();
     expect(screen.getByText(/2 pending · 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/turns 1 pending \/ 1 failed/)).toBeInTheDocument();
     expect(screen.getByText(/scorecard 0 pending \/ 0 failed/)).toBeInTheDocument();
+  });
+
+  it('saves the coalescing window and a cell route', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const minutes = await screen.findByLabelText(/coalesce repeats within/i);
+    fireEvent.change(minutes, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add event route' }));
+
+    expect(screen.getByLabelText('Route 1 event kind')).toHaveValue('turn.failed');
+    expect(screen.getByLabelText('Route 1 channel')).toHaveValue('webhook');
+    expect(screen.getByLabelText('Route 1 cell')).toHaveValue('c1');
+    fireEvent.change(screen.getByLabelText('Route 1 channel'), {
+      target: { value: 'email' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
+
+    await waitFor(() =>
+      expect(captured.config?.notifications?.events).toEqual({
+        failedTurns: { webhook: false, email: false },
+        masterErrors: { webhook: false, email: false },
+        summaryFailures: { webhook: false, email: false },
+        coalesceMinutes: 30,
+        routes: [{ kind: 'turn.failed', channel: 'email', cellId: 'c1' }],
+      }),
+    );
+  });
+
+  it('rejects an invalid event coalescing window before saving', async () => {
+    const captured = installFetch();
+    const onError = vi.fn();
+    render(<ConfigPage onError={onError} />);
+
+    const minutes = await screen.findByLabelText(/coalesce repeats within/i);
+    fireEvent.change(minutes, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save event notifications' }));
+
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('Coalesce minutes'));
+    expect(captured.config).toBeUndefined();
   });
 
   it('clears a saved webhook secret only on request', async () => {

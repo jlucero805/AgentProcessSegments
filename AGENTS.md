@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1239 vitest cases: 963 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
+- 1240 vitest cases: 964 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -89,8 +89,8 @@ digests.
   activity and reserved master/summary session directories,
   configurable retention for terminal request workdirs and leftover worktrees,
   effective-dated operator-maintained model pricing with reported-versus-estimated cost
-  accounting, and a GitHub Actions CI workflow template in
-  `deploy/ci-workflow.yml`. User MCP servers are merged into request sessions for both.
+  accounting, and a GitHub Actions CI workflow published at `.github/workflows/ci.yml`
+  from the `deploy/ci-workflow.yml` template. User MCP servers are merged into request sessions for both.
   OpenCode and Claude are both verified end to end (turn, MCP tools, resume across a
   brain restart); Claude runs against a local mock API, OpenCode against its live CLI.
 - Not built: KB embeddings, fan-out to multiple chat
@@ -98,9 +98,7 @@ digests.
   and pricing maintenance at scale such as bulk import, tiers, or non-USD currencies
   (scoped in `docs/09-backlog.md`). Usage retention with daily rollups is built.
   Review automation is configurable per cell, but Finalize is manual-only: the master
-  never schedules it and the human indexes into the KB;
-  the CI workflow is not published yet and needs the
-  `workflow` token scope.
+  never schedules it and the human indexes into the KB.
 
 ## Commands
 
@@ -112,7 +110,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 963 server + 276 web, plus the e2e env guard
+npm test                       # 964 server + 276 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -154,8 +152,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   React's production build and fail every render with `act(...) is not supported in
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
-  `NODE_ENV=production npm test --workspace src/web`, which `deploy/ci-workflow.yml`
-  runs as its own step.
+  `NODE_ENV=production npm test --workspace src/web`, which the published CI workflow
+  (`.github/workflows/ci.yml`) runs as its own step.
 - **Every JavaScript proof script's child env is hermetic.** `scripts/e2e/env.mjs` is the shared
   builder: `scrubEnv` drops every inherited `APS_*`, `SBOX_*`, `ANTHROPIC_*`, `CLAUDE_*`,
   and `OPENAI_*` variable, then `buildPinnedEnv` applies validated pins so a pin always
@@ -180,8 +178,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   reproduce it with `npm run build`, then `env SBOX_HARNESS_BIN=/bin/false
   APS_HARNESS=opencode node scripts/e2e.mjs`, and the same env with
   `node scripts/mcp-smoke.mjs` or `node scripts/claude-mock-smoke.mjs`.
-  `src/server/test/ci-workflow.test.ts` covers every proof step and keeps the E2E
-  and MCP blocks identical.
+  `src/server/test/ci-workflow.test.ts` covers every proof step, keeps the E2E
+  and MCP blocks identical, and fails if the published workflow drifts from the template.
 - **No live Anthropic account here.** `opencode` is authenticated, and a cached Claude
   Code binary can be supplied to the brain with `APS_CLAUDE_BIN`.
   `scripts/claude-mock-smoke.mjs` verifies the Claude harness against a local mock
@@ -585,7 +583,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     a failed sweep is one `retention.artifacts` record, not a crash.
 39. **The lint gate is zero-warning and guarded.** `npm run lint` composes
     `eslint . --max-warnings=0`, `bash -n` plus `shellcheck --severity=warning` over
-    `deploy/*.sh` and `scripts/*.sh`, `actionlint deploy/ci-workflow.yml`,
+    `deploy/*.sh` and `scripts/*.sh`,
+    `actionlint deploy/ci-workflow.yml .github/workflows/ci.yml`,
     `systemd-analyze verify` over `deploy/agent-process-segments.service`, and
     `markdownlint-cli2 "**/*.md"`, so an ESLint or ShellCheck warning, a shell syntax
     error, a workflow error, a non-zero verify exit, any verify diagnostic naming the
@@ -600,6 +599,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     check; a missing local binary fails closed), the unit wrapper and parser test, and the
     CI lint step are guarded by `src/server/test/lint-gate.test.ts`,
     `src/server/test/dev-preflight.test.ts`, and `scripts/verify-systemd-unit.test.mjs`.
+    The published `.github/workflows/ci.yml` copy is guarded against template drift by
+    `src/server/test/ci-workflow.test.ts`.
     Do not weaken any of them without updating the guards and this invariant.
 40. **SQLite files are owner-only.** `openDb` forces the database, `-wal`, `-shm`, and
     any `-journal` sidecar to `0600` on every open. The database is tightened before
@@ -713,12 +714,9 @@ by mutating the global file.
 
 ## Next units, in order
 
-1. **Activate CI.** Copy `deploy/ci-workflow.yml` to `.github/workflows/ci.yml` and push
-   it with a token that has the `workflow` scope. Keep the production-env web-test leg
-   when publishing.
-2. **Optional chaining.** A segment can advance a request but the next segment waits for
+1. **Optional chaining.** A segment can advance a request but the next segment waits for
    its idle window; add a `chain` flag only if operators want same-cycle handoff.
-3. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic
+2. **KB embeddings.** Search is now ranked literal terms (`GET /api/kb?q=`); semantic
    recall still needs an embedding provider.
 
 ## Conventions

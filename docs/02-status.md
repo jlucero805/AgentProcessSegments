@@ -429,7 +429,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1239 vitest cases (one environmental root-skip): 963 server across 55 files and 276 web across 27 files,
+- 1240 vitest cases (one environmental root-skip): 964 server across 55 files and 276 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -480,16 +480,16 @@ built and vended by the brain; real-CLI verification is still pending.
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
   that leaks the host env into either proof fails the build;
   `src/server/test/ci-workflow.test.ts` fails if the two blocks drift.
-- CI: a ready workflow at `deploy/ci-workflow.yml` installs the build toolchain plus
+- CI: the published workflow at `.github/workflows/ci.yml` (a byte-identical copy of the
+  `deploy/ci-workflow.yml` template) installs the build toolchain plus
   `shellcheck` and the pinned actionlint binary, then runs `npm ci`, an
   `npm audit --omit=dev --audit-level=high` runtime dependency gate, lint (ESLint, the
-  bash/ShellCheck shell gate, actionlint over the workflow template, the systemd unit
-  check, and Markdown), typecheck, the full test suite, the build, the E2E workflow,
-  `scripts/smoke.sh`, and `scripts/mcp-smoke.mjs` on pushes and pull requests. It also
-  re-runs the web suite with `NODE_ENV=production` to exercise the inherited-production
-  React resolution. It is not active on the remote:
-  publishing a workflow needs a credential with the `workflow` scope. Copy it to
-  `.github/workflows/ci.yml` once that is available.
+  bash/ShellCheck shell gate, actionlint over the template and the published workflow,
+  the systemd unit check, and Markdown), typecheck, the full test suite, the build, the
+  E2E workflow, `scripts/smoke.sh`, and `scripts/mcp-smoke.mjs` on pushes to `main` and
+  on pull requests. It also re-runs the web suite with `NODE_ENV=production` to exercise
+  the inherited-production React resolution. Edit the template, copy it over the
+  published file, and let `src/server/test/ci-workflow.test.ts` fail if the two diverge.
 
 ## Deviations from the spec
 
@@ -555,7 +555,6 @@ built and vended by the brain; real-CLI verification is still pending.
   Webhook, email, and native Slack/Discord bot channels with per-cell routing, delivery
   history/resend, and failed-turn/master-error/scorecard-failure events with per-cell event
   routes and a configurable coalescing window are built.
-- The CI workflow template still needs a `workflow`-scoped credential to publish.
 
 ## Route list
 

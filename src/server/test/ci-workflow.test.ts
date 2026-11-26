@@ -126,3 +126,18 @@ describe('deploy/ci-workflow.yml', () => {
     }
   });
 });
+
+describe('.github/workflows/ci.yml', () => {
+  it('is a byte-identical copy of the template and runs on main pushes and PRs', () => {
+    const published = readFileSync(
+      path.join(repoRoot, '.github/workflows/ci.yml'),
+      'utf8',
+    );
+
+    // The template is the only editable source; the published copy must not drift.
+    expect(published).toBe(workflow);
+    expect(published).toContain(
+      'on:\n  push:\n    branches: [main]\n  pull_request:\n',
+    );
+  });
+});

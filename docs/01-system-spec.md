@@ -75,8 +75,9 @@ once and is ignored.
   then server), `typecheck`, `test` (server + web + the e2e env guard), `lint` (eslint
   over `src`, the JS tooling, and `.opencode` plugin sources, plus `bash -n` and
   `shellcheck --severity=warning` over the deploy and `scripts/` shell scripts,
-  `actionlint` over `deploy/ci-workflow.yml`, `systemd-analyze verify` on the deploy
-  unit, and `markdownlint-cli2` over every tracked `*.md`; zero warnings), `dev` (both).
+  `actionlint` over `deploy/ci-workflow.yml` and `.github/workflows/ci.yml`,
+  `systemd-analyze verify` on the deploy unit, and `markdownlint-cli2` over every
+  tracked `*.md`; zero warnings), `dev` (both).
 
 ---
 

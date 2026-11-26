@@ -99,13 +99,16 @@ recall, and a space-separated query is AND of terms rather than one phrase.
 ## 7. Deployment and CI
 
 **Chosen.** A systemd **user** unit with `loginctl enable-linger` (deploy/vps.md), and a
-ready CI workflow at `deploy/ci-workflow.yml`.
+CI workflow published at `.github/workflows/ci.yml` from the `deploy/ci-workflow.yml`
+template.
 
-**Alternatives.** A system-wide unit; publishing `.github/workflows` directly.
+**Alternatives.** A system-wide unit; keeping the workflow only as an unpublished
+template.
 
 **Why.** The user unit keeps the operator's `claude`/`opencode` login and keeps the brain
-out of a herdr cgroup. The publishing token lacks the `workflow` scope, so the workflow
-stays a template until that scope is granted.
+out of a herdr cgroup. The template is copied byte-for-byte to
+`.github/workflows/ci.yml`, and `src/server/test/ci-workflow.test.ts` fails on drift; that
+keeps one editable source (the template) while GitHub runs the published copy.
 
 ## 8. SPA dependency pins
 
@@ -298,7 +301,6 @@ prefix, so raw exports show the historical name.
 
 ## Open items for review
 
-- Activate CI by publishing `deploy/ci-workflow.yml` with a `workflow`-scoped credential.
 - Decide whether OpenCode should use a per-request persistent server.
 - Decide whether effort should map to OpenCode model variants or stay inert.
 - KB embeddings versus the ranked literal search.

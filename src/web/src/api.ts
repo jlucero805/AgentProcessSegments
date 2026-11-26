@@ -513,7 +513,15 @@ export const api = {
   getMasterEvents(options: { cellId?: string; limit?: number } = {}): Promise<MasterEvent[]> {
     return request(withQuery('/api/master/events', options));
   },
-  getSummaries(options: { cellId?: string; limit?: number } = {}): Promise<Summary[]> {
+  getSummaries(
+    options: {
+      cellId?: string;
+      limit?: number;
+      since?: number;
+      before?: number;
+      beforeId?: string;
+    } = {},
+  ): Promise<Summary[]> {
     return request(withQuery('/api/summaries', options));
   },
   getLatestSummary(cellId: string): Promise<Summary | null> {

@@ -518,7 +518,9 @@ describe('App', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Scorecards' }),
     ).toBeInTheDocument();
-    expect(await screen.findByText('No scorecards yet')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No scorecards in the last 72 hours'),
+    ).toBeInTheDocument();
     expect(window.location.search).toContain('page=scorecards');
   });
 

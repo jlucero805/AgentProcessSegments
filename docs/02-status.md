@@ -210,7 +210,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `aps-queue:<requestId>` localStorage key and drains in order when the turn ends. A
   restored queue waits for `GET /clarify` to report whether a turn is live, so a reload
   mid-turn does not push it into the running turn; `POST /clarify/send` refuses with
-  `409 turn_active` while a turn runs and the client requeues the text. A
+  `409 turn_active` while a turn runs and the client requeues the text. Queued items
+  are claimed under a per-request Web Lock before sending, and tabs mirror the queue
+  through `storage` events, so two tabs deliver each message once. A
   queue left under the pre-rename `sbox-queue:<id>` key is migrated on first load and the
   legacy key is removed. Stop calls `POST /clarify/stop`, kills the child, saves the
   partial transcript, keeps the saved session for the next message, and clears the queue
@@ -398,7 +400,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1122 vitest cases (one environmental root-skip): 881 server across 51 files and 241 web across 26 files,
+- 1137 vitest cases (one environmental root-skip): 881 server across 51 files and 256 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

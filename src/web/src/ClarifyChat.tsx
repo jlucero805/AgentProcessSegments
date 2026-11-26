@@ -8,6 +8,13 @@ import {
   type ChatMessage,
 } from './chat';
 import { useChatRuntime } from './runtime';
+import {
+  claimHead,
+  clearQueue,
+  enqueueBack,
+  enqueueFront,
+  readQueue,
+} from './queue';
 import { Thread } from './Thread';
 import type { ClarifyEvent, CommandInfo, Request } from './types';
 
@@ -35,68 +42,12 @@ function toolLabel(name: string): string {
     .replace(/_/g, ' ');
 }
 
-function parseQueue(raw: string | null): string[] {
-  if (raw === null) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string')
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function discardQueue(key: string): void {
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Private mode: nothing to clean up.
-  }
-}
-
-/**
- * The `aps-queue` key is authoritative; the legacy `sbox-queue` key is read once
- * so a queue composed before the rename is not dropped. Adoption copies the raw
- * value into the new key before deleting the legacy one, keeping a re-run of the
- * state initializer (StrictMode, tests) correct.
- */
-function readQueue(key: string, legacyKey: string): string[] {
-  try {
-    const current = window.localStorage.getItem(key);
-    if (current !== null) {
-      discardQueue(legacyKey);
-      return parseQueue(current);
-    }
-    const legacy = window.localStorage.getItem(legacyKey);
-    if (legacy === null) return [];
-    try {
-      window.localStorage.setItem(key, legacy);
-    } catch {
-      // Keep the legacy key for the next load and still use the queue in memory.
-      return parseQueue(legacy);
-    }
-    discardQueue(legacyKey);
-    return parseQueue(legacy);
-  } catch {
-    return [];
-  }
-}
-
-function writeQueue(key: string, queue: string[]): void {
-  try {
-    if (queue.length > 0) window.localStorage.setItem(key, JSON.stringify(queue));
-    else window.localStorage.removeItem(key);
-  } catch {
-    // Private mode or a full quota: the queue stays in memory.
-  }
-}
-
 /**
  * One chat per request. React owns the messages and running flag; a live turn is
  * reattached from the NDJSON stream on mount. Composing while a turn runs queues
  * the message, Stop cuts the turn short and clears the queue so the human can
- * interject, and the queue survives a reload.
+ * interject, and the queue survives a reload. The queue is claimed from storage
+ * under a per-request lock, so two tabs never send the same queued message.
  */
 export function ClarifyChat({
   requestId,
@@ -127,6 +78,7 @@ export function ClarifyChat({
   const toolNames = useRef(new Map<string, string>());
   const runningRef = useRef(false);
   const activeStream = useRef<AbortController | null>(null);
+  const drainingRef = useRef(false);
 
   const onErrorRef = useRef(onError);
   const onRequestRef = useRef(onRequest);
@@ -142,9 +94,16 @@ export function ClarifyChat({
     onDraftChangedRef.current = onDraftChanged;
   }, [onError, onRequest, onDone, onDraftChanged]);
 
+  // Sibling tabs write the queue too; follow their claims and appends so the
+  // banner does not show messages this tab no longer owns.
   useEffect(() => {
-    writeQueue(queueKey, queue);
-  }, [queueKey, queue]);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== queueKey && event.key !== legacyQueueKey) return;
+      setQueue(readQueue(queueKey, legacyQueueKey));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [queueKey, legacyQueueKey]);
 
   const setBusy = useCallback((value: boolean) => {
     runningRef.current = value;
@@ -173,8 +132,10 @@ export function ClarifyChat({
       }
       if (event.t === 'paused') {
         // A cap stop clears the client queue like a stop: draining it while
-        // paused would only produce a burst of spend_cap refusals.
+        // paused would only produce a burst of spend_cap refusals. Clear the
+        // mirror at once and persist behind the lock; done may arrive next.
         setQueue([]);
+        void clearQueue(queueKey).then(setQueue);
       }
       if (event.t === 'error') onErrorRef.current(event.message);
       if (event.t === 'tool') toolNames.current.set(event.id, event.name);
@@ -186,7 +147,7 @@ export function ClarifyChat({
       }
       setMessages((current) => applyEvent(current, event));
     },
-    [setBusy],
+    [queueKey, setBusy],
   );
 
   const hydrate = useCallback(async () => {
@@ -264,7 +225,9 @@ export function ClarifyChat({
           if (error instanceof ApiError && error.status === 409 && error.code === 'turn_active') {
             // A turn started after our snapshot. Keep the text and reattach so
             // it drains once that turn ends instead of being dropped server-side.
-            setQueue((current) => [text, ...current]);
+            // Requeue before hydrating: hydrate clears `synced`, which holds the
+            // queue until the reattach snapshot proves whether a turn is live.
+            setQueue(await enqueueFront(queueKey, text));
             void hydrate();
             return;
           }
@@ -283,7 +246,7 @@ export function ClarifyChat({
         }
       }
     },
-    [requestId, handleEvent, setBusy, hydrate, markSynced],
+    [requestId, handleEvent, setBusy, hydrate, markSynced, queueKey],
   );
 
   const retry = useCallback(() => {
@@ -302,30 +265,49 @@ export function ClarifyChat({
       const text = raw.trim();
       if (text === '' || !started || disabled) return;
       if (runningRef.current) {
-        setQueue((current) => [...current, text]);
+        setQueue(await enqueueBack(queueKey, text));
         return;
       }
       await sendText(text);
     },
-    [started, disabled, sendText],
+    [started, disabled, sendText, queueKey],
   );
 
   // Drain one queued message once the server confirms no turn is running.
   // `synced` is cleared while a snapshot is in flight and after a 409 requeue,
   // so a restored queue cannot be pushed into a turn we have not reattached to.
+  // The item is claimed from storage under a cross-tab lock, so a second tab
+  // sees it removed instead of sending it again.
   useEffect(() => {
-    if (!synced || !syncedRef.current || running || !started || disabled || queue.length === 0) {
+    if (
+      !synced ||
+      !syncedRef.current ||
+      running ||
+      runningRef.current ||
+      !started ||
+      disabled ||
+      queue.length === 0 ||
+      drainingRef.current
+    ) {
       return;
     }
-    const [next, ...rest] = queue;
-    setQueue(rest);
-    void sendText(next);
-  }, [synced, running, started, disabled, queue, sendText]);
+    drainingRef.current = true;
+    void (async () => {
+      try {
+        const next = await claimHead(queueKey);
+        setQueue(readQueue(queueKey, legacyQueueKey));
+        if (next !== null) void sendText(next);
+      } finally {
+        drainingRef.current = false;
+      }
+    })();
+  }, [synced, running, started, disabled, queue, sendText, queueKey, legacyQueueKey]);
 
   const stop = useCallback(async () => {
     if (!runningRef.current) return;
     setQueue([]);
     setStopping(true);
+    void clearQueue(queueKey).then(setQueue);
     try {
       await api.stopClarify(requestId);
       setStopped(true);
@@ -333,7 +315,7 @@ export function ClarifyChat({
       onErrorRef.current(describeError(error));
       setStopping(false);
     }
-  }, [requestId]);
+  }, [requestId, queueKey]);
 
   // If the child refuses to die, do not leave the composer stuck forever.
   useEffect(() => {
@@ -420,7 +402,10 @@ export function ClarifyChat({
             <button
               type="button"
               className="text-zinc-500 hover:text-zinc-300"
-              onClick={() => setQueue([])}
+              onClick={() => {
+                setQueue([]);
+                void clearQueue(queueKey).then(setQueue);
+              }}
             >
               Clear
             </button>

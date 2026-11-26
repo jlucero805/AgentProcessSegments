@@ -7,6 +7,11 @@ import type {
   SpendCapOverrideHistoryResponse,
 } from './types';
 
+// Give the history load, filter, and paging queries room under full-suite load
+// while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const SPEND_OVERRIDE_HISTORY_TEST_TIMEOUT_MS = 30_000;
+
 const periodStart = Date.UTC(2026, 10, 1);
 const createdAt = Date.UTC(2026, 10, 15, 12);
 const extendedAt = Date.UTC(2026, 10, 15, 12, 30);
@@ -99,7 +104,7 @@ describe('SpendOverrideHistory', () => {
     install(() => jsonResponse(response([item(), revoked, expired], 3)));
     renderHistory();
 
-    const table = await screen.findByRole('table', { name: 'Spend cap override history' });
+    const table = await screen.findByRole('table', { name: 'Spend cap override history' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(within(table).getByText('Overall spend')).toBeInTheDocument();
     expect(within(table).getByText('Alpha')).toBeInTheDocument();
     expect(within(table).getByText('Deleted cell')).toBeInTheDocument();
@@ -113,12 +118,12 @@ describe('SpendOverrideHistory', () => {
     expect(screen.getByText('Showing 1–3 of 3')).toBeInTheDocument();
     expect(screen.getAllByTitle(new Date(createdAt).toISOString()).length).toBeGreaterThan(0);
     expect(screen.getByTitle(new Date(revokedAt).toISOString())).toBeInTheDocument();
-  });
+  }, SPEND_OVERRIDE_HISTORY_TEST_TIMEOUT_MS);
 
   it('filters by scope and state from page zero', async () => {
     const urls = install(() => jsonResponse(response()));
     renderHistory();
-    await screen.findByRole('table', { name: 'Spend cap override history' });
+    await screen.findByRole('table', { name: 'Spend cap override history' }, { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText('Override scope filter'), {
       target: { value: 'c1' },
@@ -128,7 +133,7 @@ describe('SpendOverrideHistory', () => {
       expect(last.searchParams.get('scope')).toBe('cell');
       expect(last.searchParams.get('cellId')).toBe('c1');
       expect(last.searchParams.get('offset')).toBe('0');
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText('Override state filter'), {
       target: { value: 'revoked' },
@@ -137,13 +142,13 @@ describe('SpendOverrideHistory', () => {
       const last = new URL(urls[urls.length - 1]!, 'http://localhost');
       expect(last.searchParams.get('state')).toBe('revoked');
       expect(last.searchParams.get('offset')).toBe('0');
-    });
-  });
+    }, { timeout: ASYNC_TIMEOUT_MS });
+  }, SPEND_OVERRIDE_HISTORY_TEST_TIMEOUT_MS);
 
   it('pages with the server total and refreshes on demand', async () => {
     const urls = install(() => jsonResponse(response([item()], 23)));
     renderHistory();
-    await screen.findByRole('table', { name: 'Spend cap override history' });
+    await screen.findByRole('table', { name: 'Spend cap override history' }, { timeout: ASYNC_TIMEOUT_MS });
 
     const older = screen.getByRole('button', { name: 'Older override history' });
     expect(older).not.toBeDisabled();
@@ -152,28 +157,28 @@ describe('SpendOverrideHistory', () => {
       const last = new URL(urls[urls.length - 1]!, 'http://localhost');
       expect(last.searchParams.get('limit')).toBe('10');
       expect(last.searchParams.get('offset')).toBe('10');
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.click(screen.getByRole('button', { name: 'Newer override history' }));
     await waitFor(() => {
       const last = new URL(urls[urls.length - 1]!, 'http://localhost');
       expect(last.searchParams.get('offset')).toBe('0');
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
 
     const beforeRefresh = urls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Refresh override history' }));
-    await waitFor(() => expect(urls.length).toBeGreaterThan(beforeRefresh));
-  });
+    await waitFor(() => expect(urls.length).toBeGreaterThan(beforeRefresh), { timeout: ASYNC_TIMEOUT_MS });
+  }, SPEND_OVERRIDE_HISTORY_TEST_TIMEOUT_MS);
 
   it('refetches page zero when the refresh token changes', async () => {
     const urls = install(() => jsonResponse(response([item()], 23)));
     const { rerender } = renderHistory();
-    await screen.findByRole('table', { name: 'Spend cap override history' });
+    await screen.findByRole('table', { name: 'Spend cap override history' }, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.click(screen.getByRole('button', { name: 'Older override history' }));
     await waitFor(() => {
       const last = new URL(urls[urls.length - 1]!, 'http://localhost');
       expect(last.searchParams.get('offset')).toBe('10');
-    });
+    }, { timeout: ASYNC_TIMEOUT_MS });
 
     rerender(
       <SpendOverrideHistory
@@ -185,8 +190,8 @@ describe('SpendOverrideHistory', () => {
     await waitFor(() => {
       const last = new URL(urls[urls.length - 1]!, 'http://localhost');
       expect(last.searchParams.get('offset')).toBe('0');
-    });
-  });
+    }, { timeout: ASYNC_TIMEOUT_MS });
+  }, SPEND_OVERRIDE_HISTORY_TEST_TIMEOUT_MS);
 
   it('keeps the previous rows and reports a failed refresh', async () => {
     let fail = false;

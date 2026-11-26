@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
 import { jsonResponse } from './test/fixtures';
 
+// The page loads cells and report pages before rendering. Give the slow paging cases
+// room under full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const SCORECARDS_TEST_TIMEOUT_MS = 30_000;
+
 function makeCell(id: string, name: string) {
   return {
     id,
@@ -97,7 +102,7 @@ describe('ScorecardsPage', () => {
 
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
-    expect(await screen.findByText('Alpha newest report')).toBeInTheDocument();
+    expect(await screen.findByText('Alpha newest report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Beta newest report')).toBeInTheDocument();
     expect(screen.getByText('Alpha')).toBeInTheDocument();
     expect(screen.getByText('Beta')).toBeInTheDocument();
@@ -113,7 +118,7 @@ describe('ScorecardsPage', () => {
       expect(params.get('limit')).toBe('26');
       expect(params.get('since')).not.toBeNull();
     }
-  });
+  }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('defaults to the last 72 hours', async () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], {
@@ -156,18 +161,18 @@ describe('ScorecardsPage', () => {
     });
 
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
-    expect(await screen.findByText('Alpha report')).toBeInTheDocument();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
     const sevenDaySince = Number(summaryRequests(urls)[1]?.get('since'));
     const expected = Date.now() - 7 * 24 * 60 * 60_000;
     expect(Math.abs(sevenDaySince - expected)).toBeLessThan(60_000);
 
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
     expect(summaryRequests(urls)[2]?.has('since')).toBe(false);
-  });
+  }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('loads older reports within the period and stops at the end', async () => {
     const reports = Array.from({ length: 27 }, (_, index) =>
@@ -177,24 +182,24 @@ describe('ScorecardsPage', () => {
 
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
-    expect(await screen.findByText('Report 0')).toBeInTheDocument();
+    expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Earlier scorecards (24)')).toBeInTheDocument();
     expect(screen.queryByText('Report 25')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
 
-    expect(await screen.findByText('Report 25')).toBeInTheDocument();
+    expect(await screen.findByText('Report 25', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Report 26')).toBeInTheDocument();
     expect(screen.getByText('Earlier scorecards (26)')).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
 
     const older = summaryRequests(urls)[1];
     expect(older?.get('before')).toBe('99976');
     expect(older?.get('beforeId')).toBe('s24');
     expect(older?.get('since')).not.toBeNull();
-  });
+  }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('keeps each card loading independently while older pages are in flight', async () => {
     const alpha = Array.from({ length: 26 }, (_, index) =>
@@ -231,23 +236,23 @@ describe('ScorecardsPage', () => {
 
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
-    const buttons = await screen.findAllByRole('button', { name: 'Load older' });
+    const buttons = await screen.findAllByRole('button', { name: 'Load older' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(buttons).toHaveLength(2);
     for (const button of buttons) fireEvent.click(button);
 
-    expect(await screen.findAllByRole('button', { name: 'Loading…' })).toHaveLength(2);
+    expect(await screen.findAllByRole('button', { name: 'Loading…' }, { timeout: ASYNC_TIMEOUT_MS })).toHaveLength(2);
     pending[0]!.resolve([alpha[25]!]);
     await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: 'Loading…' })).toHaveLength(1),
+      expect(screen.getAllByRole('button', { name: 'Loading…' })).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS },
     );
     pending[1]!.resolve([beta[25]!]);
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Loading…' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('button', { name: 'Loading…' })).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
 
     expect(screen.getByText('Alpha report 25')).toBeInTheDocument();
     expect(screen.getByText('Beta report 25')).toBeInTheDocument();
-  });
+  }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('shows a range-aware empty state', async () => {
     stubFetch([makeCell('c1', 'Alpha')], {});

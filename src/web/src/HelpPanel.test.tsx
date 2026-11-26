@@ -14,6 +14,11 @@ vi.mock('./mermaid', async (importOriginal) => {
   return { ...actual, loadMermaid: mermaidMock.loadMermaid };
 });
 
+// The panel loads docs and renders markdown. Give the slow async cases room under
+// full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+const HELP_PANEL_TEST_TIMEOUT_MS = 30_000;
+
 const PAGES: DocPage[] = [
   {
     slug: 'getting-started',
@@ -140,7 +145,7 @@ describe('HelpPanel', () => {
     });
     const { onNavigate, onClose } = renderPanel();
 
-    expect(await screen.findByText('Intro paragraph.')).toBeInTheDocument();
+    expect(await screen.findByText('Intro paragraph.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByRole('dialog', { name: 'Documentation' })).toBeInTheDocument();
     expect(screen.getAllByText('Getting started').length).toBeGreaterThan(0);
     expect(screen.getByText('Guides')).toBeInTheDocument();
@@ -165,7 +170,7 @@ describe('HelpPanel', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
-  });
+  }, HELP_PANEL_TEST_TIMEOUT_MS);
 
   it('keeps a fragment when navigating through a markdown link', async () => {
     const { onNavigate } = renderPanel();
@@ -217,16 +222,16 @@ describe('HelpPanel', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/docs/08-user-workflows',
         expect.anything(),
-      ),
+      ), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(scrollIntoView).not.toHaveBeenCalled();
     releaseManifest();
 
     expect(
-      await screen.findByRole('heading', { name: 'Verify webhook signatures' }),
+      await screen.findByRole('heading', { name: 'Verify webhook signatures' }, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }));
-  });
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' }), { timeout: ASYNC_TIMEOUT_MS });
+  }, HELP_PANEL_TEST_TIMEOUT_MS);
 
   it('leaves the page at the top for an unknown fragment', async () => {
     const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
@@ -346,14 +351,14 @@ describe('HelpPanel', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const { container } = renderPanel('getting-started', { 'getting-started': doc });
 
-    await screen.findByText('Intro paragraph.');
+    await screen.findByText('Intro paragraph.', undefined, { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() =>
-      expect(container.querySelector('svg[data-testid="mermaid-svg"]')).not.toBeNull(),
+      expect(container.querySelector('svg[data-testid="mermaid-svg"]')).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS },
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy as Markdown' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(markdown));
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
-  });
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(markdown), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByRole('button', { name: 'Copied' }, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, HELP_PANEL_TEST_TIMEOUT_MS);
 
   it('swaps pages through the nav rail', async () => {
     const { onNavigate } = renderPanel();

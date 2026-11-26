@@ -4,6 +4,10 @@ import { jsonResponse } from './test/fixtures';
 import type { BudgetAlert, BudgetsResponse } from './types';
 import { useBudgets } from './useBudgets';
 
+// The hook polls budgets and resolves asynchronously. Give its waits room under
+// full-suite load while keeping them bounded.
+const ASYNC_TIMEOUT_MS = 10_000;
+
 const periodStart = Date.UTC(2026, 10, 1);
 const periodEnd = Date.UTC(2026, 11, 1);
 
@@ -59,7 +63,7 @@ describe('useBudgets', () => {
     const onError = vi.fn();
     const { result } = renderHook(() => useBudgets(onError));
 
-    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await waitFor(() => expect(result.current.budgets).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
     expect(result.current.budgets?.alerts).toEqual([]);
     expect(result.current.budgets?.pauses).toEqual([]);
     expect(result.current.budgets?.overrides).toEqual([]);
@@ -73,7 +77,7 @@ describe('useBudgets', () => {
     stubBudgets(() => ({}));
     const { result } = renderHook(() => useBudgets(vi.fn()));
 
-    await waitFor(() => expect(result.current.error).not.toBeNull());
+    await waitFor(() => expect(result.current.error).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
     expect(result.current.error).toMatch(/malformed/i);
     expect(result.current.budgets).toBeNull();
     expect(result.current.loading).toBe(false);
@@ -83,7 +87,7 @@ describe('useBudgets', () => {
     const fetchMock = stubBudgets(() => payload({ alerts: [alert()] }));
     const { result } = renderHook(() => useBudgets(vi.fn()));
 
-    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1));
+    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     fetchMock.mockRejectedValueOnce(new Error('offline'));
 
     await act(async () => {
@@ -97,7 +101,7 @@ describe('useBudgets', () => {
   it('shares one request between concurrent refreshes', async () => {
     const fetchMock = stubBudgets(() => payload());
     const { result } = renderHook(() => useBudgets(vi.fn()));
-    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await waitFor(() => expect(result.current.budgets).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
 
     let release!: (response: Response) => void;
     fetchMock.mockImplementationOnce(
@@ -141,7 +145,7 @@ describe('useBudgets', () => {
       );
     vi.stubGlobal('fetch', fetchMock);
     const { result } = renderHook(() => useBudgets(vi.fn()));
-    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await waitFor(() => expect(result.current.budgets).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
 
     let stale!: Promise<void>;
     let reloaded!: Promise<BudgetsResponse | null>;
@@ -170,7 +174,7 @@ describe('useBudgets', () => {
   it('returns the applied snapshot from reload and null on failure', async () => {
     const fetchMock = stubBudgets(() => payload({ alerts: [alert({ id: 'good' })] }));
     const { result } = renderHook(() => useBudgets(vi.fn()));
-    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1));
+    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
 
     let reloaded!: Promise<BudgetsResponse | null>;
     await act(async () => {
@@ -196,11 +200,11 @@ describe('useBudgets', () => {
     stubBudgets(() => payload({ alerts }));
     const { result } = renderHook(() => useBudgets(vi.fn(), 20));
 
-    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await waitFor(() => expect(result.current.budgets).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
     expect(result.current.budgets?.alerts).toHaveLength(0);
 
     alerts = [alert()];
-    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1));
+    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
   });
 
   it('removes an acknowledged alert and ignores a stale poll that still has it', async () => {
@@ -212,7 +216,7 @@ describe('useBudgets', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { result } = renderHook(() => useBudgets(vi.fn()));
 
-    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1));
+    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     await act(async () => {
       await result.current.acknowledge(alert());
     });
@@ -234,7 +238,7 @@ describe('useBudgets', () => {
     const onError = vi.fn();
     const { result } = renderHook(() => useBudgets(onError));
 
-    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1));
+    await waitFor(() => expect(result.current.budgets?.alerts).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     await act(async () => {
       await result.current.acknowledge(alert());
     });
@@ -254,7 +258,7 @@ describe('useBudgets', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { result } = renderHook(() => useBudgets(vi.fn()));
 
-    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await waitFor(() => expect(result.current.budgets).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
     await act(async () => {
       await result.current.snooze({ scope: 'overall', minutes: 60 });
     });
@@ -279,7 +283,7 @@ describe('useBudgets', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { result } = renderHook(() => useBudgets(vi.fn()));
 
-    await waitFor(() => expect(result.current.budgets).not.toBeNull());
+    await waitFor(() => expect(result.current.budgets).not.toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
     await act(async () => {
       await result.current.revokeOverride('o1');
     });

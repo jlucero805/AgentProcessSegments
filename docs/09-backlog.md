@@ -9,7 +9,8 @@ Token/cost tracking is built: `usage_events`, parser normalization, engine captu
 `GET /api/usage`, the **Usage** page, the request Usage card, daily rollups that survive
 raw pruning, advisory monthly overall/per-cell budgets with durable alerts and signed
 webhook, SMTP email, and native Slack/Discord bot delivery with per-cell routing,
-configurable budget-alert and delivery-outbox retention, opt-in hard caps that pause new
+configurable budget-alert, delivery-outbox, and spend-cap override retention, opt-in hard
+caps that pause new
 work and stop in-flight turns in the paused scope, and strict unknown-cost caps that pause
 while any turn is unpriced. Estimated pricing is built too: `model_pricing`, `/api/pricing`, the Config
 page editor, and estimates that never overwrite a harness-reported cost. Deferred work:
@@ -25,7 +26,8 @@ page editor, and estimates that never overwrite a harness-reported cost. Deferre
   destination deduped by its delivery row and credentials redacted.
 - **Hard-cap refinements.** Admission plus in-flight cancellation is built (D65), strict
   unknown-cost enforcement is built (D67), bounded per-scope snoozes are built (D68), their
-  read-only history is built (D83), and grant/extension/expiry notifications are built
+  read-only history is built (D83), their retention is built (D97), and
+  grant/extension/expiry notifications are built
   (D84). A per-event audit ledger, automatic replay of a cap-stopped prompt, a broad
   partial-usage rule for user stop/timeout, and a fail-closed policy for an unreadable
   usage ledger are deferred; caps still fail open when the ledger is unreadable.

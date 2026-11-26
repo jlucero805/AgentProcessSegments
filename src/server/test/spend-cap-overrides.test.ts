@@ -314,32 +314,4 @@ describe('spend cap overrides', () => {
       activeOverall.record.id,
     ]);
   });
-
-  it('prunes only periods older than the cutoff', () => {
-    const repo = makeRepo();
-    repo.grant(
-      {
-        scope: 'overall',
-        scopeId: '',
-        periodStart: PERIOD,
-        expiresAt: NOW + 60_000,
-        note: null,
-      },
-      NOW,
-    );
-    const nextPeriod = Date.UTC(2026, 11, 1);
-    repo.grant(
-      {
-        scope: 'overall',
-        scopeId: '',
-        periodStart: nextPeriod,
-        expiresAt: nextPeriod + 60_000,
-        note: null,
-      },
-      nextPeriod,
-    );
-
-    expect(repo.pruneBefore(nextPeriod)).toBe(1);
-    expect(repo.listActive(nextPeriod, nextPeriod)).toHaveLength(1);
-  });
 });

@@ -476,7 +476,7 @@ describe('http api', () => {
       path: h.config.configPath,
       master: { intervalMinutes: 5, idleMinutes: 10, enabled: true },
       usage: { retentionDays: 90 },
-      retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400, notificationEventsDays: 400 },
+      retention: { masterEventsDays: 90, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400, notificationEventsDays: 400, spendCapOverridesDays: 400 },
     });
 
     const patched = await call('PATCH', '/api/config', {
@@ -522,13 +522,14 @@ describe('http api', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const afterRetention = await call('GET', '/api/config');
     expect(afterRetention.json()).toMatchObject({
       master: { intervalMinutes: 7 },
       usage: { retentionDays: 30 },
-      retention: { masterEventsDays: 30, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400, notificationEventsDays: 400 },
+      retention: { masterEventsDays: 30, cellSummariesDays: 90, requestArtifactsDays: 30, budgetAlertsDays: 400, notificationEventsDays: 400, spendCapOverridesDays: 400 },
     });
 
     const summaryRetentionPatch = await call('PATCH', '/api/config', {
@@ -541,6 +542,7 @@ describe('http api', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const artifactPatch = await call('PATCH', '/api/config', {
@@ -553,6 +555,7 @@ describe('http api', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const afterArtifact = await call('GET', '/api/config');
@@ -562,6 +565,7 @@ describe('http api', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const budgetAlertsPatch = await call('PATCH', '/api/config', {
@@ -574,6 +578,7 @@ describe('http api', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const notificationEventsPatch = await call('PATCH', '/api/config', {
@@ -586,6 +591,30 @@ describe('http api', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 400,
+    });
+
+    const spendCapOverridesPatch = await call('PATCH', '/api/config', {
+      retention: { spendCapOverridesDays: 60 },
+    });
+    expect(spendCapOverridesPatch.status).toBe(200);
+    expect(spendCapOverridesPatch.json().retention).toEqual({
+      masterEventsDays: 30,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
+      notificationEventsDays: 30,
+      spendCapOverridesDays: 60,
+    });
+
+    const afterSpendCapOverrides = await call('GET', '/api/config');
+    expect(afterSpendCapOverrides.json().retention).toEqual({
+      masterEventsDays: 30,
+      cellSummariesDays: 30,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
+      notificationEventsDays: 30,
+      spendCapOverridesDays: 60,
     });
 
     const badRetention = await call('PATCH', '/api/config', {
@@ -614,6 +643,15 @@ describe('http api', () => {
       });
       expect(response.status).toBe(400);
     }
+
+    for (const bad of [-1, 1.5, 3651, 'x']) {
+      const response = await call('PATCH', '/api/config', {
+        retention: { spendCapOverridesDays: bad },
+      });
+      expect(response.status).toBe(400);
+    }
+    const finalConfig = await call('GET', '/api/config');
+    expect(finalConfig.json().retention.spendCapOverridesDays).toBe(60);
   });
 
   it('reports recovered settings warnings until the next save', async () => {

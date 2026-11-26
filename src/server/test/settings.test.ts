@@ -26,7 +26,7 @@ function sentinelSettings(): typeof DEFAULT_SETTINGS {
   saved.master = { ...saved.master, intervalMinutes: 17 };
   saved.summary = { ...saved.summary, windowMinutes: 90 };
   saved.usage = { retentionDays: 30 };
-  saved.retention = { masterEventsDays: 45, cellSummariesDays: 60, requestArtifactsDays: 7, budgetAlertsDays: 30, notificationEventsDays: 30 };
+  saved.retention = { masterEventsDays: 45, cellSummariesDays: 60, requestArtifactsDays: 7, budgetAlertsDays: 30, notificationEventsDays: 30, spendCapOverridesDays: 30 };
   saved.budget = { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true, pauseOnUnknownCost: true };
   saved.notifications.webhook = {
     enabled: true,
@@ -202,6 +202,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
@@ -212,6 +213,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
     expect(legacy.usage).toEqual({ retentionDays: 90 });
     expect(legacy.master).toEqual(DEFAULT_SETTINGS.master);
@@ -230,6 +232,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
     expect(saved.usage).toEqual({ retentionDays: 90 });
     expect(seen).toHaveLength(1);
@@ -239,6 +242,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 30,
@@ -246,6 +250,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -259,6 +264,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const forever = store.patch({ retention: { masterEventsDays: 0 } });
@@ -268,6 +274,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
   });
 
@@ -280,6 +287,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 30,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
   });
 
@@ -297,6 +305,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
     expect(seen).toHaveLength(1);
     expect(new SettingsStore(file).get().retention).toEqual({
@@ -305,6 +314,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -318,6 +328,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const forever = store.patch({ retention: { cellSummariesDays: 0 } });
@@ -327,6 +338,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
   });
 
@@ -344,6 +356,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
     expect(seen).toHaveLength(1);
     expect(new SettingsStore(file).get().retention).toEqual({
@@ -352,6 +365,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -365,6 +379,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
 
     const forever = store.patch({ retention: { requestArtifactsDays: 0 } });
@@ -374,6 +389,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 0,
       budgetAlertsDays: 400,
       notificationEventsDays: 400,
+      spendCapOverridesDays: 400,
     });
   });
 
@@ -386,6 +402,7 @@ describe('SettingsStore', () => {
         cellSummariesDays: 60,
         requestArtifactsDays: 7,
         notificationEventsDays: 30,
+        spendCapOverridesDays: 30,
       },
     });
     const seen: unknown[] = [];
@@ -398,6 +415,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 30,
     });
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).retention).toEqual({
@@ -406,6 +424,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 30,
     });
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 45,
@@ -413,6 +432,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 30,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -426,6 +446,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 30,
     });
   });
 
@@ -450,6 +471,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 400,
     });
     expect(seen).toHaveLength(1);
     expect(JSON.parse(readFileSync(file, 'utf8')).retention).toEqual({
@@ -458,6 +480,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 400,
     });
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 45,
@@ -465,6 +488,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -478,6 +502,7 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 30,
+      spendCapOverridesDays: 400,
     });
 
     const forever = store.patch({ retention: { notificationEventsDays: 0 } });
@@ -487,7 +512,34 @@ describe('SettingsStore', () => {
       requestArtifactsDays: 7,
       budgetAlertsDays: 30,
       notificationEventsDays: 0,
+      spendCapOverridesDays: 400,
     });
+  });
+
+  it('patches spend-cap override retention alone and rejects invalid values', () => {
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(sentinelSettings()));
+    const store = new SettingsStore(file);
+
+    const saved = store.patch({ retention: { spendCapOverridesDays: 60 } });
+    expect(saved.retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 60,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
+      notificationEventsDays: 30,
+      spendCapOverridesDays: 60,
+    });
+    expect(JSON.parse(readFileSync(file, 'utf8')).retention).toEqual(
+      saved.retention,
+    );
+
+    for (const bad of [-1, 1.5, 3651, 'x']) {
+      expect(() =>
+        store.patch({ retention: { spendCapOverridesDays: bad as number } }),
+      ).toThrow();
+    }
+    expect(store.get().retention.spendCapOverridesDays).toBe(60);
   });
 
   it('merges a patch, writes atomically, and notifies listeners', () => {

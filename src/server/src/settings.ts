@@ -48,11 +48,13 @@ import {
   DEFAULT_MASTER_EVENTS_RETENTION_DAYS,
   DEFAULT_NOTIFICATION_EVENTS_RETENTION_DAYS,
   DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
+  DEFAULT_SPEND_CAP_OVERRIDES_RETENTION_DAYS,
   MAX_BUDGET_ALERTS_RETENTION_DAYS,
   MAX_CELL_SUMMARIES_RETENTION_DAYS,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
   MAX_NOTIFICATION_EVENTS_RETENTION_DAYS,
   MAX_REQUEST_ARTIFACTS_RETENTION_DAYS,
+  MAX_SPEND_CAP_OVERRIDES_RETENTION_DAYS,
   type RetentionSettings,
 } from './retention/settings.js';
 import { SUMMARY_DERIVED_NOTE, type SummaryConfig } from './summary/types.js';
@@ -118,6 +120,7 @@ const retentionSchema = z.object({
   requestArtifactsDays: z.number().int().min(0).max(MAX_REQUEST_ARTIFACTS_RETENTION_DAYS),
   budgetAlertsDays: z.number().int().min(0).max(MAX_BUDGET_ALERTS_RETENTION_DAYS),
   notificationEventsDays: z.number().int().min(0).max(MAX_NOTIFICATION_EVENTS_RETENTION_DAYS),
+  spendCapOverridesDays: z.number().int().min(0).max(MAX_SPEND_CAP_OVERRIDES_RETENTION_DAYS),
 }) satisfies z.ZodType<RetentionSettings>;
 
 const webhookSchema: z.ZodType<WebhookSettings, unknown> = z
@@ -437,6 +440,7 @@ const settingsSchema = z.object({
     requestArtifactsDays: DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
     budgetAlertsDays: DEFAULT_BUDGET_ALERTS_RETENTION_DAYS,
     notificationEventsDays: DEFAULT_NOTIFICATION_EVENTS_RETENTION_DAYS,
+    spendCapOverridesDays: DEFAULT_SPEND_CAP_OVERRIDES_RETENTION_DAYS,
   }),
   // A legacy config with only `master`/`summary` loads with the default budget.
   budget: budgetSchema.default(() => ({ ...DEFAULT_BUDGET_SETTINGS })),
@@ -470,6 +474,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     requestArtifactsDays: DEFAULT_REQUEST_ARTIFACTS_RETENTION_DAYS,
     budgetAlertsDays: DEFAULT_BUDGET_ALERTS_RETENTION_DAYS,
     notificationEventsDays: DEFAULT_NOTIFICATION_EVENTS_RETENTION_DAYS,
+    spendCapOverridesDays: DEFAULT_SPEND_CAP_OVERRIDES_RETENTION_DAYS,
   },
   budget: { ...DEFAULT_BUDGET_SETTINGS },
   notifications: {

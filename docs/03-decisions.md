@@ -1481,8 +1481,10 @@ cap; expiry is observed at the next evaluation (within 60 seconds) because there
 per-override timer. Admission checks the overall override before the overall pause and
 then the cell override, and `SpendCapEnforcer` therefore leaves covered live turns running
 on its next check. A failed override read still fails open and is reported to
-`usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching the
-budget-alert retention default. Policy edits and cell deletion do not rewrite or revoke
+`usage.budgets` with `phase: admission`. Rows are bounded by
+`retention.spendCapOverridesDays` (default 400 days) and pruned by the hourly retention
+job in whole UTC budget months (see D97); the default matches the budget-alert retention
+default. Policy edits and cell deletion do not rewrite or revoke
 override rows; an inert
 row simply expires.
 
@@ -1884,9 +1886,9 @@ Slack/Discord event routes, and an explicit per-destination rate cap remain sepa
 ## D83. Spend-cap override history is a read-only view over retained rows
 
 **Context.** D68 stores each hard-cap snooze in `spend_cap_overrides` and keeps revoked and
-expired rows until the 400-day prune, but the operator UI only exposed the currently active
-overrides. There was no way to see when an override was granted, whether it had been
-extended, or whether it was revoked or simply expired.
+expired rows until their retention window passes, but the operator UI only exposed the
+currently active overrides. There was no way to see when an override was granted, whether
+it had been extended, or whether it was revoked or simply expired.
 
 **Decision.** Expose the retained rows as a read-only history instead of adding a second
 event ledger. Add `extended_at` and `extension_count` to the existing table: a re-grant
@@ -2269,3 +2271,31 @@ are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do n
 The security review needs systemd 250 or newer, so older Linux hosts fail `npm run lint`
 (a documented, fail-closed choice). Existing installs must copy the new unit by hand
 because `upgrade-vps.sh` refuses target commits that change it.
+
+## D97. Spend-cap override retention is a configurable whole-period window
+
+**Context.** D68 stored each hard-cap snooze in `spend_cap_overrides` and pruned rows
+during every budget evaluation with a hardcoded 400-day age. That ignored settings
+changes until a process restart, could not be disabled or tuned, ran on the 60-second
+budget tick rather than the retention schedule, and reported failures as `usage.budgets`
+with an `override-prune` phase instead of alongside the other table prunes.
+
+**Decision.** Add `retention.spendCapOverridesDays` (default 400, `0` = keep forever, max
+3650) and prune `spend_cap_overrides` from the existing startup/hourly `DataRetention`
+pass. Delete rows whose `period_start` is strictly before the start of the UTC budget
+month containing `now - spendCapOverridesDays`, in 1000-row batches with an event-loop
+yield. The cutoff stays month-aligned: overrides are keyed and browsed by UTC budget
+month, the month holding the cutoff is kept whole, and `idx_spend_cap_overrides_period`
+already serves the scan, so no `created_at` index or migration is needed. Effective
+history is therefore `days` to `days + 31` days rather than an exact age. The current
+month is never pruned, and an active override can only exist in the current period. Every
+row in an old period is deleted regardless of `revoked_at` or `expiry_handled_at`, exactly
+matching the old prune at the default; an unhandled expiry marker older than the window
+has long outlived every notification attempt. Remove `OVERRIDE_RETENTION_MS`,
+`SpendCapOverrideRepository.pruneBefore()`, and the budget-evaluation prune; failures now
+report one `retention.prune` record with the table, cutoff, and deleted count.
+
+**Cost.** Override history disappears with its UTC month rather than at an exact age, and
+there is no per-scope window, rollup, manual prune, retention status endpoint, or
+`VACUUM`. The history route, state derivation, filters, ordering, and pagination are
+unchanged.

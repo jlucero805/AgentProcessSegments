@@ -153,6 +153,7 @@ describe('api client', () => {
     await api.patchConfig({ retention: { requestArtifactsDays: 7 } });
     await api.patchConfig({ retention: { budgetAlertsDays: 30 } });
     await api.patchConfig({ retention: { notificationEventsDays: 30 } });
+    await api.patchConfig({ retention: { spendCapOverridesDays: 60 } });
 
     const calls = fetchMock.mock.calls.map((call) => ({
       url: String(call[0]),
@@ -188,6 +189,10 @@ describe('api client', () => {
     expect(calls[9]?.url).toBe('/api/config');
     expect(calls[9]?.init?.body).toBe(
       JSON.stringify({ retention: { notificationEventsDays: 30 } }),
+    );
+    expect(calls[10]?.url).toBe('/api/config');
+    expect(calls[10]?.init?.body).toBe(
+      JSON.stringify({ retention: { spendCapOverridesDays: 60 } }),
     );
   });
 

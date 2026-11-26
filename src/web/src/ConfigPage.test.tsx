@@ -44,6 +44,7 @@ const retention: RetentionSettings = {
   requestArtifactsDays: 30,
   budgetAlertsDays: 400,
   notificationEventsDays: 400,
+  spendCapOverridesDays: 400,
 };
 
 const cell: Cell = {
@@ -1063,6 +1064,35 @@ describe('ConfigPage', () => {
     expect(captured.config?.usage).toBeUndefined();
     expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(events).toHaveValue(30);
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
+
+  it('loads and saves spend cap override retention independently', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    const overrides = await screen.findByRole('spinbutton', {
+      name: 'Spend cap override retention (days)',
+    }, { timeout: ASYNC_TIMEOUT_MS });
+    expect(overrides).toHaveValue(400);
+    expect(overrides).toHaveAttribute('min', '0');
+    expect(overrides).toHaveAttribute('max', '3650');
+    expect(overrides).toHaveAttribute('step', '1');
+    expect(
+      screen.getByText('0 keeps override history forever'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/current UTC budget month is kept whole/)).toBeInTheDocument();
+
+    fireEvent.change(overrides, { target: { value: '60' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save spend cap override retention' }),
+    );
+
+    await waitFor(() =>
+      expect(captured.config?.retention).toEqual({ spendCapOverridesDays: 60 }), { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(captured.config?.usage).toBeUndefined();
+    expect(await screen.findByText('Saved', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(overrides).toHaveValue(60);
   }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('loads and saves request artifact retention independently', async () => {

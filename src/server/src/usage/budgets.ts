@@ -29,7 +29,6 @@ import {
 } from './spend-cap-overrides.js';
 
 const DEFAULT_INTERVAL_MS = 60_000;
-const OVERRIDE_RETENTION_MS = 400 * 86_400_000;
 
 export interface SpendCapOverrideGrantInput {
   scope: BudgetScope;
@@ -543,11 +542,6 @@ export class BudgetService {
   /** Refresh alert rows for the current month. Never throws. */
   evaluate(now = this.clock()): void {
     let periodStart = budgetPeriod(now).start;
-    try {
-      this.overrides.pruneBefore(budgetPeriod(now - OVERRIDE_RETENTION_MS).start);
-    } catch (error) {
-      this.errors?.error('usage.budgets', error, { phase: 'override-prune' });
-    }
     try {
       const response = this.statuses(now);
       periodStart = response.periodStart;

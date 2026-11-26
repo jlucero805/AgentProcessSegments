@@ -124,7 +124,8 @@ export function SpendOverrideHistory({
       <p className="text-xs text-zinc-500">
         Read-only history of hard-cap snoozes across retained UTC months. Active means the
         window is still open; the Spend budgets status above shows whether that scope is
-        currently paused. History is kept for 400 days.
+        currently paused. History follows the Spend cap override retention window on this
+        page.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">

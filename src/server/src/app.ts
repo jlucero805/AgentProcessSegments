@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { BrainLock } from './brain-lock.js';
 import { CellRepository } from './cells/repository.js';
 import { CellDraftStore } from './cells/drafts.js';
 import { Engine } from './clarify/engine.js';
@@ -51,9 +52,18 @@ export async function main(): Promise<void> {
   const blankPaths = blankPathWarning(blankPathEnvNames(process.env));
   if (blankPaths) console.warn(blankPaths);
   const errors = new ErrorLogger(config.errorLogPath, { maxBytes: config.errorLogMaxBytes });
+  let brainLock: BrainLock | null = null;
 
   try {
     const db = openDb(config.dbPath);
+    if (config.brainLock) {
+      brainLock = new BrainLock({
+        dataDir: config.dataDir,
+        port: config.port,
+        errors,
+      });
+      brainLock.start();
+    }
 
     const repo = new RequestRepository(db);
     const cells = new CellRepository(db);
@@ -227,11 +237,13 @@ export async function main(): Promise<void> {
       app.server.closeAllConnections();
       await closing.catch(() => {});
       db.close();
+      brainLock?.stop();
       process.exit(0);
     };
     process.on('SIGINT', () => void shutdown());
     process.on('SIGTERM', () => void shutdown());
   } catch (error) {
+    brainLock?.stop();
     errors.error('app.startup', error);
     throw error;
   }

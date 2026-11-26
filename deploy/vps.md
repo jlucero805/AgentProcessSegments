@@ -391,15 +391,20 @@ variables (names only, never values); rename them to `APS_*` to clear it.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
 `sandbox-harness.service` is active in either user or system scope, while a visible
-process still has the legacy data, config, state, or SQLite paths open, or while a
-brain answers its health endpoint. On Linux the script checks `/proc` for open file
-descriptors and cwds, so a foreground/dev brain or a custom unit name is caught when
-the process is visible. It also requests
+process still has the legacy data, config, state, or SQLite paths open, while a
+brain answers its health endpoint, or while an opt-in brain lock is fresh. On Linux the
+script checks `/proc` for open file descriptors and cwds, so a foreground/dev brain or a
+custom unit name is caught when the process is visible. It also requests
 `http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health`; pass `--brain-url` to probe a
-container, tunnel, or another host instead. Stop the brain or process first;
-`--allow-running` bypasses all three guards and can corrupt an open SQLite database. A
-brain whose port is unpublished or unreachable, a non-HTTP holder, or a process hidden
-by permissions is still not detected.
+container, tunnel, or another host instead. For a brain whose HTTP port is not reachable
+at all, start it with `APS_BRAIN_LOCK=1`: it writes `<data-dir>/brain.lock` and refreshes
+it every 10 s, and the migration treats a lock younger than 60 s as live. The brain must
+be upgraded and restarted with the variable, and its data directory must be on storage
+shared with the machine running the migration; `--brain-lock FILE` checks a different
+heartbeat path. Stop the brain or process first; `--allow-running` bypasses all four
+guards and can corrupt an open SQLite database. A brain that did not opt in, a shared
+database whose data directory is not shared, a non-HTTP or non-file holder, or a process
+hidden by permissions is still not detected.
 
 To move the data and the service to the new names:
 
@@ -528,9 +533,12 @@ Notes for similar installs:
   stop kills every child. `--allow-busy` skips the drain and accepts that loss; use it
   only for an emergency.
 - The cutover stops the old unit before calling `migrate-paths` and waits for the port
-  to stop answering, so the unit, `/proc`, and brain health probes pass without a flag.
-  Do not add `--allow-running` to the cutover: moving while a brain unit, process, or
-  health endpoint is active can corrupt the database.
+  to stop answering, so the unit, `/proc`, health, and brain-lock guards pass without a
+  flag. The cutover does not enable the lock. Do not add `--allow-running`: moving while
+  a brain unit, process, health endpoint, or fresh lock is active can corrupt the
+  database. If the previous process was killed without a graceful stop, a fresh
+  `brain.lock` can make the migration refuse for up to 60 s; wait for it to go stale and
+  retry instead of bypassing the guard.
 - Moving the clone and `~/.sandbox-harness` breaks absolute gitdir links. The script
   runs `git worktree repair` and `git worktree prune`; verify the worktree used by the
   request that launched the cutover before resuming it.

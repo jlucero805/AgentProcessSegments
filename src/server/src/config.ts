@@ -22,6 +22,12 @@ function parseHarness(raw: string | undefined): HarnessId {
   return raw;
 }
 
+/** Opt-in flags accept `1` or `true`; an unset, blank, or other value is off. */
+function parseEnabledFlag(raw: string | undefined): boolean {
+  const value = raw?.trim().toLowerCase();
+  return value === '1' || value === 'true';
+}
+
 export interface Config {
   host: string;
   port: number;
@@ -31,6 +37,8 @@ export interface Config {
   dataDir: string;
   pluginsDir: string;
   brainUrl: string;
+  /** Opt-in heartbeat file that `migrate-paths` can read without the HTTP port. */
+  brainLock: boolean;
   harness: HarnessId;
   /** One binary per adapter, so a mixed-harness brain can find both CLIs. */
   harnessBins: Record<HarnessId, string>;
@@ -213,6 +221,7 @@ export function loadConfig(
     pluginsDir:
       readNonEmptyEnv(env, 'PLUGINS_DIR') ?? path.join(data.path, 'plugins'),
     brainUrl: readEnv(env, 'BRAIN_URL') ?? `http://127.0.0.1:${port}`,
+    brainLock: parseEnabledFlag(readEnv(env, 'BRAIN_LOCK')),
     harness,
     harnessBins,
     configPath: config.path,

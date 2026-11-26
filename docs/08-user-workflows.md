@@ -441,6 +441,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Event delivery outbox | `notification_event_deliveries` in SQLite, one row per signature and channel, with the safe classification payload; terminal rows expire under `retention.notificationEventsDays` |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
+| Brain heartbeat (opt-in) | `$APS_DATA_DIR/brain.lock` when `APS_BRAIN_LOCK=1`; refreshed every 10 s so `migrate-paths` can detect a live brain without its HTTP port |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |
 | Master chat | reserved `__master__` transcript |
 

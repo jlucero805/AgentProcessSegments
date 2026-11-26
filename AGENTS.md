@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 977 vitest cases: 765 server across 49 files and 212 web across 24 files, all green.
+- 982 vitest cases: 770 server across 49 files and 212 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -98,7 +98,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 765 server + 212 web, plus the e2e env guard
+npm test                       # 770 server + 212 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -500,6 +500,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `0700`; an existing parent (usually the repo/cwd) is never chmodded. `:memory:` keeps
     no files. A chmod failure propagates. This is not encryption at rest; root can still
     read the files.
+41. **Never overwrite conversation state you could not parse.** A missing
+    `session.json` or `transcript.json` is empty state. A file that exists but cannot be
+    read (`EACCES`, `EISDIR`, ...), is invalid JSON, or has the wrong root shape is
+    reported once per path per process as `engine.session.unreadable` or
+    `engine.transcript.unreadable` with `session`, `file`, and a safe reason
+    (`unreadable: <code>`, `invalid JSON`, `not a JSON object|array`), then moved to
+    `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write. Reads
+    return the empty fallback and never move or create a file. If the quarantine rename
+    fails, skip the write and log `preserved: false`; never overwrite the old bytes. Do
+    not log file contents, prompts, or raw parser text: transcripts can contain secrets.
+    The bulk `npm run repair:permissions` scan stays exact-name and does not include
+    quarantine files.
 
 ## Extension recipes
 

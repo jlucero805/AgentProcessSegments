@@ -48,6 +48,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `engine.result` | The harness reports an error result or parser error event; includes `session`, `harness`, and `request` when present. The message is the capped result text, never the transcript. |
 | `engine.exit` | An agent process exits before completing a turn (includes recent stderr) |
 | `engine.timeout` | A turn exceeds `APS_TURN_TIMEOUT_MS`; the child is killed and the turn is closed |
+| `engine.session.unreadable` / `engine.transcript.unreadable` | A conversation-state file exists but cannot be read or parsed. Includes `session`, `file`, a short `reason` (`unreadable: <code>`, `invalid JSON`, `not a JSON object|array`), and `preserved` (the quarantine path) when known. Missing files are silent, each file is recorded once per process, and the message/context never include file contents, prompts, or raw parser text. |
 | `master.turn` | A master turn fails for a request (cell, request, segment) |
 | `master.cycle` | A scheduler cycle rejects unexpectedly |
 | `summary.generate` | A scorecard turn fails, times out without text, or returns no text (cell id only) |

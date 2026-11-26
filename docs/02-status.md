@@ -137,7 +137,9 @@ built and vended by the brain; real-CLI verification is still pending.
   before deleting them; checked-out orphans are skipped.
 - Request workdirs: `npm run repair:permissions` tightens existing `requests/` dirs to
   `0700` and session/transcript/harness config files to `0600` (dry run by default;
-  `--apply` to change). It never recurses into `cwd/` checkouts.
+  `--apply` to change). It never recurses into `cwd/` checkouts. A missing state file is
+  empty; an unreadable or invalid one is reported and moved to
+  `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -355,7 +357,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 977 vitest cases, all passing: 765 server across 49 files and 212 web across 24 files,
+- 982 vitest cases, all passing: 770 server across 49 files and 212 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

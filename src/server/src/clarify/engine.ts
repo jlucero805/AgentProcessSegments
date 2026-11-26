@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { chmodSync, readFileSync, renameSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Config } from '../config.js';
@@ -28,6 +28,8 @@ import { SpendCapError, spendPauseInterruptMessage } from '../usage/spend-cap.js
 import type { UsageScope } from '../usage/types.js';
 import { errorMessage } from '../util/errors.js';
 import { ensurePrivateDir, writePrivateFile } from '../util/files.js';
+import { isRecord } from '../util/json.js';
+import { warnOnce } from '../util/warn-once.js';
 import type {
   AgentHarness,
   HarnessRegistry,
@@ -102,6 +104,12 @@ interface StoredUsage {
   reasoningTokens: number;
   costUsd: number | null;
 }
+
+/** Outcome of reading a persisted conversation-state file. */
+type StateRead<T> =
+  | { status: 'ok'; value: T }
+  | { status: 'missing' }
+  | { status: 'unreadable'; reason: string };
 
 const EMPTY_USAGE: StoredUsage = {
   inputTokens: 0,
@@ -837,16 +845,118 @@ export class Engine {
     return proc;
   }
 
-  private readStoredSession(id: string): Partial<StoredSession> | null {
+  private stateFile(id: string, name: 'session.json' | 'transcript.json'): string {
+    return path.join(requestDir(this.config, id), name);
+  }
+
+  private readState<T>(
+    file: string,
+    shapeReason: string,
+    accept: (value: unknown) => T | null,
+  ): StateRead<T> {
+    let raw: string;
     try {
-      const raw = readFileSync(path.join(requestDir(this.config, id), 'session.json'), 'utf8');
-      const parsed: unknown = JSON.parse(raw);
-      return typeof parsed === 'object' && parsed !== null
-        ? (parsed as Partial<StoredSession>)
-        : null;
-    } catch {
-      return null;
+      raw = readFileSync(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'missing' };
+      const code = (error as NodeJS.ErrnoException).code;
+      return { status: 'unreadable', reason: `unreadable: ${code ?? 'unknown'}` };
     }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Node's parser message quotes the input; never copy it into a log.
+      return { status: 'unreadable', reason: 'invalid JSON' };
+    }
+
+    const value = accept(parsed);
+    return value === null
+      ? { status: 'unreadable', reason: shapeReason }
+      : { status: 'ok', value };
+  }
+
+  private sessionState(id: string): StateRead<Partial<StoredSession>> {
+    return this.readState(this.stateFile(id, 'session.json'), 'not a JSON object', (value) =>
+      isRecord(value) ? (value as Partial<StoredSession>) : null,
+    );
+  }
+
+  private transcriptState(id: string): StateRead<TranscriptMsg[]> {
+    return this.readState(this.stateFile(id, 'transcript.json'), 'not a JSON array', (value) =>
+      Array.isArray(value) ? (value as TranscriptMsg[]) : null,
+    );
+  }
+
+  /** Report an unreadable state file once per path for the life of the process. */
+  private reportState(
+    id: string,
+    kind: 'session' | 'transcript',
+    file: string,
+    reason: string,
+    preserved?: string,
+  ): void {
+    const message = preserved
+      ? `preserved unreadable ${kind} state at ${preserved}: ${reason}`
+      : `ignoring unreadable ${kind} state at ${file}: ${reason}; it is moved aside before the next write`;
+    if (!warnOnce(`engine-state:${file}`, message)) return;
+    this.deps.errors?.error(`engine.${kind}.unreadable`, new Error(reason), {
+      session: id,
+      file,
+      reason,
+      ...(preserved ? { preserved } : {}),
+    });
+  }
+
+  /**
+   * Move an unreadable state file aside before a write. Returns false when the
+   * old bytes could not be preserved, so the caller must skip the write.
+   */
+  private preserveState<T>(
+    id: string,
+    kind: 'session' | 'transcript',
+    file: string,
+    state: StateRead<T>,
+  ): boolean {
+    if (state.status !== 'unreadable') return true;
+
+    const target = `${file}.unreadable-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    try {
+      renameSync(file, target);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+      this.deps.errors?.error(
+        `engine.${kind}.unreadable`,
+        new Error(`quarantine failed: ${code}`),
+        { session: id, file, reason: state.reason, preserved: false },
+      );
+      console.warn(`refusing to overwrite unreadable ${kind} state at ${file}: ${state.reason}`);
+      return false;
+    }
+
+    try {
+      chmodSync(target, 0o600);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+      this.deps.errors?.error(
+        `engine.${kind}.unreadable`,
+        new Error(`quarantine chmod failed: ${code}`),
+        { session: id, file, reason: state.reason, preserved: target, chmod: false },
+      );
+    }
+
+    this.reportState(id, kind, file, state.reason, target);
+    return true;
+  }
+
+  private readStoredSession(id: string): Partial<StoredSession> | null {
+    const state = this.sessionState(id);
+    if (state.status === 'ok') return state.value;
+    if (state.status === 'unreadable') {
+      this.reportState(id, 'session', this.stateFile(id, 'session.json'), state.reason);
+    }
+    return null;
   }
 
   private readSession(id: string, expectedHarness: HarnessId): string | null {
@@ -860,11 +970,11 @@ export class Engine {
 
   private writeSession(id: string, harness: HarnessId, sessionId: string): void {
     const dir = this.privateDir(id);
-    const current = this.readStoredSession(id);
-    writePrivateFile(
-      path.join(dir, 'session.json'),
-      JSON.stringify({ ...current, harness, sessionId }, null, 2),
-    );
+    const file = path.join(dir, 'session.json');
+    const state = this.sessionState(id);
+    if (!this.preserveState(id, 'session', file, state)) return;
+    const current = state.status === 'ok' ? state.value : null;
+    writePrivateFile(file, JSON.stringify({ ...current, harness, sessionId }, null, 2));
   }
 
   private readStoredUsage(id: string): StoredUsage {
@@ -882,26 +992,28 @@ export class Engine {
 
   private writeStoredUsage(id: string, usage: StoredUsage): void {
     const dir = this.privateDir(id);
-    const current = this.readStoredSession(id);
-    writePrivateFile(
-      path.join(dir, 'session.json'),
-      JSON.stringify({ ...current, usage }, null, 2),
-    );
+    const file = path.join(dir, 'session.json');
+    const state = this.sessionState(id);
+    if (!this.preserveState(id, 'session', file, state)) return;
+    const current = state.status === 'ok' ? state.value : null;
+    writePrivateFile(file, JSON.stringify({ ...current, usage }, null, 2));
   }
 
   private loadTranscript(id: string): TranscriptMsg[] {
-    try {
-      const raw = readFileSync(path.join(requestDir(this.config, id), 'transcript.json'), 'utf8');
-      const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as TranscriptMsg[]) : [];
-    } catch {
-      return [];
+    const state = this.transcriptState(id);
+    if (state.status === 'ok') return state.value;
+    if (state.status === 'unreadable') {
+      this.reportState(id, 'transcript', this.stateFile(id, 'transcript.json'), state.reason);
     }
+    return [];
   }
 
   private saveTranscript(id: string, transcript: TranscriptMsg[]): void {
     const dir = this.privateDir(id);
-    writePrivateFile(path.join(dir, 'transcript.json'), JSON.stringify(transcript, null, 2));
+    const file = path.join(dir, 'transcript.json');
+    const state = this.transcriptState(id);
+    if (!this.preserveState(id, 'transcript', file, state)) return;
+    writePrivateFile(file, JSON.stringify(transcript, null, 2));
   }
 
   private appendUserMessage(id: string, text: string): void {

@@ -1589,3 +1589,32 @@ worktrees, SQLite, the error log, or unrelated siblings, and never opens the dat
 encryption at rest and root can still read the files. A boot-time recursive repair is
 rejected because `cwd/` contains unrelated git checkouts and repository files. The
 automatic post-upgrade hook and the error-log/data-root modes are separate work.
+
+## D75. Unreadable conversation state is reported and preserved
+
+**Context.** `readStoredSession` and `loadTranscript` treated every failure as empty
+state: a missing file, an `EACCES`/`EISDIR` read error, torn JSON, or a valid JSON value
+of the wrong root shape all became `null` / `[]`. The next `writeSession`,
+`writeStoredUsage`, or `saveTranscript` then replaced the file, destroying the only copy
+of the transcript or the adapter session id. D58/D73/D74 fixed modes and repairs but
+deliberately left the read paths alone.
+
+**Decision.** Add a three-state engine reader: only `ENOENT` is "missing"; any other
+read error, invalid JSON, a non-array `transcript.json`, or a non-object
+`session.json` is "unreadable". Reads still return the empty fallback and never mutate a
+file, but report the first unreadable observation per path per process (error sink plus
+`console.warn`, shared `warnOnce` key) with `session`, `file`, and a safe reason
+(`unreadable: <code>`, `invalid JSON`, `not a JSON object`, `not a JSON array`). Before a
+write to an unreadable file, rename it to `<name>.unreadable-<timestamp>-<random>` in the
+same directory, chmod `0600`, then write through `writePrivateFile`. If the rename fails,
+log `preserved: false` and skip the write rather than throw; `finishTurn` calls
+`saveTranscript` from a `finally`, so a throw there would strand the turn. Never copy
+`JSON.parse` text or file contents into a log. The bulk `repair:permissions` scan stays
+exact-name and does not include quarantine files.
+
+**Cost.** The old transcript is preserved but not merged: the live transcript restarts
+from messages produced after the corruption. A corrupt `session.json` cannot be resumed,
+so the next turn starts a fresh harness session. Quarantined files accumulate until
+artifact retention deletes the whole workdir, and the request UI still shows the empty
+fallback (follow-up `48054349`). There is no size cap or CLI for quarantine files, no
+JSON salvage, and no encryption at rest; root can still read them.

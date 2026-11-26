@@ -733,7 +733,12 @@ defaults.
   (`mcp-config.json` or `opencode/opencode.json`). The `requests/` parent and each
   `<id>` workdir are created `0700`; `transcript.json` and `session.json` are written
   atomically with mode `0600`. A loose workdir or file left by an older version is
-  repaired on the next write. Existing installs can repair every workdir at once with
+  repaired on the next write. A missing state file is normal empty state. A state file
+  that exists but cannot be read or parsed is reported once per path per process as
+  `engine.session.unreadable` / `engine.transcript.unreadable` and renamed to
+  `<name>.unreadable-<timestamp>-<random>` (`0600`) immediately before the next write,
+  so unreadable bytes are never overwritten; reads keep the empty fallback and never
+  move a file. Existing installs can repair every workdir at once with
   `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
   artifacts and never recurses into `cwd/` checkouts. Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**

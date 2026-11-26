@@ -841,6 +841,152 @@ describe('turn engine', () => {
     },
   );
 
+  it('treats missing conversation state as empty without reporting', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = { error: vi.fn() };
+    const h = freshWithErrors(() => defaultScript(), errors);
+    const request = h.repo.create({ title: 'Missing state' });
+
+    expect(h.engine.transcript(request.id)).toEqual([]);
+    expect(errors.error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(existsSync(requestDir(h.config, request.id))).toBe(false);
+
+    warn.mockRestore();
+  });
+
+  it('reports but does not move a corrupt transcript', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = { error: vi.fn() };
+    const h = freshWithErrors(() => defaultScript(), errors);
+    const request = h.repo.create({ title: 'Corrupt transcript read' });
+    const dir = requestDir(h.config, request.id);
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'transcript.json');
+    const payload = '{"secret":"tok-123",';
+    writeFileSync(file, payload);
+
+    expect(h.engine.transcript(request.id)).toEqual([]);
+    expect(h.engine.transcript(request.id)).toEqual([]);
+
+    expect(readFileSync(file, 'utf8')).toBe(payload);
+    expect(readdirSync(dir).filter((name) => name.includes('.unreadable-'))).toEqual([]);
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith(
+      'engine.transcript.unreadable',
+      expect.any(Error),
+      { session: request.id, file, reason: 'invalid JSON' },
+    );
+    expect(String(errors.error.mock.calls[0]?.[1])).toBe('Error: invalid JSON');
+    expect(JSON.stringify(errors.error.mock.calls[0])).not.toContain('tok-123');
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves a corrupt transcript before the next write',
+    () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errors = { error: vi.fn() };
+      const h = freshWithErrors(() => defaultScript(), errors);
+      const request = h.repo.create({ title: 'Corrupt transcript write' });
+      const dir = requestDir(h.config, request.id);
+      mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'transcript.json');
+      const payload = '{"secret":"tok-123",';
+      writeFileSync(file, payload);
+
+      h.engine.note(request.id, 'after');
+
+      const names = readdirSync(dir);
+      const quarantine = names.find((name) => name.startsWith('transcript.json.unreadable-'));
+      expect(quarantine).toBeDefined();
+      if (!quarantine) throw new Error('quarantine file missing');
+
+      const quarantineFile = path.join(dir, quarantine);
+      expect(readFileSync(quarantineFile, 'utf8')).toBe(payload);
+      expect(modeOf(quarantineFile)).toBe(0o600);
+      expect(modeOf(file)).toBe(0o600);
+      expect(names.filter((name) => name.includes('.tmp-'))).toEqual([]);
+      expect(h.engine.transcript(request.id)).toMatchObject([
+        { role: 'agent', kind: 'text', text: 'after' },
+      ]);
+
+      warn.mockRestore();
+    },
+  );
+
+  it('quarantines a corrupt session file during a turn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = { error: vi.fn() };
+    const h = freshWithErrors(() => defaultScript(), errors);
+    const request = h.repo.create({ title: 'Corrupt session turn' });
+    const dir = requestDir(h.config, request.id);
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'session.json');
+    writeFileSync(file, '[]');
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith('engine.session.unreadable', expect.any(Error), {
+      session: request.id,
+      file,
+      reason: 'not a JSON object',
+    });
+
+    const names = readdirSync(dir);
+    const quarantine = names.find((name) => name.startsWith('session.json.unreadable-'));
+    expect(quarantine).toBeDefined();
+    if (!quarantine) throw new Error('quarantine file missing');
+    expect(readFileSync(path.join(dir, quarantine), 'utf8')).toBe('[]');
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({
+      harness: 'claude',
+      sessionId: 'session-1',
+    });
+    expect(turn.events.some((event) => event.t === 'done')).toBe(true);
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
+    expect(names.filter((name) => name.includes('.tmp-'))).toEqual([]);
+
+    warn.mockRestore();
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'quarantines a transcript path that is not a regular file',
+    () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errors = { error: vi.fn() };
+      const h = freshWithErrors(() => defaultScript(), errors);
+      const request = h.repo.create({ title: 'Transcript is a directory' });
+      const dir = requestDir(h.config, request.id);
+      mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'transcript.json');
+      mkdirSync(file);
+
+      h.engine.note(request.id, 'after');
+
+      expect(errors.error).toHaveBeenCalledWith(
+        'engine.transcript.unreadable',
+        expect.any(Error),
+        { session: request.id, file, reason: 'unreadable: EISDIR' },
+      );
+      const names = readdirSync(dir);
+      const quarantine = names.find((name) => name.startsWith('transcript.json.unreadable-'));
+      expect(quarantine).toBeDefined();
+      if (!quarantine) throw new Error('quarantine directory missing');
+      expect(statSync(path.join(dir, quarantine)).isDirectory()).toBe(true);
+      expect(statSync(file).isFile()).toBe(true);
+      expect(h.engine.transcript(request.id)).toMatchObject([
+        { role: 'agent', kind: 'text', text: 'after' },
+      ]);
+
+      warn.mockRestore();
+    },
+  );
+
   it('runs a separate setup chat for the cell wizard', async () => {
     const h = fresh(() => defaultScript());
     const session = '__setup__:draft-1';

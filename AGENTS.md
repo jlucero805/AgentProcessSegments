@@ -107,7 +107,8 @@ npm run typecheck              # server src + tests + vitest config, then web ap
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
 npm test                       # 860 server + 241 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
-                               # webhook receiver example, and missing-Puppeteer policy
+                               # webhook receiver example, missing-Puppeteer policy, and
+                               # interrupt cleanup
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -121,6 +122,7 @@ UI_MOBILE=1 node scripts/ui-smoke.mjs  # same smoke at 390x844
 node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built SPA
                                # and optional Puppeteer; fails without Puppeteer
                                # (--allow-missing-puppeteer skips deliberately)
+                               # SIGINT/SIGTERM close the browser, brain, and temp dir
 node scripts/clean-test-tmp.mjs  # dry-run: stale test temp dirs; --apply to delete
 npm run migrate:paths           # move legacy paths; refuses while a brain unit or process is using them
 npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs;

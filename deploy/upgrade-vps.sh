@@ -485,7 +485,8 @@ detach_upgrade() {
   ln -sfn "$RUN_DIR" "$UPGRADE_ROOT/latest"
   log "launching detached upgrade in $RUN_DIR"
 
-  local unit="aps-upgrade-$(date +%s)"
+  local unit
+  unit="aps-upgrade-$(date +%s)"
   local args=(--run --run-dir "$RUN_DIR" --home "$HOME" --clone "$CLONE" \
     --unit "$UNIT" --branch "$BRANCH" --wait-seconds "$WAIT_SECONDS" \
     --health-timeout "$HEALTH_TIMEOUT")

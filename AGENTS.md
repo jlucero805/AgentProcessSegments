@@ -105,7 +105,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # The root dev commands preflight project-local tsc/vitest/eslint; a missing
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
-npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
+npm run lint                   # eslint over src + JS tooling, bash -n + shellcheck over shell scripts, zero warnings
 npm test                       # 884 server + 256 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -563,8 +563,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
     a failed sweep is one `retention.artifacts` record, not a crash.
 39. **The lint gate is zero-warning and guarded.** `npm run lint` composes
-    `eslint . --max-warnings=0` with `bash -n` over `deploy/*.sh` and `scripts/*.sh`, so
-    a warning or a shell syntax error fails the gate just like an error. The scripts,
+    `eslint . --max-warnings=0` with `bash -n` plus `shellcheck --severity=warning`
+    over `deploy/*.sh` and `scripts/*.sh`, so an ESLint warning, a ShellCheck warning, or
+    a shell syntax error fails the gate just like an error. The scripts,
     root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}` plus JS/MJS/CJS
     tooling and `.opencode` plugin sources, `dist`/`node_modules` ignored, unused
     suppressions fatal), and the CI lint step are guarded by

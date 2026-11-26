@@ -555,7 +555,8 @@ detach_cutover() {
     fi
   fi
   log "launching detached cutover in $RUN_DIR"
-  local unit="aps-cutover-$(date +%s)"
+  local unit
+  unit="aps-cutover-$(date +%s)"
   local args=(--run --run-dir "$RUN_DIR" --home "$HOME" --old-clone "$OLD_CLONE" --new-clone "$NEW_CLONE" --wait-seconds "$WAIT_SECONDS")
   [[ -n "$REQUEST_ID" ]] && args+=(--request-id "$REQUEST_ID")
   [[ "$ALLOW_BUSY" -eq 1 ]] && args+=(--allow-busy)
@@ -984,7 +985,6 @@ run_cutover() {
   STOPPED=0
   MOVED=0
   NEW_STARTED=0
-  SUCCESS=0
   ALREADY_MIGRATED=0
   OLD_ACTIVE=0
   MASTER_ENABLED=false
@@ -1064,7 +1064,6 @@ run_cutover() {
   restore_master
 
   remove_old_unit
-  SUCCESS=1
   write_state success
   trap - ERR INT TERM
   post_run_prune success || true

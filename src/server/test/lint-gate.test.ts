@@ -17,14 +17,16 @@ const tsconfigTest = JSON.parse(
 ) as { include?: string[] };
 
 describe('zero-warning lint gate', () => {
-  it('runs ESLint over the repo and bash -n over the deploy scripts', () => {
+  it('runs ESLint plus the bash and ShellCheck shell gate', () => {
     expect(packageJson.scripts?.['lint']).toBe(
       'npm run --silent lint:js && npm run --silent lint:sh',
     );
     expect(packageJson.scripts?.['lint:js']).toBe('eslint . --max-warnings=0');
     expect(packageJson.scripts?.['lint:sh']).toBe(
-      'for f in deploy/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done',
+      'for f in deploy/*.sh scripts/*.sh; do bash -n "$f" || exit 1; shellcheck --severity=warning "$f" || exit 1; done',
     );
+    expect(packageJson.scripts?.['lint:sh']).toContain('shellcheck --severity=warning');
+    expect(workflow).toContain('make g++ python3 shellcheck');
   });
 
   it('keeps the ESLint toolchain as root devDependencies', () => {

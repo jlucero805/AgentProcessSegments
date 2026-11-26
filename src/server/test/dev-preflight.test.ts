@@ -120,7 +120,7 @@ describe('root dev dependency preflight', () => {
       'npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env',
     );
     expect(packageJson.scripts?.['lint']).toBe(
-      'npm run --silent lint:js && npm run --silent lint:sh',
+      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:actions',
     );
   });
 

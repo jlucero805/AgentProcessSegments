@@ -105,7 +105,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # The root dev commands preflight project-local tsc/vitest/eslint; a missing
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
-npm run lint                   # eslint over src + JS tooling, bash -n + shellcheck over shell scripts, zero warnings
+npm run lint                   # eslint + bash -n + shellcheck + actionlint gates, zero warnings
 npm test                       # 884 server + 256 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -564,11 +564,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     a failed sweep is one `retention.artifacts` record, not a crash.
 39. **The lint gate is zero-warning and guarded.** `npm run lint` composes
     `eslint . --max-warnings=0` with `bash -n` plus `shellcheck --severity=warning`
-    over `deploy/*.sh` and `scripts/*.sh`, so an ESLint warning, a ShellCheck warning, or
-    a shell syntax error fails the gate just like an error. The scripts,
-    root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}` plus JS/MJS/CJS
-    tooling and `.opencode` plugin sources, `dist`/`node_modules` ignored, unused
-    suppressions fatal), and the CI lint step are guarded by
+    over `deploy/*.sh` and `scripts/*.sh` and `actionlint deploy/ci-workflow.yml`, so an
+    ESLint warning, a ShellCheck warning, a shell syntax error, or a workflow error
+    fails the gate just like an error. The scripts, root ESLint devDependencies,
+    flat-config scope (`src/**/*.{ts,tsx}` plus JS/MJS/CJS tooling and `.opencode`
+    plugin sources, `dist`/`node_modules` ignored, unused suppressions fatal), the
+    pinned actionlint CI install (v1.7.12 release with a SHA-256 check; a missing local
+    binary fails closed), and the CI lint step are guarded by
     `src/server/test/lint-gate.test.ts`. Do not weaken any of them without updating the
     guard and this invariant.
 40. **SQLite files are owner-only.** `openDb` forces the database, `-wal`, `-shm`, and

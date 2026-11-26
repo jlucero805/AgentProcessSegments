@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import type { CellDetail, Summary, SummaryStatus } from './types';
@@ -10,6 +10,7 @@ interface ScorecardGroup {
   reports: Summary[];
   /** More reports exist in the selected period below the oldest one shown. */
   hasMore: boolean;
+  loadingMore: boolean;
 }
 
 type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
@@ -72,9 +73,10 @@ export function ScorecardsPage({
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
-  const [loadingOlder, setLoadingOlder] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
       const [cells, summaryStatus] = await Promise.all([
         api.getCells(),
@@ -87,7 +89,10 @@ export function ScorecardsPage({
           await api.getSummaries({ cellId, limit: PAGE_SIZE + 1, since }),
         );
         const cell = cells.find((item) => item.id === cellId);
-        next = cell && page.reports.length > 0 ? [{ cell, ...page }] : [];
+        next =
+          cell && page.reports.length > 0
+            ? [{ cell, ...page, loadingMore: false }]
+            : [];
       } else {
         const pages = await Promise.all(
           cells.map((cell) =>
@@ -95,16 +100,27 @@ export function ScorecardsPage({
           ),
         );
         next = cells
-          .map((cell, index) => ({ cell, ...pageReports(pages[index] ?? []) }))
+          .map((cell, index) => ({
+            cell,
+            ...pageReports(pages[index] ?? []),
+            loadingMore: false,
+          }))
           .filter((group) => group.reports.length > 0)
           .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0));
       }
+      if (generation !== loadGeneration.current) return;
       setStatus(summaryStatus);
       setGroups(next);
     } catch (error) {
-      onError(describeError(error));
+      if (generation === loadGeneration.current) {
+        setGroups(
+          (previous) =>
+            previous?.map((item) => ({ ...item, loadingMore: false })) ?? previous,
+        );
+        onError(describeError(error));
+      }
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [cellId, onError, range]);
 
@@ -118,8 +134,14 @@ export function ScorecardsPage({
     async (targetCellId: string) => {
       const group = groups?.find((item) => item.cell.id === targetCellId);
       const oldest = group?.reports.at(-1);
-      if (!oldest) return;
-      setLoadingOlder(targetCellId);
+      if (!group || group.loadingMore || !group.hasMore || !oldest) return;
+      const generation = loadGeneration.current;
+      setGroups(
+        (current) =>
+          current?.map((item) =>
+            item.cell.id === targetCellId ? { ...item, loadingMore: true } : item,
+          ) ?? current,
+      );
       try {
         const older = await api.getSummaries({
           cellId: targetCellId,
@@ -128,23 +150,33 @@ export function ScorecardsPage({
           before: oldest.createdAt,
           beforeId: oldest.id,
         });
+        if (generation !== loadGeneration.current) return;
         const page = pageReports(older);
-        setGroups(
-          (current) =>
-            current?.map((item) =>
-              item.cell.id === targetCellId
-                ? {
-                    ...item,
-                    reports: [...item.reports, ...page.reports],
-                    hasMore: page.hasMore,
-                  }
-                : item,
-            ) ?? current,
-        );
+        setGroups((current) => {
+          if (!current) return current;
+          return current.map((item) => {
+            if (item.cell.id !== targetCellId) return item;
+            const seen = new Set(item.reports.map((report) => report.id));
+            const appended = page.reports.filter((report) => !seen.has(report.id));
+            return {
+              ...item,
+              reports: appended.length > 0 ? [...item.reports, ...appended] : item.reports,
+              hasMore: page.hasMore,
+              loadingMore: false,
+            };
+          });
+        });
       } catch (error) {
-        onError(describeError(error));
+        if (generation === loadGeneration.current) onError(describeError(error));
       } finally {
-        setLoadingOlder(null);
+        if (generation === loadGeneration.current) {
+          setGroups(
+            (current) =>
+              current?.map((item) =>
+                item.cell.id === targetCellId ? { ...item, loadingMore: false } : item,
+              ) ?? current,
+          );
+        }
       }
     },
     [groups, onError, range],
@@ -246,7 +278,7 @@ export function ScorecardsPage({
         <EmptyState title={emptyTitle} hint={emptyHint} />
       ) : (
         <div className="space-y-4">
-          {groups.map(({ cell, reports, hasMore }) => {
+          {groups.map(({ cell, reports, hasMore, loadingMore }) => {
             const latest = reports[0];
             if (!latest) return null;
             return (
@@ -284,10 +316,10 @@ export function ScorecardsPage({
                   <Button
                     variant="secondary"
                     size="sm"
-                    disabled={loadingOlder === cell.id}
+                    disabled={loadingMore}
                     onClick={() => void loadOlder(cell.id)}
                   >
-                    {loadingOlder === cell.id ? 'Loading…' : 'Load older'}
+                    {loadingMore ? 'Loading…' : 'Load older'}
                   </Button>
                 ) : null}
               </Card>

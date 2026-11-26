@@ -196,6 +196,59 @@ describe('ScorecardsPage', () => {
     expect(older?.get('since')).not.toBeNull();
   });
 
+  it('keeps each card loading independently while older pages are in flight', async () => {
+    const alpha = Array.from({ length: 26 }, (_, index) =>
+      makeReport(`a${index}`, 'c1', `Alpha report ${index}`, 1_000 - index),
+    );
+    const beta = Array.from({ length: 26 }, (_, index) =>
+      makeReport(`b${index}`, 'c2', `Beta report ${index}`, 900 - index),
+    );
+    const pending: Array<{ cellId: string; resolve: (rows: Report[]) => void }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/cells')
+          return jsonResponse([makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')]);
+        if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url.startsWith('/api/summaries?')) {
+          const params = new URL(url, 'http://localhost').searchParams;
+          const cellId = params.get('cellId') ?? '';
+          const rows = cellId === 'c1' ? alpha : beta;
+          if (params.has('before')) {
+            return new Promise<Response>((resolve) => {
+              pending.push({
+                cellId,
+                resolve: (older) => resolve(jsonResponse(older)),
+              });
+            });
+          }
+          return jsonResponse(rows);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    const buttons = await screen.findAllByRole('button', { name: 'Load older' });
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) fireEvent.click(button);
+
+    expect(await screen.findAllByRole('button', { name: 'Loading…' })).toHaveLength(2);
+    pending[0]!.resolve([alpha[25]!]);
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Loading…' })).toHaveLength(1),
+    );
+    pending[1]!.resolve([beta[25]!]);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Loading…' })).not.toBeInTheDocument(),
+    );
+
+    expect(screen.getByText('Alpha report 25')).toBeInTheDocument();
+    expect(screen.getByText('Beta report 25')).toBeInTheDocument();
+  });
+
   it('shows a range-aware empty state', async () => {
     stubFetch([makeCell('c1', 'Alpha')], {});
 

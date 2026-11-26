@@ -2269,3 +2269,24 @@ are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do n
 The security review needs systemd 250 or newer, so older Linux hosts fail `npm run lint`
 (a documented, fail-closed choice). Existing installs must copy the new unit by hand
 because `upgrade-vps.sh` refuses target commits that change it.
+
+## D97. Manual upgrade pruning reuses the cutover pruner
+
+**Context.** `deploy/upgrade-vps.sh` has configurable retention and a `--no-prune` opt-out,
+but operators could only prune `~/.aps-cutover/upgrades` by invoking
+`scripts/prune-cutover-runs.mjs` directly or deleting run directories by hand. The
+pruner already supported `--kind upgrade`, including the `upgrades/` layout,
+`upgrades/latest`, and the `rolled_back` terminal state.
+
+**Decision.** Add `npm run prune:upgrades` as a thin alias for
+`node scripts/prune-cutover-runs.mjs --kind upgrade`. It forwards extra flags after `--`
+and keeps the pruner's 10-run/30-day/7-day-grace defaults rather than copying
+`upgrade-vps.sh`'s `--keep-runs 5`; an operator passes `--keep-runs 5` to match the
+automatic pass. The script's `--help` names the alias so its `--kind` default is not
+misleading. The command needs no build and only touches the selected `upgrades`
+directory. Docs cover the dry-run-first workflow, protections, data-loss warning, and a
+cron example, and a test pins both package-script entries.
+
+**Cost.** Two command names now address one script, and the manual defaults keep more
+evidence than the automatic pass. There is no new scheduling, retention setting,
+classification rule, or dependency, and cutover pruning is unchanged.

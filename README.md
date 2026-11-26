@@ -396,8 +396,12 @@ previous commit and build in place when anything fails. See
 
 Each upgrade leaves evidence under `~/.aps-cutover/upgrades/` and prunes older runs
 automatically after every terminal state. You can also prune by hand with
-`npm run prune:upgrades -- --dry-run` and then `npm run prune:upgrades`; see the same
-runbook section.
+`npm run prune:upgrades -- --dry-run` and then `npm run prune:upgrades`; it keeps the
+newest 10 runs, anything modified in the last 30 days, `upgrades/latest`, the newest
+successful run, and incomplete runs for a 7-day grace window. Pass `--keep-runs 5` to
+match the automatic pass. Deleting a run also deletes its database snapshot and previous
+build trees, so preview first. See
+[`deploy/vps.md`](deploy/vps.md#prune-upgrade-run-directories).
 
 ## Spend budgets
 

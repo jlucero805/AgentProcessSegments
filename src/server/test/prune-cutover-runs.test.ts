@@ -76,6 +76,7 @@ describe('prune-cutover-runs script', () => {
     expect(manifest.scripts?.['prune:upgrades']).toBe(
       'node scripts/prune-cutover-runs.mjs --kind upgrade',
     );
+    expect(manifest.scripts?.['prune:cutover']).toBe('node scripts/prune-cutover-runs.mjs');
   });
 
   it('keeps the newest runs and removes the rest', () => {

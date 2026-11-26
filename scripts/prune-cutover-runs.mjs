@@ -51,7 +51,7 @@ function usage() {
     'Options:',
     '  --dry-run                    Report what would be removed; change nothing.',
     '  --kind KIND                  Run family: cutover (runs/) or upgrade (upgrades/).',
-    '                               Default: cutover.',
+    '                               Default: cutover; npm run prune:upgrades passes upgrade.',
     '  --root DIR                   APS cutover root (default: $HOME/.aps-cutover).',
     '  --keep-runs N                Keep the N newest run directories (default: 10).',
     '  --keep-days D                Keep run directories modified within D days (default: 30).',

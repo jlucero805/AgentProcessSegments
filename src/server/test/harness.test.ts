@@ -640,6 +640,7 @@ describe('ClaudeHarness', () => {
     });
     const lines: string[] = [];
     const failed = new Promise<void>((resolve, reject) => {
+      // Fail fast instead of hanging if the child never reports the stdin failure.
       const timer = setTimeout(
         () => reject(new Error('timed out waiting for the stdin failure')),
         2_000,
@@ -680,6 +681,7 @@ describe('ClaudeHarness', () => {
     });
     const lines: string[] = [];
     const echoed = new Promise<string>((resolve, reject) => {
+      // Fail fast instead of hanging if the child never echoes the message.
       const timer = setTimeout(
         () => reject(new Error('timed out waiting for the echoed message')),
         2_000,

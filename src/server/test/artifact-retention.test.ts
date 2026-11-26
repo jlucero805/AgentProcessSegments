@@ -482,7 +482,7 @@ describe('ArtifactRetention', () => {
     expect(errors.error).toHaveBeenCalledTimes(1);
   });
 
-  it('prunes on start, hourly, and settings changes, then stops', async () => {
+  it('prunes on start, hourly, and settings changes', async () => {
     const env = makeEnv();
     const store = makeStore(30);
     const retention = new ArtifactRetention({
@@ -516,15 +516,47 @@ describe('ArtifactRetention', () => {
     store.patch({ retention: { requestArtifactsDays: 10 } });
     await gone(changed);
 
-    const stopped = addOld();
     retention.stop();
-    retention.stop();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    store.patch({ retention: { requestArtifactsDays: 5 } });
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(existsSync(path.join(env.dataDir, 'requests', stopped))).toBe(true);
-
     // Drain any in-flight pass before the database closes.
     await retention.runOnce();
+  });
+
+  it('stops pruning after stop()', async () => {
+    const env = makeEnv();
+    const store = makeStore(30);
+    const retention = new ArtifactRetention({
+      dataDir: env.dataDir,
+      repo: env.repo,
+      settings: store,
+      now: () => NOW,
+      intervalMs: 20,
+    });
+    const request = env.repo.create({ title: 'Stopped lifecycle' });
+    setRow(env, request.id, 'done', NOW - 10 * DAY);
+    const dir = writeRequestDir(env.dataDir, request.id, NOW - 10 * DAY);
+    const runOnce = vi.spyOn(retention, 'runOnce');
+
+    vi.useFakeTimers();
+    try {
+      retention.start();
+      // The startup pass keeps a 10-day-old artifact under the 30-day window.
+      await retention.runOnce();
+      expect(existsSync(dir)).toBe(true);
+
+      retention.stop();
+      retention.stop();
+      runOnce.mockClear();
+
+      // A run triggered by the interval or the settings listener would delete
+      // this 10-day-old artifact now that the window is 5 days.
+      store.patch({ retention: { requestArtifactsDays: 5 } });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(runOnce).not.toHaveBeenCalled();
+      expect(existsSync(dir)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      runOnce.mockRestore();
+    }
   });
 });

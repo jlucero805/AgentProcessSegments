@@ -1490,7 +1490,6 @@ describe('turn engine', () => {
     const request = h.repo.create({ title: 'Slow notify' });
 
     const turn = await h.engine.start(request.id);
-    await new Promise<void>((resolve) => setTimeout(resolve, 40));
     await turn.promise;
     await settle();
 
@@ -1713,33 +1712,39 @@ describe('turn engine', () => {
     h.config.turnTimeoutMs = 25;
     const request = h.repo.create({ title: 'Silent' });
 
-    const turn = await h.engine.start(request.id);
-    await settle();
-    h.harness.process?.emitStderr('stuck in MCP handshake');
-    await new Promise((resolve) => setTimeout(resolve, 75));
-    await turn.promise;
-    await settle();
+    vi.useFakeTimers();
+    try {
+      const turn = await h.engine.start(request.id);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.harness.process).not.toBeNull();
+      h.harness.process?.emitStderr('stuck in MCP handshake');
+      await vi.advanceTimersByTimeAsync(25);
+      await turn.promise;
+      await vi.advanceTimersByTimeAsync(0);
 
-    const error = turn.events.find((event) => event.t === 'error');
-    expect(error?.t).toBe('error');
-    if (error?.t === 'error') {
-      expect(error.message).toContain('timed out after');
-      expect(error.message).toContain('stuck in MCP handshake');
+      const error = turn.events.find((event) => event.t === 'error');
+      expect(error?.t).toBe('error');
+      if (error?.t === 'error') {
+        expect(error.message).toContain('timed out after');
+        expect(error.message).toContain('stuck in MCP handshake');
+      }
+      expect(turn.events.some((event) => event.t === 'done')).toBe(true);
+      const done = turn.events.find((event) => event.t === 'done');
+      if (done?.t === 'done') {
+        expect(done.transcript.some((message) => message.text.includes('timed out after'))).toBe(
+          true,
+        );
+      }
+      expect(h.harness.process?.killed).toBe(true);
+      expect(h.repo.require(request.id).agentStatus).toBe('idle');
+      expect(h.engine.hasLive(request.id)).toBe(false);
+      expect(
+        h.engine.transcript(request.id).some((message) => message.text.includes('timed out after')),
+      ).toBe(true);
+      expect(h.usage.query({}).totals.turns).toBe(0);
+    } finally {
+      vi.useRealTimers();
     }
-    expect(turn.events.some((event) => event.t === 'done')).toBe(true);
-    const done = turn.events.find((event) => event.t === 'done');
-    if (done?.t === 'done') {
-      expect(done.transcript.some((message) => message.text.includes('timed out after'))).toBe(
-        true,
-      );
-    }
-    expect(h.harness.process?.killed).toBe(true);
-    expect(h.repo.require(request.id).agentStatus).toBe('idle');
-    expect(h.engine.hasLive(request.id)).toBe(false);
-    expect(
-      h.engine.transcript(request.id).some((message) => message.text.includes('timed out after')),
-    ).toBe(true);
-    expect(h.usage.query({}).totals.turns).toBe(0);
   });
 });
 

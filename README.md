@@ -650,8 +650,9 @@ an hour, and add `--apply` to delete them.
 TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.opencode`
 plugin sources when present, with the `react-hooks` `recommended-latest` preset for the
 SPA. It also runs
-`bash -n` over `deploy/*.sh` and `scripts/smoke.sh`, and fails on any warning. The shell
-check needs `bash`, which the deploy runbooks already require.
+`bash -n` and `shellcheck --severity=warning` over `deploy/*.sh` and `scripts/*.sh`, and
+fails on any warning. The shell checks need `bash`, which the deploy runbooks already
+require, and `shellcheck` (`apt-get install shellcheck` or `brew install shellcheck`).
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, proves a tool call persists through the API into

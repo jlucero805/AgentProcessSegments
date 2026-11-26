@@ -407,7 +407,8 @@ built and vended by the brain; real-CLI verification is still pending.
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
 - Dev-command preflight: the root `typecheck`/`test`/`lint` commands check for
   project-local `tsc`/`vitest`/`eslint` and print an `npm ci --include=dev` hint instead
-  of a raw `not found`.
+  of a raw `not found`. The shell half of `lint` also needs `bash` and `shellcheck` on
+  `PATH`.
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
   streamed turn with an `mcp__aps__*` tool call, merged `aps` plus user MCP config,
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
@@ -445,11 +446,11 @@ built and vended by the brain; real-CLI verification is still pending.
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
   that leaks the host env into either proof fails the build;
   `src/server/test/ci-workflow.test.ts` fails if the two blocks drift.
-- CI: a ready workflow at `deploy/ci-workflow.yml` runs `npm ci`, lint, typecheck, the
-  full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
-  `scripts/mcp-smoke.mjs` on pushes and pull requests. It also re-runs the web suite
-  with `NODE_ENV=production` to exercise the inherited-production React resolution. It
-  is not active on the remote:
+- CI: a ready workflow at `deploy/ci-workflow.yml` installs the build toolchain plus
+  `shellcheck`, then runs `npm ci`, lint, typecheck, the full test suite, the build, the
+  E2E workflow, `scripts/smoke.sh`, and `scripts/mcp-smoke.mjs` on pushes and pull
+  requests. It also re-runs the web suite with `NODE_ENV=production` to exercise the
+  inherited-production React resolution. It is not active on the remote:
   publishing a workflow needs a credential with the `workflow` scope. Copy it to
   `.github/workflows/ci.yml` once that is available.
 

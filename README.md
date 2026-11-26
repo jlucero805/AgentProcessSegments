@@ -192,7 +192,11 @@ or effort, because those ids were chosen for the other adapter. `APS_CLAUDE_BIN`
 fallback for the default adapter only, and the adapter-specific value wins when both are
 set. The legacy `SBOX_*` names still work. `APS_DEFAULT_MODEL` sets the default harness's
 fallback model. OpenCode also has an implicit `opencode-go/deepseek-v4.1-flash` default;
-Claude has none unless configured.
+Claude has none unless configured. OpenCode sessions ignore `OPENCODE_CONFIG` and
+`OPENCODE_CONFIG_CONTENT`: the harness strips both from the child environment and warns
+once if either is set, because OpenCode layers them above the generated config and an
+inline value could replace the bundled `aps` server. Put user settings in the OpenCode
+config directory instead.
 
 App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config page. Each
 block and notification channel validates on its own; an invalid one falls back to that
@@ -635,7 +639,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1230 vitest cases: 954 server cases across 55 files (state machine,
+`npm test` runs 1234 vitest cases: 958 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

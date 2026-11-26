@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1230 vitest cases: 954 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
+- 1234 vitest cases: 958 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -111,7 +111,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 954 server + 276 web, plus the e2e env guard
+npm test                       # 958 server + 276 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -199,6 +199,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **OpenCode user config is JSONC.** `opencode.json` and `opencode.jsonc` are both read
   with `parseJsonc` (comments, trailing commas, and a leading BOM); the generated config
   stays strict JSON. Only those relaxations are accepted, not JSON5 syntax.
+- **The generated OpenCode config is harness-owned.** `OPENCODE_CONFIG` and
+  `OPENCODE_CONFIG_CONTENT` are stripped from the child environment and the
+  `opencode models` probe. OpenCode layers both above the generated config, so either
+  could replace the reserved `aps` server or a read-only deny rule. A set variable warns
+  once by name; never log its value.
 - **Claude allow rules support MCP wildcards.** User servers merged from
   `~/.claude.json` and `<cwd>/.mcp.json` are allowed with `mcp__<server>__*`, alongside
   the explicit harness tools. Merge order follows Claude's local > project > user

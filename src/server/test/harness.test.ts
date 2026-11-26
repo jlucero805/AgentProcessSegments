@@ -9,6 +9,7 @@ import {
   OpencodeHarness,
   OpencodeProcess,
   probeOpencodeModels,
+  scrubOpencodeConfigEnv,
 } from '../src/clarify/harnesses/opencode.js';
 import { createHarnessRegistry } from '../src/clarify/harnesses/index.js';
 import {
@@ -49,7 +50,10 @@ function opencodeConfigDir(home: string): string {
   return path.join(home, '.config', 'opencode');
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe('ClaudeHarness', () => {
   it('merges user, local, and project MCP servers into the generated config', async () => {
@@ -730,6 +734,54 @@ describe('ClaudeHarness', () => {
 });
 
 describe('OpencodeHarness', () => {
+  it('strips config env overrides without mutating the input', () => {
+    const input = {
+      PATH: '/bin',
+      PWD: '/work',
+      OPENCODE_CONFIG_DIR: '/cfg',
+      OPENCODE_CONFIG: '/tmp/custom.json',
+      OPENCODE_CONFIG_CONTENT: '{"model":"x"}',
+    };
+
+    expect(scrubOpencodeConfigEnv(input)).toEqual({
+      PATH: '/bin',
+      PWD: '/work',
+      OPENCODE_CONFIG_DIR: '/cfg',
+    });
+    expect(input.OPENCODE_CONFIG).toBe('/tmp/custom.json');
+    expect(input.OPENCODE_CONFIG_CONTENT).toBe('{"model":"x"}');
+  });
+
+  it('warns once for config env overrides without naming their values', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+
+    const blank = new OpencodeHarness('opencode', 'http://brain:7391', home, {
+      OPENCODE_CONFIG: '',
+      OPENCODE_CONFIG_CONTENT: '',
+    });
+    await blank.prepare(requestSession(dir, cwd));
+    expect(warn).not.toHaveBeenCalled();
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {
+      OPENCODE_CONFIG: '/tmp/host-config.json',
+      OPENCODE_CONFIG_CONTENT: '{"model":"secret/model"}',
+    });
+    await harness.prepare({ ...requestSession(dir, cwd), scope: 'kb' });
+    expect(warn).toHaveBeenCalledTimes(2);
+    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) => message.includes('OPENCODE_CONFIG'))).toBe(true);
+    expect(messages.some((message) => message.includes('OPENCODE_CONFIG_CONTENT'))).toBe(true);
+    for (const message of messages) {
+      expect(message).not.toContain('/tmp/host-config.json');
+      expect(message).not.toContain('secret/model');
+    }
+
+    warn.mockClear();
+    await harness.prepare(requestSession(dir, cwd));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('merges user MCP servers and points OpenCode at the generated config dir', async () => {
     const { home, cwd, dir } = workspace();
     mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
@@ -1301,6 +1353,42 @@ describe('OpencodeHarness', () => {
     expect(JSON.parse(part?.text ?? '{}')).toEqual({ cwd, pwd: cwd });
   });
 
+  it('strips config env overrides from the spawned child environment', async () => {
+    const { base, cwd } = workspace();
+    const script = path.join(base, 'probe-env.mjs');
+    writeFileSync(
+      script,
+      "console.log(JSON.stringify({ type: 'text', part: { text: JSON.stringify({ " +
+        "config: process.env.OPENCODE_CONFIG ?? null, content: process.env.OPENCODE_CONFIG_CONTENT ?? null, " +
+        "pwd: process.env.PWD ?? null, keep: process.env.APS_KEEP_ME ?? null }) } }));\n",
+    );
+
+    vi.stubEnv('OPENCODE_CONFIG', '/tmp/host-config.json');
+    vi.stubEnv('OPENCODE_CONFIG_CONTENT', '{"mcp":{"servers":{"aps":{"type":"remote"}}}}');
+    vi.stubEnv('APS_KEEP_ME', 'keep');
+
+    const proc = new OpencodeProcess({
+      cmd: process.execPath,
+      args: [script],
+      env: { OPENCODE_CONFIG: '/tmp/command-config.json' },
+      cwd,
+      sessionId: null,
+    });
+    const lines: Array<Record<string, unknown>> = [];
+    proc.onLine((line) => lines.push(JSON.parse(line) as Record<string, unknown>));
+    const exited = new Promise<void>((resolve) => proc.onExit(() => resolve()));
+    proc.writeUserMessage('hello');
+    await exited;
+
+    const part = lines[0]?.part as { text?: string } | undefined;
+    expect(JSON.parse(part?.text ?? '{}')).toEqual({
+      config: null,
+      content: null,
+      pwd: cwd,
+      keep: 'keep',
+    });
+  });
+
   it('makes the master session read-only with no user MCP or plugins', async () => {
     const { home, cwd, dir } = workspace();
     mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
@@ -1349,6 +1437,26 @@ describe('OpencodeHarness', () => {
       { id: 'opencode-go/model-b', label: 'opencode-go/model-b' },
     ]);
     expect(await probeOpencodeModels(path.join(base, 'missing'))).toBeNull();
+  });
+
+  it('probes models without config env overrides', async () => {
+    const { base } = workspace();
+    const bin = path.join(base, 'fake-opencode-env');
+    writeFileSync(
+      bin,
+      '#!/bin/sh\n' +
+        'if [ -n "$OPENCODE_CONFIG" ] || [ -n "$OPENCODE_CONFIG_CONTENT" ]; then exit 1; fi\n' +
+        'echo opencode-go/model-a\n',
+    );
+    chmodSync(bin, 0o755);
+
+    expect(
+      await probeOpencodeModels(bin, {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        OPENCODE_CONFIG: '/tmp/host-config.json',
+        OPENCODE_CONFIG_CONTENT: '{"model":"x"}',
+      }),
+    ).toEqual([{ id: 'opencode-go/model-a', label: 'opencode-go/model-a' }]);
   });
 });
 

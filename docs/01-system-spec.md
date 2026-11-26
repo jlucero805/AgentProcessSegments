@@ -55,7 +55,10 @@ Bind defaults to `127.0.0.1` even though `APS_HOST` can override it. Never widen
 bind. The audience gate is the tunnel, not the process. Before sharing a tunnel, verify
 that anonymous requests to `/` and `/api` hit the SSO redirect. The agent child is
 non-interactive and auto-approves exactly the tools in its `--allowedTools` allowlist,
-plus the user's MCP servers. That allowlist is the agent's permission boundary.
+plus the user's MCP servers. That allowlist is the agent's permission boundary. The
+OpenCode child env also strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT`, so those
+process-level overrides cannot supply MCP servers or permissions; a set variable warns
+once and is ignored.
 
 ---
 
@@ -831,7 +834,8 @@ defaults.
 - **Allowed tools:** request sessions get `Write, Read, Edit, Bash, Skill, Glob, Grep`,
   the bundled `aps` MCP tools, and the user's own MCP servers (Claude reads
   `~/.claude.json`/`.mcp.json` in local > project > user precedence; OpenCode reads
-  `opencode.json`/`opencode.jsonc` as JSONC, comments and trailing commas included).
+  `opencode.json`/`opencode.jsonc` as JSONC, comments and trailing commas included, and
+  strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from its child env).
   The KB session (`__kb__`) is read-only: `Read` plus the KB MCP tools, no plugins, no
   user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.

@@ -650,8 +650,12 @@ an hour, and add `--apply` to delete them.
 TypeScript sources, `scripts/**/*.mjs`, the root and web config files, and `.opencode`
 plugin sources when present, with the `react-hooks` `recommended-latest` preset for the
 SPA. It also runs
-`bash -n` over `deploy/*.sh` and `scripts/smoke.sh`, and fails on any warning. The shell
-check needs `bash`, which the deploy runbooks already require.
+`bash -n` over `deploy/*.sh` and `scripts/smoke.sh`, and `systemd-analyze verify` over
+`deploy/agent-process-segments.service`, and fails on any warning, shell syntax error, or
+unit diagnostic. The unit check treats a diagnostic naming the unit as fatal because
+`systemd-analyze` exits 0 for unknown keys and invalid values. The shell check needs
+`bash`, which the deploy runbooks already require; the unit check skips with a visible
+line on non-Linux hosts and fails on Linux when `systemd-analyze` is missing.
 
 `node scripts/mcp-smoke.mjs` is the stronger check: it boots the built brain, spawns
 the built MCP server over stdio, proves a tool call persists through the API into

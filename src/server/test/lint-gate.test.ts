@@ -17,13 +17,16 @@ const tsconfigTest = JSON.parse(
 ) as { include?: string[] };
 
 describe('zero-warning lint gate', () => {
-  it('runs ESLint over the repo and bash -n over the deploy scripts', () => {
+  it('runs ESLint, bash -n, and systemd-analyze verify', () => {
     expect(packageJson.scripts?.['lint']).toBe(
-      'npm run --silent lint:js && npm run --silent lint:sh',
+      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:unit',
     );
     expect(packageJson.scripts?.['lint:js']).toBe('eslint . --max-warnings=0');
     expect(packageJson.scripts?.['lint:sh']).toBe(
       'for f in deploy/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done',
+    );
+    expect(packageJson.scripts?.['lint:unit']).toBe(
+      'node scripts/verify-systemd-unit.mjs',
     );
   });
 

@@ -105,7 +105,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # The root dev commands preflight project-local tsc/vitest/eslint; a missing
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
-npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
+npm run lint                   # eslint over src + JS tooling, bash -n deploy, systemd unit check
 npm test                       # 881 server + 256 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -563,13 +563,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `worktrees/<id>` are removed with `git worktree remove --force` (the branch is kept);
     a failed sweep is one `retention.artifacts` record, not a crash.
 39. **The lint gate is zero-warning and guarded.** `npm run lint` composes
-    `eslint . --max-warnings=0` with `bash -n` over `deploy/*.sh` and `scripts/*.sh`, so
-    a warning or a shell syntax error fails the gate just like an error. The scripts,
-    root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}` plus JS/MJS/CJS
-    tooling and `.opencode` plugin sources, `dist`/`node_modules` ignored, unused
-    suppressions fatal), and the CI lint step are guarded by
-    `src/server/test/lint-gate.test.ts`. Do not weaken any of them without updating the
-    guard and this invariant.
+    `eslint . --max-warnings=0` with `bash -n` over `deploy/*.sh` and `scripts/*.sh`, and
+    `systemd-analyze verify` over `deploy/agent-process-segments.service`, so a warning, a
+    shell syntax error, a non-zero verify exit, or any verify diagnostic naming the unit
+    fails the gate just like an error. The unit check treats diagnostics as fatal because
+    `systemd-analyze` exits 0 for unknown keys and invalid values; it is skipped with a
+    visible line on non-Linux hosts and fails on Linux when the tool is missing. The
+    scripts, root ESLint devDependencies, flat-config scope (`src/**/*.{ts,tsx}` plus
+    JS/MJS/CJS tooling and `.opencode` plugin sources, `dist`/`node_modules` ignored,
+    unused suppressions fatal), the unit wrapper and parser test, and the CI lint step are
+    guarded by `src/server/test/lint-gate.test.ts`,
+    `src/server/test/dev-preflight.test.ts`, and `scripts/verify-systemd-unit.test.mjs`.
+    Do not weaken any of them without updating the guards and this invariant.
 40. **SQLite files are owner-only.** `openDb` forces the database, `-wal`, `-shm`, and
     any `-journal` sidecar to `0600` on every open. The database is tightened before
     `journal_mode=WAL` so SQLite creates new sidecars with the same private mode, and a

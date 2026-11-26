@@ -308,6 +308,8 @@ export class ClaudeHarness implements AgentHarness {
 /** Long-lived `claude -p` child; turns are written to stdin as stream-json. */
 class ClaudeProcess extends LineProcess {
   private readonly child: ChildProcessWithoutNullStreams;
+  /** Set once stdin fails; later writes must not report the same failure again. */
+  private stdinFailed = false;
 
   constructor(command: HarnessCommand) {
     super();
@@ -318,6 +320,10 @@ class ClaudeProcess extends LineProcess {
       env: { ...process.env, ...command.env, PWD: command.cwd },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    // A child that exits or closes stdin while a write is in flight emits EPIPE
+    // here asynchronously; without this listener it would be an unhandled
+    // 'error' event and kill the brain.
+    this.child.stdin.on('error', (error) => this.failStdin(error));
     this.attach(this.child);
   }
 
@@ -330,9 +336,20 @@ class ClaudeProcess extends LineProcess {
     });
   }
 
+  private failStdin(error: Error): void {
+    if (this.stdinFailed) return;
+    this.stdinFailed = true;
+    this.emitLine(this.errorLine(new Error(`claude stdin is closed: ${error.message}`)));
+  }
+
   writeUserMessage(text: string): void {
+    const { stdin } = this.child;
+    if (stdin.destroyed || stdin.writableEnded || !stdin.writable) {
+      this.failStdin(new Error('stream is not writable'));
+      return;
+    }
     const payload = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } };
-    this.child.stdin.write(`${JSON.stringify(payload)}\n`);
+    stdin.write(`${JSON.stringify(payload)}\n`);
   }
 
   kill(signal: NodeJS.Signals = 'SIGTERM'): void {

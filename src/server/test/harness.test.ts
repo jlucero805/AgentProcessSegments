@@ -599,6 +599,126 @@ describe('ClaudeHarness', () => {
     expect(config.mcpServers.aps.env.APS_REQUEST_ID).toBe('');
     expect(config.mcpServers.user).toBeUndefined();
   });
+
+  it('fails the turn instead of crashing when the child exits before the first write', async () => {
+    const { cwd } = workspace();
+    const proc = new ClaudeHarness(process.execPath).spawn({
+      cmd: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      env: {},
+      cwd,
+      sessionId: null,
+    });
+    const lines: string[] = [];
+    proc.onLine((line) => lines.push(line));
+    const exited = new Promise<void>((resolve) => proc.onExit(() => resolve()));
+    await exited;
+    // Let the child's stdin teardown settle so the write takes the guard path.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(() => proc.writeUserMessage('hello')).not.toThrow();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0] ?? '{}') as Record<string, unknown>;
+    expect(event).toMatchObject({ type: 'result', subtype: 'error', is_error: true });
+    expect(String(event['result'])).toContain('claude stdin is closed');
+  });
+
+  it('captures an asynchronous EPIPE when the child closes stdin but stays alive', async () => {
+    const { cwd } = workspace();
+    const proc = new ClaudeHarness(process.execPath).spawn({
+      cmd: process.execPath,
+      args: ['-e', "require('node:fs').closeSync(0); setInterval(() => {}, 1000);"],
+      env: {},
+      cwd,
+      sessionId: null,
+    });
+    const lines: string[] = [];
+    const failed = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('timed out waiting for the stdin failure')),
+        2_000,
+      );
+      proc.onLine((line) => {
+        lines.push(line);
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    const exited = new Promise<void>((resolve) => proc.onExit(() => resolve()));
+
+    try {
+      proc.writeUserMessage('x'.repeat(1024 * 1024));
+      await failed;
+      expect(lines).toHaveLength(1);
+      const event = JSON.parse(lines[0] ?? '{}') as Record<string, unknown>;
+      expect(event['is_error']).toBe(true);
+      expect(String(event['result'])).toContain('write EPIPE');
+    } finally {
+      proc.kill('SIGKILL');
+      await exited;
+    }
+    expect(lines).toHaveLength(1);
+  });
+
+  it('writes the user message payload to a live child unchanged', async () => {
+    const { cwd } = workspace();
+    const proc = new ClaudeHarness(process.execPath).spawn({
+      cmd: process.execPath,
+      args: [
+        '-e',
+        "process.stdin.on('data', (chunk) => process.stdout.write(chunk)); setInterval(() => {}, 1000);",
+      ],
+      env: {},
+      cwd,
+      sessionId: null,
+    });
+    const lines: string[] = [];
+    const echoed = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('timed out waiting for the echoed message')),
+        2_000,
+      );
+      proc.onLine((line) => {
+        lines.push(line);
+        clearTimeout(timer);
+        resolve(line);
+      });
+    });
+    const exited = new Promise<void>((resolve) => proc.onExit(() => resolve()));
+
+    try {
+      proc.writeUserMessage('hello');
+      const line = await echoed;
+      expect(JSON.parse(line)).toEqual({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      });
+      expect(lines).toHaveLength(1);
+    } finally {
+      proc.kill('SIGKILL');
+      await exited;
+    }
+  });
+
+  it('reports a closed stdin only once across repeated writes', async () => {
+    const { cwd } = workspace();
+    const proc = new ClaudeHarness(process.execPath).spawn({
+      cmd: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      env: {},
+      cwd,
+      sessionId: null,
+    });
+    const lines: string[] = [];
+    proc.onLine((line) => lines.push(line));
+    const exited = new Promise<void>((resolve) => proc.onExit(() => resolve()));
+    await exited;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    proc.writeUserMessage('one');
+    proc.writeUserMessage('two');
+    expect(lines).toHaveLength(1);
+  });
 });
 
 describe('OpencodeHarness', () => {

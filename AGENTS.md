@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1101 vitest cases: 860 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
+- 1105 vitest cases: 864 server across 50 files (one environmental root-skip) and 241 web across 26 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -105,7 +105,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 860 server + 241 web, plus the e2e env guard
+npm test                       # 864 server + 241 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -542,6 +542,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it
     from `runTurn` or retry inside the turn. `error` results include `is_error: true` and
     `error*` subtypes. The warning text is the capped provider result, never a transcript.
+    A harness stdin that closes while a write is in flight (EPIPE/ECONNRESET) is the same
+    turn failure, not an unhandled process error: the Claude adapter listens for stdin
+    errors and refuses writes to a destroyed or ended stream, reporting once through this
+    path.
 38. **Terminal request artifacts expire; live work never does.**
     `retention.requestArtifactsDays` (default 30, `0` = forever) deletes
     `requests/<id>/` only for `done`/`dropped` requests older than the window, never for

@@ -13,8 +13,10 @@ import { worktreePath } from '../clarify/worktree.js';
 import { DocsService } from '../docs/service.js';
 import { HARNESS_IDS, isHarnessId, resolveHarness, type HarnessId } from '../domain/harness.js';
 import {
+  BUDGET_SCOPES,
   DELIVERY_CHANNELS,
   DELIVERY_STATUSES,
+  SPEND_CAP_OVERRIDE_STATES,
   emailDeliveryConfigured,
   type ResendBlockReason,
 } from '../domain/budget.js';
@@ -237,6 +239,24 @@ const spendCapOverrideSchema = z
         message: 'cellId is required for a cell override',
       });
     }
+  });
+const spendCapOverrideHistoryQuerySchema = z
+  .object({
+    scope: z.enum(BUDGET_SCOPES).optional(),
+    cellId: z.string().trim().min(1).max(64).optional(),
+    state: z.enum(SPEND_CAP_OVERRIDE_STATES).optional(),
+    from: z.coerce.number().int().nonnegative().optional(),
+    to: z.coerce.number().int().nonnegative().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    offset: z.coerce.number().int().nonnegative().optional(),
+  })
+  .refine(
+    (value) => value.from === undefined || value.to === undefined || value.from < value.to,
+    { message: 'from must be before to', path: ['from'] },
+  )
+  .refine((value) => !(value.scope === 'overall' && value.cellId !== undefined), {
+    message: 'cellId is only allowed for a cell override',
+    path: ['cellId'],
   });
 
 const masterEventsQuerySchema = z.object({
@@ -1158,6 +1178,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   );
 
   app.get('/api/budgets', async () => budgets.statuses());
+  app.get('/api/budgets/overrides/history', async (request) =>
+    budgets.overrideHistory(spendCapOverrideHistoryQuerySchema.parse(request.query)),
+  );
   app.post('/api/budgets/alerts/:id/ack', async (request, reply) => {
     const { id } = request.params as { id: string };
     const alert = budgets.acknowledge(id);

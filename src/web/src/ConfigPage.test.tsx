@@ -14,6 +14,7 @@ import type {
   ModelPriceInput,
   RetentionSettings,
   SegmentConfig,
+  SpendCapOverrideHistoryResponse,
   SummaryConfig,
   UsageSettings,
 } from './types';
@@ -205,6 +206,29 @@ const budgetView: BudgetsResponse = {
   overrides: [],
 };
 
+const overrideHistory: SpendCapOverrideHistoryResponse = {
+  overrides: [
+    {
+      id: 'o1',
+      scope: 'overall',
+      cellId: null,
+      cellName: null,
+      periodStart: Date.UTC(2026, 10, 1),
+      createdAt: Date.UTC(2026, 10, 15, 12),
+      updatedAt: Date.UTC(2026, 10, 15, 12),
+      expiresAt: Date.UTC(2026, 10, 15, 13),
+      note: 'release review',
+      revokedAt: null,
+      state: 'active',
+      extensionCount: 1,
+      lastExtendedAt: Date.UTC(2026, 10, 15, 12, 30),
+    },
+  ],
+  total: 1,
+  limit: 10,
+  offset: 0,
+};
+
 const deliveryRow: DeliveryHistoryItem = {
   id: 'd1',
   source: 'budget',
@@ -364,6 +388,8 @@ interface Captured {
   resendId?: string;
   override?: { scope: string; cellId?: string; minutes: number; note?: string };
   revokedOverrideId?: string;
+  historyQuery?: string;
+  historyQueries?: string[];
 }
 
 function installFetch(
@@ -396,6 +422,7 @@ function installFetch(
     status: 204,
     durationMs: 11,
   },
+  historyView: SpendCapOverrideHistoryResponse = overrideHistory,
 ): Captured {
   const captured: Captured = {};
   const processResponse = makeProcessResponse();
@@ -568,6 +595,11 @@ function installFetch(
         url.slice('/api/budgets/overrides/'.length),
       );
       return jsonResponse({ override: { id: captured.revokedOverrideId } });
+    }
+    if (url.startsWith('/api/budgets/overrides/history')) {
+      captured.historyQuery = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+      captured.historyQueries = [...(captured.historyQueries ?? []), captured.historyQuery];
+      return jsonResponse(historyView);
     }
     if (url === '/api/budgets') return jsonResponse(view);
     if (url === '/api/process' && init?.method === 'PATCH') {
@@ -770,7 +802,7 @@ describe('ConfigPage', () => {
 
     const monthly = await screen.findByRole('spinbutton', { name: /overall monthly budget/i });
     expect(monthly).toHaveValue(100);
-    expect(screen.getByText('Overall')).toBeInTheDocument();
+    expect(screen.getAllByText('Overall').length).toBeGreaterThan(0);
     expect(screen.getByText(/At least \$85\.00 of \$100\.00 \(85%\)/)).toBeInTheDocument();
 
     const threshold = screen.getByRole('spinbutton', { name: /alert threshold/i });
@@ -826,6 +858,19 @@ describe('ConfigPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('renders recent spend cap override history', async () => {
+    const captured = installFetch();
+    render(<ConfigPage onError={() => {}} />);
+
+    expect(
+      await screen.findByRole('table', { name: 'Spend cap override history' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Overall spend')).toBeInTheDocument();
+    expect(screen.getByText('release review')).toBeInTheDocument();
+    expect(screen.getByText(/×1/)).toBeInTheDocument();
+    await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
+  });
+
   it('snoozes a paused budget and ends an active override', async () => {
     const pausedView: BudgetsResponse = {
       ...budgetView,
@@ -848,10 +893,12 @@ describe('ConfigPage', () => {
     expect(
       screen.getByText(/New work is paused and in-flight turns were stopped at/),
     ).toBeInTheDocument();
+    await waitFor(() => expect(captured.historyQueries).toHaveLength(1));
     fireEvent.click(screen.getByRole('button', { name: 'Snooze overall spend' }));
     await waitFor(() =>
       expect(captured.override).toEqual({ scope: 'overall', minutes: 60 }),
     );
+    await waitFor(() => expect(captured.historyQueries!.length).toBeGreaterThan(1));
     unmount();
 
     const overrideView: BudgetsResponse = {
@@ -889,10 +936,12 @@ describe('ConfigPage', () => {
     expect(
       screen.queryByText(/New work is paused and in-flight turns were stopped/),
     ).not.toBeInTheDocument();
+    await waitFor(() => expect(second.historyQueries).toHaveLength(1));
     fireEvent.click(
       screen.getByRole('button', { name: 'End override for overall spend' }),
     );
     await waitFor(() => expect(second.revokedOverrideId).toBe('o1'));
+    await waitFor(() => expect(second.historyQueries!.length).toBeGreaterThan(1));
   });
 
   it('explains a strict unknown-cost pause that an override is admitting', async () => {

@@ -4,6 +4,7 @@ import { ACTION_TONES, eventDetail } from './masterView';
 import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
 import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideControl';
+import { SpendOverrideHistory } from './SpendOverrideHistory';
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_NOTIFICATIONS,
@@ -209,6 +210,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [budgetView, setBudgetView] = useState<BudgetsResponse | null>(null);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetSaved, setBudgetSaved] = useState(false);
+  const [overrideHistoryToken, setOverrideHistoryToken] = useState(0);
   const [webhook, setWebhook] = useState<NotificationsView['webhook'] | null>(null);
   const [webhookEnabled, setWebhookEnabled] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState('');
@@ -602,6 +604,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
         minutes,
       });
       await reloadBudgetView();
+      setOverrideHistoryToken((current) => current + 1);
     } catch (error) {
       onError(describeError(error));
     }
@@ -611,6 +614,7 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     try {
       await api.revokeBudgetOverride(id);
       await reloadBudgetView();
+      setOverrideHistoryToken((current) => current + 1);
     } catch (error) {
       onError(describeError(error));
     }
@@ -1483,6 +1487,17 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
             </Button>
           </div>
         </div>
+      </Card>
+
+      <Card className="space-y-4 p-4">
+        <div>
+          <SectionTitle>Spend cap override history</SectionTitle>
+        </div>
+        <SpendOverrideHistory
+          cells={cells}
+          refreshToken={overrideHistoryToken}
+          onError={onError}
+        />
       </Card>
 
       <Card className="space-y-4 p-4">

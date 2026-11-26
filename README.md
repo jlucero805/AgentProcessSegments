@@ -390,6 +390,15 @@ turn keeps running while the override is active, so spend can overshoot during t
 Ending a snooze immediately re-pauses the scope and stops its live turns; an expiry is
 enforced by the next budget check (within 60 seconds).
 
+The Config page's **Spend cap override history** card is a read-only record of retained
+snoozes across UTC months. It shows the scope, state (`active`, `revoked`, or `expired`),
+budget period, grant time, any later-expiry extensions, final expiry, revocation time, and
+the optional note, with scope/state filters and pagination. It is an audit view: it does
+not raise a budget, clear an alert, change pause state, or resume a stopped turn. History
+is kept for 400 days; an active row means its window is still open, not that the scope is
+currently paused or still configured as a hard cap. There is no operator identity or
+per-event audit; the optional note is the only context recorded.
+
 ## Alert delivery
 
 The Config page's **Alert delivery** card sends each unacknowledged current-month alert
@@ -564,7 +573,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1028 vitest cases: 813 server cases across 49 files (state machine,
+`npm test` runs 1040 vitest cases: 818 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -575,10 +584,11 @@ manager against real git clones, process definitions/store/follow-ups, per-cell
 policies/tickers/limits/auto-compaction, the generic master pipeline, segment caps and
 merge, turn watchdogs/stderr, scorecard stats/generation/scheduling, budget
 status/alerts/hard caps and in-flight cap stops including strict unknown cost,
-time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
+time-boxed overrides and their read-only history, webhook/email/Slack/Discord delivery
+dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 215 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 222 web cases across 25 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

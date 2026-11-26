@@ -35,6 +35,8 @@ import type {
   SegmentConfig,
   SkillInfo,
   SpendCapOverride,
+  SpendCapOverrideHistoryQuery,
+  SpendCapOverrideHistoryResponse,
   State,
   Summary,
   SummaryConfig,
@@ -389,6 +391,21 @@ export const api = {
   },
   revokeBudgetOverride(id: string): Promise<{ override: SpendCapOverride }> {
     return request(`/api/budgets/overrides/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  getBudgetOverrideHistory(
+    query: SpendCapOverrideHistoryQuery = {},
+  ): Promise<SpendCapOverrideHistoryResponse> {
+    return request(
+      withQuery('/api/budgets/overrides/history', {
+        scope: query.scope,
+        cellId: query.cellId,
+        state: query.state,
+        from: query.from,
+        to: query.to,
+        limit: query.limit,
+        offset: query.offset,
+      }),
+    );
   },
   getNotificationStatus(): Promise<NotificationStatusResponse> {
     return request('/api/notifications/status');

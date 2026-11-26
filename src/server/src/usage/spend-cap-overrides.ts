@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
-import type { BudgetScope } from '../domain/budget.js';
+import type { BudgetScope, SpendCapOverrideState } from '../domain/budget.js';
 
 export interface SpendCapOverrideRecord {
   id: string;
@@ -12,6 +12,20 @@ export interface SpendCapOverrideRecord {
   createdAt: number;
   updatedAt: number;
   revokedAt: number | null;
+  extendedAt: number | null;
+  extensionCount: number;
+}
+
+export interface SpendCapOverrideHistoryFilter {
+  scope?: BudgetScope;
+  scopeId?: string;
+  state?: SpendCapOverrideState;
+  /** Inclusive period_start lower bound. */
+  from?: number;
+  /** Exclusive period_start upper bound. */
+  to?: number;
+  limit: number;
+  offset: number;
 }
 
 export interface SpendCapOverrideInput {
@@ -32,6 +46,8 @@ interface SpendCapOverrideRow {
   created_at: number;
   updated_at: number;
   revoked_at: number | null;
+  extended_at: number | null;
+  extension_count: number;
 }
 
 function toRecord(row: SpendCapOverrideRow): SpendCapOverrideRecord {
@@ -45,6 +61,45 @@ function toRecord(row: SpendCapOverrideRow): SpendCapOverrideRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     revokedAt: row.revoked_at,
+    extendedAt: row.extended_at,
+    extensionCount: row.extension_count,
+  };
+}
+
+function historyWhere(
+  filter: SpendCapOverrideHistoryFilter,
+  now: number,
+): { clause: string; params: Array<string | number> } {
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  if (filter.scope !== undefined) {
+    clauses.push('scope = ?');
+    params.push(filter.scope);
+  }
+  if (filter.scopeId !== undefined) {
+    clauses.push('scope_id = ?');
+    params.push(filter.scopeId);
+  }
+  if (filter.state === 'revoked') {
+    clauses.push('revoked_at IS NOT NULL');
+  } else if (filter.state === 'expired') {
+    clauses.push('revoked_at IS NULL AND expires_at <= ?');
+    params.push(now);
+  } else if (filter.state === 'active') {
+    clauses.push('revoked_at IS NULL AND expires_at > ?');
+    params.push(now);
+  }
+  if (filter.from !== undefined) {
+    clauses.push('period_start >= ?');
+    params.push(filter.from);
+  }
+  if (filter.to !== undefined) {
+    clauses.push('period_start < ?');
+    params.push(filter.to);
+  }
+  return {
+    clause: clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '',
+    params,
   };
 }
 
@@ -100,16 +155,28 @@ export class SpendCapOverrideRepository {
       | undefined;
 
     if (existing) {
-      // Re-granting extends the window; a null note keeps the stored reason.
+      // Re-granting can extend the window; a null note keeps the stored reason.
+      // Only a later expiry counts as an extension, and every extension refreshes
+      // the history timestamp while an equal/shorter regrant does not.
+      const extended = input.expiresAt > existing.expires_at;
       this.db
         .prepare(
           `UPDATE spend_cap_overrides
               SET expires_at = MAX(expires_at, ?),
                   note = COALESCE(?, note),
+                  extended_at = ?,
+                  extension_count = ?,
                   updated_at = ?
             WHERE id = ?`,
         )
-        .run(input.expiresAt, input.note, now, existing.id);
+        .run(
+          input.expiresAt,
+          input.note,
+          extended ? now : existing.extended_at,
+          existing.extension_count + (extended ? 1 : 0),
+          now,
+          existing.id,
+        );
       return { record: this.get(existing.id)!, created: false };
     }
 
@@ -118,8 +185,8 @@ export class SpendCapOverrideRepository {
       .prepare(
         `INSERT INTO spend_cap_overrides
            (id, scope, scope_id, period_start, expires_at, note, created_at, updated_at,
-            revoked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+            revoked_at, extended_at, extension_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0)`,
       )
       .run(
         id,
@@ -132,6 +199,27 @@ export class SpendCapOverrideRepository {
         now,
       );
     return { record: this.get(id)!, created: true };
+  }
+
+  listHistory(filter: SpendCapOverrideHistoryFilter, now: number): SpendCapOverrideRecord[] {
+    const { clause, params } = historyWhere(filter, now);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM spend_cap_overrides
+         ${clause}
+         ORDER BY period_start DESC, created_at DESC, id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...params, filter.limit, filter.offset) as SpendCapOverrideRow[];
+    return rows.map(toRecord);
+  }
+
+  countHistory(filter: SpendCapOverrideHistoryFilter, now: number): number {
+    const { clause, params } = historyWhere(filter, now);
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS count FROM spend_cap_overrides ${clause}`)
+      .get(...params) as { count: number } | undefined;
+    return row?.count ?? 0;
   }
 
   get(id: string): SpendCapOverrideRecord | null {

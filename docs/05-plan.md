@@ -241,3 +241,7 @@ states dispose the session as before; disabling the master stops scheduling imme
 - [x] **49. Spend-cap override enforcement parity** — revoking a snooze re-runs budget
   evaluation so covered live turns stop immediately, override-aware Config/Usage copy and
   `snoozed` badges, stale “not built” doc fixes, tests and docs.
+- [x] **50. Spend-cap override history** — additive `extended_at`/`extension_count`,
+  read-only `GET /api/budgets/overrides/history` with state derivation, scope/cell/state/
+  period filters, and pagination, a Config-page history card with lifecycle columns and
+  refresh-after-action, tests and docs.

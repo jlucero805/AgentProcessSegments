@@ -98,6 +98,168 @@ describe('spend cap overrides', () => {
     expect(repo.listActive(PERIOD, NOW + 2000)).toHaveLength(1);
   });
 
+  it('counts only a later expiry as an extension and preserves the last one', () => {
+    const repo = makeRepo();
+    const first = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 60_000,
+        note: 'release review',
+      },
+      NOW,
+    );
+    expect(first.record.extensionCount).toBe(0);
+    expect(first.record.extendedAt).toBeNull();
+
+    const later = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 120_000,
+        note: null,
+      },
+      NOW + 1000,
+    );
+    expect(later.record.extensionCount).toBe(1);
+    expect(later.record.extendedAt).toBe(NOW + 1000);
+    expect(later.record.expiresAt).toBe(NOW + 120_000);
+
+    const shorter = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 90_000,
+        note: 'still the same window',
+      },
+      NOW + 2000,
+    );
+    expect(shorter.record.extensionCount).toBe(1);
+    expect(shorter.record.extendedAt).toBe(NOW + 1000);
+    expect(shorter.record.expiresAt).toBe(NOW + 120_000);
+    expect(shorter.record.note).toBe('still the same window');
+
+    const secondExtension = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 180_000,
+        note: null,
+      },
+      NOW + 3000,
+    );
+    expect(secondExtension.record.extensionCount).toBe(2);
+    expect(secondExtension.record.extendedAt).toBe(NOW + 3000);
+
+    const revoked = repo.revoke(first.record.id, NOW + 4000);
+    expect(revoked?.extensionCount).toBe(2);
+    expect(revoked?.extendedAt).toBe(NOW + 3000);
+
+    const replacement = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 240_000,
+        note: null,
+      },
+      NOW + 5000,
+    );
+    expect(replacement.created).toBe(true);
+    expect(replacement.record.id).not.toBe(first.record.id);
+    expect(replacement.record.extensionCount).toBe(0);
+    expect(replacement.record.extendedAt).toBeNull();
+  });
+
+  it('lists retained history across periods with state, scope, and page filters', () => {
+    const repo = makeRepo();
+    const previous = Date.UTC(2026, 9, 1);
+    const activeOverall = repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: PERIOD,
+        expiresAt: NOW + 60_000,
+        note: 'overall window',
+      },
+      NOW - 4000,
+    );
+    const activeCell = repo.grant(
+      {
+        scope: 'cell',
+        scopeId: 'cell-1',
+        periodStart: PERIOD,
+        expiresAt: NOW + 120_000,
+        note: null,
+      },
+      NOW - 3000,
+    );
+    repo.grant(
+      {
+        scope: 'cell',
+        scopeId: 'cell-2',
+        periodStart: PERIOD,
+        expiresAt: NOW - 1000,
+        note: 'already expired',
+      },
+      NOW - 2000,
+    );
+    repo.grant(
+      {
+        scope: 'overall',
+        scopeId: '',
+        periodStart: previous,
+        expiresAt: previous + 60_000,
+        note: 'prior month',
+      },
+      previous,
+    );
+    const revoked = repo.grant(
+      {
+        scope: 'cell',
+        scopeId: 'cell-3',
+        periodStart: PERIOD,
+        expiresAt: NOW + 180_000,
+        note: 'ended early',
+      },
+      NOW - 1000,
+    );
+    repo.revoke(revoked.record.id, NOW - 500);
+
+    const all = { limit: 10, offset: 0 };
+    const history = repo.listHistory(all, NOW);
+    expect(history).toHaveLength(5);
+    expect(repo.countHistory(all, NOW)).toBe(5);
+    expect(history.map((record) => record.note)).toEqual([
+      'ended early',
+      'already expired',
+      null,
+      'overall window',
+      'prior month',
+    ]);
+
+    expect(repo.countHistory({ ...all, state: 'active' }, NOW)).toBe(2);
+    expect(repo.countHistory({ ...all, state: 'expired' }, NOW)).toBe(2);
+    expect(repo.countHistory({ ...all, state: 'revoked' }, NOW)).toBe(1);
+    expect(repo.countHistory({ ...all, scope: 'overall' }, NOW)).toBe(2);
+    expect(repo.countHistory({ ...all, scope: 'cell' }, NOW)).toBe(3);
+    expect(repo.countHistory({ ...all, scope: 'cell', scopeId: 'cell-2' }, NOW)).toBe(1);
+    expect(repo.countHistory({ ...all, from: PERIOD }, NOW)).toBe(4);
+    expect(repo.countHistory({ ...all, to: PERIOD }, NOW)).toBe(1);
+    expect(repo.countHistory({ ...all, from: previous, to: PERIOD }, NOW)).toBe(1);
+
+    const page = repo.listHistory({ limit: 2, offset: 1 }, NOW);
+    expect(page.map((record) => record.note)).toEqual(['already expired', null]);
+    expect(repo.listHistory({ ...all, state: 'active' }, NOW).map((record) => record.id)).toEqual([
+      activeCell.record.id,
+      activeOverall.record.id,
+    ]);
+  });
+
   it('prunes only periods older than the cutoff', () => {
     const repo = makeRepo();
     repo.grant(

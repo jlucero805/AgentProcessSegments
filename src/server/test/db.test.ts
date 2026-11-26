@@ -30,6 +30,8 @@ describe('db migrations', () => {
     expect(columns(db, 'cells')).toContain('pause_on_exceeded');
     expect(columns(db, 'cells')).toContain('pause_on_unknown_cost');
     expect(columns(db, 'cells')).toContain('autocompact_percent');
+    expect(columns(db, 'spend_cap_overrides')).toContain('extended_at');
+    expect(columns(db, 'spend_cap_overrides')).toContain('extension_count');
     const tables = (
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
         name: string;
@@ -152,6 +154,45 @@ describe('db migrations', () => {
     expect(legacyTables).toContain('usage_daily');
     expect(legacyTables).toContain('usage_rollup_state');
     expect(legacyTables).toContain('spend_cap_overrides');
+    db.close();
+  });
+
+  it('adds override history counters to an older database and keeps its rows', () => {
+    const dir = tmpDir('legacy-overrides');
+    const file = path.join(dir, 'legacy.sqlite');
+
+    const legacy = new Database(file);
+    legacy.exec(`CREATE TABLE spend_cap_overrides (
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL CHECK (scope IN ('overall', 'cell')),
+      scope_id TEXT NOT NULL,
+      period_start INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      revoked_at INTEGER
+    )`);
+    legacy
+      .prepare(
+        `INSERT INTO spend_cap_overrides
+           (id, scope, scope_id, period_start, expires_at, note, created_at, updated_at,
+            revoked_at)
+         VALUES ('old', 'overall', '', 1, 10, 'old note', 1, 2, NULL)`,
+      )
+      .run();
+    legacy.close();
+
+    const db = openDb(file);
+    expect(columns(db, 'spend_cap_overrides')).toContain('extended_at');
+    expect(columns(db, 'spend_cap_overrides')).toContain('extension_count');
+    expect(
+      db
+        .prepare(
+          'SELECT extended_at, extension_count FROM spend_cap_overrides WHERE id = ?',
+        )
+        .get('old'),
+    ).toEqual({ extended_at: null, extension_count: 0 });
     db.close();
   });
 

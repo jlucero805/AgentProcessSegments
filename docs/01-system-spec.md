@@ -219,13 +219,17 @@ by `migrate()` so `summary.failed` can be enqueued.
 
 `id` (uuid PK), `scope` (`overall|cell`), `scope_id` (empty for overall), `period_start`
 (UTC month start), `expires_at`, `note` (optional, max 280), `created_at`, `updated_at`,
-`revoked_at`. One non-revoked row per `(scope, scope_id, period_start)` is enforced by the
-partial unique index `idx_spend_cap_overrides_active`; re-granting extends `expires_at`
-and refreshes `updated_at` instead of inserting. `idx_spend_cap_overrides_period` covers
+`revoked_at`, `extended_at`, and `extension_count`. One non-revoked row per
+`(scope, scope_id, period_start)` is enforced by the partial unique index
+`idx_spend_cap_overrides_active`; re-granting extends `expires_at` and refreshes
+`updated_at` instead of inserting, and increments `extension_count`/sets `extended_at`
+only when the stored expiry moves later. `idx_spend_cap_overrides_period` covers
 `(period_start, expires_at)`. An override is active while `revoked_at IS NULL`,
 `expires_at > now`, and its period is current. Rows older than 400 days are pruned during
 budget evaluation. There is no cell FK, so deleting a cell leaves an inert row that
-expires naturally.
+expires naturally; history resolves the cell name live and falls back to `Deleted cell`.
+History derives `revoked`/`expired`/`active` at read time from `revoked_at`/`expires_at`
+without requiring the row to be in the current period.
 
 ### Spend budgets
 
@@ -322,10 +326,18 @@ spend, budget, and period. `POST /api/budgets/overrides` accepts
 `{ scope, cellId?, minutes, note? }` and returns `201 { override, created: true }` or `200
 { override, created: false }`; it returns `409 cap_not_configured` for a scope that is not
 a hard cap and `409 period_ending` when the window would expire immediately. `DELETE
-/api/budgets/overrides/:id` returns `200 { override }` or `404`. `POST
-/api/budgets/alerts/:id/ack` is idempotent. Global budget writes use `PATCH /api/config`;
-cell budget and pause writes use `PATCH /api/cells/:id`. The Config page, Usage page, and
-app banner show the same current-month status, pause reason, and snooze/end actions.
+/api/budgets/overrides/:id` returns `200 { override }` or `404`. `GET
+/api/budgets/overrides/history` returns retained active, revoked, and expired rows across
+periods as `{ overrides, total, limit, offset }`; each row has the override fields plus
+`state` (`active|revoked|expired`), `extensionCount`, and `lastExtendedAt`. It accepts
+optional `scope`, `cellId`, `state`, `from`/`to` (period-start bounds; `from` inclusive,
+`to` exclusive), `limit` (1–100, default 20), and `offset`; state is derived at read time
+and the route is read-only. `POST /api/budgets/alerts/:id/ack` is idempotent. Global
+budget writes use `PATCH /api/config`; cell budget and pause writes use
+`PATCH /api/cells/:id`. The Config page, Usage page, and app banner show the same
+current-month status, pause reason, and snooze/end actions. The Config page also has a
+read-only **Spend cap override history** card after **Spend budgets** with scope/state
+filters, pagination, and granted/extended/expires/revoked/note columns.
 
 ### `master_events`
 
@@ -956,7 +968,8 @@ carried in the `done` event:
   renames, and deletes cells, filtering the board by `cellId`.
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
   monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
-  shows the current UTC-month status for the overall and per-cell budgets. Its **Alert
+  shows the current UTC-month status for the overall and per-cell budgets and a read-only
+  **Spend cap override history** card with scope/state filters and pagination. Its **Alert
   delivery** card edits the webhook URL, format, and signing secret, its **Email
   delivery** card edits the SMTP host, port, TLS mode, optional credentials, From address,
   and recipients, and the **Slack alerts**/**Discord alerts** cards edit bot tokens,

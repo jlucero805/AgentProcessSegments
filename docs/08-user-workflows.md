@@ -172,7 +172,13 @@ last five.
    an **End override** action; ending it immediately re-pauses the scope and stops its live
    turns, while letting it expire re-pauses new work and is enforced by the next budget
    check. A snooze changes no budget and clears no alert. The Usage page shows paused
-   scopes, cap spend, the reason, and the same snooze controls.
+   scopes, cap spend, the reason, and the same snooze controls. To audit recent snoozes,
+   use **Config → Spend cap override history**: each row shows the scope, state
+   (`active`, `revoked`, or `expired`), budget month, grant time, later-expiry extensions,
+   final expiry, revocation time, and note. Filter by scope or state and page through the
+   retained 400 days. The card is read-only and does not change a budget, alert, or pause.
+   An `active` row means its window is still open; the Spend budgets status above shows
+   whether the scope is currently paused or covered.
 7. Alert spend is harness-reported only. Cap spend also includes estimates; unpriced turns
    are counted and shown as unknown or a lower bound, never as zero.
 8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,

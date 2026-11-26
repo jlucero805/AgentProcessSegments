@@ -114,6 +114,39 @@ export interface SpendCapOverride {
   revokedAt: number | null;
 }
 
+/** Lifecycle of a retained override row at read time. */
+export const SPEND_CAP_OVERRIDE_STATES = ['active', 'revoked', 'expired'] as const;
+export type SpendCapOverrideState = (typeof SPEND_CAP_OVERRIDE_STATES)[number];
+
+export interface SpendCapOverrideHistoryItem extends SpendCapOverride {
+  /** Lifecycle state at read time; not a policy-effectiveness check. */
+  state: SpendCapOverrideState;
+  /** Grants that moved the stored expiry later. */
+  extensionCount: number;
+  /** Last such grant, or null. */
+  lastExtendedAt: number | null;
+}
+
+export interface SpendCapOverrideHistoryQuery {
+  scope?: BudgetScope;
+  cellId?: string;
+  state?: SpendCapOverrideState;
+  /** Inclusive period_start lower bound. */
+  from?: number;
+  /** Exclusive period_start upper bound. */
+  to?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SpendCapOverrideHistoryResponse {
+  /** Newest period first, then newest grant. */
+  overrides: SpendCapOverrideHistoryItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface BudgetAlert {
   id: string;
   scope: BudgetScope;

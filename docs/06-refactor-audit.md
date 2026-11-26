@@ -102,6 +102,11 @@ and error-event shape.
    panes now stack vertically below `md`.
 10. **Unmounting a chat left a stream applying events to a dead component.** Chat
     hydration and sends now use an `AbortController` cleaned up on unmount or prop change.
+11. **An engine exception left the turn promise pending.** `finishTurn` marked the turn
+    done and deleted its maps without resolving `turn.promise`, so a `runTurn` throw
+    leaked the HTTP stream continuation, master settlement, and the serialized summary
+    drain. `finishTurn` now resolves the promise in a `finally`, so every completion path
+    settles it.
 
 ## Cleanup without behaviour change
 

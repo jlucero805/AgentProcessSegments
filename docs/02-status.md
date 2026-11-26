@@ -233,10 +233,10 @@ built and vended by the brain; real-CLI verification is still pending.
 - Refactor audit (`docs/06-refactor-audit.md`): the SPA now type-imports the pure server
   contract instead of mirroring it; sentinel routing, MCP board tools, and plugin
   markdown/fs helpers have one implementation; the drawer's form mapping and terminal
-  transcript are extracted. Fixed: dispose-while-live promise leak, board drags waiting
-  on a full turn, illegal drag jumps, orphan cell ids, double-slash commands, KB
-  backslash search, drawer edits overwritten on turn completion, touch-invisible cell
-  actions, and the fixed-width KB sidebar on phones.
+  transcript are extracted. Fixed: dispose-while-live promise leak, engine-exception
+  turn-promise leak, board drags waiting on a full turn, illegal drag jumps, orphan cell
+  ids, double-slash commands, KB backslash search, drawer edits overwritten on turn
+  completion, touch-invisible cell actions, and the fixed-width KB sidebar on phones.
 - Spend budgets: an overall monthly budget, warning percentage, and opt-in
   `pauseOnExceeded`/`pauseOnUnknownCost` live in `config.json`; each cell can store
   `monthly_budget_usd`, `pause_on_exceeded`, and `pause_on_unknown_cost`. Budgets use the
@@ -369,7 +369,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1005 vitest cases, all passing: 791 server across 49 files and 214 web across 24 files,
+- 1006 vitest cases, all passing: 792 server across 49 files and 214 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

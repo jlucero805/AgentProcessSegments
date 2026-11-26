@@ -246,7 +246,6 @@ export class Engine {
     // Finish now even if the harness is still stuck inside `prepare()`. The
     // later `runTurn` continuation sees `turn.done` and only cleans up.
     this.finishTurn(id, turn, this.repo.get(id) ?? null);
-    turn.resolve();
   }
 
   /**
@@ -533,51 +532,57 @@ export class Engine {
   }
 
   private finishTurn(id: string, turn: LiveTurn, request: Request | null): void {
-    if (turn.done) return;
-    this.clearWatchdog(id);
-    const parser = this.parsers.get(id);
-    const transcript = parser ? parser.finalize() : this.loadTranscript(id);
-    const warning = turn.stoppedBy
-      ? `⏸ ${spendPauseInterruptMessage(turn.stoppedBy)}`
-      : turn.failure
-        ? `⚠ ${turn.failure}`
-        : null;
-    if (warning) {
-      const alreadySaved = transcript
-        .slice(turn.transcriptStart)
-        .some((message) => message.kind === 'text' && message.text === warning);
-      if (!alreadySaved) {
-        transcript.push({
-          role: 'agent',
-          kind: 'text',
-          text: warning,
-          ts: Date.now(),
-        });
+    try {
+      if (turn.done) return;
+      this.clearWatchdog(id);
+      const parser = this.parsers.get(id);
+      const transcript = parser ? parser.finalize() : this.loadTranscript(id);
+      const warning = turn.stoppedBy
+        ? `⏸ ${spendPauseInterruptMessage(turn.stoppedBy)}`
+        : turn.failure
+          ? `⚠ ${turn.failure}`
+          : null;
+      if (warning) {
+        const alreadySaved = transcript
+          .slice(turn.transcriptStart)
+          .some((message) => message.kind === 'text' && message.text === warning);
+        if (!alreadySaved) {
+          transcript.push({
+            role: 'agent',
+            kind: 'text',
+            text: warning,
+            ts: Date.now(),
+          });
+        }
       }
-    }
-    this.saveTranscript(id, transcript);
+      this.saveTranscript(id, transcript);
 
-    if (request) {
-      this.repo.setAgentStatus(id, 'idle');
-      this.repo.setUnchecked(id, true);
-    }
-
-    const recorded = this.recordUsage(id, turn, parser);
-    this.notifyTurnFailure(id, turn, request);
-
-    const fresh = this.repo.get(id) ?? null;
-    turn.done = true;
-    if (turn.stoppedBy) this.broadcast(turn, { t: 'paused', pause: turn.stoppedBy });
-    this.broadcast(turn, { t: 'done', request: fresh, transcript });
-
-    this.turns.delete(id);
-    this.parsers.delete(id);
-    if (recorded) {
-      try {
-        this.deps.onUsageRecorded?.();
-      } catch (error) {
-        this.deps.errors?.error('budget.enforce', error, { session: id });
+      if (request) {
+        this.repo.setAgentStatus(id, 'idle');
+        this.repo.setUnchecked(id, true);
       }
+
+      const recorded = this.recordUsage(id, turn, parser);
+      this.notifyTurnFailure(id, turn, request);
+
+      const fresh = this.repo.get(id) ?? null;
+      turn.done = true;
+      if (turn.stoppedBy) this.broadcast(turn, { t: 'paused', pause: turn.stoppedBy });
+      this.broadcast(turn, { t: 'done', request: fresh, transcript });
+
+      this.turns.delete(id);
+      this.parsers.delete(id);
+      if (recorded) {
+        try {
+          this.deps.onUsageRecorded?.();
+        } catch (error) {
+          this.deps.errors?.error('budget.enforce', error, { session: id });
+        }
+      }
+    } finally {
+      // Every completion path settles the turn promise here, including a
+      // `runTurn` throw that never reached a parser or exit resolve.
+      turn.resolve();
     }
   }
 
@@ -723,7 +728,6 @@ export class Engine {
     // A child that is stuck in `prepare()` may never resolve; finish the turn
     // here so the stream always receives `done`.
     this.finishTurn(id, turn, request);
-    turn.resolve();
   }
 
   private consume(id: string, line: string): void {
@@ -1035,7 +1039,6 @@ export class Engine {
       // `done` and the maps are cleaned up even if the harness is stuck.
       turn.cancelled = true;
       this.finishTurn(id, turn, request);
-      turn.resolve();
     } else {
       this.turns.delete(id);
       this.parsers.delete(id);

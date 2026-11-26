@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1005 vitest cases: 791 server across 49 files and 214 web across 24 files, all green.
+- 1006 vitest cases: 792 server across 49 files and 214 web across 24 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -100,7 +100,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 791 server + 214 web, plus the e2e env guard
+npm test                       # 792 server + 214 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env and
                                # missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -313,10 +313,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     with `409 turn_active` while a turn runs; the client requeues the text at the front
     and reattaches instead of surfacing an error.
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
-    cancelled, and resolves it so `finishTurn` can save the partial transcript; never
-    delete a live turn's maps without resolving its promise. `Engine.discardSession` is
-    the cell-delete variant: cancel, wait for the `runTurn` continuation, then remove the
-    reserved session directory and refuse new turns for that id.
+    cancelled, and finishes it so the partial transcript is saved; never delete a live
+    turn's maps without resolving its promise. `finishTurn` is the single settlement
+    point and resolves `turn.promise` in a `finally`, including when `runTurn` throws an
+    engine exception. `Engine.discardSession` is the cell-delete variant: cancel, wait
+    for the `runTurn` continuation, then remove the reserved session directory and
+    refuse new turns for that id.
 15. **Finalize stays human-gated.** `intake` and `finalize` cannot auto-advance; indexing
     into the KB is a human action. The master never schedules a finalize turn, even when
     an old policy says `finalize.enabled: true`; a person presses **Finalize** to propose

@@ -1412,7 +1412,8 @@ describe('turn engine', () => {
     };
     const request = h.repo.create({ title: 'Broken worktree' });
 
-    await h.engine.start(request.id);
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
     await settle();
 
     expect(failures).toHaveLength(1);
@@ -1421,6 +1422,36 @@ describe('turn engine', () => {
       reason: 'engine error',
     });
     expect(JSON.stringify(failures)).not.toContain('/definitely/secret/path');
+    expect(turn.events.filter((event) => event.t === 'error')).toHaveLength(1);
+    expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
+    expect(h.repo.require(request.id).unchecked).toBe(true);
+    expect(
+      h.engine
+        .transcript(request.id)
+        .some((message) => message.kind === 'text' && message.text.startsWith('⚠')),
+    ).toBe(true);
+  });
+
+  it('resolves the turn promise when the harness spawn throws', async () => {
+    const failures: TurnFailureNotification[] = [];
+    const h = freshWithTurnFailures(defaultScript, failures);
+    (h.harness as unknown as { spawn: () => never }).spawn = () => {
+      throw new Error('spawn failed');
+    };
+    const request = h.repo.create({ title: 'Broken spawn' });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      source: 'engine.turn',
+      reason: 'engine error',
+    });
+    expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
+    expect(h.repo.require(request.id).agentStatus).toBe('idle');
   });
 
   it('does not report successful, cancelled, or non-request turns', async () => {

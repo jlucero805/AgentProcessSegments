@@ -732,7 +732,9 @@ defaults.
   `beginTurn` creates a `LiveTurn` with an event buffer, subscribers, a done flag, and a
   promise. Events are buffered and broadcast to every subscriber. `attach(id, emit)`
   replays the buffer, then streams the rest. `hasLive(id)` is false once done, and the
-  turn is dropped immediately so a post-completion mount does not replay it.
+  turn is dropped immediately so a post-completion mount does not replay it. `finishTurn`
+  resolves the turn promise on every completion path, including when `runTurn` throws an
+  engine exception.
   `start`, `send`, `dispatch`, and `finalize` all run through `beginTurn` and are
   idempotent; a second caller attaches.
 - **Turn parsing:** reads stream-json lines, accumulates text deltas and tool cards

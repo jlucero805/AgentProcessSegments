@@ -335,6 +335,11 @@ export class BudgetService {
   /**
    * Grant or extend a bounded override for one scope. An override only suppresses
    * admission; it never changes budget status or alerts.
+   *
+   * A grant does not re-run evaluation: it only relaxes policy and cannot require
+   * a stop, while `statuses()` reads active overrides live. `revokeOverride()`
+   * evaluates because a revoke can re-block a still-over-cap scope and must stop
+   * its live turns immediately (D68).
    */
   grantOverride(
     input: SpendCapOverrideGrantInput,

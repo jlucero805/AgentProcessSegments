@@ -1419,23 +1419,25 @@ deliberately does not override a pause.
 **Decision.** Add a durable `spend_cap_overrides` table. An override has a scope
 (`overall|cell`), a UTC period, an expiry, an optional note, and a soft `revoked_at`. One
 non-revoked row per scope and period is enforced by a partial unique index; re-granting
-extends the same row. Grants require the scope to be a configured hard cap but not to be
-currently paused, so an operator can pre-authorize a window. An overall override admits
-every new turn and suppresses the in-flight stop for every scope; a cell override does the
-same for only that cell and can never release an overall pause. The window is clamped
-before the next UTC period, so a snooze never outlives the budget month it was meant for.
+extends the same row. Grants require the scope to be a configured hard cap; the scope need
+not be currently paused, so an operator can pre-authorize a window. An overall override
+admits every new turn and suppresses the in-flight stop for every scope; a cell override
+does the same for only that cell and can never release an overall pause. The window is
+clamped before the next UTC period, so a snooze never outlives the budget month it was meant
+for.
 
 The override suppresses admission and the in-flight stop only. `status.paused`,
 `pauseReason`, the `pauses` list, alerts, thresholds, delivery, and the budget itself are
 unchanged; statuses gain `overrideId` and `overrideExpiresAt`, and `GET /api/budgets`
 returns active `overrides` so the UI can keep the cap visible while new work is allowed.
 `POST /api/budgets/overrides` creates or extends; `DELETE /api/budgets/overrides/:id`
-revokes idempotently. Revoking re-runs evaluation immediately, so the enforcer stops live
-turns in a scope that is still over its cap; expiry is observed at the next evaluation
-(within 60 seconds) because there is no per-override timer. Admission checks the overall
-override before the overall pause and then the cell override, and `SpendCapEnforcer`
-therefore leaves covered live turns running on its next check. A failed override read
-still fails open and is reported to
+revokes idempotently. A grant does not re-run evaluation: it only relaxes admission, cannot
+require a stop, and `GET /api/budgets` reads active overrides live. A revoke does re-run
+evaluation immediately, so the enforcer stops live turns in a scope that is still over its
+cap; expiry is observed at the next evaluation (within 60 seconds) because there is no
+per-override timer. Admission checks the overall override before the overall pause and
+then the cell override, and `SpendCapEnforcer` therefore leaves covered live turns running
+on its next check. A failed override read still fails open and is reported to
 `usage.budgets` with `phase: admission`. Rows are pruned after 400 days, matching the
 budget-alert retention default. Policy edits and cell deletion do not rewrite or revoke
 override rows; an inert

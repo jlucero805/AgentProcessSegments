@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1068 vitest cases: 837 server across 49 files (one environmental root-skip) and 231 web across 25 files, all green.
+- 1069 vitest cases: 838 server across 49 files (one environmental root-skip) and 231 web across 25 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -101,7 +101,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server then web app + config, must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 837 server + 231 web, plus the e2e env guard
+npm test                       # 838 server + 231 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -451,13 +451,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and suppresses the in-flight stop for its scope: an overall override admits and keeps
     every scope, a cell override admits only its cell, and neither changes `paused`,
     `pauseReason`, alerts, or the budget. Overrides are clamped before the next UTC
-    period, are revocable, and must fail open if the override store cannot be read.
-    Revoking an override re-runs evaluation so the enforcer stops live turns in a scope
-    that is still over its cap; an expiry refuses new turns at once and is observed by the
-    next evaluation (within 60 seconds). Retained rows are also readable through a
-    read-only history route/card; state is derived at read time (`revoked` > `expired` >
-    `active`), `extended_at`/`extension_count` move only when a re-grant pushes the expiry
-    later, and history never changes budgets, alerts, pauses, admission, or enforcement.
+    period, are revocable, and must fail open if the override store cannot be read. A
+    grant does not re-run evaluation: it only relaxes admission and cannot require a stop,
+    and statuses are read live. A revoke does re-run evaluation so the enforcer stops live
+    turns in a scope that is still over its cap; an expiry refuses new turns at once and is
+    observed by the next evaluation (within 60 seconds). Retained rows are also readable
+    through a read-only history route/card; state is derived at read time
+    (`revoked` > `expired` > `active`), `extended_at`/`extension_count` move only when a
+    re-grant pushes the expiry later, and history never changes budgets, alerts, pauses,
+    admission, or enforcement.
     `active` is a lifecycle state, not proof the scope is still a configured hard cap.
     When `notifications.events.spendOverrides` is enabled, a grant or extension while the
     scope is still `paused` and an expiry that leaves it `paused` with no other active

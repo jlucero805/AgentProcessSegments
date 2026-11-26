@@ -46,6 +46,7 @@ interface Open {
   app: FastifyInstance;
   base: string;
   notifications: NotificationService;
+  budgets: BudgetService;
   admission: (cellId: string | null) => SpendPause | null;
 }
 
@@ -157,6 +158,7 @@ async function makeApp(
     app,
     base: `http://127.0.0.1:${port}`,
     notifications,
+    budgets,
     admission: (cellId) => budgets.admission(cellId),
   };
   return open;
@@ -817,6 +819,32 @@ describe('http api', () => {
     expect(open!.h.engine.transcript(requestId).some((message) => message.text.startsWith('⏸'))).toBe(
       true,
     );
+  });
+
+  it('does not evaluate budgets when granting an override but does on revoke', async () => {
+    await makeApp();
+    const cell = await call('POST', '/api/cells', {
+      name: 'Evaluation seam',
+      monthlyBudgetUsd: 1,
+      pauseOnExceeded: true,
+    });
+    const cellId = (cell.json() as { id: string }).id;
+    // Cell creation is a policy edit and evaluates intentionally; only the
+    // override routes are under test here.
+    const evaluate = vi.spyOn(open!.budgets, 'evaluate');
+
+    const granted = await call('POST', '/api/budgets/overrides', {
+      scope: 'cell',
+      cellId,
+      minutes: 60,
+    });
+    expect(granted.status).toBe(201);
+    expect(evaluate).not.toHaveBeenCalled();
+
+    const overrideId = (granted.json() as { override: { id: string } }).override.id;
+    const revoked = await call('DELETE', `/api/budgets/overrides/${overrideId}`);
+    expect(revoked.status).toBe(200);
+    expect(evaluate).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a new turn with an unknown-cost reason when the cap is strict', async () => {

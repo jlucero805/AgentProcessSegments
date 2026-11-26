@@ -322,15 +322,17 @@ no backoff.
 A configured hard cap can also be **snoozed** for 1–44,640 minutes (clamped before the
 next UTC period). An active `overall` override admits every new turn and suppresses the
 in-flight stop for every scope; an active `cell` override does the same for only that cell
-and can never release an overall pause. Granting requires the scope to be configured as a
-hard cap but not to be currently paused. The override only suppresses admission and the
-in-flight stop: `paused`, `pauseReason`, `pauses`, alerts, thresholds, and budgets do not
-change, and the response exposes the covering override so the UI keeps showing the cap. A
-grant is `created` the first time and extends the same active row afterward; `DELETE` sets
-`revoked_at` and is idempotent. A revoke re-runs budget evaluation immediately, so the
-scope resumes refusing new turns and its live turns are stopped; an expiry refuses new
-turns at `expiresAt` and is enforced by the next evaluation (within 60 seconds). Policy
-edits and cell deletion do not revoke overrides, and month rollover makes them inert.
+and can never release an overall pause. A grant requires the scope to be configured as a
+hard cap; the scope need not be currently paused. The override only suppresses admission
+and the in-flight stop: `paused`, `pauseReason`, `pauses`, alerts, thresholds, and budgets
+do not change, and the response exposes the covering override so the UI keeps showing the
+cap. A grant is `created` the first time and extends the same active row afterward;
+`DELETE` sets `revoked_at` and is idempotent. A grant does not re-run evaluation because it
+only relaxes admission and cannot require a stop; statuses are read live. A revoke does
+re-run budget evaluation immediately, so the scope resumes refusing new turns and its live
+turns are stopped; an expiry refuses new turns at `expiresAt` and is enforced by the next
+evaluation (within 60 seconds). Policy edits and cell deletion do not revoke overrides, and
+month rollover makes them inert.
 When the `spendOverrides` event route is enabled, a new grant or a later-expiry extension
 while the scope is still `paused`, and an expiry that leaves it `paused` with no other
 active override, enqueue a `spend.override` event (`granted`/`extended`/`expired`) with

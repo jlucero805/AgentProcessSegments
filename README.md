@@ -602,7 +602,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1117 vitest cases: 876 server cases across 51 files (state machine,
+`npm test` runs 1132 vitest cases: 876 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -617,8 +617,8 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 241 web cases across 26 files (shared contract re-exports, NDJSON)
-client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
+real socket) and 256 web cases across 27 files (shared contract re-exports, NDJSON
+client, chat folding, the cross-tab chat queue claim, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot
 routing, delivery history, and spend-cap overrides, budget banner, master detail and

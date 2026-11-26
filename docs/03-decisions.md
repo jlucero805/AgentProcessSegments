@@ -338,7 +338,17 @@ races a turn already running is refused by `POST /clarify/send` with
 `409 turn_active`; the client puts the text back at the front of the queue, reattaches,
 and retries after `done` instead of dropping it.
 
-**Cost.** The queue is per browser and not visible to other clients or the server. A stop
+Two tabs can see the same queue, so a drain claims an item before sending it: the client
+removes the first entry from `aps-queue:<id>` inside an exclusive Web Lock named
+`aps-queue-lock:<id>`, and only the tab that claimed it sends. Appends, front requeues,
+and clears take the same lock, and every tab mirrors the queue through `storage` events.
+The guarantee needs Web Locks, which browsers expose only in a secure context (localhost
+or HTTPS); without it the queue still drains inside one tab but two tabs can deliver the
+same item twice. Storage failures are not fatal: the tab keeps its in-memory queue and
+keeps draining it.
+
+**Cost.** The queue is per browser — shared by its tabs, but not visible to other clients
+or the server. A stop
 is best-effort: the process can take a moment to die, and the transcript is whatever the
 parser had flushed. Migration is best-effort too: a tab still running the old bundle can
 recreate the legacy key after migration, and that queue is adopted again only when the

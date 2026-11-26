@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClarifyChat } from './ClarifyChat';
+import { enqueueBack } from './queue';
 import { jsonResponse, ndjsonResponse } from './test/fixtures';
+import { installFakeLocks, uninstallFakeLocks } from './test/fakeLocks';
 
 const encoder = new TextEncoder();
 
@@ -766,5 +768,204 @@ describe('ClarifyChat reload during a live turn', () => {
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-cap')).toBeNull(),
     );
+  });
+});
+
+describe('ClarifyChat queue across tabs', () => {
+  beforeEach(() => {
+    installFakeLocks();
+  });
+
+  afterEach(() => {
+    uninstallFakeLocks();
+  });
+
+  function storageEvent(key: string, queue: string[]): void {
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key,
+        newValue: JSON.stringify(queue),
+        storageArea: window.localStorage,
+      }),
+    );
+  }
+
+  it('delivers a persisted queue item from only one tab', async () => {
+    const lives = [controllableStream(), controllableStream()];
+    let streamIndex = 0;
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          const live = lives[streamIndex];
+          streamIndex += 1;
+          if (!live) return ndjsonResponse([doneEvent('extra')]);
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        return jsonResponse([]);
+      }),
+    );
+    window.localStorage.setItem('aps-queue:req-two', JSON.stringify(['hello']));
+
+    render(<ClarifyChat requestId="req-two" started commands={[]} onError={() => {}} />);
+    render(<ClarifyChat requestId="req-two" started commands={[]} onError={() => {}} />);
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(sendBodies[0]).toBe('hello');
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    expect(window.localStorage.getItem('aps-queue:req-two')).toBeNull();
+
+    await act(async () => {
+      lives[0]!.controller.enqueue(encoder.encode(doneEvent('hello')));
+      lives[0]!.controller.close();
+    });
+
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    expect(sendBodies).toHaveLength(1);
+  });
+
+  it('drains a message appended in another tab once', async () => {
+    const lives = [controllableStream(), controllableStream()];
+    let streamIndex = 0;
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          const live = lives[streamIndex];
+          streamIndex += 1;
+          return new Response(live!.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([doneEvent('from B')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-share" started commands={[]} onError={() => {}} />);
+    render(<ClarifyChat requestId="req-share" started commands={[]} onError={() => {}} />);
+    expect(await screen.findAllByText('Agent is working…')).toHaveLength(2);
+
+    await enqueueBack('aps-queue:req-share', 'from B');
+    storageEvent('aps-queue:req-share', ['from B']);
+    expect(await screen.findAllByText('1 queued')).toHaveLength(2);
+
+    await act(async () => {
+      for (const live of lives) {
+        live.controller.enqueue(encoder.encode(doneEvent('finished')));
+        live.controller.close();
+      }
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    expect(sendBodies[0]).toBe('from B');
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    expect(sendBodies).toHaveLength(1);
+  });
+
+  it('delivers a 409-requeued message once across tabs', async () => {
+    let clarifyCalls = 0;
+    let blocked = false;
+    let turnEnded = false;
+    const lives: Array<ReturnType<typeof controllableStream>> = [];
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          clarifyCalls += 1;
+          const active = clarifyCalls === 1 || blocked;
+          return jsonResponse({ started: true, active, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          const live = controllableStream();
+          lives.push(live);
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          if (!turnEnded) {
+            blocked = true;
+            return jsonResponse(
+              { error: 'turn_active', message: 'A turn is already running.' },
+              409,
+            );
+          }
+          return ndjsonResponse([doneEvent('retry me')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    // Tab A is attached to the live turn; tab B is idle and races a send.
+    render(<ClarifyChat requestId="req-race-two" started commands={[]} onError={() => {}} />);
+    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+
+    render(<ClarifyChat requestId="req-race-two" started commands={[]} onError={() => {}} />);
+    const composer = await screen.findByPlaceholderText('Ask a question...');
+    fireEvent.change(composer, { target: { value: 'retry me' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() =>
+      expect(window.localStorage.getItem('aps-queue:req-race-two')).toBe(
+        JSON.stringify(['retry me']),
+      ),
+    );
+    // Tab A sees the requeue through the storage event while its turn still runs.
+    storageEvent('aps-queue:req-race-two', ['retry me']);
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(2));
+    await waitFor(() => expect(lives).toHaveLength(2));
+
+    turnEnded = true;
+    await act(async () => {
+      for (const live of lives) {
+        live.controller.enqueue(encoder.encode(doneEvent('finished')));
+        live.controller.close();
+      }
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(2));
+    expect(sendBodies[1]).toBe('retry me');
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    expect(sendBodies).toHaveLength(2);
+  });
+
+  it('mirrors another tab queue write into the banner', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ started: true, active: false, transcript: [] })),
+    );
+
+    render(<ClarifyChat requestId="req-mirror" started={false} commands={[]} onError={() => {}} />);
+    await screen.findByPlaceholderText('Start clarify to chat.');
+
+    window.localStorage.setItem('aps-queue:req-mirror', JSON.stringify(['from another tab']));
+    storageEvent('aps-queue:req-mirror', ['from another tab']);
+
+    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(screen.getByText('from another tab')).toBeInTheDocument();
   });
 });

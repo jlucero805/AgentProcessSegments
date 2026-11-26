@@ -998,7 +998,8 @@ carried in the `done` event:
   messages and running state and probes `/clarify/stream` to reattach on mount. A queue
   restored from localStorage is drained only after the `/clarify` snapshot says no turn
   is live; while one is, it waits for `done`, and a `409 turn_active` from
-  `/clarify/send` requeues the text and reattaches.
+  `/clarify/send` requeues the text and reattaches. Each queued item is claimed from
+  storage under a per-request Web Lock before it is sent, so two tabs deliver it once.
   `Thread.tsx` holds assistant-ui primitives, markdown, tool cards, and code diffs.
   `Composer.tsx` is a custom input with a `/` slash-command autocomplete from
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.

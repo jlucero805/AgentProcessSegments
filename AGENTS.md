@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1278 vitest cases: 980 server across 55 files (one environmental root-skip) and 298 web across 28 files, all green.
+- 1299 vitest cases: 1001 server across 56 files (one environmental root-skip) and 298 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -70,7 +70,9 @@ digests.
   Slack/Discord bot delivery with per-scope routing, an optional single-worker Merge step
   with per-segment caps, an in-app Help docs viewer, a desktop-only maximizable PTY
   terminal independent of agent sessions, bounded turn/MCP waits with stderr diagnostics,
-  a systemd user unit for a VPS, a reviewed live-VPS cutover script
+  a systemd user unit for a VPS, an opt-in brain heartbeat lock that
+  `migrate-paths` reads when the HTTP port is unreachable, a reviewed live-VPS cutover
+  script
   (`deploy/cutover-vps.sh`, `npm run cutover:vps`) that detaches, drains, moves, verifies,
   prunes older `~/.aps-cutover/runs/` evidence, and rolls back, a self-hosted upgrade
   script (`deploy/upgrade-vps.sh`,
@@ -111,7 +113,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 980 server + 298 web, plus the e2e env guard
+npm test                       # 1001 server + 298 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -132,7 +134,7 @@ node scripts/screenshots.mjs   # refresh README/Help screenshots; needs a built 
                                # SIGINT/SIGTERM close the browser, brain, and temp dir
 node scripts/clean-test-tmp.mjs  # dry-run: stale test temp dirs; --apply to delete
 npm run migrate:paths           # move legacy paths; refuses while a brain unit, process,
-                                # or answering health endpoint is using them
+                                # answering health endpoint, or fresh brain lock is present
 npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs;
                                 # terminal transitions retire them automatically.
                                 # --prune-orphans also retires refs with no request row

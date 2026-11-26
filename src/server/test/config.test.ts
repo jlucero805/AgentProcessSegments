@@ -128,6 +128,32 @@ describe('harness config', () => {
   });
 });
 
+describe('brain lock config', () => {
+  it('is off unless APS_BRAIN_LOCK is 1 or true', () => {
+    const { base, home } = workspace();
+
+    expect(loadConfig({}, base, home).brainLock).toBe(false);
+    expect(loadConfig({ APS_BRAIN_LOCK: '' }, base, home).brainLock).toBe(false);
+    expect(loadConfig({ APS_BRAIN_LOCK: '0' }, base, home).brainLock).toBe(false);
+    expect(loadConfig({ APS_BRAIN_LOCK: 'yes' }, base, home).brainLock).toBe(false);
+    expect(loadConfig({ APS_BRAIN_LOCK: '1' }, base, home).brainLock).toBe(true);
+    expect(loadConfig({ APS_BRAIN_LOCK: 'true' }, base, home).brainLock).toBe(true);
+    expect(loadConfig({ APS_BRAIN_LOCK: ' TRUE ' }, base, home).brainLock).toBe(true);
+  });
+
+  it('lets an explicitly blank APS value shadow the legacy alias', () => {
+    const { base, home } = workspace();
+
+    const config = loadConfig(
+      { APS_BRAIN_LOCK: '', SBOX_BRAIN_LOCK: '1' },
+      base,
+      home,
+    );
+
+    expect(config.brainLock).toBe(false);
+  });
+});
+
 describe('loadConfig paths', () => {
   it('uses canonical defaults when neither name exists', () => {
     const { base, home } = workspace();

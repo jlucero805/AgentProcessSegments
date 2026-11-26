@@ -296,23 +296,34 @@ and paths with spaces keep working.
 
 The migration refuses to run while `agent-process-segments.service` or the legacy
 `sandbox-harness.service` is active (user or system scope), while a visible process
-still has the legacy data, config, state, or SQLite paths open, or while a brain
-answers its health endpoint. On Linux it checks `/proc` for open file descriptors and
-cwds, so a foreground/dev brain or a custom unit name is caught when the process is
-visible. It also requests `http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health`; pass
-`--brain-url` to probe a container, tunnel, or another host instead. Stop the brain or
-process first; `--allow-running` bypasses all three guards and can corrupt an open
-SQLite database. A brain whose port is unpublished or unreachable, a non-HTTP holder,
-or a process hidden by permissions is still not detected.
+still has the legacy data, config, state, or SQLite paths open, while a brain
+answers its health endpoint, or while an opt-in brain lock is fresh. On Linux it checks
+`/proc` for open file descriptors and cwds, so a foreground/dev brain or a custom unit
+name is caught when the process is visible. It also requests
+`http://127.0.0.1:<APS_PORT|SBOX_PORT|7391>/health`; pass
+`--brain-url` to probe a container, tunnel, or another host instead. For a brain whose
+HTTP port is not reachable at all, start it with `APS_BRAIN_LOCK=1` (a systemd drop-in
+with `Environment=APS_BRAIN_LOCK=1`): it writes `<data-dir>/brain.lock` and refreshes it
+every 10 s, and the migration treats a lock younger than 60 s as live. The brain must be
+upgraded and restarted with the variable, and its data directory must be on storage
+shared with the machine running the migration; `--brain-lock FILE` checks a different
+heartbeat path. Stop the brain or process first; `--allow-running` bypasses all four
+guards and can corrupt an open SQLite database. A brain that did not opt in, a shared
+database whose data directory is not shared, a non-HTTP or non-file holder, or a process
+hidden by permissions is still not detected.
 
 To move an existing install to the new names:
 
-1. Stop the old unit: `systemctl --user stop sandbox-harness`.
-2. Preview then run the move: `npm run migrate:paths -- --dry-run` and
+1. If the brain runs in a container or on another host, so this machine's `/health`
+   probe cannot reach it, set `APS_BRAIN_LOCK=1` in that brain's environment, restart
+   it, and confirm `<data-dir>/brain.lock` is fresh. Its data directory must be shared
+   with this machine.
+2. Stop the old unit: `systemctl --user stop sandbox-harness`.
+3. Preview then run the move: `npm run migrate:paths -- --dry-run` and
    `npm run migrate:paths`. The script moves the data, config, and state directories and
    the SQLite file together, including `-wal`/`-shm`; it never overwrites an existing
    destination and is safe to re-run.
-3. Install the new unit: copy `deploy/agent-process-segments.service` into
+4. Install the new unit: copy `deploy/agent-process-segments.service` into
    `~/.config/systemd/user/`, then `systemctl --user daemon-reload` and
    `systemctl --user enable --now agent-process-segments`.
 
@@ -662,7 +673,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1278 vitest cases: 980 server cases across 55 files (state machine,
+`npm test` runs 1299 vitest cases: 1001 server cases across 56 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

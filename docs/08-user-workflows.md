@@ -446,6 +446,7 @@ and asserts the knowledge base stays empty. No live data is touched.
 | Spend cap override history | `spend_cap_overrides` in SQLite; rows expire by whole UTC budget month under `retention.spendCapOverridesDays` |
 | Requests, cells, KB, events | SQLite (`APS_DB`) |
 | Session ids and transcripts | `$APS_DATA_DIR/requests/<id>/` (terminal dirs expire under `retention.requestArtifactsDays`) |
+| Brain heartbeat (opt-in) | `$APS_DATA_DIR/brain.lock` when `APS_BRAIN_LOCK=1`; refreshed every 10 s so `migrate-paths` can detect a live brain without its HTTP port |
 | Worktrees | `$APS_DATA_DIR/worktrees/<id>` (terminal leftovers expire under the same window; branches stay) |
 | Master chat | reserved `__master__` transcript |
 

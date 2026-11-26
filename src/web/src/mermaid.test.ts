@@ -63,8 +63,8 @@ describe('mermaid helpers', () => {
         darkMode: true,
         securityLevel: 'strict',
         suppressErrorRendering: true,
-        layout: 'dagre',
-        look: 'classic',
+        layout: 'elk',
+        look: 'neo',
       }),
     );
   });

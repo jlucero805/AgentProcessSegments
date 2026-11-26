@@ -1,8 +1,18 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
+import path from 'node:path';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import type { ProcessConfig } from './definition.js';
 import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
+
+/** Preserved copies kept per process file; older ones are pruned after a save. */
+const MAX_PRESERVED_COPIES = 5;
+
+/** Order preserved names by the embedded UTC stamp, then the numeric suffix. */
+function preservedCopyOrder(name: string, prefix: string): [string, number] {
+  const match = /^(.*?)(?:-(\d+))?$/.exec(name.slice(prefix.length));
+  return [match?.[1] ?? name.slice(prefix.length), match?.[2] ? Number(match[2]) : 0];
+}
 
 /**
  * Persistent process definitions, separate from the scheduler's master policy.
@@ -87,8 +97,8 @@ export class ProcessStore {
    * the exact original bytes, owner-only, and never overwrites an earlier copy.
    * A failed copy aborts the save so the file is never destroyed without one.
    */
-  private preserveUnusableSource(): void {
-    if (!this.preserveSource) return;
+  private preserveUnusableSource(): string | null {
+    if (!this.preserveSource) return null;
 
     let raw: string;
     try {
@@ -96,7 +106,7 @@ export class ProcessStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         this.preserveSource = false;
-        return;
+        return null;
       }
       this.errors?.error('process.backupFailed', error, { path: this.path });
       throw error;
@@ -117,10 +127,59 @@ export class ProcessStore {
 
     this.preserveSource = false;
     console.warn(`preserving unusable process config at ${this.path} as ${backup}`);
+    return backup;
+  }
+
+  /**
+   * Keep a bounded number of preserved copies. Only regular files with this
+   * process file's exact prefix are candidates; pruning is best-effort and
+   * never fails the save that triggered it.
+   */
+  private prunePreservedCopies(newest: string | null): void {
+    const dir = path.dirname(this.path);
+    const prefix = `${path.basename(this.path)}.invalid-`;
+    const newestName = newest ? path.basename(newest) : null;
+
+    let copies: Array<{ name: string; stamp: string; suffix: number }>;
+    try {
+      copies = readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+        .map((entry) => {
+          const [stamp, suffix] = preservedCopyOrder(entry.name, prefix);
+          return { name: entry.name, stamp, suffix };
+        });
+    } catch (error) {
+      this.errors?.error('process.pruneFailed', error, { path: this.path });
+      return;
+    }
+
+    copies.sort((left, right) => {
+      // The copy just written is the newest operation even if the clock moved
+      // backwards, so never let name ordering make it the first to go.
+      if (left.name === newestName) return 1;
+      if (right.name === newestName) return -1;
+      if (left.stamp !== right.stamp) return left.stamp < right.stamp ? -1 : 1;
+      return left.suffix - right.suffix;
+    });
+
+    const excess = copies.length - MAX_PRESERVED_COPIES;
+    if (excess <= 0) return;
+
+    for (const { name } of copies.slice(0, excess)) {
+      const copy = path.join(dir, name);
+      try {
+        unlinkSync(copy);
+      } catch (error) {
+        this.errors?.error('process.pruneFailed', error, { path: this.path, copy });
+      }
+    }
   }
 
   private write(config: ProcessConfig): void {
-    this.preserveUnusableSource();
+    const preserved = this.preserveUnusableSource();
     writePrivateFile(this.path, `${JSON.stringify(config, null, 2)}\n`);
+    // Prune only after the replacement succeeds, so a failed save never
+    // removes a preserved copy.
+    this.prunePreservedCopies(preserved);
   }
 }

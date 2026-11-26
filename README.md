@@ -203,7 +203,9 @@ block and notification channel validates on its own; an invalid one falls back t
 block's defaults, is reported as `settings.invalid`, and the Config page names it in a
 banner until the next save. Before that save rewrites the file, the original bytes are
 copied aside. The same rule applies to an invalid `process.json`, which reports
-`process.backupFailed` if the copy cannot be written.
+`process.backupFailed` if the copy cannot be written. Preserved process copies are capped
+at the five newest; older copies are pruned after a successful save, and a prune failure
+is logged as `process.pruneFailed` without refusing the save.
 
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
 Config page. The default is 90 days; `0` keeps raw usage history forever. Before raw
@@ -660,7 +662,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1266 vitest cases: 974 server cases across 55 files (state machine,
+`npm test` runs 1272 vitest cases: 980 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

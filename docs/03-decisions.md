@@ -217,10 +217,14 @@ loopback only, so remote access still needs the tunnel.
 **Decision.** Spawn `opencode run --format json --auto --standalone --archived` per turn.
 Parse `text`, `tool_use`, `step_finish`, and `error`; capture the `ses_…` id and pass
 `--session` next turn. `--standalone` gives each turn a private server so
-`OPENCODE_CONFIG_DIR` (the generated per-request config) applies. `PWD` is pinned to the
-session cwd because OpenCode resolves the project root from it. `--archived` keeps brain
-sessions out of the user's session list, and resume still works. KB sessions get explicit
-deny permissions instead of a tool allowlist.
+`OPENCODE_CONFIG_DIR` (the generated per-request config) applies. The child environment
+strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` before spawn: OpenCode layers both
+above that generated config, where an inline value could replace the bundled `aps` server
+or a read-only deny rule. A non-empty variable is named once on stderr and ignored,
+without its value. `PWD` is pinned to the session cwd because OpenCode resolves the
+project root from it. `--archived` keeps brain sessions out of the user's session list,
+and resume still works. KB sessions get explicit deny permissions instead of a tool
+allowlist.
 
 **Cost.** A server start per turn (roughly a second) and no long-lived child. Session
 continuity still survives a brain restart because the session id lives in `session.json`

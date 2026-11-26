@@ -26,6 +26,34 @@ import { mergeSkillPaths, readPluginAssets } from './plugin-assets.js';
 
 const exec = promisify(execFile);
 
+/** OpenCode config overrides that must not reach a harness child. */
+const CONFIG_ENV_KEYS = ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'] as const;
+
+/**
+ * Remove process-level OpenCode config overrides so only the config the harness
+ * generates under OPENCODE_CONFIG_DIR can apply. OpenCode layers these above
+ * the generated file, where they could replace the bundled `aps` server or a
+ * read-only permission.
+ */
+export function scrubOpencodeConfigEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const key of CONFIG_ENV_KEYS) delete clean[key];
+  return clean;
+}
+
+/** Warn once per set override without naming its value; inline config may hold secrets. */
+function warnConfigEnvOverrides(env: NodeJS.ProcessEnv): void {
+  for (const key of CONFIG_ENV_KEYS) {
+    const value = env[key];
+    if (value === undefined || value === '') continue;
+    warnOnce(
+      `opencode-config-env:${key}`,
+      `ignoring ${key} for OpenCode harness sessions: ` +
+        `the harness uses the generated OPENCODE_CONFIG_DIR config`,
+    );
+  }
+}
+
 /** The bundled `aps` MCP server in OpenCode's config shape. */
 export function opencodeHarnessServer(
   requestId: string,
@@ -142,6 +170,7 @@ export class OpencodeHarness implements AgentHarness {
   ) {}
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
+    warnConfigEnvOverrides(this.env);
     const { config: user, path: configPath, issues } = readOpencodeConfig(this.home, this.env);
     const requestScope = session.scope === 'request';
     // User MCP servers, plugins, and user permissions are request-session only.
@@ -271,7 +300,10 @@ export class OpencodeProcess extends LineProcess {
       cwd: this.command.cwd,
       // OpenCode resolves its project root from PWD; inheriting the brain's PWD
       // would make it ignore the per-request config/cwd.
-      env: { ...process.env, ...this.command.env, PWD: this.command.cwd },
+      env: {
+        ...scrubOpencodeConfigEnv({ ...process.env, ...this.command.env }),
+        PWD: this.command.cwd,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;
@@ -466,11 +498,15 @@ function errorText(event: Record<string, unknown>): string {
   return 'agent error';
 }
 
-export async function probeOpencodeModels(bin: string): Promise<ModelOption[] | null> {
+export async function probeOpencodeModels(
+  bin: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ModelOption[] | null> {
   try {
     const { stdout } = await exec(bin, ['models'], {
       timeout: 20_000,
       maxBuffer: 4 * 1024 * 1024,
+      env: scrubOpencodeConfigEnv(env),
     });
     const models: ModelOption[] = [];
     for (const line of stdout.split('\n')) {

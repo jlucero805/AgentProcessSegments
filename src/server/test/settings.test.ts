@@ -26,7 +26,7 @@ function sentinelSettings(): typeof DEFAULT_SETTINGS {
   saved.master = { ...saved.master, intervalMinutes: 17 };
   saved.summary = { ...saved.summary, windowMinutes: 90 };
   saved.usage = { retentionDays: 30 };
-  saved.retention = { masterEventsDays: 45, cellSummariesDays: 60, requestArtifactsDays: 7 };
+  saved.retention = { masterEventsDays: 45, cellSummariesDays: 60, requestArtifactsDays: 7, budgetAlertsDays: 30 };
   saved.budget = { monthlyUsd: 250, alertAtPercent: 75, pauseOnExceeded: true, pauseOnUnknownCost: true };
   saved.notifications.webhook = {
     enabled: true,
@@ -158,6 +158,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 90,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
 
     writeFileSync(file, JSON.stringify({ master: DEFAULT_SETTINGS.master }));
@@ -166,6 +167,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 90,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
     expect(legacy.usage).toEqual({ retentionDays: 90 });
     expect(legacy.master).toEqual(DEFAULT_SETTINGS.master);
@@ -182,6 +184,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 30,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
     expect(saved.usage).toEqual({ retentionDays: 90 });
     expect(seen).toHaveLength(1);
@@ -189,11 +192,13 @@ describe('SettingsStore', () => {
       masterEventsDays: 30,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 30,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -205,6 +210,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 30,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
 
     const forever = store.patch({ retention: { masterEventsDays: 0 } });
@@ -212,6 +218,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 0,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
   });
 
@@ -222,6 +229,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 30,
       cellSummariesDays: 90,
       requestArtifactsDays: 30,
+      budgetAlertsDays: 400,
     });
   });
 
@@ -237,12 +245,14 @@ describe('SettingsStore', () => {
       masterEventsDays: 45,
       cellSummariesDays: 30,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
     expect(seen).toHaveLength(1);
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 45,
       cellSummariesDays: 30,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -254,6 +264,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 45,
       cellSummariesDays: 30,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
 
     const forever = store.patch({ retention: { cellSummariesDays: 0 } });
@@ -261,6 +272,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 45,
       cellSummariesDays: 0,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
   });
 
@@ -276,12 +288,14 @@ describe('SettingsStore', () => {
       masterEventsDays: 45,
       cellSummariesDays: 90,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
     expect(seen).toHaveLength(1);
     expect(new SettingsStore(file).get().retention).toEqual({
       masterEventsDays: 45,
       cellSummariesDays: 90,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
 
     for (const bad of [-1, 1.5, 3651, 'x']) {
@@ -293,6 +307,7 @@ describe('SettingsStore', () => {
       masterEventsDays: 45,
       cellSummariesDays: 90,
       requestArtifactsDays: 7,
+      budgetAlertsDays: 400,
     });
 
     const forever = store.patch({ retention: { requestArtifactsDays: 0 } });
@@ -300,6 +315,54 @@ describe('SettingsStore', () => {
       masterEventsDays: 45,
       cellSummariesDays: 90,
       requestArtifactsDays: 0,
+      budgetAlertsDays: 400,
+    });
+  });
+
+  it('patches budget alert retention alone and rejects invalid values', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.patch({
+      retention: {
+        masterEventsDays: 45,
+        cellSummariesDays: 60,
+        requestArtifactsDays: 7,
+      },
+    });
+    const seen: unknown[] = [];
+    store.onChange((settings) => seen.push(settings));
+
+    const saved = store.patch({ retention: { budgetAlertsDays: 30 } });
+    expect(saved.retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 60,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
+    });
+    expect(seen).toHaveLength(1);
+    expect(JSON.parse(readFileSync(file, 'utf8')).retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 60,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
+    });
+    expect(new SettingsStore(file).get().retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 60,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
+    });
+
+    for (const bad of [-1, 1.5, 3651, 'x']) {
+      expect(() =>
+        store.patch({ retention: { budgetAlertsDays: bad as number } }),
+      ).toThrow();
+    }
+    expect(store.get().retention).toEqual({
+      masterEventsDays: 45,
+      cellSummariesDays: 60,
+      requestArtifactsDays: 7,
+      budgetAlertsDays: 30,
     });
   });
 

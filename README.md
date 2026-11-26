@@ -209,6 +209,15 @@ but always keeps the newest report per cell so the drawer keeps a last-known sco
 and the scheduler does not treat a dormant cell as never summarized. Scorecard history is
 not rolled up.
 
+Budget alert retention lives in `config.json` as `retention.budgetAlertsDays`, also
+editable from the Config page. The default is 400 days; `0` keeps alert and delivery
+history forever. The same startup/hourly job deletes acknowledged `budget_alerts` rows and
+`delivered`/`failed`/`skipped` `budget_alert_deliveries` rows in batches. The current UTC
+month is always kept, so a delivery row stays available as its own dedupe record and a
+current-month acknowledged alert still suppresses the lower-severity alert. Pending and
+in-flight deliveries are never pruned. Deleting an expired acknowledged alert also removes
+its delivery history; the history is not rolled up.
+
 Request artifact retention lives in `config.json` as `retention.requestArtifactsDays`,
 also editable from the Config page. The default is 30 days; `0` keeps request folders and
 worktrees forever. A startup/hourly job deletes the whole
@@ -429,9 +438,11 @@ channel and status; each page holds ten rows. **Resend** is offered only for `fa
 `skipped` rows whose alert is unacknowledged in the current UTC month and whose channel
 and destination are still enabled and configured. A resend reuses the outbox row,
 re-stamps it to the current destination and format, resets the attempt count, and queues
-it for the next flush; delivered rows are immutable. History is read-only, pruned after
-400 days, and a row disappears when its alert is deleted (clearing a budget, changing its
-threshold, or deleting a cell). `GET /api/notifications/deliveries` and
+it for the next flush; delivered rows are immutable. History is read-only and pruned
+under `retention.budgetAlertsDays` (default 400 days; the current UTC month is always
+kept and pending or in-flight rows are never pruned). A row also disappears when its
+alert is deleted (clearing a budget, changing its threshold, deleting a cell, or
+retention expiring an acknowledged alert). `GET /api/notifications/deliveries` and
 `POST /api/notifications/deliveries/:id/resend` back the card. Fan-out to several
 destinations per scope and interactive acknowledgement remain separate backlog items.
 
@@ -538,7 +549,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 988 vitest cases: 776 server cases across 49 files (state machine,
+`npm test` runs 995 vitest cases: 782 server cases across 49 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -552,7 +563,7 @@ status/alerts/hard caps and in-flight cap stops including strict unknown cost,
 time-boxed overrides, webhook/email/Slack/Discord delivery dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 212 web cases across 24 files (shared contract re-exports, NDJSON
+real socket) and 213 web cases across 24 files (shared contract re-exports, NDJSON
 client, chat folding, slash/skill resolution, request-form mapping, docs helpers and
 Help overlay, the source link, board, create modal, composer, cell bar, cell creation,
 config/process and pricing editor, budget and alert-delivery cards including chat bot

@@ -60,7 +60,7 @@ stderr; that is diagnostic output, not a prompt or transcript.
 | `usage.rollup` | A rollup chunk fails before pruning; includes the day-aligned cutoff and committed watermark only |
 | `usage.prune` | Raw usage deletion fails after the rollup watermark commits; includes the cutoff and deleted count only |
 | `usage.prune_state` | Recording the last retention-pass summary in `usage_prune_state` fails; includes the pass time and deleted count only. The prune result is unaffected |
-| `retention.prune` | Master activity or scorecard retention deletion fails; includes the table name (`master_events`/`cell_summaries`), cutoff, and deleted count only |
+| `retention.prune` | Master activity, scorecard, budget alert, or delivery retention deletion fails; includes the table name (`master_events`/`cell_summaries`/`budget_alerts`/`budget_alert_deliveries`), cutoff, and deleted count only |
 | `retention.artifacts` | A request-directory or worktree sweep fails; includes the request-dir count, worktree count, failure count, and cutoff only |
 | `cells.cleanup` | A deleted cell’s reserved master or summary session directory cannot be removed; includes the cell id and session id only |
 | `terminal.create` / `terminal.attach` | A PTY cannot be created, or a socket attaches to a missing session |

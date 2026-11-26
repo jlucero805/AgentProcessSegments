@@ -316,6 +316,9 @@ export function migrate(db: Db): void {
        ON budget_alert_deliveries(status, next_attempt_at)`,
   );
   db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_budget_alert_deliveries_created ON budget_alert_deliveries(created_at)',
+  );
+  db.exec(
     `CREATE INDEX IF NOT EXISTS idx_notification_event_deliveries_due
        ON notification_event_deliveries(status, next_attempt_at)`,
   );

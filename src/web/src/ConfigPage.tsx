@@ -7,6 +7,7 @@ import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideContro
 import {
   DEFAULT_BUDGET_SETTINGS,
   DEFAULT_NOTIFICATIONS,
+  MAX_BUDGET_ALERTS_RETENTION_DAYS,
   MAX_BUDGET_USD,
   MAX_CELL_SUMMARIES_RETENTION_DAYS,
   MAX_MASTER_EVENTS_RETENTION_DAYS,
@@ -181,6 +182,8 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
   const [retentionSaved, setRetentionSaved] = useState(false);
   const [cellSummariesSaving, setCellSummariesSaving] = useState(false);
   const [cellSummariesSaved, setCellSummariesSaved] = useState(false);
+  const [budgetAlertsSaving, setBudgetAlertsSaving] = useState(false);
+  const [budgetAlertsSaved, setBudgetAlertsSaved] = useState(false);
   const [requestArtifactsSaving, setRequestArtifactsSaving] = useState(false);
   const [requestArtifactsSaved, setRequestArtifactsSaved] = useState(false);
   const [processSaving, setProcessSaving] = useState(false);
@@ -422,6 +425,13 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
     setCellSummariesSaved(false);
   };
 
+  const setBudgetAlertsDays = (days: number) => {
+    setRetentionSettings((current) =>
+      current ? { ...current, budgetAlertsDays: days } : current,
+    );
+    setBudgetAlertsSaved(false);
+  };
+
   const setSegment = <K extends keyof SegmentConfig>(
     id: SegmentConfig['id'],
     key: K,
@@ -522,6 +532,23 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
       onError(describeError(error));
     } finally {
       setCellSummariesSaving(false);
+    }
+  }
+
+  async function saveBudgetAlerts() {
+    if (!retention) return;
+    setBudgetAlertsSaving(true);
+    try {
+      const config = await api.patchConfig({
+        retention: { budgetAlertsDays: retention.budgetAlertsDays },
+      });
+      setRetentionSettings(config.retention);
+      setPath(config.path);
+      setBudgetAlertsSaved(true);
+    } catch (error) {
+      onError(describeError(error));
+    } finally {
+      setBudgetAlertsSaving(false);
     }
   }
 
@@ -1141,6 +1168,47 @@ export function ConfigPage({ onError, onEditCell }: ConfigPageProps) {
               onClick={() => void saveCellSummaries()}
             >
               {cellSummariesSaving ? <Spinner /> : 'Save scorecard retention'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3 p-4">
+        <SectionTitle>Budget alert retention</SectionTitle>
+        <p className="text-sm text-zinc-400">
+          Acknowledged alerts and finished delivery rows are pruned in the background. The
+          current UTC month is always kept so dedupe and manual resend stay safe; pending
+          and in-flight deliveries are never pruned.
+        </p>
+        <Field
+          label="Budget alert retention (days)"
+          hint="0 keeps alert and delivery history forever"
+        >
+          <Input
+            type="number"
+            aria-label="Budget alert retention (days)"
+            min={0}
+            max={MAX_BUDGET_ALERTS_RETENTION_DAYS}
+            step={1}
+            value={retention.budgetAlertsDays}
+            onChange={(event) => setBudgetAlertsDays(Number(event.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[11px] text-zinc-600">
+            Runs shortly after startup, then hourly. Deleting an acknowledged alert also
+            removes its delivery history.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            {budgetAlertsSaved ? (
+              <span className="text-[11px] text-emerald-400">Saved</span>
+            ) : null}
+            <Button
+              variant="primary"
+              disabled={budgetAlertsSaving}
+              onClick={() => void saveBudgetAlerts()}
+            >
+              {budgetAlertsSaving ? <Spinner /> : 'Save budget alert retention'}
             </Button>
           </div>
         </div>

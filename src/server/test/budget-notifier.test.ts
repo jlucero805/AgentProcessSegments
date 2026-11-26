@@ -540,7 +540,7 @@ describe('NotificationService', () => {
     expect(context.deliveries.getForAlert(record.id).status).toBe('skipped');
   });
 
-  it('recovers stale rows and prunes old deliveries on start', async () => {
+  it('recovers stale rows but leaves delivery retention to DataRetention', async () => {
     const fake = sender(() => ok());
     const context = setup({ send: fake.send });
     const record = addAlert(context.alerts);
@@ -561,13 +561,18 @@ describe('NotificationService', () => {
       destinationHash: destinationHash(context.settings.get().notifications.webhook),
       now: NOW - 401 * 24 * 60 * 60_000,
     });
+    context.db
+      .prepare("UPDATE budget_alert_deliveries SET status = 'delivered' WHERE id = ?")
+      .run(oldDelivery.id);
 
     context.notifier.start();
     await context.notifier.flush();
     context.notifier.stop();
 
     expect(context.deliveries.getForAlert(record.id).status).toBe('delivered');
-    expect(context.deliveries.get(oldDelivery.id)).toBeNull();
+    // Budget-alert retention lives in DataRetention; the notifier no longer
+    // deletes old rows on start.
+    expect(context.deliveries.get(oldDelivery.id)).toMatchObject({ status: 'delivered' });
   });
 
   it('reports failures to the error sink without leaking the URL or secret', async () => {

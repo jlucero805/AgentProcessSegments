@@ -274,8 +274,11 @@ built and vended by the brain; real-CLI verification is still pending.
   provider plus optional per-cell routes, using the same outbox and retry policy.
   `budget_alert_deliveries` is a durable outbox keyed by `(alert_id, destination_id)`;
   it retries transient failures per destination, honors `Retry-After` and Discord
-  `retry_after`, skips acknowledged/prior-month/stale-destination rows, and prunes after
-  400 days. The Config page edits and tests all four channels, and
+  `retry_after`, skips acknowledged/prior-month/stale-destination rows, and prunes
+  terminal rows under `retention.budgetAlertsDays` (default 400; `0` = forever). The
+  current UTC month is always kept, pending/in-flight rows are never pruned, and expired
+  acknowledged alerts are removed with their delivery history. The Config page edits and
+  tests all four channels, and
   `GET /api/notifications/status` reports per-channel and per-destination queue state. A
   **Delivery history** card lists recent attempts with filters, pagination, sanitized
   errors, and a guarded Resend for failed/skipped current-month rows; delivered rows are
@@ -288,7 +291,8 @@ built and vended by the brain; real-CLI verification is still pending.
 - Settings: `$XDG_CONFIG_HOME/agent-process-segments/config.json` (or `APS_CONFIG`) holds
   the master switch, interval, the scorecard policy (`enabled`, `intervalMinutes`,
   `windowMinutes`, `prompt`), usage retention (`retentionDays`), master activity
-  retention (`masterEventsDays`), scorecard retention (`cellSummariesDays`), request
+  retention (`masterEventsDays`), scorecard retention (`cellSummariesDays`), budget
+  alert retention (`budgetAlertsDays`), request
   artifact retention (`requestArtifactsDays`), spend budget (`monthlyUsd`,
   `alertAtPercent`, `pauseOnExceeded`, `pauseOnUnknownCost`), webhook delivery (`enabled`, `url`, `format`,
   `secret`), email delivery (`enabled`, `host`, `port`, `secure`, `username`, `password`,
@@ -360,7 +364,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 988 vitest cases, all passing: 776 server across 49 files and 212 web across 24 files,
+- 995 vitest cases, all passing: 782 server across 49 files and 213 web across 24 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

@@ -166,7 +166,9 @@ budget contract below.
 `spend_usd`, `unknown_cost_turns`, `created_at`, `acknowledged_at`. The unique identity is
 `(scope, scope_id, period_start, threshold, budget_usd, alert_at_percent)` so changing the
 budget or warning percentage starts a new alert generation without deleting acknowledged
-history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
+history. Indexes: the identity index, `created_at`, and `acknowledged_at`. Acknowledged
+rows older than `retention.budgetAlertsDays` are pruned by the hourly retention job; see
+**Budget alert retention** below.
 
 ### `budget_alert_deliveries`
 
@@ -176,11 +178,13 @@ history. Indexes: the identity index, `created_at`, and `acknowledged_at`.
 `next_attempt_at`, `last_error`, `created_at`, `updated_at`, `delivered_at`.
 `UNIQUE(alert_id, destination_id)` is the delivery idempotency key. Webhook and email
 rows use their channel as `destination_id`; chat rows use `<provider>:<channelId>`.
-`idx_budget_alert_deliveries_due` covers `(status, next_attempt_at)`. `destination_hash`
+`idx_budget_alert_deliveries_due` covers `(status, next_attempt_at)` and
+`idx_budget_alert_deliveries_created` serves retention cutoffs. `destination_hash`
 is a SHA-256 of the destination route (URL/format/secret, host/port/TLS/from/recipients/
 credentials, or provider/channel/token), never logged or returned, so a configuration
-change cannot send an old alert with new credentials. Deliveries older than 400 days are
-pruned on notifier start. An older table with `UNIQUE(alert_id, channel)` is rebuilt on
+change cannot send an old alert with new credentials. Terminal deliveries older than
+`retention.budgetAlertsDays` are pruned by the hourly retention job; the current UTC
+period is always kept. An older table with `UNIQUE(alert_id, channel)` is rebuilt on
 migration and existing rows keep `destination_id = channel`. The Config **Delivery
 history** card reads this table through a read-only join; a manual resend resets the same
 `failed`/`skipped` row under the current destination when the destination still matches
@@ -347,6 +351,26 @@ a cell with scorecards disabled keeps its last report and the scheduler does not
 immediate regeneration. Each table prunes independently; a failure reports one
 `retention.prune` record with the table, cutoff, and deleted count. History is not rolled
 up and the job never runs `VACUUM`.
+
+### Budget alert retention
+
+`retention.budgetAlertsDays` in `config.json` (editable from the Config page) bounds
+acknowledged budget alerts and the delivery outbox: default 400 days, `0` keeps both
+forever. The `master_events` startup/hourly job also prunes `budget_alert_deliveries`
+rows whose `status` is `delivered`, `failed`, or `skipped` and whose `created_at` is
+strictly before the cutoff, then `budget_alerts` rows whose `acknowledged_at` is not null
+and whose `created_at` is strictly before the cutoff. Both use batches of 1000 with an
+event-loop yield between batches; `idx_budget_alert_deliveries_created` and
+`idx_budget_alerts_created` serve the scans. The effective cutoff is capped at the start
+of the current UTC period, so the current month is never pruned: a delivery row is the
+`(alert_id, destination_id)` idempotency record, a current-month acknowledged alert
+suppresses a lower-severity alert through `hasAcknowledged()`, and current-month
+failed/skipped rows stay resendable. `pending` and `delivering` rows are never pruned, and
+unacknowledged alerts stay under budget reconciliation. Deleting an expired acknowledged
+alert cascades its remaining delivery rows. Each table prunes independently; a failure
+reports one `retention.prune` record with the table, cutoff, and deleted count. The event
+outbox (`notification_event_deliveries`) is separate and still pruned on notifier start.
+History is not rolled up and the job never runs `VACUUM`.
 
 ### Request artifact retention
 

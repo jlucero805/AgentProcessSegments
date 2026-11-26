@@ -335,7 +335,9 @@ review). Orphan `sbox/*` refs with no request row are reported but kept by defau
 `refs/sbox-pruned/<suffix>-<sha>`, then the branch is deleted, so no commits are lost.
 Checked-out orphans are skipped, and a ref is orphaned only when its id has no request
 row at all. The command opens the live database without migrating or reconciling it and
-keeps the database and sidecars owner-only. List backups with
+keeps the database and sidecars owner-only. A dry run opens it read-only at the SQLite
+level, so it does not recover or checkpoint the WAL; `--apply` opens it read-write for
+the branch-row updates. List backups with
 `git for-each-ref refs/sbox-pruned/` and restore one with
 `git branch <name> <ref>`. Pass `--repo DIR` to limit the run and `--db FILE` to point
 at a non-default database.
@@ -639,7 +641,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1236 vitest cases: 960 server cases across 55 files (state machine,
+`npm test` runs 1238 vitest cases: 962 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

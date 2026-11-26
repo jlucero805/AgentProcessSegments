@@ -42,7 +42,9 @@ export function usage(): string {
     'Safety: non-terminal requests, checked-out branches, and diverged',
     'aps/sbox pairs are always skipped. Orphan refs are pruned only with',
     '--prune-orphans, and checked-out orphans are never touched. The database is',
-    'the source of truth: point --db at the live brain database.',
+    'the source of truth: point --db at the live brain database. A dry run opens',
+    'it read-only and never checkpoints or recovers the WAL; --apply opens it',
+    'read-write for the branch-row updates.',
   ].join('\n');
 }
 
@@ -151,10 +153,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   // openExistingDb() hardens the database and its sidecars without openDb()'s
   // migrate()/reconcile(), which would write to a live brain's database and
-  // reset a working request to idle.
-  const db = openExistingDb(dbPath);
+  // reset a working request to idle. A dry run opens read-only so SQLite cannot
+  // recover or checkpoint the WAL; --apply opens read-write for the row updates.
+  const db = openExistingDb(dbPath, { readonly: !options.apply });
   db.pragma('busy_timeout = 5000');
-  if (!options.apply) db.pragma('query_only = ON');
 
   try {
     const hasRequests = db

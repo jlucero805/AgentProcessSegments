@@ -535,7 +535,7 @@ src/server/src
   clarify/engine.ts   one persistent agent session per request, buffered live turns
   clarify/harness.ts  harness seam: session prep, spawn, parser, model probe
   clarify/harnesses/claude.ts    claude CLI, merged MCP config, allowlist
-  clarify/harnesses/opencode.ts  opencode CLI, per-turn runs, session resume
+  clarify/harnesses/opencode.ts  opencode CLI, JSONC user config merge, per-turn runs, session resume
   clarify/harnesses/plugin-assets.ts  plugin skills/commands -> OpenCode config
   clarify/stream.ts   pure claude stream-json parser (no process, no disk)
   clarify/transport.ts  the AgentProcess interface harnesses implement
@@ -602,7 +602,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1105 vitest cases: 864 server cases across 50 files (state machine,
+`npm test` runs 1117 vitest cases: 876 server cases across 51 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

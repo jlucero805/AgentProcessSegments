@@ -863,6 +863,96 @@ describe('OpencodeHarness', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('reads a commented opencode.jsonc config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      path.join(configDir, 'opencode.jsonc'),
+      `{
+        // Local tools the user wants in every request.
+        "model": "user/model",
+        "permission": { "bash": "ask" },
+        "mcp": {
+          "user": {
+            "type": "remote",
+            "url": "https://mcp.example.test/a//b",
+          },
+          "local": {
+            "type": "local",
+            "command": ["node", "tool.js",], /* trailing comma */
+          },
+        },
+      }`,
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(errors.error).not.toHaveBeenCalled();
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.model).toBe('user/model');
+    expect(config.permission).toEqual({ bash: 'ask', question: 'deny' });
+    expect(config.mcp.user.url).toBe('https://mcp.example.test/a//b');
+    expect(config.mcp.local.command).toEqual(['node', 'tool.js']);
+    expect(config.mcp.aps.type).toBe('local');
+  });
+
+  it('reads a commented opencode.json config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      path.join(configDir, 'opencode.json'),
+      `{
+        // Comments are accepted in .json too.
+        "mcp": { "user": { "type": "local", "command": ["node", "user.js"] } },
+      }`,
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(errors.error).not.toHaveBeenCalled();
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.user.command).toEqual(['node', 'user.js']);
+    expect(config.mcp.aps.type).toBe('local');
+  });
+
+  it('reports malformed JSONC and still writes the bundled server', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const configDir = opencodeConfigDir(home);
+    mkdirSync(configDir, { recursive: true });
+    const jsoncFile = path.join(configDir, 'opencode.jsonc');
+    writeFileSync(jsoncFile, '{ "mcp": { /* never closed');
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain(jsoncFile);
+    expect(warn.mock.calls[0]?.[0]).toContain('invalid JSON');
+    expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
+      harness: 'opencode',
+      path: jsoncFile,
+      reason: 'invalid JSON',
+    });
+    expect(String(errors.error.mock.calls[0]?.[1])).toBe('Error: invalid JSON');
+
+    const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
+    expect(config.mcp.aps.type).toBe('local');
+  });
+
   it('reports a broken config and still uses the next candidate', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const errors = errorSink();

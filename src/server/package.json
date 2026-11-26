@@ -6,7 +6,9 @@
   "main": "dist/app.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "pretypecheck": "node ../../scripts/check-dev-deps.mjs typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "pretest": "node ../../scripts/check-dev-deps.mjs test",
     "test": "vitest run",
     "dev": "tsx watch src/app.ts"
   },

@@ -595,8 +595,8 @@ sudo systemctl status agent-process-segments --no-pager
 
 `herdr-core` keeps interactive terminals alive; the brain is a separate process. Run
 herdr under its own unit or session so restarting the brain cannot take its panes with
-it, and do not start the brain inside a herdr-spawned terminal. The brain spawns headless agent CLI children per request; it does not attach to herdr
-panes.
+it, and do not start the brain inside a herdr-spawned terminal. The brain spawns headless
+agent CLI children per request; it does not attach to herdr panes.
 
 ## Troubleshooting
 

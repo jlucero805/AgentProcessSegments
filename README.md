@@ -300,7 +300,7 @@ them on request.
 
 The same rules are available as a manual dry run or recovery command:
 
-```
+```bash
 npm run build                       # the command runs from dist
 npm run migrate:branches -- --dry-run
 npm run migrate:branches -- --apply
@@ -474,7 +474,8 @@ override, change, and expiry rather than the failure window. Event deliveries us
 durable retry, signing, timeout, and destination-rotation rules as budget alerts.
 
 `GET /api/notifications/status` shows per-channel and per-destination queue, failure, and
-last-delivery state, plus aggregate and per-kind event counts. `POST /api/notifications/{webhook,email,slack,discord}/test` sends a
+last-delivery state, plus aggregate and per-kind event counts.
+`POST /api/notifications/{webhook,email,slack,discord}/test` sends a
 synthetic test event without writing alert or delivery rows; chat tests accept an optional
 `channelId` and otherwise use the default destination.
 
@@ -511,7 +512,8 @@ backlog items.
 - `docs/06-refactor-audit.md` duplication/bug audit and deferred cleanup
 - `docs/07-process-segments.md` process.json contract and automation rules
 - `docs/08-user-workflows.md` end-to-end operator workflows
-- `docs/09-backlog.md` scoped follow-ups (chat fan-out, webhook/email routing, interactive ack, hard-cap refinements, pricing maintenance)
+- `docs/09-backlog.md` scoped follow-ups (chat fan-out, webhook/email routing, interactive
+  ack, hard-cap refinements, pricing maintenance)
 - `docs/10-error-log.md` error-only NDJSON log: path, format, rotation, sites
 - `docs/11-skills.md` chat slash-command and skill discovery
 - `docs/12-terminals.md` server-owned PTY sessions, reattach, and close
@@ -521,7 +523,7 @@ backlog items.
 
 ## Layout
 
-```
+```text
 src/server/src
   app.ts              entry: open db, build repos + engine, listen
   config.ts           every path and port, env-overridable
@@ -654,9 +656,12 @@ plugin sources when present, with the `react-hooks` `recommended-latest` preset 
 SPA. It also runs `bash -n` and `shellcheck --severity=warning` over `deploy/*.sh` and
 `scripts/*.sh`, `actionlint` over `deploy/ci-workflow.yml`, and `systemd-analyze verify`
 over `deploy/agent-process-segments.service`, and fails on any warning, shell syntax
-error, workflow error, or unit diagnostic. The unit check treats a diagnostic naming the
-unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid values. The
-shell checks need `bash`, which the deploy runbooks already require, plus `shellcheck`
+error, workflow error, or unit diagnostic. It runs `markdownlint-cli2` over every tracked
+`*.md` (the root docs, `docs/`, `deploy/vps.md`, and `.opencode/skills`) with a
+120-column prose cap and tables, fences, and headings exempt from MD013, and a Markdown
+finding fails it too. The unit check treats a diagnostic naming the unit as fatal because
+`systemd-analyze` exits 0 for unknown keys and invalid values. The shell checks need
+`bash`, which the deploy runbooks already require, plus `shellcheck`
 (`apt-get install shellcheck` or `brew install shellcheck`). actionlint is a system tool
 too: install it with `brew install actionlint`, your package manager, or the pinned
 v1.7.12 release binary CI uses (CI verifies the release SHA-256 before running it);

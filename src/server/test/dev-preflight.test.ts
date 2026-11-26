@@ -11,11 +11,11 @@ const packageJson = JSON.parse(
   readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
 ) as { scripts?: Record<string, string> };
 
-const MODES = [
-  { mode: 'typecheck', tool: 'tsc' },
-  { mode: 'test', tool: 'vitest' },
-  { mode: 'lint', tool: 'eslint' },
-] as const;
+const MODES: ReadonlyArray<{ mode: string; tools: readonly string[] }> = [
+  { mode: 'typecheck', tools: ['tsc'] },
+  { mode: 'test', tools: ['vitest'] },
+  { mode: 'lint', tools: ['eslint', 'markdownlint-cli2'] },
+];
 
 function run(mode: string, args: string[] = [], env: NodeJS.ProcessEnv = process.env) {
   return spawnSync(process.execPath, [script, mode, ...args], { encoding: 'utf8', env });
@@ -46,11 +46,13 @@ describe('root dev dependency preflight', () => {
   it('reports each missing tool with the install hint', () => {
     const root = emptyRoot('dev-preflight-missing');
 
-    for (const { mode, tool } of MODES) {
+    for (const { mode, tools } of MODES) {
       const result = run(mode, ['--root', root], { ...process.env, NODE_ENV: 'production' });
       expect(result.status, mode).toBe(1);
       expect(result.stdout, mode).toBe('');
-      expect(result.stderr, mode).toContain(`${mode}: missing devDependencies (${tool})`);
+      expect(result.stderr, mode).toContain(
+        `${mode}: missing devDependencies (${tools.join(', ')})`,
+      );
       expect(result.stderr, mode).toContain('npm ci --include=dev');
       expect(result.stderr, mode).toContain('NODE_ENV=production');
       expect(result.stderr, mode).toContain('npm config get omit');
@@ -58,20 +60,21 @@ describe('root dev dependency preflight', () => {
   });
 
   it('checks only the tools each mode needs', () => {
-    const root = emptyRoot('dev-preflight-eslint-only');
+    const root = emptyRoot('dev-preflight-lint-tools');
     const bin = path.join(root, 'node_modules', '.bin');
     mkdirSync(bin, { recursive: true });
-    executable(path.join(bin, 'eslint'));
+    const lintTools = MODES.find((entry) => entry.mode === 'lint')?.tools ?? [];
+    for (const tool of lintTools) executable(path.join(bin, tool));
 
     const lint = run('lint', ['--root', root], { ...process.env, NODE_ENV: 'production' });
     expect(lint.status).toBe(0);
     expect(lint.stdout).toBe('');
     expect(lint.stderr).toBe('');
 
-    for (const { mode, tool } of MODES.filter((entry) => entry.mode !== 'lint')) {
+    for (const { mode, tools } of MODES.filter((entry) => entry.mode !== 'lint')) {
       const result = run(mode, ['--root', root], { ...process.env, NODE_ENV: 'production' });
       expect(result.status, mode).toBe(1);
-      expect(result.stderr, mode).toContain(tool);
+      for (const tool of tools) expect(result.stderr, mode).toContain(tool);
     }
   });
 
@@ -80,20 +83,24 @@ describe('root dev dependency preflight', () => {
     () => {
       const root = emptyRoot('dev-preflight-global');
       const pathDir = tmpDir('dev-preflight-path');
-      for (const { tool } of MODES) executable(path.join(pathDir, tool));
-
-      const nodePathDir = tmpDir('dev-preflight-node-path');
-      for (const { tool } of MODES) {
-        const packageDir = path.join(nodePathDir, 'node_modules', tool);
-        mkdirSync(packageDir, { recursive: true });
-        writeFileSync(
-          path.join(packageDir, 'package.json'),
-          JSON.stringify({ name: tool, main: 'index.js' }),
-        );
-        writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = 1;\n');
+      for (const { tools } of MODES) {
+        for (const tool of tools) executable(path.join(pathDir, tool));
       }
 
-      for (const { mode, tool } of MODES) {
+      const nodePathDir = tmpDir('dev-preflight-node-path');
+      for (const { tools } of MODES) {
+        for (const tool of tools) {
+          const packageDir = path.join(nodePathDir, 'node_modules', tool);
+          mkdirSync(packageDir, { recursive: true });
+          writeFileSync(
+            path.join(packageDir, 'package.json'),
+            JSON.stringify({ name: tool, main: 'index.js' }),
+          );
+          writeFileSync(path.join(packageDir, 'index.js'), 'module.exports = 1;\n');
+        }
+      }
+
+      for (const { mode, tools } of MODES) {
         const result = run(mode, ['--root', root], {
           ...process.env,
           NODE_ENV: 'production',
@@ -102,7 +109,7 @@ describe('root dev dependency preflight', () => {
         });
         expect(result.status, mode).toBe(1);
         expect(result.stdout, mode).toBe('');
-        expect(result.stderr, mode).toContain(tool);
+        for (const tool of tools) expect(result.stderr, mode).toContain(tool);
       }
     },
   );
@@ -120,7 +127,7 @@ describe('root dev dependency preflight', () => {
       'npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env',
     );
     expect(packageJson.scripts?.['lint']).toBe(
-      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:actions && npm run --silent lint:unit',
+      'npm run --silent lint:js && npm run --silent lint:sh && npm run --silent lint:actions && npm run --silent lint:unit && npm run --silent lint:md',
     );
     expect(packageJson.scripts?.['lint:unit']).toBe(
       'node scripts/verify-systemd-unit.mjs',

@@ -410,9 +410,9 @@ built and vended by the brain; real-CLI verification is still pending.
   deterministic
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
 - Dev-command preflight: the root `typecheck`/`test`/`lint` commands check for
-  project-local `tsc`/`vitest`/`eslint` and print an `npm ci --include=dev` hint instead
-  of a raw `not found`. The shell half of `lint` also needs `bash` and `shellcheck` on
-  `PATH`, and the workflow half needs `actionlint`.
+  project-local `tsc`/`vitest`/`eslint`/`markdownlint-cli2` and print an
+  `npm ci --include=dev` hint instead of a raw `not found`. The shell half of `lint` also
+  needs `bash` and `shellcheck` on `PATH`, and the workflow half needs `actionlint`.
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a
   streamed turn with an `mcp__aps__*` tool call, merged `aps` plus user MCP config,
   `--resume` after a brain restart, and a model probe returning `source: "probe"`. No
@@ -454,11 +454,11 @@ built and vended by the brain; real-CLI verification is still pending.
 - CI: a ready workflow at `deploy/ci-workflow.yml` installs the build toolchain plus
   `shellcheck` and the pinned actionlint binary, then runs `npm ci`, an
   `npm audit --omit=dev --audit-level=high` runtime dependency gate, lint (ESLint, the
-  bash/ShellCheck shell gate, and actionlint over the workflow template), typecheck, the
-  full test suite, the build, the E2E workflow, `scripts/smoke.sh`, and
-  `scripts/mcp-smoke.mjs` on pushes and pull requests. It also re-runs the web suite
-  with `NODE_ENV=production` to exercise the inherited-production React resolution. It
-  is not active on the remote:
+  bash/ShellCheck shell gate, actionlint over the workflow template, the systemd unit
+  check, and Markdown), typecheck, the full test suite, the build, the E2E workflow,
+  `scripts/smoke.sh`, and `scripts/mcp-smoke.mjs` on pushes and pull requests. It also
+  re-runs the web suite with `NODE_ENV=production` to exercise the inherited-production
+  React resolution. It is not active on the remote:
   publishing a workflow needs a credential with the `workflow` scope. Copy it to
   `.github/workflows/ci.yml` once that is available.
 
@@ -529,7 +529,7 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Route list
 
-```
+```text
 GET    /health
 GET    /api/docs
 GET    /api/docs/:slug

@@ -142,7 +142,8 @@ restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftov
 `-journal` at `0600`, repairing a loose install on every open. A missing database parent
 is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
 The deploy `upgrade-vps.sh` writes its `db-backup.sqlite` snapshot `0600` inside a `0700`
-run directory. Maintenance paths that must not migrate a live brain open through
+run directory, and `cutover-vps.sh` creates its `~/.aps-cutover/runs/<UTC>` evidence
+directories `0700`. Maintenance paths that must not migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair without schema or reconcile
 work.
 

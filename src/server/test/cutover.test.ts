@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -445,12 +446,20 @@ function createMigratedFixture(options: FixtureOptions = {}): Fixture {
   };
 }
 
-function runCutover(fixture: Fixture, args: string[]) {
-  return spawnSync('bash', [script, ...args], {
+function runCutover(fixture: Fixture, args: string[], umask?: string) {
+  const bashArgs =
+    umask === undefined
+      ? [script, ...args]
+      : ['-c', `umask ${umask}; exec bash "$@"`, 'bash', script, ...args];
+  return spawnSync('bash', bashArgs, {
     encoding: 'utf8',
     env: fixture.env,
     timeout: SCRIPT_TIMEOUT,
   });
+}
+
+function modeOf(target: string): number {
+  return statSync(target).mode & 0o777;
 }
 
 function liveArgs(fixture: Fixture, runDir: string, extra: string[] = []): string[] {
@@ -804,6 +813,74 @@ describe('deploy/cutover-vps.sh', () => {
     expect(readRunLog(runDir)).toContain('prune success (--keep-runs 1 --keep-days 0)');
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'creates the detached run directory and its ancestors owner-only under a permissive umask',
+    () => {
+      const fixture = createFixture();
+
+      const result = runCutover(
+        fixture,
+        [
+          '--detach',
+          '--home',
+          fixture.home,
+          '--old-clone',
+          fixture.oldClone,
+          '--new-clone',
+          fixture.newClone,
+        ],
+        '000',
+      );
+
+      expect(result.status).toBe(0);
+      expect(modeOf(latestRunDir(fixture.home))).toBe(0o700);
+      expect(modeOf(path.join(fixture.home, '.aps-cutover'))).toBe(0o700);
+      expect(modeOf(path.join(fixture.home, '.aps-cutover', 'runs'))).toBe(0o700);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'tightens a pre-existing run directory without chmodding its ancestors',
+    () => {
+      const fixture = createMigratedFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      const runsDir = path.join(cutoverRoot, 'runs');
+      const runDir = path.join(runsDir, '20260103T000000Z');
+      mkdirSync(runDir, { recursive: true });
+      chmodSync(cutoverRoot, 0o755);
+      chmodSync(runsDir, 0o755);
+      chmodSync(runDir, 0o755);
+
+      const result = runCutover(fixture, liveArgs(fixture, runDir, ['--no-prune']));
+
+      expect(result.status).toBe(0);
+      expect(readState(runDir)).toBe('success');
+      expect(modeOf(runDir)).toBe(0o700);
+      expect(modeOf(cutoverRoot)).toBe(0o755);
+      expect(modeOf(runsDir)).toBe(0o755);
+    },
+    TEST_TIMEOUT,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'creates a missing cutover root owner-only when the run directory is outside it',
+    () => {
+      const fixture = createMigratedFixture();
+      const runDir = path.join(fixture.root, 'external-run');
+
+      const result = runCutover(fixture, liveArgs(fixture, runDir, ['--no-prune']), '000');
+
+      expect(result.status).toBe(0);
+      expect(modeOf(runDir)).toBe(0o700);
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      expect(modeOf(cutoverRoot)).toBe(0o700);
+      expect(existsSync(path.join(cutoverRoot, 'runs'))).toBe(false);
+      expect(latestRunDir(fixture.home)).toBe(runDir);
+    },
+    TEST_TIMEOUT,
+  );
+
   it(
     'keeps latest and the rollback point after a failed cutover',
     () => {
@@ -817,6 +894,7 @@ describe('deploy/cutover-vps.sh', () => {
       );
       expect(result.status).not.toBe(0);
       expect(readState(runDir)).toBe('failed');
+      if (process.platform !== 'win32') expect(modeOf(runDir)).toBe(0o700);
       expect(latestRunDir(fixture.home)).toBe(runDir);
       expect(existsSync(runDir)).toBe(true);
       expect(existsSync(oldSuccess)).toBe(true);
@@ -839,6 +917,7 @@ describe('deploy/cutover-vps.sh', () => {
       );
       expect(result.status).not.toBe(0);
       expect(readState(runDir)).toBe('rolled-back');
+      if (process.platform !== 'win32') expect(modeOf(runDir)).toBe(0o700);
       expect(latestRunDir(fixture.home)).toBe(runDir);
       expect(existsSync(runDir)).toBe(true);
       expect(existsSync(oldSuccess)).toBe(true);

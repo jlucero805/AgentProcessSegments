@@ -1976,7 +1976,7 @@ the rest of the run keeps its current behavior.
 snapshot contents, timing, `VACUUM INTO`, retention, and manual restore path are unchanged.
 This is not encryption at rest, and root can still read the files. Run directories and
 snapshots left by an earlier version are not repaired retroactively; that remains separate
-upkeep. `cutover-vps.sh` uses its own duplicated helper set and is also separate work.
+upkeep. The cutover sibling is covered by D93.
 
 ## D87. Maintenance opens share the owner-only database path
 
@@ -2132,3 +2132,37 @@ without a new column. The existing `idx_cell_summaries_created` and
 index, scheduler, retention, or report-content change. **All** is bounded by
 `retention.cellSummariesDays` and still keeps one row per cell, so the page never implies
 unlimited history. A flat cross-cell feed and a custom date picker are separate work.
+
+## D93. Cutover run directories are owner-only
+
+**Context.** `deploy/cutover-vps.sh` created
+`~/.aps-cutover/runs/<UTC>/` with a bare `mkdir -p` on both the detached launch and the
+internal `--run --run-dir` path. Under the usual `umask 022`, `~/.aps-cutover`,
+`runs`, and the run directory were `0755`, so any local account could read the cutover
+evidence: `config-before.json`/`config-after.json`, `errors.log.before`,
+`before.json`/`after.json`, `cutover.log`, `state`, `worktrees.before`, the copied
+`cutover.sh`, the pre-build `dist/` tree, and `backup/systemd/` — the unit and drop-in
+copies that are the only in-place rollback artifact. The run directory is the evidence
+an operator reads after the detached turn dies with the old unit.
+
+**Decision.** Mirror D86. `prepare_run_dir` runs `mkdir -p` under a local `umask 077`,
+then forces the leaf to `0700`. It runs on both creation sites; the internal path's
+`check_pruner` still runs first, so the existing "fails before creating the run
+directory" contract is unchanged. A retried `--run --run-dir` tightens a directory left
+at `0755`. A missing `~/.aps-cutover`/`runs` ancestor chain is created `0700`; existing
+ancestors are never chmodded, matching D73/D86. `point_latest` also creates a missing
+`~/.aps-cutover` under `umask 077`, because an internal run whose `--run-dir` is outside
+the root would otherwise leave the `latest` symlink parent world-readable. Mode failures
+fail closed through `set -Eeuo pipefail` and, inside `run_cutover`, `on_error`; the
+detached launch fails before any service or config mutation. No global umask is set.
+
+Directory-level `0700` is the protection boundary; individual evidence files and the
+copied script keep their current modes, exactly as D86 chose for upgrades. There is no
+`db-backup.sqlite` here, so no file-level `0600` rule applies.
+
+**Cost.** One shell helper, two call sites, one root `mkdir` change, three tests, and
+doc updates. Run contents, timing, names, retention, pruning, and the `latest` target are
+unchanged. This is not encryption at rest, and root can still read the files. Run
+directories left by an earlier version are not repaired retroactively; a dry-run-first
+`npm run repair:runs` follow-up owns that, including old ancestors, symlinks, and
+per-entry failures.

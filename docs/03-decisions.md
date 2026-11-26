@@ -1975,8 +1975,8 @@ the rest of the run keeps its current behavior.
 **Cost.** One shell helper, two call sites, one extra `umask` line, and one `chmod`. The
 snapshot contents, timing, `VACUUM INTO`, retention, and manual restore path are unchanged.
 This is not encryption at rest, and root can still read the files. Run directories and
-snapshots left by an earlier version are not repaired retroactively; that remains separate
-upkeep. `cutover-vps.sh` uses its own duplicated helper set and is also separate work.
+snapshots left by an earlier version are tightened by `npm run repair:upgrades` (D93).
+`cutover-vps.sh` uses its own duplicated helper set and is also separate work.
 
 ## D87. Maintenance opens share the owner-only database path
 
@@ -2132,3 +2132,30 @@ without a new column. The existing `idx_cell_summaries_created` and
 index, scheduler, retention, or report-content change. **All** is bounded by
 `retention.cellSummariesDays` and still keeps one row per cell, so the page never implies
 unlimited history. A flat cross-cell feed and a custom date picker are separate work.
+
+## D93. Existing upgrade run directories and snapshots are tightened explicitly
+
+**Context.** D86 made new `deploy/upgrade-vps.sh` runs owner-only, but evidence written
+before that change is still `0755`/`0644` under the usual umask. Retention keeps only the
+five newest terminal runs and never prunes a non-terminal one, so an old loose snapshot
+can remain on disk indefinitely once upgrades stop. `repair:permissions` (D74) is limited
+to `requests/`, and `prune:cutover` only removes `~/.aps-cutover/runs`.
+
+**Decision.** Add `npm run repair:upgrades`, a built maintenance CLI
+(`src/server/src/maintenance/repair-upgrade-permissions.ts` plus
+`repair-upgrade-permissions-cli.ts`). It is a dry run by default and changes modes only
+with `--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans only
+`DIR/upgrades`, one level deep: it sets the `upgrades` directory and every direct run
+directory to `0700`, and every top-level regular `db-backup.sqlite` to `0600`. It uses
+`lstat`, never follows a symlinked run directory or snapshot, skips non-directory children
+and non-regular snapshots, treats `ENOENT` as a skip, continues after other failures, and
+exits 1 if any entry failed. It never deletes, reads file contents, or opens SQLite. The
+`.aps-cutover` ancestor, `runs/`, `dist-backup/`, `node_modules.bak/`, and other files keep
+their modes: the `0700` run directory protects the evidence, while the snapshot is
+additionally `0600` because it may be copied out. The repair is an explicit post-upgrade
+step, not a hook in `upgrade-vps.sh`.
+
+**Cost.** Operators must run the repair once after the first fixed upgrade, and the built
+CLI needs `npm run build` first, like `repair:permissions`. It is not encryption at rest,
+root can still read the files, and `cutover-vps.sh` runs remain separate work. Snapshot
+contents are unchanged.

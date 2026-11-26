@@ -32,8 +32,6 @@ export interface Config {
   pluginsDir: string;
   brainUrl: string;
   harness: HarnessId;
-  /** The default adapter's binary; kept for callers that only need one. */
-  harnessBin: string;
   /** One binary per adapter, so a mixed-harness brain can find both CLIs. */
   harnessBins: Record<HarnessId, string>;
   configPath: string;
@@ -216,7 +214,6 @@ export function loadConfig(
       readNonEmptyEnv(env, 'PLUGINS_DIR') ?? path.join(data.path, 'plugins'),
     brainUrl: readEnv(env, 'BRAIN_URL') ?? `http://127.0.0.1:${port}`,
     harness,
-    harnessBin: harnessBins[harness],
     harnessBins,
     configPath: config.path,
     processPath: process.path,

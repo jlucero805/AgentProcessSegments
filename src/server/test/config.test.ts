@@ -43,7 +43,6 @@ describe('harness config', () => {
     const config = loadConfig({}, base, home);
 
     expect(config.harness).toBe('claude');
-    expect(config.harnessBin).toBe('claude');
     expect(config.harnessBins).toEqual({ claude: 'claude', opencode: 'opencode' });
     expect(config.defaultModels).toEqual({
       claude: null,
@@ -57,7 +56,6 @@ describe('harness config', () => {
     const config = loadConfig({ APS_HARNESS: 'opencode' }, base, home);
 
     expect(config.harness).toBe('opencode');
-    expect(config.harnessBin).toBe('opencode');
     expect(config.defaultModels[config.harness]).toBe('opencode-go/deepseek-v4.1-flash');
   });
 
@@ -84,14 +82,12 @@ describe('harness config', () => {
       claude: '/opt/claude',
       opencode: '/opt/opencode',
     });
-    expect(config.harnessBin).toBe('/opt/claude');
 
     const legacy = loadConfig({ SBOX_HARNESS_BIN: '/opt/default' }, base, home);
     expect(legacy.harnessBins).toEqual({
       claude: '/opt/default',
       opencode: 'opencode',
     });
-    expect(legacy.harnessBin).toBe('/opt/default');
 
     const open = loadConfig(
       {
@@ -444,7 +440,6 @@ describe('blank path env overrides', () => {
       home,
     );
 
-    expect(config.harnessBin).toBe('/legacy/default');
     expect(config.harnessBins).toEqual({
       claude: '/legacy/default',
       opencode: 'opencode',
@@ -568,7 +563,6 @@ describe('loadConfig environment precedence', () => {
     expect(config.pluginsDir).toBe('/legacy/plugins');
     expect(config.brainUrl).toBe('http://legacy:7391');
     expect(config.harness).toBe('opencode');
-    expect(config.harnessBin).toBe('/legacy/opencode-specific');
     expect(config.harnessBins).toEqual({
       claude: '/legacy/claude',
       opencode: '/legacy/opencode-specific',
@@ -603,7 +597,6 @@ describe('loadConfig environment precedence', () => {
 
     expect(config.port).toBe(2000);
     expect(config.harness).toBe('claude');
-    expect(config.harnessBin).toBe('claude');
     expect(config.defaultModels[config.harness]).toBeNull();
     expect(config.terminalEnabled).toBe(true);
   });

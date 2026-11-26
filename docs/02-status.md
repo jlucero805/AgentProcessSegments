@@ -261,9 +261,10 @@ built and vended by the brain; real-CLI verification is still pending.
   saves the partial transcript with a `⏸` line, emits `paused` before `done`, keeps the
   harness session for a later resume, and records harness-reported usage. A snooze
   suppresses admission and the in-flight stop for its scope without changing the budget,
-  pause reason, or alerts. Revoking a snooze re-evaluates immediately, so the cap refuses
-  new turns and stops live turns at once; an expiry is enforced by the next evaluation
-  (within 60 seconds). Master/summary schedulers skip paused cells without backoff; a
+  pause reason, or alerts. A grant does not re-evaluate; `GET /api/budgets` reads active
+  overrides live. Revoking a snooze re-evaluates immediately, so the cap refuses new turns
+  and stops live turns at once; an expiry is enforced by the next evaluation (within 60
+  seconds). Master/summary schedulers skip paused cells without backoff; a
   stopped summary is not a failure. The Config page also shows a read-only **Spend cap
   override history** card with active, revoked, and expired rows across retained months,
   granted/extended/expires/revoked timestamps, the optional note, scope/state filters,
@@ -384,7 +385,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1071 vitest cases (one environmental root-skip): 840 server across 49 files and 231 web across 25 files,
+- 1072 vitest cases (one environmental root-skip): 841 server across 49 files and 231 web across 25 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

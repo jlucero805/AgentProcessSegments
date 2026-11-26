@@ -13,6 +13,7 @@ import {
 } from '../domain/notifications.js';
 import type { ClarifyEvent, Effort, Request, TranscriptMsg } from '../domain/request.js';
 import { DEFAULT_AUTOCOMPACT_PERCENT } from '../domain/request.js';
+import { segmentForState, type SegmentId } from '../process/definition.js';
 import {
   KB_SESSION_ID,
   isSetupSession,
@@ -86,6 +87,10 @@ export interface LiveTurn {
   readonly model: string | null;
   readonly effort: Effort | null;
   readonly autocompactPercent: number | null;
+  /** Segment that ran this turn; null outside the request pipeline. */
+  readonly segment: SegmentId | null;
+  /** Wall-clock start used for the segment's active-time ledger. */
+  readonly startedAt: number;
 }
 
 interface StoredSession {
@@ -278,7 +283,11 @@ export class Engine {
     return this.loadTranscript(id);
   }
 
-  async start(id: string, extraPrompt = ''): Promise<LiveTurn> {
+  async start(
+    id: string,
+    extraPrompt = '',
+    segment?: SegmentId,
+  ): Promise<LiveTurn> {
     const existing = this.turns.get(id);
     if (existing) return existing;
 
@@ -294,16 +303,16 @@ export class Engine {
     const message = !savedSession && extra !== ''
       ? `${base}\n\nAdditional process instructions:\n${extra}`
       : base;
-    return this.beginTurn(id, message, request);
+    return this.beginTurn(id, message, request, segment);
   }
 
-  async send(id: string, text: string): Promise<LiveTurn> {
+  async send(id: string, text: string, segment?: SegmentId): Promise<LiveTurn> {
     const existing = this.turns.get(id);
     if (existing) return existing;
     // Sending the first message is starting clarify, even if `/start` was skipped.
     this.assertSpend(this.repo.require(id).cellId);
     const request = this.repo.setClarifyStarted(id, true);
-    return this.beginTurn(id, text, request);
+    return this.beginTurn(id, text, request, segment);
   }
 
   async kickoffDispatch(id: string): Promise<LiveTurn> {
@@ -312,7 +321,7 @@ export class Engine {
     const current = this.repo.require(id);
     this.assertSpend(current.cellId);
     const request = current.state === 'dispatch' ? current : this.repo.transition(id, 'dispatch');
-    return this.beginTurn(id, dispatchPrompt(request), request);
+    return this.beginTurn(id, dispatchPrompt(request), request, 'implement');
   }
 
   async kickoffFinalize(id: string): Promise<LiveTurn> {
@@ -321,7 +330,7 @@ export class Engine {
     const current = this.repo.require(id);
     this.assertSpend(current.cellId);
     const request = current.state === 'finalize' ? current : this.repo.transition(id, 'finalize');
-    return this.beginTurn(id, finalizePrompt(request), request);
+    return this.beginTurn(id, finalizePrompt(request), request, 'finalize');
   }
 
   async startKb(text: string): Promise<LiveTurn> {
@@ -403,13 +412,18 @@ export class Engine {
     if (turn) this.broadcast(turn, { t: 'text', text: trimmed });
   }
 
-  private beginTurn(id: string, message: string, request: Request | null): LiveTurn {
+  private beginTurn(
+    id: string,
+    message: string,
+    request: Request | null,
+    segment?: SegmentId,
+  ): LiveTurn {
     let resolve = () => {};
     const settled = new Promise<void>((done) => {
       resolve = done;
     });
 
-    const meta = this.turnMeta(id, request);
+    const meta = this.turnMeta(id, request, segment ?? null);
     const parser = this.harnessFor(meta.harnessId).createParser(this.loadTranscript(id));
     const turn: LiveTurn = {
       events: [],
@@ -424,6 +438,7 @@ export class Engine {
       failureReported: false,
       transcriptStart: parser.transcript.length,
       turnId: randomUUID(),
+      startedAt: Date.now(),
       ...meta,
     };
 
@@ -449,9 +464,17 @@ export class Engine {
   private turnMeta(
     id: string,
     request: Request | null,
+    segment: SegmentId | null,
   ): Pick<
     LiveTurn,
-    'scope' | 'requestId' | 'cellId' | 'harnessId' | 'model' | 'effort' | 'autocompactPercent'
+    | 'scope'
+    | 'requestId'
+    | 'cellId'
+    | 'harnessId'
+    | 'model'
+    | 'effort'
+    | 'autocompactPercent'
+    | 'segment'
   > {
     const scope: UsageScope = request
       ? 'request'
@@ -490,6 +513,9 @@ export class Engine {
         scope === 'request'
           ? (cell?.autocompactPercent ?? DEFAULT_AUTOCOMPACT_PERCENT)
           : null,
+      segment: request
+        ? (segment ?? segmentForState(request.state, request.clarifyStarted))
+        : null,
     };
   }
 
@@ -560,6 +586,24 @@ export class Engine {
       if (request) {
         this.repo.setAgentStatus(id, 'idle');
         this.repo.setUnchecked(id, true);
+      }
+
+      if (turn.requestId && turn.segment) {
+        try {
+          this.deps.usage.segments.recordTurn({
+            turnId: turn.turnId,
+            requestId: turn.requestId,
+            cellId: turn.cellId,
+            segment: turn.segment,
+            startedAt: turn.startedAt,
+            endedAt: Date.now(),
+          });
+        } catch (error) {
+          this.deps.errors?.error('usage.segment', error, {
+            session: id,
+            turnId: turn.turnId,
+          });
+        }
       }
 
       const recorded = this.recordUsage(id, turn, parser);
@@ -651,6 +695,7 @@ export class Engine {
         cacheWriteTokens: delta.cacheWriteTokens,
         reasoningTokens: delta.reasoningTokens,
         costUsd: delta.costUsd,
+        segment: turn.segment,
         createdAt: Date.now(),
       });
       if (turn.harnessId === 'claude') this.writeStoredUsage(id, usage);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { costBreakdown, formatCost } from './usageFormat';
+import { costBreakdown, formatCost, formatDuration } from './usageFormat';
 import { makeUsageTotals } from './test/fixtures';
 
 describe('usage cost formatting', () => {
@@ -59,6 +59,15 @@ describe('usage cost formatting', () => {
     expect(formatCost(totals)).toBe('unknown');
     expect(costBreakdown(totals)).toBe('');
     expect(formatCost(makeUsageTotals({ turns: 0, totalCostUsd: null }))).toBe('—');
+  });
+
+  it('formats cycle time coarsely and keeps missing time distinct', () => {
+    expect(formatDuration(0)).toBe('—');
+    expect(formatDuration(400)).toBe('<1s');
+    expect(formatDuration(45_000)).toBe('45s');
+    expect(formatDuration(12 * 60_000)).toBe('12m');
+    expect(formatDuration(90 * 60_000)).toBe('1h 30m');
+    expect(formatDuration(50 * 60 * 60_000)).toBe('2d 2h');
   });
 
   it('renders a known zero as zero', () => {

@@ -17,7 +17,7 @@ const DELETE_DAILY = `
  */
 const INSERT_DAILY = `
   INSERT INTO usage_daily (
-    day_start, scope, cell_id, request_id, model, turns,
+    day_start, scope, cell_id, request_id, model, segment, turns,
     input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
     reasoning_tokens, reported_cost_usd, reported_cost_turns,
     estimated_cost_usd, estimated_cost_turns
@@ -28,6 +28,7 @@ const INSERT_DAILY = `
     COALESCE(u.cell_id, ''),
     COALESCE(u.request_id, ''),
     COALESCE(u.model, ''),
+    COALESCE(u.segment, ''),
     COUNT(*),
     COALESCE(SUM(u.input_tokens), 0),
     COALESCE(SUM(u.output_tokens), 0),
@@ -42,7 +43,8 @@ const INSERT_DAILY = `
   ${PRICE_JOIN}
   WHERE u.created_at >= @from AND u.created_at < @to
   GROUP BY day_start, u.scope, COALESCE(u.cell_id, ''),
-           COALESCE(u.request_id, ''), COALESCE(u.model, '')
+           COALESCE(u.request_id, ''), COALESCE(u.model, ''),
+           COALESCE(u.segment, '')
 `;
 
 const UPSERT_STATE = `

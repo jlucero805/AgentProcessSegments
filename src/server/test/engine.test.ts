@@ -1432,6 +1432,9 @@ describe('turn engine', () => {
     expect(h.engine.hasLive(request.id)).toBe(false);
     expect(turn.events.filter((event) => event.t === 'done')).toHaveLength(1);
     expect(h.usage.query({}).totals.turns).toBe(1);
+    expect(
+      h.usage.query({}).byCellSegment.find((row) => row.segment === 'plan'),
+    ).toMatchObject({ turns: 1 });
   });
 
   it('reports a harness error result as one failed-turn event', async () => {

@@ -40,7 +40,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1077 vitest cases: 841 server across 49 files (one environmental root-skip) and 236 web across 26 files, all green.
+- 1081 vitest cases: 844 server across 49 files (one environmental root-skip) and 237 web across 26 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -75,7 +75,8 @@ digests.
   verifies, and rolls back in place, a harness seam with `claude` and `opencode` adapters,
   OpenCode plugin parity (skills and slash commands), chat slash-menu skill discovery
   with per-request
-  target-repo skills, per-turn token/cost usage tracking with a Usage dashboard and
+  target-repo skills, per-turn token/cost usage tracking with a Usage dashboard with
+  per-cell/per-segment cost and wall-clock/active cycle time, and
   request-level card, configurable master-activity retention for `master_events`,
   configurable scorecard-history retention for `cell_summaries`, configurable
   budget-alert and delivery-history retention, cell-delete cleanup for
@@ -102,7 +103,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
                                # use npm install --include=dev when the lockfile changes
 npm run typecheck              # server src + tests, then web app + config; must print nothing
 npm run lint                   # eslint over src + JS tooling, bash -n deploy, zero warnings
-npm test                       # 841 server + 236 web, plus the e2e env guard
+npm test                       # 844 server + 237 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, and missing-Puppeteer policy
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)

@@ -107,13 +107,15 @@ built and vended by the brain; real-CLI verification is still pending.
 - Usage tracking: both parsers normalize token counts and harness-reported cost into a
   `TurnUsage`; the engine writes one `usage_events` row per completed turn for request,
   master, KB, and setup sessions. `GET /api/usage` returns reported, estimated, and total
-  cost plus UTC bucket series, model/cell/request groups, and `coverage` with the
-  raw/rollup boundary and the live retention window. Older history is preserved
-  as daily rollups before raw pruning, so all-time totals survive pruning. The
-  **Usage** page shows the overall and per-cell timeline with reported-versus-estimated
-  chart segments, the raw/rollup boundary, and the retention window; the request drawer
-  shows a compact per-request card. Unknown cost stays null and renders as unknown, never
-  zero.
+  cost plus UTC bucket series, model/cell/request groups, a cell-by-segment breakdown,
+  and `coverage` with the raw/rollup boundary and the live retention window. Request
+  turns carry the process segment that ran them, and per-request segment visits record
+  wall-clock and active turn time; the breakdown sums every revisit. Older history is
+  preserved as daily rollups (including the segment dimension) before raw pruning, so
+  all-time totals survive pruning. The **Usage** page shows the overall and per-cell
+  timeline with reported-versus-estimated chart segments, per-cell/per-segment cost and
+  cycle time, the raw/rollup boundary, and the retention window; the request drawer shows
+  a compact per-request card. Unknown cost stays null and renders as unknown, never zero.
 - Model pricing: an operator-maintained `model_pricing` table stores effective-dated USD
   rates for input, output, cache read, cache write, and reasoning tokens. The Config page
   lists, adds, and removes rows with a source citation; `GET/POST /api/pricing` and
@@ -387,7 +389,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1077 vitest cases (one environmental root-skip): 841 server across 49 files and 236 web across 26 files,
+- 1081 vitest cases (one environmental root-skip): 844 server across 49 files and 237 web across 26 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

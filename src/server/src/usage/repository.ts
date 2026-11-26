@@ -2,15 +2,25 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import { readUsagePruneState } from './prune-state.js';
 import {
+  SEGMENT_IDS,
+  SEGMENT_LABELS,
+  type SegmentId,
+} from '../process/definition.js';
+import {
   GROUP_ORDER_BY,
   USAGE_AGGREGATE,
   usageSource,
 } from './sql.js';
 import {
+  RequestSegmentRepository,
+  type SegmentDuration,
+} from './segments.js';
+import {
   USAGE_BUCKET_MS,
   totalTokens,
   usageBucketStart,
   type UsageBucketRow,
+  type UsageCellSegmentGroup,
   type UsageCoverage,
   type UsageEventInput,
   type UsageFilter,
@@ -38,6 +48,12 @@ interface GroupRow extends AggregateRow {
   label: string;
   cell_id?: string | null;
   cell_label?: string | null;
+}
+
+interface CellSegmentRow extends AggregateRow {
+  cell_id: string;
+  cell_label: string;
+  segment: string;
 }
 
 interface BucketRow extends AggregateRow {
@@ -92,6 +108,80 @@ function bucket(row: BucketRow): UsageBucketRow {
   return { bucketStart: Number(row.bucket_start), ...totals(row) };
 }
 
+function toSegment(value: string): SegmentId | null {
+  return (SEGMENT_IDS as readonly string[]).includes(value)
+    ? (value as SegmentId)
+    : null;
+}
+
+function segmentOrder(segment: SegmentId | null): number {
+  return segment === null ? SEGMENT_IDS.length : SEGMENT_IDS.indexOf(segment);
+}
+
+/**
+ * Usage rows and cycle-time rows are independent ledgers: a segment can hold a
+ * request with no turns, and master/kb/setup spend has no segment. Merge both
+ * so the table never hides a row just because one side is empty.
+ */
+function mergeCellSegments(
+  rows: CellSegmentRow[],
+  durations: SegmentDuration[],
+): UsageCellSegmentGroup[] {
+  const byKey = new Map<string, UsageCellSegmentGroup>();
+  const labelByCell = new Map<string, string>();
+
+  for (const row of rows) {
+    const cellId = row.cell_id ?? '';
+    const cellLabel = row.cell_label ?? 'Unassigned';
+    labelByCell.set(cellId, cellLabel);
+    const segment = toSegment(row.segment);
+    byKey.set(`${cellId}\u0000${row.segment}`, {
+      key: `${cellId}:${row.segment}`,
+      label: segment === null ? 'Unattributed' : SEGMENT_LABELS[segment],
+      cellId,
+      cellLabel,
+      segment,
+      wallMs: 0,
+      activeMs: 0,
+      ...totals(row),
+    });
+  }
+
+  for (const duration of durations) {
+    const key = `${duration.cellId}\u0000${duration.segment}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.wallMs = duration.wallMs;
+      existing.activeMs = duration.activeMs;
+      continue;
+    }
+    const cellLabel =
+      labelByCell.get(duration.cellId) ?? (duration.cellId || 'Unassigned');
+    byKey.set(key, {
+      key: `${duration.cellId}:${duration.segment}`,
+      label: SEGMENT_LABELS[duration.segment],
+      cellId: duration.cellId,
+      cellLabel,
+      segment: duration.segment,
+      wallMs: duration.wallMs,
+      activeMs: duration.activeMs,
+      ...totals(undefined),
+    });
+  }
+
+  return [...byKey.values()].sort((a, b) => {
+    if ((a.totalCostUsd === null) !== (b.totalCostUsd === null)) {
+      return a.totalCostUsd === null ? 1 : -1;
+    }
+    const cost = (b.totalCostUsd ?? 0) - (a.totalCostUsd ?? 0);
+    if (cost !== 0) return cost;
+    if (a.totalTokens !== b.totalTokens) return b.totalTokens - a.totalTokens;
+    const cell = a.cellLabel.localeCompare(b.cellLabel);
+    if (cell !== 0) return cell;
+    return segmentOrder(a.segment) - segmentOrder(b.segment);
+  });
+}
+
 /**
  * Query output before the HTTP boundary attaches coverage that comes from
  * outside a single query: the settings-derived retention window and the
@@ -111,7 +201,12 @@ export type UsageQueryResult = Omit<UsageResponse, 'coverage'> & {
  * history from the dashboard.
  */
 export class UsageRepository {
-  constructor(private readonly db: Db) {}
+  /** Cycle-time ledger, exposed so the engine can record active turns. */
+  readonly segments: RequestSegmentRepository;
+
+  constructor(private readonly db: Db) {
+    this.segments = new RequestSegmentRepository(db);
+  }
 
   record(input: UsageEventInput): void {
     this.db
@@ -119,11 +214,11 @@ export class UsageRepository {
         `INSERT INTO usage_events (
            id, turn_id, session_id, scope, cell_id, request_id, model, effort,
            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-           reasoning_tokens, cost_usd, created_at
+           reasoning_tokens, cost_usd, segment, created_at
          ) VALUES (
            @id, @turnId, @sessionId, @scope, @cellId, @requestId, @model, @effort,
            @inputTokens, @outputTokens, @cacheReadTokens, @cacheWriteTokens,
-           @reasoningTokens, @costUsd, @createdAt
+           @reasoningTokens, @costUsd, @segment, @createdAt
          )`,
       )
       .run({
@@ -141,6 +236,7 @@ export class UsageRepository {
         cacheWriteTokens: input.cacheWriteTokens,
         reasoningTokens: input.reasoningTokens,
         costUsd: input.costUsd,
+        segment: input.segment ?? null,
         createdAt: input.createdAt ?? Date.now(),
       });
   }
@@ -229,6 +325,22 @@ export class UsageRepository {
       )
       .all({ ...requestWhere.params, rawSince, limit }) as GroupRow[];
 
+    const cellSegmentRows = this.db
+      .prepare(
+        `SELECT x.cell_id AS cell_id,
+                CASE WHEN x.cell_id = '' THEN 'Unassigned'
+                     ELSE COALESCE(c.name, x.cell_id) END AS cell_label,
+                x.segment AS segment,
+                x.cell_id || ':' || x.segment AS key,
+                ${USAGE_AGGREGATE}
+           FROM ${usageSource(includeDaily)} x
+           LEFT JOIN cells c ON c.id = x.cell_id
+           ${base.sql}
+          GROUP BY x.cell_id, x.segment
+          ORDER BY ${GROUP_ORDER_BY}`,
+      )
+      .all(params) as CellSegmentRow[];
+
     return {
       range: { from: filter.from ?? null, to: filter.to ?? null },
       totals: totals(totalsRow),
@@ -236,6 +348,10 @@ export class UsageRepository {
       byModel: modelRows.map(group),
       byCell: cellRows.map(group),
       byRequest: requestRows.map(group),
+      byCellSegment: mergeCellSegments(
+        cellSegmentRows,
+        this.segments.durations(filter),
+      ),
       coverage: { rolledThrough: includeDaily ? rawSince : null },
     };
   }

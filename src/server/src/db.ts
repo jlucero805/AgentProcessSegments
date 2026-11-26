@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS usage_events (
   cache_write_tokens INTEGER NOT NULL DEFAULT 0,
   reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
   cost_usd           REAL,
+  segment            TEXT,
   created_at         INTEGER NOT NULL
 );
 
@@ -160,6 +161,7 @@ CREATE TABLE IF NOT EXISTS usage_daily (
   cell_id              TEXT NOT NULL DEFAULT '',
   request_id           TEXT NOT NULL DEFAULT '',
   model                TEXT NOT NULL DEFAULT '',
+  segment              TEXT NOT NULL DEFAULT '',
   turns                INTEGER NOT NULL,
   input_tokens         INTEGER NOT NULL,
   output_tokens        INTEGER NOT NULL,
@@ -170,8 +172,26 @@ CREATE TABLE IF NOT EXISTS usage_daily (
   reported_cost_turns  INTEGER NOT NULL,
   estimated_cost_usd   REAL,
   estimated_cost_turns INTEGER NOT NULL,
-  PRIMARY KEY (day_start, scope, cell_id, request_id, model)
+  PRIMARY KEY (day_start, scope, cell_id, request_id, model, segment)
 ) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS request_segment_visits (
+  id         TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  cell_id    TEXT,
+  segment    TEXT NOT NULL,
+  entered_at INTEGER NOT NULL,
+  exited_at  INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS request_segment_turns (
+  turn_id    TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  cell_id    TEXT,
+  segment    TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  ended_at   INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS usage_rollup_state (
   id             INTEGER PRIMARY KEY CHECK (id = 1),
@@ -271,6 +291,7 @@ const COLUMNS: ReadonlyArray<readonly [table: string, column: string, ddl: strin
   ['spend_cap_overrides', 'extended_at', 'INTEGER'],
   ['spend_cap_overrides', 'extension_count', 'INTEGER NOT NULL DEFAULT 0'],
   ['spend_cap_overrides', 'expiry_handled_at', 'INTEGER'],
+  ['usage_events', 'segment', 'TEXT'],
 ];
 
 function addColumn(db: Db, table: string, column: string, ddl: string): void {
@@ -378,12 +399,63 @@ function migrateNotificationEventDeliveries(db: Db): void {
   })();
 }
 
+/**
+ * SQLite cannot add a column to a WITHOUT ROWID primary key. Rebuild the
+ * rollup table once so old daily rows keep their totals under the empty
+ * segment; new rollups then carry the real segment id.
+ */
+function migrateUsageDailySegment(db: Db): void {
+  const columns = db
+    .prepare('PRAGMA table_info(usage_daily)')
+    .all() as Array<{ name: string }>;
+  if (columns.length === 0 || columns.some((column) => column.name === 'segment')) {
+    return;
+  }
+
+  db.transaction(() => {
+    db.exec('ALTER TABLE usage_daily RENAME TO usage_daily_legacy');
+    db.exec(`CREATE TABLE usage_daily (
+      day_start            INTEGER NOT NULL,
+      scope                TEXT NOT NULL,
+      cell_id              TEXT NOT NULL DEFAULT '',
+      request_id           TEXT NOT NULL DEFAULT '',
+      model                TEXT NOT NULL DEFAULT '',
+      segment              TEXT NOT NULL DEFAULT '',
+      turns                INTEGER NOT NULL,
+      input_tokens         INTEGER NOT NULL,
+      output_tokens        INTEGER NOT NULL,
+      cache_read_tokens    INTEGER NOT NULL,
+      cache_write_tokens   INTEGER NOT NULL,
+      reasoning_tokens     INTEGER NOT NULL,
+      reported_cost_usd    REAL,
+      reported_cost_turns  INTEGER NOT NULL,
+      estimated_cost_usd   REAL,
+      estimated_cost_turns INTEGER NOT NULL,
+      PRIMARY KEY (day_start, scope, cell_id, request_id, model, segment)
+    ) WITHOUT ROWID`);
+    db.exec(
+      `INSERT INTO usage_daily
+         (day_start, scope, cell_id, request_id, model, segment, turns,
+          input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+          reasoning_tokens, reported_cost_usd, reported_cost_turns,
+          estimated_cost_usd, estimated_cost_turns)
+       SELECT day_start, scope, cell_id, request_id, model, '', turns,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+              reasoning_tokens, reported_cost_usd, reported_cost_turns,
+              estimated_cost_usd, estimated_cost_turns
+         FROM usage_daily_legacy`,
+    );
+    db.exec('DROP TABLE usage_daily_legacy');
+  })();
+}
+
 export function migrate(db: Db): void {
   db.exec(BASE_SCHEMA);
   // Older event tables may lack `cell_id`; add every column before the event
   // kind rebuild so the copy can preserve it.
   for (const [table, column, ddl] of COLUMNS) addColumn(db, table, column, ddl);
   migrateBudgetDeliveries(db);
+  migrateUsageDailySegment(db);
   migrateNotificationEventDeliveries(db);
   db.prepare(
     'INSERT OR IGNORE INTO usage_rollup_state (id, rolled_through) VALUES (1, 0)',
@@ -410,6 +482,18 @@ export function migrate(db: Db): void {
     'CREATE INDEX IF NOT EXISTS idx_usage_events_request_created ON usage_events(request_id, created_at)',
   );
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_turn ON usage_events(turn_id)');
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_request_segment_visits_request
+       ON request_segment_visits(request_id, exited_at)`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_request_segment_visits_cell
+       ON request_segment_visits(cell_id, segment, entered_at)`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_request_segment_turns_cell
+       ON request_segment_turns(cell_id, segment, started_at)`,
+  );
   db.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_budget_alerts_identity
        ON budget_alerts(scope, scope_id, period_start, threshold, budget_usd, alert_at_percent)`,

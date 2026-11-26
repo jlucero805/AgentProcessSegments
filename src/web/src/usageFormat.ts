@@ -10,6 +10,19 @@ export function formatUsd(value: number): string {
   return value === 0 ? '$0' : `$${value.toFixed(value < 1 ? 4 : 2)}`;
 }
 
+/** Coarse, readable cycle time; `—` means the segment has no recorded time. */
+export function formatDuration(ms: number): string {
+  if (ms <= 0) return '—';
+  if (ms < 1000) return '<1s';
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
 /** Show how much of an effective cost came from the harness and how much from prices. */
 export function costBreakdown(totals: UsageTotals): string {
   const parts: string[] = [];

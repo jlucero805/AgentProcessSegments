@@ -2,6 +2,7 @@
  * Pure usage contract shared by the brain and the SPA. Keep this module free of
  * Node imports so Vite can bundle it through `src/web/src/types.ts`.
  */
+import type { SegmentId } from '../process/definition.js';
 
 export const USAGE_SCOPES = ['request', 'master', 'kb', 'setup'] as const;
 export type UsageScope = (typeof USAGE_SCOPES)[number];
@@ -29,6 +30,8 @@ export interface UsageEventInput {
   reasoningTokens: number;
   /** The harness-reported cost, or null when no complete cost was reported. */
   costUsd: number | null;
+  /** Process segment that ran the turn; null outside the request pipeline. */
+  segment?: SegmentId | null;
   createdAt?: number;
 }
 
@@ -85,6 +88,24 @@ export interface UsagePruneSummary {
   deletedRows: number;
 }
 
+/**
+ * One cell/segment pair. Cycle time is separate from usage: a segment can hold
+ * a request for a long wall-clock time with no turns, or run turns with no
+ * reported cost.
+ */
+export interface UsageCellSegmentGroup extends UsageTotals {
+  key: string;
+  /** Canonical segment label, or "Unattributed" for non-pipeline spend. */
+  label: string;
+  cellId: string;
+  cellLabel: string;
+  segment: SegmentId | null;
+  /** Wall-clock time in the segment, including idle and waiting. */
+  wallMs: number;
+  /** Time covered by agent turns running in the segment. */
+  activeMs: number;
+}
+
 export interface UsageCoverage {
   /**
    * Exclusive boundary between daily rollups and raw rows. Raw rows exist at
@@ -112,6 +133,7 @@ export interface UsageResponse {
   byModel: UsageGroup[];
   byCell: UsageGroup[];
   byRequest: UsageGroup[];
+  byCellSegment: UsageCellSegmentGroup[];
   coverage: UsageCoverage;
 }
 

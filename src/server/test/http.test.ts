@@ -3260,6 +3260,7 @@ describe('http api', () => {
 
     const missing = await call('GET', '/assets/missing.js');
     expect(missing.status).toBe(404);
+    expect(missing.json()).toEqual({ error: 'not_found' });
   });
 
   it('does not escape webDir via encoded traversal paths', async () => {
@@ -3267,7 +3268,13 @@ describe('http api', () => {
     mkdirSync(path.join(dir, 'assets'));
     writeFileSync(path.join(dir, 'index.html'), '<!doctype html><body>spa-index</body>');
     writeFileSync(path.join(dir, '..', 'outside-web-dir.txt'), 'outside-web-dir-sentinel');
-    await makeApp({ webDir: dir });
+    const records: string[] = [];
+    const errors: ErrorSink = {
+      error(source) {
+        records.push(source);
+      },
+    };
+    await makeApp({ webDir: dir }, undefined, undefined, undefined, errors);
 
     for (const url of [
       '/../outside-web-dir.txt',
@@ -3277,10 +3284,66 @@ describe('http api', () => {
       '/assets/..%5c..%5coutside-web-dir.txt',
     ]) {
       const response = await call('GET', url);
-      // The only safe outcome is that the sentinel never leaves webDir; a rejected
-      // static path may surface as 403/404, the SPA fallback, or the app's generic 500.
+      // The only safe outcome is that the sentinel never leaves webDir. Some
+      // encoded variants normalize before routing, so they may still reach the
+      // SPA fallback; a rejected static path must return a client error, not 500.
       expect(response.text).not.toContain('outside-web-dir-sentinel');
+      if (url.startsWith('/assets/')) {
+        expect(response.status).not.toBe(500);
+        expect(response.text).not.toContain('"internal"');
+      }
     }
+
+    const forbidden = await call('GET', '/assets/..%5c..%5coutside-web-dir.txt');
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.json()).toEqual({ error: 'forbidden', message: 'Forbidden' });
+    expect(records).not.toContain('http.request');
+  });
+
+  it('still logs unexpected server errors with request context', async () => {
+    const records: Array<{ source: string; context?: Record<string, unknown> }> = [];
+    const errors: ErrorSink = {
+      error(source, _error, context) {
+        records.push({ source, ...(context ? { context } : {}) });
+      },
+    };
+    const { h } = await makeApp({}, undefined, undefined, undefined, errors);
+    vi.spyOn(h.repo, 'list').mockImplementation(() => {
+      throw new Error('boom');
+    });
+
+    const response = await call('GET', '/api/requests');
+    expect(response.status).toBe(500);
+    expect(response.json()).toMatchObject({ error: 'internal', message: 'boom' });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      source: 'http.request',
+      context: {
+        requestId: expect.any(String),
+        method: 'GET',
+        url: '/api/requests',
+      },
+    });
+  });
+
+  it('returns framework client errors as 4xx without logging them', async () => {
+    const records: string[] = [];
+    const errors: ErrorSink = {
+      error(source) {
+        records.push(source);
+      },
+    };
+    await makeApp({}, undefined, undefined, undefined, errors);
+
+    const response = await fetch(`${open?.base}/api/requests`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{',
+    });
+    const body = await response.json();
+    expect(response.status).toBe(400);
+    expect(body).toEqual({ error: 'bad_request', message: 'Bad Request' });
+    expect(records).toEqual([]);
   });
 
   it('streams a clarify turn as NDJSON over a real socket', async () => {

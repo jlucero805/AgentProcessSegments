@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, describeError } from './api';
+import { VERIFY_WEBHOOK_SIGNATURES_HELP, helpHref } from './links';
 import { ACTION_TONES, eventDetail } from './masterView';
 import { ChatDeliveryCard, emptyChatView } from './ChatDeliveryCard';
 import { ProcessEditor } from './ProcessEditor';
@@ -71,6 +72,8 @@ interface ConfigPageProps {
   onEditCell?: (cell: CellDetail) => void;
   /** The app's single budget snapshot, shared with the banner and Usage page. */
   budgetFeed: BudgetFeed;
+  /** Open the in-app Help at a page and optional heading anchor. */
+  onOpenHelp?: (slug: string, anchor?: string) => void;
 }
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -218,7 +221,12 @@ function mergePrice(list: ModelPrice[], created: ModelPrice): ModelPrice[] {
 }
 
 /** Edits the global master defaults, process template, and per-cell switches. */
-export function ConfigPage({ onError, onEditCell, budgetFeed }: ConfigPageProps) {
+export function ConfigPage({
+  onError,
+  onEditCell,
+  budgetFeed,
+  onOpenHelp,
+}: ConfigPageProps) {
   const [master, setMaster] = useState<MasterConfig | null>(null);
   const [summary, setSummary] = useState<SummaryConfig | null>(null);
   const [usage, setUsage] = useState<UsageSettings | null>(null);
@@ -1879,7 +1887,25 @@ export function ConfigPage({ onError, onEditCell, budgetFeed }: ConfigPageProps)
           Signed webhooks carry the legacy{' '}
           <code className="text-zinc-500">X-APS-Signature</code> and the timestamped{' '}
           <code className="text-zinc-500">X-APS-Signature-V2</code>. Slack and Discord
-          incoming webhooks accept the text-only format and ignore both headers.
+          incoming webhooks accept the text-only format and ignore both headers. See{' '}
+          <a
+            href={helpHref(
+              VERIFY_WEBHOOK_SIGNATURES_HELP.slug,
+              VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
+            )}
+            className="font-medium text-blue-400 underline decoration-blue-900 underline-offset-2 hover:text-blue-300"
+            onClick={(event) => {
+              if (!onOpenHelp) return;
+              event.preventDefault();
+              onOpenHelp(
+                VERIFY_WEBHOOK_SIGNATURES_HELP.slug,
+                VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
+              );
+            }}
+          >
+            Verify webhook signatures
+          </a>{' '}
+          for the raw-body check and a runnable receiver.
         </p>
 
         <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 sm:flex-row sm:items-center sm:justify-between">

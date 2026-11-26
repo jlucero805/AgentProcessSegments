@@ -1360,6 +1360,22 @@ describe('ConfigPage', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('links the Alert delivery card to the webhook signature Help section', async () => {
+    installFetch();
+    const onOpenHelp = vi.fn();
+
+    render(<ConfigPage onError={() => {}} onOpenHelp={onOpenHelp} />);
+
+    const link = await screen.findByRole('link', { name: 'Verify webhook signatures' });
+    expect(link).toHaveAttribute('href', '?help=08-user-workflows#verify-webhook-signatures');
+
+    fireEvent.click(link);
+    expect(onOpenHelp).toHaveBeenCalledWith(
+      '08-user-workflows',
+      'verify-webhook-signatures',
+    );
+  });
+
   it('configures and saves webhook delivery', async () => {
     const captured = installFetch();
     render(<ConfigPage onError={() => {}} />);

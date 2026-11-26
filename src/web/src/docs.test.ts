@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   extractHeadings,
@@ -8,6 +10,7 @@ import {
   slugForDocPath,
   slugifyHeading,
 } from './docs';
+import { VERIFY_WEBHOOK_SIGNATURES_HELP, helpHref } from './links';
 import type { DocPage } from './types';
 
 const pages: DocPage[] = [
@@ -59,7 +62,27 @@ describe('docs helpers', () => {
   it('reads help slugs from in-app links', () => {
     expect(helpSlugFromHref('?help=07-process-segments')).toBe('07-process-segments');
     expect(helpSlugFromHref('?help=deploy-vps&x=1')).toBe('deploy-vps');
+    expect(helpSlugFromHref('?help=08-user-workflows#verify-webhook-signatures')).toBe(
+      '08-user-workflows',
+    );
     expect(helpSlugFromHref('https://example.com')).toBeNull();
+  });
+
+  it('builds help links and keeps the webhook signature target valid', () => {
+    expect(helpHref('getting-started')).toBe('?help=getting-started');
+    expect(
+      helpHref(VERIFY_WEBHOOK_SIGNATURES_HELP.slug, VERIFY_WEBHOOK_SIGNATURES_HELP.anchor),
+    ).toBe('?help=08-user-workflows#verify-webhook-signatures');
+
+    const markdown = readFileSync(
+      path.resolve(process.cwd(), '../../docs/08-user-workflows.md'),
+      'utf8',
+    );
+    expect(extractHeadings(markdown)).toContainEqual({
+      id: VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
+      text: 'Verify webhook signatures',
+      level: 3,
+    });
   });
 
   it('extracts h2/h3 headings and skips fenced code blocks', () => {

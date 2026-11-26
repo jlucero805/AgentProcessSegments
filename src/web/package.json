@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "pretypecheck": "node ../../scripts/check-dev-deps.mjs typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "pretest": "node ../../scripts/check-dev-deps.mjs test",
     "test": "vitest run"
   },
   "dependencies": {

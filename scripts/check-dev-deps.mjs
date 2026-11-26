@@ -21,10 +21,24 @@ const CHECKS = {
     { tool: 'eslint', workspace: null },
     { tool: 'markdownlint-cli2', workspace: null },
   ],
+  'lint-js': [{ tool: 'eslint', workspace: null }],
+  build: [
+    { tool: 'tsc', workspace: 'src/server' },
+    { tool: 'vite', workspace: 'src/web' },
+  ],
+  dev: [
+    { tool: 'concurrently', workspace: null },
+    { tool: 'tsx', workspace: 'src/server' },
+    { tool: 'vite', workspace: 'src/web' },
+  ],
+  e2e: [
+    { tool: 'tsc', workspace: 'src/server' },
+    { tool: 'vite', workspace: 'src/web' },
+  ],
 };
 
 const USAGE =
-  'Usage: node scripts/check-dev-deps.mjs <typecheck|test|lint> [--root <dir>]';
+  'Usage: node scripts/check-dev-deps.mjs <typecheck|test|lint|lint-js|build|dev|e2e> [--root <dir>]';
 
 function failUsage(message) {
   console.error(`check-dev-deps: ${message}`);

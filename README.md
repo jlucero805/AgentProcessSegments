@@ -162,8 +162,9 @@ a bare `npm install` or `npm ci` installs production dependencies only and
 `npm run typecheck` fails with `tsc: not found`. Use the `npm ci --include=dev` above
 (or `NODE_ENV=development npm ci`); a fresh `npm ci` under the inherited env prunes
 `typescript`, `vite`, `vitest`, and ESLint again, so pass the flag every time. The root
-`typecheck`, `test`, and `lint` commands check for the project-local binaries first and
-print the `npm ci --include=dev` hint if they are missing. See the
+`typecheck`, `test`, `lint`, `build`, `dev`, and `e2e` commands, direct workspace
+`test`/`typecheck` invocations, and `npm run lint:js` check for the project-local binaries
+first and print the `npm ci --include=dev` hint if they are missing. See the
 `AGENTS.md` environment-facts bullet for the sibling failures and the
 `npm config get omit` check.
 

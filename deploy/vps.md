@@ -127,15 +127,21 @@ the panel detaches; reopening or reloading reattaches with scrollback. Closing a
 tab kills it. Sessions are visible via `GET /api/terminals`, up to four at once. Disable
 creation with `APS_TERMINAL=0` in the unit. The UI hides the action on phones, but the
 session API is a direct shell: keep the brain on loopback or behind an authenticated
-tunnel. The node-pty native module is built during `npm ci`; this host already has
-`make`, `g++`, and `python3`.
+tunnel. The node-pty native module is built during `npm ci --include=dev`; this host
+already has `make`, `g++`, and `python3`.
 
 ## Install as a systemd user unit
+
+The unit exports `NODE_ENV=production`, and a shell started from the service inherits
+it. Install with `npm ci --include=dev` (or `NODE_ENV=development npm ci`): a bare
+`npm ci` omits `typescript`, `vite`, and the rest of the devDependencies, so the next
+`npm run build` fails. The upgrade notes below apply the same rule to the self-hosted
+upgrade path.
 
 ```bash
 git clone https://github.com/jlucero805/AgentProcessSegments ~/agent-process-segments
 cd ~/agent-process-segments
-npm ci
+npm ci --include=dev
 npm run build
 
 mkdir -p ~/.config/systemd/user
@@ -248,7 +254,7 @@ Tunnel the one port. The SPA, API, and websocket must share an origin, so do not
 ```bash
 cd ~/agent-process-segments
 git pull --ff-only
-npm ci
+npm ci --include=dev
 npm run build
 systemctl --user restart agent-process-segments
 journalctl --user -u agent-process-segments -n 50 --no-pager
@@ -379,7 +385,7 @@ systemctl --user disable sandbox-harness
 #    clone moves with it.
 mv ~/sandbox-harness ~/agent-process-segments
 cd ~/agent-process-segments
-npm ci
+npm ci --include=dev
 npm run build
 
 # 3. Preview, then move the data, config, and state directories and the DB.
@@ -586,7 +592,7 @@ panes.
 ## Troubleshooting
 
 - `better-sqlite3` install fails with `not found: make`: install the toolchain
-  (`sudo apt-get install -y make g++ python3`), then run `npm ci` again.
+  (`sudo apt-get install -y make g++ python3`), then run `npm ci --include=dev` again.
 - `GET /api/models` returns `source: "fallback"`: the selected agent binary is not on the
   service `PATH`. Install `claude`/`opencode`, add its directory to
   `Environment=PATH=...`, and restart.

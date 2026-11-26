@@ -142,7 +142,9 @@ restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftov
 `-journal` at `0600`, repairing a loose install on every open. A missing database parent
 is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
 The deploy `upgrade-vps.sh` writes its `db-backup.sqlite` snapshot `0600` inside a `0700`
-run directory. Maintenance paths that must not migrate a live brain open through
+run directory. Snapshots and run directories left by an older version are tightened with
+`npm run repair:upgrades` (dry run first), which scans only `~/.aps-cutover/upgrades`
+and never follows symlinks. Maintenance paths that must not migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair without schema or reconcile
 work.
 
@@ -890,7 +892,9 @@ defaults.
   so unreadable bytes are never overwritten; reads keep the empty fallback and never
   move a file. Existing installs can repair every workdir at once with
   `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
-  artifacts and never recurses into `cwd/` checkouts. Terminal workdirs older than
+  artifacts and never recurses into `cwd/` checkouts. Upgrade run directories and
+  snapshots are repaired separately with `npm run repair:upgrades` (dry run first).
+  Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
   below. An existing legacy
   `~/.sandbox-harness` workdir is used until `npm run migrate:paths` moves it. That

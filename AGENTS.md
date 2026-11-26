@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1217 vitest cases: 941 server across 54 files (one environmental root-skip) and 276 web across 27 files, all green.
+- 1229 vitest cases: 953 server across 55 files (one environmental root-skip) and 276 web across 27 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -110,7 +110,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell gate + actionlint + systemd unit + markdownlint, zero warnings
-npm test                       # 941 server + 276 web, plus the e2e env guard
+npm test                       # 953 server + 276 web, plus the e2e env guard
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
@@ -135,6 +135,7 @@ npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs
                                 # terminal transitions retire them automatically.
                                 # --prune-orphans also retires refs with no request row
 npm run repair:permissions      # tighten old request workdirs (dry run first)
+npm run repair:upgrades         # tighten old upgrade run dirs/snapshots (dry run first)
 npm run cutover:vps -- --help   # live self-hosted migration; run --dry-run first
                                 # prunes older runs by default; --no-prune opts out
 npm run upgrade:vps -- --dry-run  # pull + rebuild + restart; --detach inside the brain
@@ -619,8 +620,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `chmod` makes the result independent of the caller's umask and repairs a retried run;
     both fail closed. Missing `~/.aps-cutover`/`upgrades` ancestors are created `0700`;
     existing ancestors are left alone. The snapshot remains a normal, manually restorable
-    SQLite database. This is not encryption at rest, and older run directories are not
-    repaired retroactively.
+    SQLite database. This is not encryption at rest; older run directories and snapshots
+    are tightened explicitly with `npm run repair:upgrades` (dry run by default;
+    `--apply` to change), which scans only `~/.aps-cutover/upgrades` and never follows
+    symlinks.
 43. **Only `db.ts` opens SQLite directly.** Under `src/server/src`, no other module may
     import `better-sqlite3` or construct `new Database(...)`. Production calls `openDb`;
     maintenance paths that must not migrate or reconcile a live brain call

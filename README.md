@@ -342,12 +342,20 @@ are written again. After upgrading and restarting, preview and apply the one-tim
 npm run build
 npm run repair:permissions              # preview
 npm run repair:permissions -- --apply   # tighten old request workdirs
+npm run repair:upgrades                 # preview old upgrade evidence
+npm run repair:upgrades -- --apply      # tighten old upgrade run dirs/snapshots
 ```
 
 The command only tightens the known `requests/` artifacts (`requests/`, each session
 dir, `cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
 `opencode/opencode.json`). It never rewrites transcripts, never recurses into `cwd/`
 checkouts, and is safe while the brain runs.
+
+Upgrade run directories and snapshots from an older version are repaired the same way:
+`npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets
+`~/.aps-cutover/upgrades` and each run directory to `0700` and each `db-backup.sqlite` to
+`0600`. It never follows symlinks, deletes anything, opens the database, or touches
+cutover runs.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -626,7 +634,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1217 vitest cases: 941 server cases across 54 files (state machine,
+`npm test` runs 1229 vitest cases: 953 server cases across 55 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

@@ -147,6 +147,10 @@ built and vended by the brain; real-CLI verification is still pending.
   `--apply` to change). It never recurses into `cwd/` checkouts. A missing state file is
   empty; an unreadable or invalid one is reported and moved to
   `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write.
+- Upgrade evidence: `npm run repair:upgrades` tightens `~/.aps-cutover/upgrades` and each
+  direct run directory to `0700` and each top-level `db-backup.sqlite` to `0600` (dry run
+  by default; `--apply` to change). It never follows symlinks, deletes anything, opens the
+  database, or touches `~/.aps-cutover/runs`.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -421,7 +425,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1217 vitest cases (one environmental root-skip): 941 server across 54 files and 276 web across 27 files,
+- 1229 vitest cases (one environmental root-skip): 953 server across 55 files and 276 web across 27 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -448,6 +452,8 @@ built and vended by the brain; real-CLI verification is still pending.
   and rolls back in place; each run leaves evidence under `~/.aps-cutover/upgrades/` in a
   `0700` directory, the `db-backup.sqlite` snapshot is `0600`, and bounded retention
   (`--keep-runs`/`--keep-days`/`--no-prune`) prunes older runs after every terminal state.
+  Runs and snapshots left by an older version are tightened with `npm run repair:upgrades`
+  (dry run first).
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`
   with APS paths, bound to `127.0.0.1:7391`; SPA and API are served with `/api` winning
   over the SPA fallback. The legacy `sandbox-harness.service` is disabled and its

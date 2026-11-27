@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1589 vitest cases: 1143 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
+- 1591 vitest cases: 1143 server across 59 files (one environmental root-skip) and 448 web across 31 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1143 server + 446 web, plus the e2e env guard
+npm test                       # 1143 server + 448 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -186,7 +186,7 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   (`npm run test:web-stress`, `npm run test:server-stress`) pin `NODE_ENV=test` through
   `buildPinnedEnv` for the same reason, independent of the config pin.
 - **The web suite runs in `pool: 'vmThreads'`.** It creates one jsdom environment per
-  worker instead of one per test file (29 files), which roughly halves wall time while
+  worker instead of one per test file (31 files), which roughly halves wall time while
   keeping per-file isolation. A VM context has no `ReadableStream`/`TransformStream`, so
   `src/web/src/test/setup.ts` seeds them from `node:stream/web`; `viteConfig.test.ts`
   guards both the pool and the `NODE_ENV=test` pin. Do not switch to `isolate: false`:

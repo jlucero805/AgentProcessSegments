@@ -2970,31 +2970,40 @@ because `prepare_run_dir` and cutover's `point_latest` create the ancestor chain
 The `0700` children protect run and snapshot contents, but a world-readable root still
 lets any local account list `runs/` and `upgrades/` names and resolve the `latest`
 symlink target. An operator who ran both repairs could reasonably assume the whole
-evidence tree was owner-only.
+evidence tree was owner-only. `upgrade-vps.sh` also had one creation gap: its internal
+`--run --run-dir` path could reach `point_upgrade_latest` with the root still missing, and
+that helper used a bare `mkdir -p`, creating the root and `upgrades/` at `0755` under the
+usual umask.
 
 **Decision.** The shared `~/.aps-cutover` root is `0700`, the same boundary as its
-children. New installs already comply through the creation umask, so neither
-`cutover-vps.sh` nor `upgrade-vps.sh` gains a chmod of an existing root; silently
-changing an operator's shared directory on the next run would violate the
-"existing ancestors are left alone" rule from D73/D86/D94. Instead, extend the existing
-`npm run repair:runs` (D110): it now inspects `--root` itself before `runs/`, tightens
-the root to `0700` in the same dry-run-first pass, and leaves `upgrades/` to
-`repair:upgrades`. `latest` needs no separate change: on Linux a symlink's mode is
-ignored, and the `0700` root plus the `0700` target run directory already block traversal
-and resolution. A symlinked root is not chmodded, so a relocated tree is left for the
-operator to tighten, while its `runs/` tree is still scanned through the link; a
-non-directory root and the filesystem root (`--root /`) fail closed.
+children. A new root is created `0700` by both deploy scripts: `upgrade-vps.sh` now runs
+`point_upgrade_latest`'s `mkdir -p` under a local `umask 077`, and `cutover-vps.sh` is
+unchanged. Neither script gains a chmod of an existing root; silently changing an
+operator's shared directory on the next run would violate the "existing ancestors are
+left alone" rule from D73/D86/D94. Instead, both existing dry-run-first repairs own the
+root: `npm run repair:runs` (D110) inspects `--root` itself before `runs/`,
+`npm run repair:upgrades` (D93) inspects `--root` itself before `upgrades/`, and each
+tightens a real directory to `0700` in its normal pass. That means either command fixes
+an old root, so an upgrade-only host does not have to remember the cutover repair.
+`latest` needs no separate change: on Linux a symlink's mode is ignored, and the `0700`
+root plus the `0700` target run directory already block traversal and resolution.
+
+A symlinked root is not chmodded, so a relocated tree is left for the operator to
+tighten, while its `runs/` or `upgrades/` tree is still scanned through the link. A
+non-directory root and the filesystem root (`--root /`) fail closed in the engine; both
+CLIs also refuse a resolved root equal to the current user's home directory before any
+inspection or chmod, so `--apply --root ~` cannot tighten the real home.
 
 **Why not a new command.** A dedicated `repair:cutover-root` would duplicate the three
-existing dry-run repairs' argument handling and output for one chmod, and `repair:runs`
-already owns the cutover evidence tree. Leaving the root `0755` and documenting it was
-rejected because the name and symlink-target leak is real and new installs already use
-the tighter boundary.
+existing dry-run repairs' argument handling and output for one chmod, and the two
+evidence repairs already own the root's children. Leaving the root `0755` and documenting
+it was rejected because the name and symlink-target leak is real and new installs already
+use the tighter boundary.
 
-**Cost.** One more directory in an existing repair and one explicit run for an old
-install; upgrade-only hosts must run `repair:runs` once because `repair:upgrades` still
-leaves the shared root alone. No run contents, retention, pruning, `latest` target, or
-child mode changes. This is not encryption at rest; root can still read the files.
+**Cost.** One more directory in each evidence repair and one explicit run for an old
+install; either command is sufficient. No run contents, retention, pruning, `latest`
+target, or child mode changes. This is not encryption at rest; root can still read the
+files.
 
 ## D121. Maintenance permission repairs share one engine and CLI core
 
@@ -3015,8 +3024,9 @@ their usage text, default target, and missing-root messages. Commands, flags, re
 lines, order, exit codes, and traversal are unchanged. The root rules stay explicit
 options instead of silent unification: `repair:permissions` follows a symlinked
 `requests/` root (`stat`) and records a session dir that vanishes between `readdir` and
-`lstat` as a skip; the cutover repairs use `lstat`, `repair:runs` skips a symlinked
-cutover root but refuses a symlinked `runs/` (D120), and missing children are silent.
+`lstat` as a skip; the cutover repairs use `lstat`, both skip a symlinked cutover root
+while refusing a symlinked `runs/` or `upgrades/` (D120), and missing children are
+silent.
 `src/server/test/repair-permissions.test.ts` guards the split: only
 `permission-repair.ts` may mention `chmodSync`, every engine constructs
 `PermissionRepair`, and every CLI imports the shared core.

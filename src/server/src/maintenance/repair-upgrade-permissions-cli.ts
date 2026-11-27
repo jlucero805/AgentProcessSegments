@@ -6,6 +6,7 @@ import {
   printRepairReport,
   repairExitCode,
   runDirectly,
+  unsafeRoot,
 } from './repair-cli.js';
 import type { RepairDeps } from './permission-repair.js';
 
@@ -19,17 +20,19 @@ export function usage(): string {
   return [
     'Usage: npm run repair:upgrades -- [--apply] [--dry-run] [--root DIR]',
     '',
-    'Tightens upgrade run directories and database snapshots left by an older',
-    'deploy/upgrade-vps.sh. Dry run by default; nothing changes without --apply.',
+    'Tightens the shared cutover root, upgrade run directories, and database',
+    'snapshots left by an older deploy/upgrade-vps.sh.',
+    'Dry run by default; nothing changes without --apply.',
     '',
-    '  --apply      chmod run dirs to 0700 and db-backup.sqlite to 0600',
+    '  --apply      chmod the root and run dirs to 0700 and db-backup.sqlite to 0600',
     '  --dry-run    preview only (the default; useful after --apply)',
     '  --root DIR   cutover root to scan (default: $HOME/.aps-cutover)',
     '  --help, -h   show this text',
     '',
-    'Only <root>/upgrades is scanned, one level deep: the upgrades/ directory,',
-    'each direct run directory, and each top-level db-backup.sqlite. It never',
-    'follows symlinks, deletes anything, touches runs/, or opens the database.',
+    '<root>, <root>/upgrades, each direct run directory, and each top-level',
+    'db-backup.sqlite are scanned. The upgrades directory is examined one level',
+    'deep. It never follows symlinks, deletes anything, opens the database, or',
+    'touches runs/ or the latest symlink.',
   ].join('\n');
 }
 
@@ -57,10 +60,21 @@ export function main(argv: string[] = process.argv.slice(2), deps: RepairDeps = 
     return 0;
   }
 
+  const unsafe = unsafeRoot(options.root);
+  if (unsafe !== null) {
+    console.error(`${unsafe}: ${options.root}`);
+    console.error(usage());
+    return 1;
+  }
+
   const result = repairUpgradePermissions(options.root, { apply: options.apply, ...deps });
   if (result.rootMissing) {
-    console.log(`nothing to tighten: ${path.join(options.root, 'upgrades')} does not exist`);
+    console.log(`nothing to tighten: ${options.root} does not exist`);
     return 0;
+  }
+
+  if (result.upgradesMissing) {
+    console.log(`upgrades directory not found: ${path.join(options.root, 'upgrades')}`);
   }
 
   printRepairReport(result, options.apply, 'not a regular file or directory');

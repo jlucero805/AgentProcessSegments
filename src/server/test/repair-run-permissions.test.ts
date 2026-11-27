@@ -390,6 +390,14 @@ describe('repair-run-permissions edge cases', () => {
     expect(chmodCalls).toEqual([]);
   });
 
+  it('refuses the home directory as --root', () => {
+    silenceConsole();
+    const chmod = vi.fn();
+
+    expect(main(['--root', os.homedir(), '--apply'], { chmod })).toBe(1);
+    expect(chmod).not.toHaveBeenCalled();
+  });
+
   it('fails when runs is not a directory', () => {
     const root = tmpDir('repair-runs-file');
     file(path.join(root, 'runs'));

@@ -914,4 +914,29 @@ describe('deploy/upgrade-vps.sh', () => {
     },
     30_000,
   );
+
+  it.skipIf(process.platform === 'win32')(
+    'creates a missing cutover root owner-only when the run directory is outside it',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      const run = path.join(fixture.root, 'external-run');
+
+      const result = runScript(
+        fixture,
+        ['--run', '--run-dir', run, '--health-timeout', '10'],
+        30_000,
+        '000',
+      );
+
+      expect(result.status).toBe(0);
+      expect(stateOf(fixture)).toBe('success');
+      expect(modeOf(cutoverRoot)).toBe(0o700);
+      expect(modeOf(path.join(cutoverRoot, 'upgrades'))).toBe(0o700);
+      expect(modeOf(run)).toBe(0o700);
+      expect(latestRun(fixture)).toBe(realpathSync(run));
+      expect(existsSync(path.join(cutoverRoot, 'runs'))).toBe(false);
+    },
+    30_000,
+  );
 });

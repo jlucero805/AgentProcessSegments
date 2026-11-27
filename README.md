@@ -391,8 +391,8 @@ are written again. After upgrading and restarting, preview and apply the one-tim
 npm run build
 npm run repair:permissions              # preview
 npm run repair:permissions -- --apply   # tighten old request workdirs
-npm run repair:upgrades                 # preview old upgrade evidence
-npm run repair:upgrades -- --apply      # tighten old upgrade run dirs/snapshots
+npm run repair:upgrades                 # preview old upgrade evidence and root
+npm run repair:upgrades -- --apply      # tighten old upgrade run dirs/snapshots and root
 npm run repair:runs                     # preview old cutover evidence and root
 npm run repair:runs -- --apply          # tighten old cutover run dirs and root
 ```
@@ -405,17 +405,20 @@ implementation and the same dry-run/`--apply` contract; they differ only in the 
 they scan.
 
 Upgrade run directories and snapshots from an older version are repaired the same way:
-`npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets
-`~/.aps-cutover/upgrades` and each run directory to `0700` and each `db-backup.sqlite` to
-`0600`. It never follows symlinks, deletes anything, opens the database, or touches
-cutover runs.
+`npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets the
+shared `~/.aps-cutover` root, `~/.aps-cutover/upgrades`, and each run directory to
+`0700`, and each `db-backup.sqlite` to `0600`. It never follows a symlinked `upgrades/`,
+deletes anything, opens the database, chmods the `latest` symlink, or touches cutover
+runs.
 
 Cutover evidence is repaired separately: `npm run repair:runs` previews and
 `npm run repair:runs -- --apply` sets the shared `~/.aps-cutover` root,
-`~/.aps-cutover/runs`, and each direct run directory to `0700`. It never follows
-symlinks, deletes anything, descends into `dist/` or `backup/`, reads or changes run
-contents, or touches `~/.aps-cutover/upgrades` or the `latest` symlink. New installs
-already create the root `0700`; the repair is for an older root.
+`~/.aps-cutover/runs`, and each direct run directory to `0700`. It never follows a
+symlinked `runs/`, deletes anything, descends into `dist/` or `backup/`, reads or
+changes run contents, or touches `~/.aps-cutover/upgrades` or the `latest` symlink. New
+installs already create the root `0700`; either repair command also tightens an older
+root. A symlinked root is skipped, while its `runs/` or `upgrades/` tree is still
+scanned through the link, so tighten the target yourself.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -711,7 +714,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1462 vitest cases: 1090 server cases across 59 files (state machine,
+`npm test` runs 1469 vitest cases: 1097 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

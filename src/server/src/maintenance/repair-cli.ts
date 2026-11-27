@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { formatMode, type RepairResult } from './permission-repair.js';
@@ -32,6 +33,18 @@ export function parseRepairArgs(argv: string[], valueFlag: string): RepairArgs {
   }
 
   return args;
+}
+
+/**
+ * Refuse a scan root that must never be treated as cutover evidence. The root
+ * itself is a chmod target, so `--apply --root ~` or `--root /` must fail
+ * before the engine inspects or changes anything.
+ */
+export function unsafeRoot(root: string): string | null {
+  const resolved = path.resolve(root);
+  if (resolved === path.resolve(os.homedir())) return 'refusing to chmod the home directory';
+  if (path.parse(resolved).root === resolved) return 'refusing to chmod the filesystem root';
+  return null;
 }
 
 /**

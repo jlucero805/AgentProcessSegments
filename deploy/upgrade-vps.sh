@@ -162,7 +162,7 @@ check_pruner() {
 
 point_upgrade_latest() {
   [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
-  mkdir -p "$UPGRADE_ROOT" || {
+  (umask 077; mkdir -p "$UPGRADE_ROOT") || {
     log "WARNING: could not create $UPGRADE_ROOT; skipping prune"
     return 1
   }

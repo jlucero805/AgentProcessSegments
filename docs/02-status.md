@@ -151,15 +151,17 @@ built and vended by the brain; real-CLI verification is still pending.
   `--apply` to change). It never recurses into `cwd/` checkouts. A missing state file is
   empty; an unreadable or invalid one is reported and moved to
   `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write.
-- Upgrade evidence: `npm run repair:upgrades` tightens `~/.aps-cutover/upgrades` and each
-  direct run directory to `0700` and each top-level `db-backup.sqlite` to `0600` (dry run
-  by default; `--apply` to change). It never follows symlinks, deletes anything, opens the
-  database, or touches `~/.aps-cutover/runs` or the shared root (`repair:runs` owns that).
+- Upgrade evidence: `npm run repair:upgrades` tightens the shared `~/.aps-cutover` root,
+  `~/.aps-cutover/upgrades`, and each direct run directory to `0700` and each top-level
+  `db-backup.sqlite` to `0600` (dry run by default; `--apply` to change). It never follows
+  a symlinked `upgrades/`, deletes anything, opens the database, chmods the `latest`
+  symlink, or touches `~/.aps-cutover/runs`.
 - Cutover evidence: `npm run repair:runs` tightens the shared `~/.aps-cutover` root,
   `~/.aps-cutover/runs`, and each direct run directory to `0700` (dry run by default;
-  `--apply` to change). It never follows symlinks, deletes anything, descends into
-  `dist/` or `backup/`, reads or changes run contents, or touches
-  `~/.aps-cutover/upgrades` or the `latest` symlink.
+  `--apply` to change). It never follows a symlinked `runs/`, deletes anything, descends
+  into `dist/` or `backup/`, reads or changes run contents, chmods the `latest` symlink,
+  or touches `~/.aps-cutover/upgrades`. Either repair skips a symlinked root while still
+  scanning its subtree through the link.
   All three repairs share the `maintenance/permission-repair.ts` engine and the
   `maintenance/repair-cli.ts` core; they differ only in the tree they scan and the
   root-symlink rule.
@@ -481,7 +483,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1462 vitest cases (one environmental root-skip): 1090 server across 59 files and 372 web across 28 files,
+- 1469 vitest cases (one environmental root-skip): 1097 server across 59 files and 372 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

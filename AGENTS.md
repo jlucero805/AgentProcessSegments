@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1462 vitest cases: 1090 server across 59 files (one environmental root-skip) and 372 web across 28 files, all green.
+- 1469 vitest cases: 1097 server across 59 files (one environmental root-skip) and 372 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1090 server + 372 web, plus the e2e env guard
+npm test                       # 1097 server + 372 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
@@ -693,12 +693,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     creates (or tightens) every run directory to `0700`, and the `VACUUM INTO`
     `db-backup.sqlite` is forced to `0600`. A local `umask 077` covers creation, then
     `chmod` makes the result independent of the caller's umask and repairs a retried run;
-    both fail closed. Missing `~/.aps-cutover`/`upgrades` ancestors are created `0700`;
-    existing ancestors are left alone. The snapshot remains a normal, manually restorable
-    SQLite database. This is not encryption at rest; older run directories and snapshots
-    are tightened explicitly with `npm run repair:upgrades` (dry run by default;
-    `--apply` to change), which scans only `~/.aps-cutover/upgrades` and never follows
-    symlinks.
+    both fail closed. A missing `~/.aps-cutover`/`upgrades` ancestor chain is created
+    `0700`; an existing shared root is not silently chmodded by the deploy script. The
+    snapshot remains a normal, manually restorable SQLite database. This is not encryption
+    at rest; older run directories, snapshots, and the shared root are tightened with
+    `npm run repair:upgrades` (dry run by default; `--apply` to change), which scans
+    `~/.aps-cutover` and `~/.aps-cutover/upgrades`, never follows a symlinked `upgrades/`,
+    skips a symlinked root while still scanning through it, and never chmods `latest`.
 43. **Only `db.ts` opens SQLite directly.** Under `src/server/src`, no other module may
     import `better-sqlite3` or construct `new Database(...)`. Production calls `openDb`;
     maintenance paths that must not migrate or reconcile a live brain call
@@ -722,12 +723,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     makes the leaf independent of the caller's umask and repairs a retried run; mode
     failures fail closed. Files inside keep their current modes because the directory is
     the protection boundary. The shared `~/.aps-cutover` root is `0700` too: a missing
-    root is created that way, and an existing root is repaired explicitly with
-    `npm run repair:runs` (dry run by default; `--apply` to change), which tightens the
-    root, `~/.aps-cutover/runs`, and each direct run directory, one level deep. It never
-    follows symlinks, deletes, or reads run contents, and leaves `latest` and `upgrades/`
-    alone; `latest` needs no mode of its own because the `0700` root and its `0700`
-    target run directory are the boundary. This is not encryption at rest.
+    root is created that way, and an existing root is repaired explicitly with either
+    `npm run repair:runs` or `npm run repair:upgrades` (dry run by default; `--apply` to
+    change). `repair:runs` tightens the root, `~/.aps-cutover/runs`, and each direct run
+    directory, one level deep. It never follows a symlinked `runs/`, deletes, or reads run
+    contents, and leaves `latest` and `upgrades/` alone; a symlinked root is skipped while
+    `runs/` is still scanned through the link. `latest` needs no mode of its own because
+    the `0700` root and its `0700` target run directory are the boundary. This is not
+    encryption at rest.
 46. **Documentation links resolve in Help.** Every local link, image, and `#fragment` in
     the root Markdown, `docs/`, `deploy/vps.md`, and `.opencode/skills` must resolve.
     `src/web/src/doc-links.test.ts` walks that corpus (`.git`, `node_modules`, and `dist`

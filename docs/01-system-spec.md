@@ -163,12 +163,15 @@ restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftov
 is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
 The deploy `upgrade-vps.sh` writes its `db-backup.sqlite` snapshot `0600` inside a `0700`
 run directory, and `cutover-vps.sh` creates its `~/.aps-cutover/runs/<UTC>` evidence
-directories `0700`. Upgrade snapshots and run directories left by an older version are
-tightened with `npm run repair:upgrades` (dry run first), which scans only
-`~/.aps-cutover/upgrades` and never follows symlinks. Cutover evidence is repaired
-separately with `npm run repair:runs` (dry run first), which tightens the shared
-`~/.aps-cutover` root plus `~/.aps-cutover/runs`, one level deep, and never descends into
-`dist/` or `backup/`. All three repairs are thin entry points over one engine and CLI
+directories `0700`. The shared `~/.aps-cutover` root is `0700` on a new install; neither
+deploy script silently chmods an existing root. Upgrade snapshots, run directories, and
+the shared root left by an older version are tightened with `npm run repair:upgrades`
+(dry run first), which scans `~/.aps-cutover` and `~/.aps-cutover/upgrades` and never
+follows a symlinked `upgrades/`. Cutover evidence is repaired separately with
+`npm run repair:runs` (dry run first), which tightens the shared root plus
+`~/.aps-cutover/runs`, one level deep, and never descends into `dist/` or `backup/`.
+Either repair skips a symlinked root while still scanning its subtree through the link,
+and neither chmods the `latest` symlink. All three repairs are thin entry points over one engine and CLI
 core, so the owner-only modes, `ENOENT`-as-skip rule, dry-run accounting, and exit codes
 cannot drift; each keeps its own tree and root rule.
 Maintenance paths that must not

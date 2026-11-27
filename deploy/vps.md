@@ -449,12 +449,14 @@ npm run repair:upgrades              # preview
 npm run repair:upgrades -- --apply   # tighten old upgrade run dirs and snapshots
 ```
 
-The command scans only `~/.aps-cutover/upgrades`. It sets the `upgrades` directory and
-each direct run directory to `0700`, and each top-level `db-backup.sqlite` to `0600`. It
-never follows symlinks, deletes anything, opens the database, changes snapshot contents,
-or touches `~/.aps-cutover/runs` or the shared root. The shared root and cutover evidence
-are repaired separately with `npm run repair:runs -- --apply`; run it once even if this
-host only uses upgrades.
+The command scans the shared `~/.aps-cutover` root and `~/.aps-cutover/upgrades`. It sets
+the root, the `upgrades` directory, and each direct run directory to `0700`, and each
+top-level `db-backup.sqlite` to `0600`. It never follows a symlinked `upgrades/`, deletes
+anything, opens the database, changes snapshot contents, chmods the `latest` symlink, or
+touches `~/.aps-cutover/runs`. A symlinked root is skipped, while its `upgrades/` tree is
+still scanned through the link, so tighten the target yourself. The root is tightened
+first, so its run/upgrade names and the `latest` target stop being listable by other local
+accounts.
 
 Notes:
 
@@ -635,11 +637,12 @@ npm run repair:runs -- --apply   # tighten the root and old run dirs
 ```
 
 The command scans `~/.aps-cutover` itself, `~/.aps-cutover/runs`, and each direct run
-directory. It sets all of them to `0700`, and never follows symlinks, deletes anything,
-descends into `dist/` or `backup/`, reads or changes run contents, or touches the
-`latest` symlink or `~/.aps-cutover/upgrades`. New installs already create the root
-`0700`; this repair is for an older root. A symlinked root is not chmodded; its
-`runs/` tree is still scanned through the link, so tighten the target yourself.
+directory. It sets all of them to `0700`, and never follows a symlinked `runs/`, deletes
+anything, descends into `dist/` or `backup/`, reads or changes run contents, or touches
+the `latest` symlink or `~/.aps-cutover/upgrades`. New installs already create the root
+`0700`; either repair command also tightens an older root. A symlinked root is not
+chmodded; its `runs/` tree is still scanned through the link, so tighten the target
+yourself.
 
 After it finishes, verify the new unit and paths:
 

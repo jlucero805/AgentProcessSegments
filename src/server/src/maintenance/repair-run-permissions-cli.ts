@@ -6,6 +6,7 @@ import {
   printRepairReport,
   repairExitCode,
   runDirectly,
+  unsafeRoot,
 } from './repair-cli.js';
 import type { RepairDeps } from './permission-repair.js';
 
@@ -57,6 +58,13 @@ export function main(argv: string[] = process.argv.slice(2), deps: RepairDeps = 
   if (options.help) {
     console.log(usage());
     return 0;
+  }
+
+  const unsafe = unsafeRoot(options.root);
+  if (unsafe !== null) {
+    console.error(`${unsafe}: ${options.root}`);
+    console.error(usage());
+    return 1;
   }
 
   const result = repairRunPermissions(options.root, { apply: options.apply, ...deps });

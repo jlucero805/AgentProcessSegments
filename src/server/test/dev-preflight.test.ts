@@ -27,8 +27,14 @@ const MODES: ReadonlyArray<{ mode: string; tools: readonly string[] }> = [
   { mode: 'test', tools: ['vitest'] },
   { mode: 'lint', tools: ['eslint', 'markdownlint-cli2'] },
   { mode: 'lint-js', tools: ['eslint'] },
+  { mode: 'lint-md', tools: ['markdownlint-cli2'] },
   { mode: 'build', tools: ['tsc', 'vite'] },
+  { mode: 'build-web', tools: ['vite'] },
+  { mode: 'build-server', tools: ['tsc'] },
   { mode: 'dev', tools: ['concurrently', 'tsx', 'vite'] },
+  { mode: 'dev-web', tools: ['vite'] },
+  { mode: 'dev-server', tools: ['tsx'] },
+  { mode: 'preview-web', tools: ['vite'] },
   { mode: 'e2e', tools: ['tsc', 'vite'] },
 ];
 
@@ -103,6 +109,76 @@ describe('root dev dependency preflight', () => {
         }
       }
     }
+
+    const workspaceLookups: ReadonlyArray<{
+      mode: string;
+      tool: string;
+      workspace: string;
+      otherWorkspace: string;
+    }> = [
+      {
+        mode: 'build-server',
+        tool: 'tsc',
+        workspace: 'src/server',
+        otherWorkspace: 'src/web',
+      },
+      {
+        mode: 'build-web',
+        tool: 'vite',
+        workspace: 'src/web',
+        otherWorkspace: 'src/server',
+      },
+      {
+        mode: 'dev-web',
+        tool: 'vite',
+        workspace: 'src/web',
+        otherWorkspace: 'src/server',
+      },
+      {
+        mode: 'preview-web',
+        tool: 'vite',
+        workspace: 'src/web',
+        otherWorkspace: 'src/server',
+      },
+      {
+        mode: 'dev-server',
+        tool: 'tsx',
+        workspace: 'src/server',
+        otherWorkspace: 'src/web',
+      },
+    ];
+
+    for (const { mode, tool, workspace, otherWorkspace } of workspaceLookups) {
+      const wrongRoot = emptyRoot(`dev-preflight-wrong-${mode}`);
+      const wrongBin = path.join(wrongRoot, otherWorkspace, 'node_modules', '.bin');
+      mkdirSync(wrongBin, { recursive: true });
+      executable(path.join(wrongBin, tool));
+
+      const wrong = run(mode, ['--root', wrongRoot], {
+        ...process.env,
+        NODE_ENV: 'production',
+      });
+      const wrongLabel = `${mode} with ${tool} only in ${otherWorkspace}`;
+      expect(wrong.status, wrongLabel).toBe(1);
+      expect(wrong.stdout, wrongLabel).toBe('');
+      expect(wrong.stderr, wrongLabel).toContain(
+        `${mode}: missing devDependencies (${tool})`,
+      );
+
+      const rightRoot = emptyRoot(`dev-preflight-right-${mode}`);
+      const rightBin = path.join(rightRoot, workspace, 'node_modules', '.bin');
+      mkdirSync(rightBin, { recursive: true });
+      executable(path.join(rightBin, tool));
+
+      const right = run(mode, ['--root', rightRoot], {
+        ...process.env,
+        NODE_ENV: 'production',
+      });
+      const rightLabel = `${mode} with ${tool} in ${workspace}`;
+      expect(right.status, rightLabel).toBe(0);
+      expect(right.stdout, rightLabel).toBe('');
+      expect(right.stderr, rightLabel).toBe('');
+    }
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -147,6 +223,7 @@ describe('root dev dependency preflight', () => {
       ['pretest', 'node scripts/check-dev-deps.mjs test'],
       ['prelint', 'node scripts/check-dev-deps.mjs lint'],
       ['prelint:js', 'node scripts/check-dev-deps.mjs lint-js'],
+      ['prelint:md', 'node scripts/check-dev-deps.mjs lint-md'],
       ['prebuild', 'node scripts/check-dev-deps.mjs build'],
       ['predev', 'node scripts/check-dev-deps.mjs dev'],
       ['pree2e', 'node scripts/check-dev-deps.mjs e2e'],
@@ -166,6 +243,23 @@ describe('root dev dependency preflight', () => {
       expect(manifest.scripts?.['pretypecheck'], `${workspace} pretypecheck`).toBe(
         'node ../../scripts/check-dev-deps.mjs typecheck',
       );
+    }
+
+    const webHooks: ReadonlyArray<readonly [string, string]> = [
+      ['prebuild', 'node ../../scripts/check-dev-deps.mjs build-web'],
+      ['predev', 'node ../../scripts/check-dev-deps.mjs dev-web'],
+      ['prepreview', 'node ../../scripts/check-dev-deps.mjs preview-web'],
+    ];
+    for (const [hook, command] of webHooks) {
+      expect(webPackageJson.scripts?.[hook], `src/web ${hook}`).toBe(command);
+    }
+
+    const serverHooks: ReadonlyArray<readonly [string, string]> = [
+      ['prebuild', 'node ../../scripts/check-dev-deps.mjs build-server'],
+      ['predev', 'node ../../scripts/check-dev-deps.mjs dev-server'],
+    ];
+    for (const [hook, command] of serverHooks) {
+      expect(serverPackageJson.scripts?.[hook], `src/server ${hook}`).toBe(command);
     }
 
     expect(packageJson.scripts?.['typecheck']).toBe(
@@ -188,7 +282,7 @@ describe('root dev dependency preflight', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('unknown mode: bogus');
     expect(result.stderr).toContain(
-      'Usage: node scripts/check-dev-deps.mjs <typecheck|test|lint|lint-js|build|dev|e2e> [--root <dir>]',
+      'Usage: node scripts/check-dev-deps.mjs <typecheck|test|lint|lint-js|lint-md|build|build-web|build-server|dev|dev-web|dev-server|preview-web|e2e> [--root <dir>]',
     );
   });
 });

@@ -109,9 +109,10 @@ digests.
 ```bash
 npm ci --include=dev           # keeps devDependencies under an inherited NODE_ENV=production;
                                # use npm install --include=dev when the lockfile changes
-# The root dev commands, direct workspace test/typecheck, and lint:js preflight the
-# project-local tsc/vitest/eslint/markdownlint-cli2/vite/concurrently/tsx binaries; a
-# missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
+# The root dev commands, direct workspace test/typecheck/build/dev/preview, and
+# lint:js/lint:md preflight the project-local tsc/vitest/eslint/markdownlint-cli2/
+# vite/concurrently/tsx binaries; a missing install prints the `npm ci --include=dev`
+# hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
 npm test                       # 1014 server + 304 web, plus the e2e env guard
@@ -284,8 +285,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   again, so pass the flag every time. `npm config get omit` printing `dev` confirms the
   cause. Use `npm install --include=dev` when you are changing the lockfile, not for a
   fresh checkout. The root `typecheck`/`test`/`lint`/`build`/`dev`/`e2e` commands, direct
-  workspace `test`/`typecheck`, and `npm run lint:js` run `scripts/check-dev-deps.mjs`
-  first and print this hint when a project-local binary is missing.
+  workspace `test`/`typecheck`/`build`/`dev`/`preview`, and `npm run lint:js`/`lint:md`
+  run `scripts/check-dev-deps.mjs` first and print this hint when a project-local binary
+  is missing.
 - **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
   On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
   `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.

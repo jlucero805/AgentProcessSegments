@@ -494,12 +494,11 @@ durable: `budget_alert_deliveries` stores one row per alert and destination, ret
 transient failures at 60 s, 5 min, 30 min, and 2 h up to five attempts, honors
 `Retry-After`, and never blocks budgets, turns, or the in-app banner. Acknowledging an
 alert, changing the budget or threshold, or changing the destination skips pending
-deliveries. When a signing secret is set, every webhook request carries the legacy
-`X-APS-Signature: sha256=<hex>` over the exact raw body and the timestamped
+deliveries. When a signing secret is set, every webhook request carries the timestamped
 `X-APS-Signature-V2: t=<ms>,v2=<hex>` over the exact raw body plus that timestamp; the
-signature covers the body for every format, and `X-APS-Timestamp` is always sent. A
-receiver that checks only the legacy header cannot prove freshness. Slack and Discord
-receivers ignore both signature headers. See
+signature covers the body for every format, and `X-APS-Timestamp` is always sent. The
+legacy body-only `X-APS-Signature` header is no longer sent. Slack and Discord receivers
+ignore signature headers. See
 [Verify webhook signatures](docs/08-user-workflows.md#verify-webhook-signatures) for a
 runnable V2 receiver, the freshness window, the constant-time check, and the
 response/retry and replay rules. The [Webhook payloads](docs/14-webhook-payloads.md)

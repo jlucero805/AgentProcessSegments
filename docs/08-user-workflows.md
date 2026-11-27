@@ -201,10 +201,9 @@ last five.
 8. To deliver alerts outside the app, use **Config → Alert delivery**: enable the webhook,
    paste an HTTPS URL (loopback may use http), pick JSON, Slack, or Discord, and optionally
    set a 16-256 character signing secret. Save, then press **Send test** to verify. Verify
-   `X-APS-Signature-V2` before acting; the legacy body-only `X-APS-Signature` remains for
-   compatibility (see [Verify webhook signatures](#verify-webhook-signatures)). Slack and
-   Discord ignore both headers. The card also shows pending/failed counts and the latest
-   delivery.
+   `X-APS-Signature-V2` before acting (see
+   [Verify webhook signatures](#verify-webhook-signatures)). Slack and Discord ignore
+   signature headers. The card also shows pending/failed counts and the latest delivery.
 9. For email, use the separate **Email delivery** card: enable it, set the SMTP host and
    port (465 for implicit TLS, 587 for STARTTLS), optional username and password, a From
    address, and up to ten recipients. Save, then **Send test email**. A blank password
@@ -264,18 +263,25 @@ last five.
 ### Verify webhook signatures
 
 APS signs the exact bytes it sends. When a signing secret is saved, every webhook request
-carries two signature headers:
+carries one signature header:
 
-- `X-APS-Signature-V2: t=<ms>,v2=<64 hex>` is the recommended signature. The `t` value is
+- `X-APS-Signature-V2: t=<ms>,v2=<64 hex>` is the only signature. The `t` value is
   milliseconds since epoch and is the same value as `X-APS-Timestamp`. The `v2` value is
   HMAC-SHA256 over the exact ASCII timestamp digits, a literal `.`, and the exact raw body
   bytes. Because the timestamp is inside the HMAC, changing it invalidates the signature.
-- `X-APS-Signature: sha256=<64 hex>` is the legacy body-only signature. It remains for
-  compatibility and does not prove freshness.
 
-A request without a saved secret has neither signature header. Slack and Discord servers
-ignore both headers; the signature covers the raw body for every format (`json`, `slack`,
-`discord`).
+A request without a saved secret has no signature header. Slack and Discord servers
+ignore signature headers; the signature covers the raw body for every format (`json`,
+`slack`, `discord`).
+
+#### Upgrading from the legacy header
+
+Earlier APS versions also sent `X-APS-Signature: sha256=<64 hex>` over the body only. That
+header is no longer sent, so a receiver that still verifies it sees no signature and
+should reject the delivery. Migrate the receiver to V2 first, then upgrade APS: older APS
+versions send both headers, so the receiver can be switched while the sender is still
+old. A receiver that treats a missing signature as "unsigned" must be fixed before the
+APS upgrade, not after.
 
 Verify V2 before parsing or trusting the body, and reject a timestamp outside your
 freshness window. Five minutes is a good default: reject stale and far-future values and
@@ -295,9 +301,8 @@ APS_WEBHOOK_SECRET='the exact 16-256 character secret' \
 Point the webhook at `http://127.0.0.1:8787` (loopback may use HTTP). For a remote
 receiver, terminate HTTPS in front and keep the example on loopback. It prints the
 bound URL and, after a verified request, the event kind and a safe id; replace its
-`onVerified` handler with your durable work. Pointed at an older APS that sends only the
-legacy header, the example returns 401; upgrade the sender first or use
-`verifyWebhookSignature` and accept body-only security.
+`onVerified` handler with your durable work. The example verifies V2 only, so an APS older
+than the release that introduced V2 will not work with it.
 
 The core V2 check is:
 
@@ -341,8 +346,6 @@ Every request carries these headers:
 - `content-type`: `application/json`, including Slack and Discord text bodies.
 - `x-aps-signature-v2`: `t=<ms>,v2=<64 hex>` when a secret is saved. The embedded `t` is
   authoritative and must be within the freshness window.
-- `x-aps-signature`: the legacy `sha256=<64 hex>` body-only signature when a secret is
-  saved. It does not prove freshness.
 - `x-aps-timestamp`: milliseconds since epoch. It matches V2's `t` but is informational;
   verify the `t` inside `X-APS-Signature-V2`, not this header alone.
 - `idempotency-key`: the alert id for budget alerts, or the event dedupe key for

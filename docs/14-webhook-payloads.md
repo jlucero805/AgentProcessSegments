@@ -13,8 +13,8 @@ in the User workflows guide.
   sends `{ "content": ... }`; both are text-only, so a receiver that needs `event`, ids, or amounts
   must use `json`.
 - `content-type` is always `application/json`. When a signing secret is configured, every request
-  carries `X-APS-Signature-V2: t=<ms>,v2=<64 hex>` over the timestamp and exact raw body, plus
-  the legacy body-only `X-APS-Signature`. `Idempotency-Key` is informational and not signed.
+  carries `X-APS-Signature-V2: t=<ms>,v2=<64 hex>` over the timestamp and exact raw body.
+  `Idempotency-Key` is informational and not signed.
   `User-Agent` is `aps-budget-alert/1` for budget alerts and `aps-notify/1` for event
   notifications, but the body is authoritative.
 - Respond 2xx only after durably accepting the event. APS retries 408, 429, and 5xx with the
@@ -251,9 +251,8 @@ prompts, transcripts, diffs, model output, or raw stderr.
 
 ## Ids and dedupe
 
-Verify `X-APS-Signature-V2` (its timestamp is inside the HMAC) or the legacy body-only header
-before trusting any field. `Idempotency-Key` is not signed, so dedupe on the authenticated body
-data:
+Verify `X-APS-Signature-V2` (its timestamp is inside the HMAC) before trusting any field.
+`Idempotency-Key` is not signed, so dedupe on the authenticated body data:
 
 - `budget.alert` and `budget.test`: `alert.id`. The `Idempotency-Key` header is the same alert id.
 - `turn.failed`: `turn.turnId`, together with `turn.requestId`. The `Idempotency-Key` has the shape

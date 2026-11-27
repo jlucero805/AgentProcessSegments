@@ -304,11 +304,11 @@ built and vended by the brain; real-CLI verification is still pending.
   it blocked again; revokes and pre-authorized under-budget grants are silent, as is an
   expiry still covered by another override.
 - Alert delivery: an opt-in HTTPS webhook in `notifications.webhook` sends each
-  unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed with the legacy
-  body-only header and the timestamped `X-APS-Signature-V2`), Slack, or Discord text
-  format. An independent SMTP channel in `notifications.email` sends the
-  same alerts to up to ten recipients with implicit TLS or required STARTTLS, optional
-  credentials, a redacted password, and a plain-text body. Native bot channels in
+  unacknowledged current-month alert once, in JSON (HMAC-SHA256 signed with the
+  timestamped `X-APS-Signature-V2`), Slack, or Discord text format. An independent SMTP
+  channel in `notifications.email` sends the same alerts to up to ten recipients with
+  implicit TLS or required STARTTLS, optional credentials, a redacted password, and a
+  plain-text body. Native bot channels in
   `notifications.slack` and `notifications.discord` post to one default channel per
   provider plus optional per-cell routes, using the same outbox and retry policy.
   `budget_alert_deliveries` is a durable outbox keyed by `(alert_id, destination_id)`;

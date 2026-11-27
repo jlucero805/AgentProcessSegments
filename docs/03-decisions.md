@@ -2453,3 +2453,25 @@ listed in full until the separate pruning work lands, and a copy deleted after t
 loaded stays on screen until the next response or reload. The list is filesystem state,
 not a `config.json` key, and it can include copies made by processes that are no longer
 running.
+
+## D104. The legacy body-only webhook signature is removed
+
+**Context.** D91 added `X-APS-Signature-V2: t=<ms>,v2=<hex>` next to the legacy
+`X-APS-Signature: sha256=<hex>` so receivers could migrate without a flag day, and the
+receiver example has required V2 since then. Keeping the compatibility header alive costs
+a second HMAC per request and leaves a replayable path for any receiver that still checks
+only the body. APS cannot observe whether receivers have migrated, so this is a deliberate
+breaking change rather than a gated flip.
+
+**Decision.** When a signing secret is set, APS emits only
+`X-APS-Signature-V2: t=<ms>,v2=<hex>`; `X-APS-Timestamp` is still sent. The receiver
+example drops `verifyWebhookSignature` and its body-only parsing, and requires V2 as
+before. Operator and reference docs present V2 as the only signature. The migration note
+tells operators to upgrade receivers before APS, which works because pre-removal APS
+versions send both headers. There is no setting, environment variable, or dual mode.
+
+**Cost.** A receiver that still verifies only `X-APS-Signature` breaks at the APS upgrade
+with no toggle; a receiver that treats a missing signature as unsigned can accept
+unauthenticated deliveries until it is fixed. Code copied from the old example's legacy
+helper must move to V2. There is no data or config migration. `X-APS-Timestamp` remains an
+unsigned informational header; removing it is separate.

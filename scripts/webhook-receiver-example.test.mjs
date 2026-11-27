@@ -16,7 +16,6 @@ import {
   MIN_SECRET_LENGTH,
   parseArgs,
   startReceiver,
-  verifyWebhookSignature,
   verifyWebhookSignatureV2,
 } from './webhook-receiver-example.mjs';
 
@@ -30,7 +29,7 @@ const BODY = JSON.stringify({
   text: 'hi',
 });
 
-function sign(body = BODY, secret = SECRET) {
+function legacySign(body = BODY, secret = SECRET) {
   return `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
 }
 
@@ -84,26 +83,6 @@ async function start(t, overrides = {}) {
   t.after(() => receiver.close());
   return { receiver, verified, logs };
 }
-
-test('verifyWebhookSignature keeps the legacy body-only contract', () => {
-  assert.equal(verifyWebhookSignature(BODY, sign(), SECRET), true);
-  assert.equal(verifyWebhookSignature(Buffer.from(BODY), sign(), SECRET), true);
-  assert.equal(
-    verifyWebhookSignature(BODY, `sha256=${sign().slice(7).toUpperCase()}`, SECRET),
-    true,
-  );
-
-  assert.equal(verifyWebhookSignature(`${BODY} `, sign(), SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, sign(BODY, OTHER_SECRET), SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, undefined, SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, '', SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, `sha1=${sign().slice(7)}`, SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, 'sha256=', SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, `sha256=${'a'.repeat(63)}`, SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, `sha256=${'a'.repeat(65)}`, SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, `sha256=${'g'.repeat(64)}`, SECRET), false);
-  assert.equal(verifyWebhookSignature(BODY, `${sign()} `, SECRET), false);
-});
 
 test('verifyWebhookSignatureV2 verifies bytes and the freshness window', () => {
   const options = { now: FIXED_NOW };
@@ -184,7 +163,7 @@ test('verifyWebhookSignatureV2 rejects malformed headers', () => {
   const cases = [
     undefined,
     '',
-    sign(),
+    legacySign(),
     `t=${FIXED_NOW}`,
     `v2=${hex}`,
     `v2=${hex},t=${FIXED_NOW}`,
@@ -307,7 +286,7 @@ test('receiver rejects missing, stale, malformed, and tampered V2', async (t) =>
   const cases = [
     { v2: null },
     { v2: '' },
-    { v2: sign() },
+    { v2: legacySign() },
     { v2: `t=${FIXED_NOW}` },
     { v2: `v2=${v2Hex()}` },
     { v2: `t=abc,v2=${v2Hex()}` },
@@ -329,7 +308,7 @@ test('receiver rejects missing, stale, malformed, and tampered V2', async (t) =>
 
   const legacyOnly = await post(receiver.url, BODY, {
     v2: null,
-    legacy: sign(),
+    legacy: legacySign(),
   });
   assert.equal(legacyOnly.status, 401);
   await legacyOnly.text();
@@ -467,8 +446,13 @@ test('operator docs keep the V2 receiver contract visible', () => {
   assert.match(doc, /replay/i);
   assert.match(doc, /timingSafeEqual/);
   assert.match(doc, /#verify-webhook-signatures/);
+  assert.match(doc, /Upgrading from the legacy header/);
+  assert.match(doc, /no longer sent/);
+  assert.doesNotMatch(doc, /verifyWebhookSignature/);
+  assert.doesNotMatch(doc, /two signature headers/);
 
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(readme, /Verify webhook signatures/);
   assert.match(readme, /X-APS-Signature-V2/);
+  assert.match(readme, /no longer sent/);
 });

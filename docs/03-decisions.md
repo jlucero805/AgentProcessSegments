@@ -2815,13 +2815,13 @@ candidates resolved as:
 | `ProtectHome=read-only` + `ReadWritePaths=` | **REJECT** | `touch $HOME/...` fails with `Read-only file system`; home target repos lose worktrees |
 | `ProtectSystem=strict` + `ReadWritePaths=` | **REJECT** | `touch` in the outside repo (`/srv`) fails; target repos outside the allow-list break |
 
-**Re-run, 2026-11-27 (`204d9c8`).** A cached Claude Code **2.1.330 (Claude Code)**
-binary was present, but the host had no `~/.claude.json`, no
-`~/.claude/.credentials.json`, and no `ANTHROPIC_*`/`CLAUDE_*` environment. A direct
-`claude -p` with that binary returned `is_error:true` and
-`result:"Not logged in · Please run /login"`. The probe's control passed every check
-except `turn:claude` **SKIP** (`claude has no local state to seed a turn`), then both
-candidates ran and remained **DEFER**:
+**Re-run, 2026-11-27 (`204d9c8`).** The run used systemd 259, Node 24.22.3, and OpenCode
+2.3.2 on kernel 7.0.0-38-generic. A cached Claude Code **2.1.330 (Claude Code)** binary
+was present, but the host had no `~/.claude.json`, no `~/.claude/.credentials.json`, and
+no `ANTHROPIC_*`/`CLAUDE_*` environment. A direct `claude -p` with that binary returned
+`is_error: true` and `result: "Not logged in · Please run /login"`. The probe's control
+passed every check except `turn:claude` **SKIP** (`claude has no local state to seed a
+turn`), then both candidates ran and remained **DEFER**:
 
 | Candidate | Result | Evidence |
 | --- | --- | --- |
@@ -2849,9 +2849,9 @@ the service's `/dev`; PTYs and standard tty devices remain. `ProtectProc=invisib
 other users' processes, so a brain terminal can no longer inspect another login. The probe
 is slow (a real turn per candidate), copies local agent state into the run root, and
 depends on the host's CLI auth; a missing or unauthenticated Claude Code defers the
-namespace and syscall verdicts. The four rejected/deferred directives keep their previous behavior, and a
-changed unit still installs by hand because `upgrade-vps.sh` refuses target commits that
-edit it.
+namespace and syscall verdicts. The five rejected/deferred directives keep their previous
+behavior, and a changed unit still installs by hand because `upgrade-vps.sh` refuses
+target commits that edit it.
 
 ## D115. An unusable process file is reported once per distinct state
 

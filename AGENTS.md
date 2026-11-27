@@ -124,6 +124,8 @@ npm run test:e2e-env           # node:test guards for the proof scripts' spawn e
                                # interrupt cleanup, and the GitHub scope preflight
 npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
+npm run test:web-stress        # manual: web suite 3x under 4 CPU hogs; fails on a failed
+                               # iteration, a dead hog, or a missing result report
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 APS_HARNESS=opencode APS_DB=/tmp/agent-process-segments.sqlite node src/server/dist/app.js
@@ -167,7 +169,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
   `NODE_ENV=production npm test --workspace src/web`, which the published CI workflow
-  (`.github/workflows/ci.yml`) runs as its own step.
+  (`.github/workflows/ci.yml`) runs as its own step. The manual stress runner
+  (`npm run test:web-stress`) pins `NODE_ENV=test` through `buildPinnedEnv` for the same
+  reason, independent of the config pin.
 - **The web suite runs in `pool: 'vmThreads'`.** It creates one jsdom environment per
   worker instead of one per test file (28 files), which roughly halves wall time while
   keeping per-file isolation. A VM context has no `ReadableStream`/`TransformStream`, so
@@ -729,6 +733,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     Workflows read/write). Do not add a deploy key, switch `origin` to SSH, or push through
     the API to work around the rejection; stop and report instead. The check lives in
     `scripts/check-github-scope.mjs` and its tests in `scripts/check-github-scope.test.mjs`.
+48. **The web stress run is fail-closed and leaves no hog behind.** `npm run
+    test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite `--runs` times
+    (default 3) while `--hogs` busy-loop processes (default 4) compete. An iteration
+    fails on a non-zero suite exit, a missing, empty, unparsable, or zero-test Vitest
+    JSON report, or the per-iteration `--timeout` (default 600 s); the run also fails
+    when a hog exits early. Do not turn any of those into a warning or a pass. Hogs are
+    stopped on every exit path and each hog exits by itself when the runner dies, so a
+    killed run cannot leave a core burning; keep both layers. It is manual only: do not
+    add it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
 
 ## Extension recipes
 

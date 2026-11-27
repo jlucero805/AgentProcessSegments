@@ -2696,3 +2696,36 @@ non-writable directory still needs the wal-index and fails with
 **Cost.** A dry run no longer repairs loose modes on an owned database; `openDb` and
 `--apply` do. A database the caller cannot chmod keeps its current privacy, which the
 owner controls. This is not encryption at rest.
+
+## D112. The web stress harness runs the real suite under CPU hogs
+
+**Context.** The parallel-load hardening in `942fb341` proved its 10 s query and 30 s
+case budgets with an ad-hoc shell snippet: four `while :` loops plus one
+`NODE_ENV=test npx vitest run`. The snippet was never committed, so re-verifying the
+budgets means reconstructing it by hand, and it cannot catch the three ways a load proof
+lies: a hog dies and the run is no longer loaded, Vitest crashes or times out and leaves
+no results while the shell still exits 0, and an interrupted run leaves busy loops
+burning a core forever.
+
+**Decision.** Add `npm run test:web-stress` (`scripts/web-stress.mjs`, helpers under
+`scripts/web-stress/`). It runs `npm test --workspace src/web` `--runs` times (default 3)
+sequentially, with `--hogs` busy-loop Node children (default 4) alive for the whole run.
+Each iteration runs Vitest's `verbose` and `json` reporters, with the report written to
+an absolute `--outputFile.json` path because npm runs the workspace script with cwd
+`src/web`. The iteration fails on a non-zero exit, `success !== true`,
+`numFailedTests > 0`, a missing/empty/unparsable/zero-test report, or the per-iteration
+timeout (600 s). The run also fails when a hog exits early. Exit codes are 0 pass, 1
+failure, 2 usage, and 130/143 on SIGINT/SIGTERM.
+
+The suite child is spawned `detached` so the whole npm-to-Vitest group is signalled on a
+timeout or interrupt. Hogs are stopped with SIGTERM then SIGKILL on every exit path, and
+each hog also polls `process.ppid` and exits when the runner disappears, which covers
+`SIGKILL` where no handler can run. The `aps-web-stress-hog` marker keeps a leaked hog
+findable, and the default log directory is an `aps-web-stress-*` mkdtemp under `TMPDIR`,
+so `clean-test-tmp.mjs` reclaims one left by a crash.
+
+**Cost.** The default run is several minutes of full-suite work with four cores
+oversubscribed, so it is manual only: not in `npm test`, not in either CI workflow. It
+adds no Vitest cases or files (totals stay `1371 = 1046 server + 325 web`); its guard is
+a `node:test` file in `test:e2e-env`. Windows is not a goal (process groups are POSIX),
+and a filtered `--only` run is not a full-suite proof.

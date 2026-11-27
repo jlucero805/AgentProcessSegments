@@ -469,6 +469,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `PATH` and validated by its `--version` output), and `scripts/e2e.mjs` (built brain +
   deterministic
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
+  `npm run test:web-stress` runs the web suite three times under four CPU hogs on demand;
+  it fails closed on a failed iteration, a dead hog, or a missing report, leaves no hog
+  processes behind, and is manual (not part of `npm test` or CI).
   The web suite also resolves every local documentation link, image, and Help `#anchor`
   (external URLs are never fetched); run it alone with `npm run check:docs`.
   Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`

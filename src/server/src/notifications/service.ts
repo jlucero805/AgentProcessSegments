@@ -280,7 +280,6 @@ function headersFor(
     'content-type': 'application/json',
     'user-agent': userAgent,
     'idempotency-key': idempotencyKey,
-    'x-aps-timestamp': String(timestamp),
   };
   if (webhook.secret !== null) {
     headers['x-aps-signature-v2'] =

@@ -559,7 +559,7 @@ test('operator docs keep the V2 receiver contract visible', () => {
   assert.match(doc, /replay/i);
   assert.match(doc, /timingSafeEqual/);
   assert.match(doc, /#verify-webhook-signatures/);
-  assert.match(doc, /Upgrading from the legacy header/);
+  assert.match(doc, /Upgrading from the legacy headers/);
   assert.match(doc, /no longer sent/);
   assert.doesNotMatch(doc, /verifyWebhookSignature/);
   assert.doesNotMatch(doc, /two signature headers/);

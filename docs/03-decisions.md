@@ -2841,3 +2841,24 @@ still-broken file once. Operators editing an unusable file get a fresh report be
 byte identity changes. A corrected file is read on the next `get()` and then cached as
 before, so later edits to an already-valid file still need a restart (unchanged). The
 digest is computed only on a failed load and only on the small operator file.
+
+## D116. The redundant unsigned webhook timestamp header is removed
+
+**Context.** D91 added `X-APS-Signature-V2: t=<ms>,v2=<hex>` and put the send-time
+timestamp inside the HMAC. D105 removed the legacy body-only `X-APS-Signature` but kept
+`X-APS-Timestamp` as an unsigned informational header. That header duplicates the signed
+`t` when a secret is set, while without a secret anyone can set it, so it cannot support
+freshness or replay rejection. Keeping it also leaves a second, untrustworthy timestamp
+next to the authoritative one and forces every receiver doc to explain the difference.
+
+**Decision.** APS stops sending `X-APS-Timestamp` on every webhook path: budget alerts,
+event notifications, retries, resends, and Send test. The send-time timestamp is only the
+signed `t` inside `X-APS-Signature-V2`. JSON bodies keep their own `occurredAt` /
+`alert.createdAt` fields, and a request without a saved secret carries no send-time
+header. The receiver example is unchanged because it never read the header. There is no
+setting, environment variable, or dual mode.
+
+**Cost.** A receiver that logs or branches on `X-APS-Timestamp` must switch to V2's signed
+`t` or the JSON body fields at the APS upgrade. This is a deliberate breaking change like
+D105, with no data or config migration. Freshness for unsigned deliveries was never
+verifiable, so nothing that could be trusted is lost.

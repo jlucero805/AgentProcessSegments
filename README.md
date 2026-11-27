@@ -520,9 +520,9 @@ transient failures at 60 s, 5 min, 30 min, and 2 h up to five attempts, honors
 alert, changing the budget or threshold, or changing the destination skips pending
 deliveries. When a signing secret is set, every webhook request carries the timestamped
 `X-APS-Signature-V2: t=<ms>,v2=<hex>` over the exact raw body plus that timestamp; the
-signature covers the body for every format, and `X-APS-Timestamp` is always sent. The
-legacy body-only `X-APS-Signature` header is no longer sent. Slack and Discord receivers
-ignore signature headers. See
+signature covers the body for every format, and the embedded `t` is the only send-time
+timestamp. The legacy body-only `X-APS-Signature` and unsigned `X-APS-Timestamp` headers
+are no longer sent. Slack and Discord receivers ignore signature headers. See
 [Verify webhook signatures](docs/08-user-workflows.md#verify-webhook-signatures) for a
 runnable V2 receiver, the freshness window, the constant-time check, and the
 response/retry and replay rules. The [Webhook payloads](docs/14-webhook-payloads.md)

@@ -421,12 +421,80 @@ describe('ProcessStore', () => {
     expect(names).toHaveLength(1);
     const preserved = backupFile(file, names[0]!);
     expect(store.preservedPath()).toBe(preserved);
+    expect(store.preservedCopies()).toEqual([preserved]);
     expect(readFileSync(store.preservedPath()!, 'utf8')).toBe(original);
 
     store.patch({ segments: next.segments });
     expect(store.preservedPath()).toBe(preserved);
+    expect(store.preservedCopies()).toEqual([preserved]);
     expect(backupNames(file)).toHaveLength(1);
     warn.mockRestore();
+  });
+
+  it('lists preserved copies after a restart while preservedPath stays per-process', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      writeFileSync(file, '{bad\n');
+
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      expect(store.preservedCopies()).toEqual([]);
+      store.patch({ segments: defaultProcess(DEFAULT_SETTINGS.master).segments });
+      const copy = store.preservedPath();
+      expect(copy).not.toBeNull();
+
+      const restarted = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      expect(restarted.preservedPath()).toBeNull();
+      expect(restarted.preservedCopies()).toEqual([copy]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('puts the current copy first even when its name sorts older', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const future = `${file}.invalid-2026-01-03T00-00-00-000Z`;
+      writeFileSync(future, 'future\n');
+      writeFileSync(file, '{bad\n');
+
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      store.get();
+      store.patch({ segments: defaultProcess(DEFAULT_SETTINGS.master).segments });
+      const own = store.preservedPath();
+      expect(own).not.toBeNull();
+      expect(store.preservedCopies()).toEqual([own, future]);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not load or rewrite the file when listing copies', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const original = '{bad\n';
+      const copy = `${file}.invalid-2026-01-01T00-00-00-000Z`;
+      writeFileSync(file, original);
+      writeFileSync(copy, 'old\n');
+
+      const errors = { error: vi.fn() };
+      const store = new ProcessStore(
+        file,
+        () => defaultProcess(DEFAULT_SETTINGS.master),
+        errors,
+      );
+      expect(store.preservedCopies()).toEqual([copy]);
+      expect(readFileSync(file, 'utf8')).toBe(original);
+      expect(errors.error).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('preserves a schema-invalid file before the first save', () => {

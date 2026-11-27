@@ -23,7 +23,7 @@ import {
 interface ProcessEditorProps {
   process: ProcessConfig;
   path?: string;
-  preservedPath?: string | null;
+  preservedCopies?: string[];
   saving?: boolean;
   saved?: boolean;
   hideSave?: boolean;
@@ -67,7 +67,7 @@ function SegmentDetails({ open, children }: { open: boolean; children: ReactNode
 export function ProcessEditor({
   process,
   path = '',
-  preservedPath = null,
+  preservedCopies = [],
   saving = false,
   saved = false,
   hideSave = false,
@@ -263,19 +263,28 @@ export function ProcessEditor({
         })}
       </div>
 
-      {preservedPath ? (
+      {preservedCopies.length > 0 ? (
         <div
           role="status"
-          aria-label="Preserved process file"
+          aria-label="Preserved process files"
           className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-4 text-sm text-zinc-300"
         >
           <p className="font-medium text-zinc-100">
-            The unusable process file was preserved
+            {preservedCopies.length === 1
+              ? 'The unusable process file was preserved'
+              : 'Unusable process files were preserved'}
           </p>
-          <p className="break-all font-mono text-[11px] text-zinc-400">{preservedPath}</p>
+          <ul className="space-y-1">
+            {preservedCopies.map((copy) => (
+              <li key={copy} className="break-all font-mono text-[11px] text-zinc-400">
+                {copy}
+              </li>
+            ))}
+          </ul>
           <p className="text-[11px] text-zinc-500">
-            It may contain prompts or policy and is readable only by the account running the
-            server. Delete it once you have reviewed it.
+            {preservedCopies.length === 1
+              ? 'It may contain prompts or policy and is readable only by the account running the server. Delete it once you have reviewed it.'
+              : 'They may contain prompts or policy and are readable only by the account running the server. Delete them once you have reviewed them.'}
           </p>
         </div>
       ) : null}

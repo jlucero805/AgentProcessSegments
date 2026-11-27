@@ -245,6 +245,7 @@ export function ConfigPage({
   const [preservedCopies, setPreservedCopies] = useState<string[]>([]);
   const [processPath, setProcessPath] = useState('');
   const [processPreservedPath, setProcessPreservedPath] = useState<string | null>(null);
+  const [processPreservedCopies, setProcessPreservedCopies] = useState<string[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -380,6 +381,13 @@ export function ConfigPage({
         typeof processConfig.preservedPath === 'string' && processConfig.preservedPath !== ''
           ? processConfig.preservedPath
           : null,
+      );
+      setProcessPreservedCopies(
+        Array.isArray(processConfig.preservedCopies)
+          ? processConfig.preservedCopies.filter(
+              (copy) => typeof copy === 'string' && copy !== '',
+            )
+          : [],
       );
       setEvents(eventList);
       setBudget(loadedBudget);
@@ -1123,6 +1131,13 @@ export function ConfigPage({
           ? savedProcess.preservedPath
           : null,
       );
+      setProcessPreservedCopies(
+        Array.isArray(savedProcess.preservedCopies)
+          ? savedProcess.preservedCopies.filter(
+              (copy) => typeof copy === 'string' && copy !== '',
+            )
+          : [],
+      );
       setProcessSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -1222,6 +1237,13 @@ export function ConfigPage({
     preservedPath && !preservedCopies.includes(preservedPath)
       ? [preservedPath, ...preservedCopies]
       : preservedCopies;
+  const shownProcessPreservedCopies = Array.from(
+    new Set(
+      processPreservedPath
+        ? [processPreservedPath, ...processPreservedCopies]
+        : processPreservedCopies,
+    ),
+  );
 
   return (
     <div className="mx-auto h-full w-full max-w-3xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -2594,7 +2616,7 @@ export function ConfigPage({
       <ProcessEditor
         process={process}
         path={processPath}
-        preservedPath={processPreservedPath}
+        preservedCopies={shownProcessPreservedCopies}
         saving={processSaving}
         saved={processSaved}
         title="Global process template"

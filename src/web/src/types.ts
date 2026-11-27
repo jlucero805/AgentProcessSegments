@@ -301,6 +301,8 @@ export interface ProcessResponse extends ProcessConfig {
   path: string;
   /** Copy this server process made of an unusable file, or null if none. */
   preservedPath: string | null;
+  /** Existing preserved copies next to the process file, newest first. */
+  preservedCopies: string[];
 }
 
 export interface DocPage {

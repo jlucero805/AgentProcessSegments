@@ -401,8 +401,9 @@ built and vended by the brain; real-CLI verification is still pending.
   the five newest preserved copies are kept; older matching copies are pruned after a
   successful save, and a failed prune reports `process.pruneFailed` without refusing the
   save. `GET/PATCH /api/process` also return `preservedPath`, the copy this process made
-  (or `null`), which the global process editor shows after the preserving save. It is in
-  memory only, so a restart does not rediscover earlier copies. The legacy `idleMinutes`,
+  (or `null`), and `preservedCopies`, every existing copy next to the process file newest
+  first. The global process editor lists those copies, including ones left by earlier
+  server runs; `preservedPath` itself is in memory only. The legacy `idleMinutes`,
   `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. This host runs `agent-process-segments.service` from
@@ -470,7 +471,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1410 vitest cases (one environmental root-skip): 1059 server across 58 files and 351 web across 28 files,
+- 1415 vitest cases (one environmental root-skip): 1062 server across 58 files and 353 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

@@ -48,6 +48,7 @@ export function makeProcessResponse(overrides: Partial<ProcessResponse> = {}): P
     ...makeProcess(),
     path: '/tmp/agent-process-segments/process.json',
     preservedPath: null,
+    preservedCopies: [],
     ...overrides,
   };
 }

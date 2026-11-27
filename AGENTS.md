@@ -123,6 +123,8 @@ npm run test:e2e-env           # node:test guards for the proof scripts' spawn e
                                # webhook receiver example, missing-Puppeteer policy, and
                                # interrupt cleanup
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
+npm run test:web-stress        # manual: web suite 3x under 4 CPU hogs; fails on a failed
+                               # iteration, a dead hog, or a missing result report
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 APS_HARNESS=opencode APS_DB=/tmp/agent-process-segments.sqlite node src/server/dist/app.js
@@ -166,7 +168,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
   `NODE_ENV=production npm test --workspace src/web`, which the published CI workflow
-  (`.github/workflows/ci.yml`) runs as its own step.
+  (`.github/workflows/ci.yml`) runs as its own step. The manual stress runner
+  (`npm run test:web-stress`) pins `NODE_ENV=test` through `buildPinnedEnv` for the same
+  reason, independent of the config pin.
 - **Every JavaScript proof script's child env is hermetic.** `scripts/e2e/env.mjs` is the shared
   builder: `scrubEnv` drops every inherited `APS_*`, `SBOX_*`, `ANTHROPIC_*`, `CLAUDE_*`,
   and `OPENAI_*` variable, then `buildPinnedEnv` applies validated pins so a pin always
@@ -705,6 +709,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and assigns ids only to those headings. External schemes and bare `?query` targets are
     never fetched. Run it alone with `npm run check:docs`; it is part of `npm test`, not
     `npm run lint`.
+47. **The web stress run is fail-closed and leaves no hog behind.** `npm run
+    test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite `--runs` times
+    (default 3) while `--hogs` busy-loop processes (default 4) compete. An iteration
+    fails on a non-zero suite exit, a missing, empty, unparsable, or zero-test Vitest
+    JSON report, or the per-iteration `--timeout` (default 600 s); the run also fails
+    when a hog exits early. Do not turn any of those into a warning or a pass. Hogs are
+    stopped on every exit path and each hog exits by itself when the runner dies, so a
+    killed run cannot leave a core burning; keep both layers. It is manual only: do not
+    add it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
 
 ## Extension recipes
 

@@ -743,6 +743,20 @@ reviewed `eslint-disable-next-line no-restricted-syntax -- <reason>` exemptions,
 environments they hand to their children, the missing-Puppeteer policy, and the interrupt
 cleanup coordinator; it is not counted in the vitest totals.
 
+`npm run test:web-stress` is the manual parallel-load proof for the web suite. It runs
+three full iterations sequentially while four busy-loop CPU processes compete
+(`--runs`, `--hogs`), and fails on a failed iteration, a hog that exits early, a
+per-iteration `--timeout`, or a missing Vitest JSON report (Vitest's `verbose` and `json`
+reporters both run; the report goes to an absolute path because npm runs the workspace
+script from `src/web`). `--hogs 0` gives a quiet baseline, `--only` narrows the suite
+while iterating, `--fail-fast` stops after the first failure, and `--keep-logs` keeps the
+per-run `results.json`/`output.log`. The default log directory is a fresh
+`aps-web-stress-*` under `TMPDIR`, so `TMPDIR=/var/tmp npm run test:web-stress` works
+when `/tmp` is small; an explicit `--log-dir` is never deleted (an all-pass run removes
+only its own `run-*` children). The runner exits 0 only when every iteration passed and
+every hog stayed alive (1 on a failed run, 2 on a usage error, 130/143 on interrupt),
+reaps its hogs on every path including `SIGKILL`, and is not part of `npm test` or CI.
+
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing
 assertion. A crashed or killed run can still leave a root behind; run

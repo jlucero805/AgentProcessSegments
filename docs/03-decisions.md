@@ -2957,3 +2957,33 @@ method and keeps the scan loop and single-cell paths untouched.
 the single-cell status route remains one indexed lookup. The response shape, route
 validation, schema, retention, and web client are unchanged. `SummaryScheduler.scan()`
 still looks up each cell's latest report separately; that is a separate request.
+
+## D120. Maintenance permission repairs share one engine and CLI core
+
+**Context.** `repair:permissions` (D74), `repair:upgrades` (D93), and `repair:runs`
+(D110) each carried a copy of the owner-only chmod engine: the `0700`/`0600` decision,
+the `lstat`/`stat` and kind checks, symlink refusal, the `ENOENT`-as-skip rule, the
+dry-run accounting, the report loop, argument parsing, the exit code, and the
+direct-run bootstrap. The cutover engines imported the requests engine only for
+`PRIVATE_*_MODE`/`RepairAction`, and the cutover CLIs imported its `formatMode`. A fix
+applied to one repair could silently miss the other two, and the security-sensitive
+`chmod` logic had three homes.
+
+**Decision.** Move the engine to `src/server/src/maintenance/permission-repair.ts`
+(`PermissionRepair`, both modes, the entry/result types, `formatMode`) and the CLI core
+to `repair-cli.ts` (`parseRepairArgs`, `printRepairReport`, `repairExitCode`,
+`runDirectly`). The three engines now only describe their tree; the three CLIs only hold
+their usage text, default target, and missing-root message. Commands, flags, report
+lines, order, exit codes, and traversal are unchanged. The two asymmetries stay
+explicit options instead of silent unification: `repair:permissions` follows a symlinked
+`requests/` root (`stat`) and records a session dir that vanishes between `readdir` and
+`lstat` as a skip, while the cutover repairs use `lstat`, refuse a symlinked container,
+and treat a missing child as silent. `src/server/test/repair-permissions.test.ts` guards
+the split: only `permission-repair.ts` may mention `chmodSync`, every engine constructs
+`PermissionRepair`, and every CLI imports the shared core.
+
+**Cost.** Two new modules and one guard test. A future repair must use the shared
+scanner; the guard fails if it imports `chmodSync` directly. Changing either root rule
+is a separate decision (the symlinked `requests/` root is filed separately). The shell
+`chmod` in `deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this
+code.

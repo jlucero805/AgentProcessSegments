@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1447 vitest cases: 1077 server across 58 files (one environmental root-skip) and 370 web across 28 files, all green.
+- 1448 vitest cases: 1078 server across 58 files (one environmental root-skip) and 370 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1077 server + 370 web, plus the e2e env guard
+npm test                       # 1078 server + 370 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
@@ -763,6 +763,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     stopped on every exit path and each hog exits by itself when the runner dies, so a
     killed run cannot leave a core burning; keep both layers. It is manual only: do not
     add it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
+49. **The three maintenance permission repairs share one engine.** `PermissionRepair` in
+    `src/server/src/maintenance/permission-repair.ts` owns `PRIVATE_DIR_MODE`/
+    `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the
+    symlink/`ENOENT` policy, the dry-run counters, and the only `chmod` under
+    `src/server/src/maintenance`. `repair-cli.ts` owns the shared
+    `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, and the
+    direct-run bootstrap. `repair-permissions.ts`, `repair-upgrade-permissions.ts`, and
+    `repair-run-permissions.ts` only describe their trees; their CLIs only hold the
+    usage text, default target, and missing-root message. Commands, flags, output, exit
+    codes, and traversal must not change. A new repair uses the same scanner; the guard
+    in `src/server/test/repair-permissions.test.ts` fails if another maintenance module
+    mentions `chmodSync`.
 
 ## Extension recipes
 

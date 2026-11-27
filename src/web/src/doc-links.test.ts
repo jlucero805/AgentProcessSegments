@@ -1,19 +1,19 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { HELP_MANIFEST } from '../../server/src/docs/manifest';
-import { walkFiles } from '../../server/src/util/files';
 import {
   checkDocLinks,
   checkHelpLinks,
+  checkSpaHelpLinks,
   collectDocLinks,
   extractDocLinks,
   manifestProblems,
   markdownFiles,
   undefinedReferenceLabels,
 } from './doc-links';
-import { extractHeadings, helpSlugFromHref } from './docs';
+import { helpSlugFromHref } from './docs';
 import {
   GETTING_STARTED_HELP,
   SPA_HELP_TARGETS,
@@ -171,9 +171,10 @@ describe('documents links and anchors', () => {
     ]);
   });
 
-  it('checks every local link, image, and anchor in the repository', () => {
+  it('checks every local link, image, anchor, and SPA Help target in the repository', () => {
     expect(checkDocLinks(repoRoot)).toEqual([]);
     expect(checkHelpLinks(repoRoot, HELP_MANIFEST)).toEqual([]);
+    expect(checkSpaHelpLinks(repoRoot, HELP_MANIFEST, SPA_HELP_TARGETS)).toEqual([]);
   });
 
   it('keeps the real Help manifest honest', () => {
@@ -317,38 +318,38 @@ describe('Help-served links and the manifest', () => {
   });
 });
 
+const SPA_FIXTURE_MANIFEST = [
+  { slug: 'getting-started', source: 'README.md' },
+  { slug: 'served', source: 'docs/served.md' },
+  { slug: '13-cell-wizard', source: 'docs/13.md' },
+] as const;
+
+const SPA_LINKS = 'src/web/src/links.ts';
+
+/** A temp repo with a tiny manifest and one SPA source tree. */
+function makeSpaFixture(): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-spa-help-'));
+  tempRoots.push(root);
+  const sources = path.join(root, 'src', 'web', 'src');
+  mkdirSync(path.join(root, 'docs'), { recursive: true });
+  mkdirSync(sources, { recursive: true });
+  writeFileSync(path.join(root, 'README.md'), '# Getting started\n');
+  writeFileSync(path.join(root, 'docs', 'served.md'), '# Served\n\n## Real heading\n');
+  writeFileSync(path.join(root, 'docs', '13.md'), '# Cell wizard\n');
+  writeFileSync(path.join(sources, 'links.ts'), "export const HELP = { slug: 'served' } as const;\n");
+  writeFileSync(path.join(sources, 'App.tsx'), 'export const App = null;\n');
+  return root;
+}
+
+function writeSpaSource(root: string, name: string, lines: string[]): void {
+  writeFileSync(path.join(root, 'src', 'web', 'src', name), `${lines.join('\n')}\n`);
+}
+
 describe('SPA Help targets', () => {
-  it('declares the known in-app Help targets', () => {
+  it('declares the in-app Help targets in one registry', () => {
     expect(SPA_HELP_TARGETS).toEqual(
-      expect.arrayContaining([VERIFY_WEBHOOK_SIGNATURES_HELP, GETTING_STARTED_HELP]),
+      expect.arrayContaining([GETTING_STARTED_HELP, VERIFY_WEBHOOK_SIGNATURES_HELP]),
     );
-  });
-
-  it('resolves every SPA Help target through the manifest and its headings', () => {
-    const entries = new Map(HELP_MANIFEST.map((entry) => [entry.slug, entry]));
-    for (const target of SPA_HELP_TARGETS) {
-      const entry = entries.get(target.slug);
-      expect(entry, `Help target "${target.slug}" is not in HELP_MANIFEST`).toBeDefined();
-      if (!entry) continue;
-
-      const source = path.join(repoRoot, entry.source);
-      expect(
-        existsSync(source),
-        `Help target "${target.slug}" source "${entry.source}" is missing`,
-      ).toBe(true);
-      if (!existsSync(source)) continue;
-
-      if (target.anchor !== null) {
-        const ids = extractHeadings(readFileSync(source, 'utf8')).map((heading) => heading.id);
-        expect(
-          ids,
-          `Help target "${target.slug}#${target.anchor}" is not a heading of "${entry.source}"`,
-        ).toContain(target.anchor);
-      }
-    }
-  });
-
-  it('builds the in-app href for every SPA Help target', () => {
     for (const target of SPA_HELP_TARGETS) {
       const expected = `?help=${target.slug}${target.anchor ? `#${target.anchor}` : ''}`;
       expect(helpHref(target)).toBe(expected);
@@ -356,23 +357,99 @@ describe('SPA Help targets', () => {
     }
   });
 
-  it('rejects hard-coded Help targets in the SPA', () => {
-    const sourceRoot = path.join(repoRoot, 'src/web/src');
-    const problems: string[] = [];
-    for (const file of walkFiles(sourceRoot)) {
-      if (/\.test\.tsx?$/.test(file)) continue;
-      if (file.split(path.sep).includes('test')) continue;
-      if (file === 'links.ts' || file === 'docs.ts') continue;
-      const lines = readFileSync(path.join(sourceRoot, file), 'utf8').split('\n');
-      lines.forEach((line, index) => {
-        if (
-          /\?help=[a-z0-9-]/i.test(line) ||
-          /(['"`])(?:getting-started|08-user-workflows)\1/.test(line)
-        ) {
-          problems.push(`${file}:${index + 1}: ${line.trim()}`);
-        }
-      });
-    }
-    expect(problems).toEqual([]);
+  it('accepts declared targets whose slug and anchor exist', () => {
+    const root = makeSpaFixture();
+    expect(
+      checkSpaHelpLinks(root, SPA_FIXTURE_MANIFEST, [
+        { slug: 'getting-started' },
+        { slug: 'served', anchor: 'real-heading' },
+      ]),
+    ).toEqual([]);
   });
+
+  it('reports an unknown slug and an unknown anchor at the declaration', () => {
+    const root = makeSpaFixture();
+    expect(
+      checkSpaHelpLinks(root, SPA_FIXTURE_MANIFEST, [
+        { slug: 'nope' },
+        { slug: 'served', anchor: 'missing' },
+      ]),
+    ).toEqual([
+      {
+        file: SPA_LINKS,
+        line: 0,
+        target: 'nope',
+        reason: 'Help has no page for slug "nope" (SPA Help target)',
+      },
+      {
+        file: SPA_LINKS,
+        line: 0,
+        target: 'served#missing',
+        reason: 'no heading with id "missing" in Help page "served" (SPA Help target)',
+      },
+    ]);
+  });
+
+  it('leaves a missing manifest source to manifestProblems', () => {
+    const root = makeSpaFixture();
+    expect(
+      checkSpaHelpLinks(root, [{ slug: 'ghost', source: 'docs/ghost.md' }], [
+        { slug: 'ghost', anchor: 'anything' },
+      ]),
+    ).toEqual([]);
+    expect(manifestProblems(root, [{ slug: 'ghost', source: 'docs/ghost.md' }])).toEqual([
+      {
+        file: 'src/server/src/docs/manifest.ts',
+        line: 0,
+        target: 'docs/ghost.md',
+        reason: 'missing source file',
+      },
+    ]);
+  });
+
+  it('rejects a hard-coded ?help= URL in a component', () => {
+    const root = makeSpaFixture();
+    writeSpaSource(root, 'HelpPanel.tsx', [
+      'export const Panel = () => <a href="?help=typo">back</a>;',
+    ]);
+
+    expect(checkSpaHelpLinks(root, SPA_FIXTURE_MANIFEST, [])).toEqual([
+      {
+        file: 'src/web/src/HelpPanel.tsx',
+        line: 1,
+        target: '?help=typo',
+        reason: 'literal Help URL "?help=typo"; declare it in SPA_HELP_TARGETS',
+      },
+    ]);
+  });
+
+  it('rejects a quoted manifest slug that is not in the registry', () => {
+    const root = makeSpaFixture();
+    writeSpaSource(root, 'App.tsx', ['const page = openHelpAt(`13-cell-wizard`);']);
+
+    expect(checkSpaHelpLinks(root, SPA_FIXTURE_MANIFEST, [])).toEqual([
+      {
+        file: 'src/web/src/App.tsx',
+        line: 1,
+        target: '13-cell-wizard',
+        reason: 'literal Help slug "13-cell-wizard"; use a target from src/web/src/links.ts',
+      },
+    ]);
+  });
+
+  it('ignores templates, guards, tests, and the declaration file', () => {
+    const root = makeSpaFixture();
+    writeSpaSource(root, 'docs.ts', [
+      'export const href = (slug: string) => `?help=${encodeURIComponent(slug)}`;',
+      "export const isHelp = (href: string) => href.startsWith('?help=');",
+    ]);
+    writeSpaSource(root, 'App.test.tsx', ["expect(href).toBe('?help=typo');"]);
+    mkdirSync(path.join(root, 'src', 'web', 'src', 'test'), { recursive: true });
+    writeSpaSource(root, path.join('test', 'fixtures.ts'), [
+      "export const fixture = 'getting-started';",
+    ]);
+
+    expect(checkSpaHelpLinks(root, SPA_FIXTURE_MANIFEST, [])).toEqual([]);
+  });
+
 });

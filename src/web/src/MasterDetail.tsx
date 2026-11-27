@@ -5,9 +5,15 @@ import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
 import { Scorecard } from './Scorecard';
 import {
   DEFAULT_RANGE,
+  ScorecardCustomRange,
   ScorecardPeriod,
+  customRangeSeed,
+  customWindow,
+  presetWindow,
   rangeOption,
-  sinceFor,
+  type CustomRangeSeed,
+  type DateWindow,
+  type PageRangeKey,
   type RangeKey,
 } from './ScorecardPeriod';
 import {
@@ -49,6 +55,11 @@ function duration(minutes: number): string {
   return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
 }
 
+/** Identity for the current request; custom windows differ even at the same range. */
+function periodKey(range: PageRangeKey, applied: DateWindow): string {
+  return range === 'custom' ? `custom:${applied.since}:${applied.until}` : range;
+}
+
 /** The cell master as a first-class thread: cron policy, activity, and chat. */
 export function MasterDetail({
   cellId,
@@ -63,7 +74,11 @@ export function MasterDetail({
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  const [range, setRange] = useState<PageRangeKey>(DEFAULT_RANGE);
+  const [customSeed, setCustomSeed] = useState<CustomRangeSeed>(() =>
+    customRangeSeed(DEFAULT_RANGE),
+  );
+  const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
   const [summaryHistory, setSummaryHistory] = useState<Summary[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus | null>(null);
@@ -73,18 +88,22 @@ export function MasterDetail({
   const cellMissing = cellsFeed.loaded && selectedCell === null;
   const cellReady = cellsFeed.loaded && selectedCell !== null;
 
-  const currentRequest = useRef({ cellId, range });
+  const currentRequest = useRef({ cellId, period: periodKey(range, appliedCustom) });
   useEffect(() => {
-    currentRequest.current = { cellId, range };
-  }, [cellId, range]);
+    currentRequest.current = { cellId, period: periodKey(range, appliedCustom) };
+  }, [appliedCustom, cellId, range]);
   const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
     if (!cellReady) return;
     // A queued poll from a previous cell or period must not start a new request.
-    if (cellId !== currentRequest.current.cellId || range !== currentRequest.current.range) {
+    if (
+      cellId !== currentRequest.current.cellId ||
+      periodKey(range, appliedCustom) !== currentRequest.current.period
+    ) {
       return;
     }
+    const bounds = range === 'custom' ? appliedCustom : presetWindow(range);
     const generation = ++loadGeneration.current;
     try {
       const [
@@ -97,7 +116,7 @@ export function MasterDetail({
         api.getProcess(),
         api.getMasterStatus(cellId),
         api.getMasterEvents({ cellId, limit: 30 }),
-        api.getSummaries({ cellId, limit: 5, since: sinceFor(range) }),
+        api.getSummaries({ cellId, limit: 5, ...bounds }),
         api.getSummaryStatus(cellId),
       ]);
       if (generation !== loadGeneration.current) return;
@@ -118,7 +137,7 @@ export function MasterDetail({
         onError(describeError(error));
       }
     }
-  }, [cellId, cellReady, onError, range, selectedCell]);
+  }, [appliedCustom, cellId, cellReady, onError, range, selectedCell]);
 
   useEffect(() => {
     void (async () => {
@@ -149,6 +168,32 @@ export function MasterDetail({
   function changeRange(next: RangeKey) {
     if (next === range) return;
     setRange(next);
+    setSummaryHistory([]);
+    setSummaryLoading(true);
+  }
+
+  function selectCustom() {
+    if (range === 'custom') return;
+    const seed = customRangeSeed(range);
+    const bounds = customWindow(seed.start, seed.end, seed.startTime, seed.endTime);
+    if (typeof bounds === 'string') return;
+    setCustomSeed(seed);
+    setRange('custom');
+    setAppliedCustom(bounds);
+    setSummaryHistory([]);
+    setSummaryLoading(true);
+  }
+
+  function applyCustom(bounds: DateWindow) {
+    if (
+      range === 'custom' &&
+      bounds.since === appliedCustom.since &&
+      bounds.until === appliedCustom.until
+    ) {
+      return;
+    }
+    setRange('custom');
+    setAppliedCustom(bounds);
     setSummaryHistory([]);
     setSummaryLoading(true);
   }
@@ -234,7 +279,17 @@ export function MasterDetail({
   const cell = selectedCell;
   const enabled = process?.segments.filter((segment) => segment.enabled) ?? [];
   const latestSummary = summaryHistory[0] ?? null;
-  const rangeDetails = rangeOption(range);
+
+  let emptyText: string;
+  if (range === 'all') {
+    emptyText =
+      'No scorecard yet. The scheduler writes one for this cell on its cadence, or you can run one now.';
+  } else if (range === 'custom') {
+    emptyText =
+      'No scorecards in the selected range. Widen the start or end date or time, or run one now.';
+  } else {
+    emptyText = `No scorecards in ${rangeOption(range).spellout}. Choose a longer period, or run one now.`;
+  }
 
   return (
     <aside
@@ -382,12 +437,25 @@ export function MasterDetail({
                 ) : null}
 
                 <div className="space-y-1">
-                  <ScorecardPeriod value={range} onChange={changeRange} />
+                  <ScorecardPeriod
+                    value={range === 'custom' ? null : range}
+                    onChange={changeRange}
+                    onSelectCustom={selectCustom}
+                    customSelected={range === 'custom'}
+                  />
                   <p className="text-[10px] text-zinc-600">
                     Period filters by generation time; each report still covers its own
                     configured window.
                   </p>
                 </div>
+
+                {range === 'custom' ? (
+                  <ScorecardCustomRange
+                    seed={customSeed}
+                    applied={appliedCustom}
+                    onApply={applyCustom}
+                  />
+                ) : null}
 
                 {summaryLoading ? (
                   <div className="flex h-20 items-center justify-center gap-2 text-sm text-zinc-500">
@@ -422,11 +490,7 @@ export function MasterDetail({
                     ) : null}
                   </>
                 ) : (
-                  <p className="text-sm text-zinc-500">
-                    {range === 'all'
-                      ? 'No scorecard yet. The scheduler writes one for this cell on its cadence, or you can run one now.'
-                      : `No scorecards in ${rangeDetails.spellout}. Choose a longer period, or run one now.`}
-                  </p>
+                  <p className="text-sm text-zinc-500">{emptyText}</p>
                 )}
               </Card>
             ) : null}

@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import { Button, Field, Input } from './ui';
+
 export type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
 export type PageRangeKey = RangeKey | 'custom';
 
@@ -31,11 +34,6 @@ export function rangeOption(range: RangeKey) {
 export function presetWindow(range: RangeKey, now = Date.now()): DateWindow {
   const option = rangeOption(range);
   return option.ms === null ? {} : { since: now - option.ms };
-}
-
-/** Inclusive lower bound for the selected period; undefined means all time. */
-export function sinceFor(range: RangeKey): number | undefined {
-  return presetWindow(range).since;
 }
 
 function pad(value: number): string {
@@ -99,6 +97,124 @@ export function customWindow(
   const until = endMinute + 59_999;
   if (until < since) return 'Choose a start on or before the end.';
   return { since, until };
+}
+
+/** Draft inputs for the Custom period, prefilled from the current preset. */
+export interface CustomRangeSeed {
+  /** Local `YYYY-MM-DD` for `<input type="date">`. */
+  start: string;
+  end: string;
+  /** Local `HH:mm` for `<input type="time">`. */
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * Custom inputs prefilled from `range` at `now`. The start is the local midnight
+ * of the preset's rolling start (or the 72-hour fallback from All); the end is
+ * today. The caller parses the seed with `customWindow`.
+ */
+export function customRangeSeed(range: RangeKey, now = Date.now()): CustomRangeSeed {
+  const start =
+    range === 'all'
+      ? now - CUSTOM_FALLBACK_MS
+      : presetWindow(range, now).since ?? now - CUSTOM_FALLBACK_MS;
+  return {
+    start: dateInputValue(start),
+    end: dateInputValue(now),
+    startTime: CUSTOM_DEFAULT_START_TIME,
+    endTime: CUSTOM_DEFAULT_END_TIME,
+  };
+}
+
+/** Applied Custom window in the operator's local time, to minute precision. */
+export function appliedRangeLabel(window: DateWindow): string {
+  if (window.since === undefined || window.until === undefined) return '';
+  const format = (value: number) =>
+    new Date(value).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  return `Applied: ${format(window.since)} – ${format(window.until)} (local; the end minute is included)`;
+}
+
+/**
+ * The Custom start/end date and time inputs, Apply, and the inline applied or
+ * validation message. The caller owns the applied window and refetches it. The
+ * draft is seeded once per mount, so remount the component (by switching the
+ * period away and back) to reset it.
+ */
+export function ScorecardCustomRange({
+  seed,
+  applied,
+  onApply,
+}: {
+  seed: CustomRangeSeed;
+  applied: DateWindow;
+  onApply: (window: DateWindow) => void;
+}) {
+  const [start, setStart] = useState(seed.start);
+  const [end, setEnd] = useState(seed.end);
+  const [startTime, setStartTime] = useState(seed.startTime);
+  const [endTime, setEndTime] = useState(seed.endTime);
+  const draftWindow = customWindow(start, end, startTime, endTime);
+  const draftError = typeof draftWindow === 'string' ? draftWindow : null;
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+      <Field label="Start date">
+        <Input
+          type="date"
+          aria-label="Start date"
+          className="w-40"
+          value={start}
+          onChange={(event) => setStart(event.target.value)}
+        />
+      </Field>
+      <Field label="Start time">
+        <Input
+          type="time"
+          step={60}
+          aria-label="Start time"
+          className="w-28"
+          value={startTime}
+          onChange={(event) => setStartTime(event.target.value)}
+        />
+      </Field>
+      <Field label="End date">
+        <Input
+          type="date"
+          aria-label="End date"
+          className="w-40"
+          value={end}
+          onChange={(event) => setEnd(event.target.value)}
+        />
+      </Field>
+      <Field label="End time">
+        <Input
+          type="time"
+          step={60}
+          aria-label="End time"
+          className="w-28"
+          value={endTime}
+          onChange={(event) => setEndTime(event.target.value)}
+        />
+      </Field>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={draftError !== null}
+        onClick={() => {
+          if (typeof draftWindow !== 'string') onApply(draftWindow);
+        }}
+      >
+        Apply
+      </Button>
+      <p className={draftError ? 'text-[11px] text-amber-300' : 'text-[11px] text-zinc-600'}>
+        {draftError ?? appliedRangeLabel(applied)}
+      </p>
+    </div>
+  );
 }
 
 function segmentClass(active: boolean): string {

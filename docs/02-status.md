@@ -278,7 +278,8 @@ built and vended by the brain; real-CLI verification is still pending.
   Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
   master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, up to five reports in a selectable generation-time period (default
-  last 72 hours; no paging), and **Run scorecard now**. A dedicated **Scorecards** page
+  last 72 hours; presets or a custom local date-and-time range; no paging), and **Run
+  scorecard now**. A dedicated **Scorecards** page
   groups every cell's persisted reports by generation time (default last 72 hours;
   `24h`/`72h`/`7d`/`30d`/`All`, or a custom local start/end date and time range, newest first,
   earlier history collapsible, **Load older** in 25-report pages). All cells loads each
@@ -495,7 +496,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1514 vitest cases (one environmental root-skip): 1116 server across 59 files and 398 web across 29 files,
+- 1518 vitest cases (one environmental root-skip): 1116 server across 59 files and 402 web across 29 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

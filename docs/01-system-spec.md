@@ -1105,8 +1105,12 @@ carried in the `done` event:
   is live; while one is, it waits for `done`, and a `409 turn_active` from
   `/clarify/send` requeues the text and reattaches. Each queued item is claimed from
   storage under a per-request Web Lock before it is sent, so two tabs deliver it once.
-  A claim is journaled under `aps-queue-inflight:<requestId>` before the item leaves the
-  queue and is reclaimed on the next mount unless the transcript already proves delivery.
+  Every outbound send is journaled under `aps-queue-inflight:<requestId>` before its
+  POST: a queue item carries `kind: "queue"` and a direct composer send carries
+  `kind: "direct"` without touching the queue. The marker clears when the transcript
+  proves delivery and is reclaimed on the next mount otherwise, so neither a queued nor
+  a directly typed message is lost. Queue and direct claims reconcile separately, so a
+  queue hydration never deletes a direct-send marker and vice versa.
   `Thread.tsx` holds assistant-ui primitives, markdown, tool cards, and code diffs.
   `Composer.tsx` is a custom input with a `/` slash-command autocomplete from
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.

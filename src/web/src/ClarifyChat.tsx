@@ -15,10 +15,12 @@ import {
   clearQueue,
   enqueueBack,
   enqueueFront,
+  journalDirectClaim,
   readClaims,
   readQueue,
   releaseClaim,
   settleClaims,
+  settleDirectClaims,
 } from './queue';
 import { Thread } from './Thread';
 import type { ClarifyEvent, CommandInfo, Request, TranscriptMsg } from './types';
@@ -87,6 +89,9 @@ export function ClarifyChat({
   const runningRef = useRef(false);
   const activeStream = useRef<AbortController | null>(null);
   const drainingRef = useRef(false);
+  // Claims this tab is POSTing right now. Settlement skips them so a stray `done`
+  // from a previous turn cannot requeue a message that is still on the wire.
+  const activeClaimIds = useRef(new Set<string>());
 
   const onErrorRef = useRef(onError);
   const onRequestRef = useRef(onRequest);
@@ -130,17 +135,27 @@ export function ClarifyChat({
   const dropDeliveredClaims = useCallback(
     async (transcript: TranscriptMsg[]) => {
       for (const claim of readClaims(queueKey)) {
+        if (activeClaimIds.current.has(claim.id)) continue;
         if (claimWasDelivered(claim, transcript)) await acceptClaim(queueKey, claim.id);
       }
     },
     [queueKey],
   );
 
-  /** Prove or requeue every unsettled claim; used once no turn is live. */
+  /** Prove or requeue every unsettled queue claim; used once no turn is live. */
   const settleRecoveredClaims = useCallback(
     async (transcript: TranscriptMsg[]) => {
       if (readClaims(queueKey).length === 0) return;
       setQueue(await settleClaims(queueKey, transcript));
+    },
+    [queueKey],
+  );
+
+  /** Prove or requeue direct sends a previous tab left in flight. */
+  const settleRecoveredDirectClaims = useCallback(
+    async (transcript: TranscriptMsg[]) => {
+      if (readClaims(queueKey).length === 0) return;
+      setQueue(await settleDirectClaims(queueKey, transcript, activeClaimIds.current));
     },
     [queueKey],
   );
@@ -150,9 +165,12 @@ export function ClarifyChat({
     (transcript: TranscriptMsg[]) => {
       if (readClaims(queueKey).length === 0) return;
       setReconciling(true);
-      void settleRecoveredClaims(transcript).finally(() => setReconciling(false));
+      void (async () => {
+        await settleRecoveredClaims(transcript);
+        await settleRecoveredDirectClaims(transcript);
+      })().finally(() => setReconciling(false));
     },
-    [queueKey, settleRecoveredClaims],
+    [queueKey, settleRecoveredClaims, settleRecoveredDirectClaims],
   );
 
   const handleEvent = useCallback(
@@ -200,8 +218,12 @@ export function ClarifyChat({
       const state = await api.getClarify(requestId);
       if (controller.signal.aborted) return;
       const transcript = state.transcript ?? [];
-      if (state.active) await dropDeliveredClaims(transcript);
-      else await settleRecoveredClaims(transcript);
+      if (state.active) {
+        await dropDeliveredClaims(transcript);
+      } else {
+        await settleRecoveredClaims(transcript);
+        await settleRecoveredDirectClaims(transcript);
+      }
       if (controller.signal.aborted) return;
       markSynced();
       setInlineError(null);
@@ -232,6 +254,7 @@ export function ClarifyChat({
     markSynced,
     dropDeliveredClaims,
     settleRecoveredClaims,
+    settleRecoveredDirectClaims,
   ]);
 
   useEffect(() => {
@@ -260,19 +283,26 @@ export function ClarifyChat({
       if (!retry) setMessages((current) => appendUser(current, text));
       setBusy(true);
       let received = false;
+      let effectiveClaimId = claimId;
       try {
+        // A direct composer send has no claim yet; journal one before the POST so a
+        // tab close from here on can be recovered on the next mount. A queue drain
+        // and a Retry that still owns a claim reuse the id instead of adding one.
+        const sendClaimId = effectiveClaimId ?? (await journalDirectClaim(queueKey, text)).id;
+        effectiveClaimId = sendClaimId;
+        activeClaimIds.current.add(sendClaimId);
         await streamNdjson(
           `/api/requests/${encodeURIComponent(requestId)}/clarify/send`,
           (event) => {
             if (!received) {
               received = true;
-              if (claimId) void acceptClaim(queueKey, claimId);
+              void acceptClaim(queueKey, sendClaimId);
             }
             handleEvent(event);
           },
           { method: 'POST', body: JSON.stringify({ text }), signal: controller.signal },
         );
-        if (claimId) await acceptClaim(queueKey, claimId);
+        await acceptClaim(queueKey, sendClaimId);
         setInlineError(null);
         failedAttempt.current = null;
         markSynced();
@@ -283,15 +313,16 @@ export function ClarifyChat({
             // it drains once that turn ends instead of being dropped server-side.
             // Requeue before hydrating: hydrate clears `synced`, which holds the
             // queue until the reattach snapshot proves whether a turn is live.
-            const next = claimId
-              ? await releaseClaim(queueKey, claimId)
-              : await enqueueFront(queueKey, text);
+            const released = effectiveClaimId
+              ? await releaseClaim(queueKey, effectiveClaimId)
+              : [];
+            const next = released[0] === text ? released : await enqueueFront(queueKey, text);
             setQueue(next);
             void hydrate();
             return;
           }
           const definitive = error instanceof ApiError && error.status >= 400 && error.status < 500;
-          if (claimId && definitive) await acceptClaim(queueKey, claimId);
+          if (effectiveClaimId && definitive) await acceptClaim(queueKey, effectiveClaimId);
           const message = describeError(error);
           // A failure after events were received may already have started the
           // turn on the server; reattach instead of sending the text twice.
@@ -299,11 +330,12 @@ export function ClarifyChat({
             ? { kind: 'hydrate' }
             : definitive
               ? { kind: 'send', text }
-              : { kind: 'send', text, claimId };
+              : { kind: 'send', text, claimId: effectiveClaimId };
           setInlineError(message);
           onErrorRef.current(message);
         }
       } finally {
+        if (effectiveClaimId) activeClaimIds.current.delete(effectiveClaimId);
         if (activeStream.current === controller) activeStream.current = null;
         if (!controller.signal.aborted) {
           setBusy(false);

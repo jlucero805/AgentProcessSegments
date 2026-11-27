@@ -8,10 +8,11 @@
  * (and jsdom) still serialize inside one tab through a promise chain, but lose the
  * cross-tab guarantee; the queue itself is best-effort either way.
  *
- * A claim is journaled under `aps-queue-inflight:<requestId>` before the item is
- * removed from the queue. If the tab dies before the send is accepted, the marker
- * survives and the next mount can prove delivery from the transcript or put the
- * message back at the front of the queue.
+ * Every outbound message is journaled under `aps-queue-inflight:<requestId>` before
+ * its POST starts: a queue drain claims its item and removes it from the queue, while
+ * a direct composer send journals a `direct` claim without touching the queue. If the
+ * tab dies before the send is accepted, the marker survives and the next mount can
+ * prove delivery from the transcript or put the message back at the front of the queue.
  *
  * Storage failures are not fatal. When a read throws, the helper falls back to the
  * copy kept in memory; when a write throws, that copy stays authoritative for this
@@ -24,11 +25,16 @@ const QUEUE_PREFIX = 'aps-queue:';
 const INFLIGHT_PREFIX = 'aps-queue-inflight:';
 const LOCK_PREFIX = 'aps-queue-lock:';
 
-/** One message removed from the queue and not yet proven accepted by the server. */
+/** Which send path owns a claim. A legacy record without `kind` is a queue claim. */
+export type ClaimKind = 'queue' | 'direct';
+
+/** One outbound message not yet proven accepted by the server. */
 export interface QueueClaim {
   id: string;
   text: string;
   claimedAt: number;
+  /** Reconciliation path for this claim; missing means `'queue'`. */
+  kind?: ClaimKind;
 }
 
 const memory = new Map<string, string[]>();
@@ -55,16 +61,24 @@ function parseClaims(raw: string): QueueClaim[] | null {
     const claims: QueueClaim[] = [];
     for (const item of parsed) {
       if (typeof item !== 'object' || item === null) return null;
-      const { id, text, claimedAt } = item as Record<string, unknown>;
+      const { id, text, claimedAt, kind } = item as Record<string, unknown>;
       if (typeof id !== 'string' || typeof text !== 'string' || typeof claimedAt !== 'number') {
         return null;
       }
-      claims.push({ id, text, claimedAt });
+      if (kind !== undefined && kind !== 'queue' && kind !== 'direct') return null;
+      const claim: QueueClaim = { id, text, claimedAt };
+      if (kind === 'queue' || kind === 'direct') claim.kind = kind;
+      claims.push(claim);
     }
     return claims;
   } catch {
     return null;
   }
+}
+
+/** Which reconciliation path owns a claim; absent `kind` is a queue claim. */
+function claimKind(claim: QueueClaim): ClaimKind {
+  return claim.kind === 'direct' ? 'direct' : 'queue';
 }
 
 function lockName(key: string): string {
@@ -270,9 +284,29 @@ export function claimHead(key: string): Promise<QueueClaim | null> {
       id: `${claimedAt}-${claimCounter}`,
       text: head,
       claimedAt,
+      kind: 'queue',
     };
     writeClaims(key, [...readStoredClaims(key), claim]);
     writeQueue(key, rest);
+    return claim;
+  });
+}
+
+/**
+ * Journal a direct composer send before its POST starts and return the claim. The
+ * queue is left alone; `settleDirectClaims` reconciles the marker on a later mount.
+ */
+export function journalDirectClaim(key: string, text: string): Promise<QueueClaim> {
+  return withLock(key, () => {
+    claimCounter += 1;
+    const claimedAt = Date.now();
+    const claim: QueueClaim = {
+      id: `${claimedAt}-${claimCounter}`,
+      text,
+      claimedAt,
+      kind: 'direct',
+    };
+    writeClaims(key, [...readStoredClaims(key), claim]);
     return claim;
   });
 }
@@ -304,12 +338,12 @@ export function releaseClaim(key: string, claimId: string): Promise<string[]> {
 }
 
 /**
- * Reconcile every claim after a snapshot. Claims the transcript already proves
+ * Reconcile every queue claim after a snapshot. Claims the transcript already proves
  * delivered are dropped; the rest are prepended in claim order so the normal drain
  * sends them. A claim whose text is still at the queue head never completed its
- * removal, so it is dropped rather than queued twice. The transcript decision happens
- * under the same lock as the queue write, so a concurrent claim cannot be requeued
- * from a stale read.
+ * removal, so it is dropped rather than queued twice. Direct-send claims are left in
+ * the marker for `settleDirectClaims`. The transcript decision happens under the same
+ * lock as the queue write, so a concurrent claim cannot be requeued from a stale read.
  */
 export function settleClaims(
   key: string,
@@ -318,16 +352,51 @@ export function settleClaims(
   return withLock(key, () => {
     const claims = readStoredClaims(key);
     const queue = readStored(key);
-    if (claims.length === 0) return queue;
+    const queued = claims.filter((claim) => claimKind(claim) === 'queue');
+    if (queued.length === 0) return queue;
     const restored: string[] = [];
-    for (const claim of claims) {
+    for (const claim of queued) {
       if (claimWasDelivered(claim, transcript)) continue;
       if (queue[0] === claim.text) continue;
       restored.push(claim.text);
     }
     const next = restored.length > 0 ? [...restored, ...queue] : queue;
     if (restored.length > 0) writeQueue(key, next);
-    writeClaims(key, []);
+    writeClaims(key, claims.filter((claim) => claimKind(claim) === 'direct'));
+    return next;
+  });
+}
+
+/**
+ * Reconcile direct-send claims after a snapshot, without touching queue claims or the
+ * ids in `activeIds` (sends this tab is still POSTing). Proven claims are dropped and
+ * the rest are prepended in claim order, except a claim whose text is already at the
+ * queue head. Runs under the same lock as the queue write.
+ */
+export function settleDirectClaims(
+  key: string,
+  transcript: readonly TranscriptMsg[],
+  activeIds: ReadonlySet<string> = new Set<string>(),
+): Promise<string[]> {
+  return withLock(key, () => {
+    const claims = readStoredClaims(key);
+    const queue = readStored(key);
+    const direct = claims.filter(
+      (claim) => claimKind(claim) === 'direct' && !activeIds.has(claim.id),
+    );
+    if (direct.length === 0) return queue;
+    const restored: string[] = [];
+    for (const claim of direct) {
+      if (claimWasDelivered(claim, transcript)) continue;
+      if (queue[0] === claim.text) continue;
+      restored.push(claim.text);
+    }
+    const next = restored.length > 0 ? [...restored, ...queue] : queue;
+    if (restored.length > 0) writeQueue(key, next);
+    writeClaims(
+      key,
+      claims.filter((claim) => claimKind(claim) !== 'direct' || activeIds.has(claim.id)),
+    );
     return next;
   });
 }

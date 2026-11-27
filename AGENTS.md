@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1372 vitest cases: 1046 server across 57 files (one environmental root-skip) and 326 web across 28 files, all green.
+- 1388 vitest cases: 1046 server across 57 files (one environmental root-skip) and 342 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,7 +117,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1046 server + 326 web, plus the e2e env guard
+npm test                       # 1046 server + 342 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
@@ -380,12 +380,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     A restored queue waits for the `/clarify` snapshot to say whether a turn is live, so
     a reload mid-turn drains only after that turn's `done`. `POST /clarify/send` refuses
     with `409 turn_active` while a turn runs; the client requeues the text at the front
-    and reattaches instead of surfacing an error. A queued item is claimed from storage
-    under a Web Lock before it is sent, so two tabs cannot deliver it twice; without Web
-    Locks one tab still drains, but the cross-tab guarantee is lost. A claim is journaled
-    under `aps-queue-inflight:<id>` before the item leaves the queue; the marker clears
-    when the send is proven accepted and is reconciled against the `/clarify` transcript
-    on the next mount, so a tab crash does not lose the message.
+    and reattaches instead of surfacing an error. Every outbound message is journaled
+    under `aps-queue-inflight:<id>` before its POST starts: a queued item is claimed from
+    storage under a Web Lock first, so two tabs cannot deliver it twice (without Web
+    Locks one tab still drains, but the cross-tab guarantee is lost), and a direct
+    composer send journals itself as `kind: "direct"` without touching the queue. A claim
+    clears when the send is proven accepted and is reconciled against the `/clarify`
+    transcript on the next mount, so a tab crash does not lose a queued or directly typed
+    message. Queue and direct claims reconcile separately, so one kind never deletes the
+    other.
 14. **Dispose ends a live turn.** `Engine.dispose` kills the child, marks the turn
     cancelled, and finishes it so the partial transcript is saved; never delete a live
     turn's maps without resolving its promise. `finishTurn` is the single settlement

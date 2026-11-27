@@ -7,10 +7,12 @@ import {
   enqueueBack,
   enqueueFront,
   inflightKey,
+  journalDirectClaim,
   readClaims,
   readQueue,
   releaseClaim,
   settleClaims,
+  settleDirectClaims,
   type QueueClaim,
 } from './queue';
 import { installFakeLocks, uninstallFakeLocks } from './test/fakeLocks';
@@ -273,6 +275,94 @@ describe('chat queue in-flight markers', () => {
     expect(claimed?.text).toBe('kept');
     await expect(acceptClaim(key, claimed!.id)).resolves.toBeUndefined();
     expect(readClaims(key)).toEqual([]);
+  });
+
+  it('journals a direct send without touching the queue', async () => {
+    const { key } = keys();
+    window.localStorage.setItem(key, JSON.stringify(['queued']));
+
+    const direct = await journalDirectClaim(key, 'typed directly');
+
+    expect(direct).toMatchObject({ text: 'typed directly', kind: 'direct' });
+    expect(direct.id).toEqual(expect.any(String));
+    expect(direct.claimedAt).toEqual(expect.any(Number));
+    expect(stored(key)).toEqual(['queued']);
+    expect(readClaims(key)).toEqual([direct]);
+  });
+
+  it('settles queue claims without clearing a direct send', async () => {
+    const { key } = keys();
+    const direct: QueueClaim = { ...claim('direct', 'typed'), kind: 'direct' };
+    seedClaims(key, [claim('queued', 'queued'), direct]);
+
+    await expect(settleClaims(key, [])).resolves.toEqual(['queued']);
+    expect(stored(key)).toEqual(['queued']);
+    expect(readClaims(key)).toEqual([direct]);
+  });
+
+  it('settles direct sends and leaves queue claims for the drain', async () => {
+    const { key } = keys();
+    window.localStorage.setItem(key, JSON.stringify(['tail']));
+    const queued = claim('queued', 'queued');
+    const delivered: QueueClaim = { ...claim('sent', 'already sent', 200), kind: 'direct' };
+    const pending: QueueClaim = { ...claim('lost', 'lost text'), kind: 'direct' };
+    seedClaims(key, [queued, delivered, pending]);
+
+    await expect(
+      settleDirectClaims(key, [{ role: 'you', kind: 'text', text: 'already sent', ts: 250 }]),
+    ).resolves.toEqual(['lost text', 'tail']);
+    expect(stored(key)).toEqual(['lost text', 'tail']);
+    expect(readClaims(key)).toEqual([queued]);
+  });
+
+  it('skips a direct send this tab is still POSTing', async () => {
+    const { key } = keys();
+    const active: QueueClaim = { ...claim('active', 'in flight'), kind: 'direct' };
+    seedClaims(key, [active]);
+
+    await expect(settleDirectClaims(key, [], new Set(['active']))).resolves.toEqual([]);
+    expect(readClaims(key)).toEqual([active]);
+  });
+
+  it('drops a direct claim whose text is already at the queue head', async () => {
+    const { key } = keys();
+    window.localStorage.setItem(key, JSON.stringify(['released', 'tail']));
+    seedClaims(key, [{ ...claim('direct', 'released'), kind: 'direct' }]);
+
+    await expect(settleDirectClaims(key, [])).resolves.toEqual(['released', 'tail']);
+    expect(stored(key)).toEqual(['released', 'tail']);
+    expect(readClaims(key)).toEqual([]);
+  });
+
+  it('treats a legacy claim without a kind as a queue claim', async () => {
+    const { key } = keys();
+    const legacy = claim('legacy', 'old marker');
+    seedClaims(key, [legacy]);
+
+    await expect(settleDirectClaims(key, [])).resolves.toEqual([]);
+    expect(readClaims(key)).toEqual([legacy]);
+    await expect(settleClaims(key, [])).resolves.toEqual(['old marker']);
+    expect(readClaims(key)).toEqual([]);
+  });
+
+  it('releases a direct claim back to the front of the queue', async () => {
+    const { key } = keys();
+    seedClaims(key, [{ ...claim('direct', 'again'), kind: 'direct' }]);
+
+    await expect(releaseClaim(key, 'direct')).resolves.toEqual(['again']);
+    expect(stored(key)).toEqual(['again']);
+    expect(readClaims(key)).toEqual([]);
+  });
+
+  it('treats an unknown claim kind as a malformed marker', () => {
+    const { key } = keys();
+    window.localStorage.setItem(
+      inflightKey(key),
+      JSON.stringify([{ id: 'bad', text: 'text', claimedAt: 1, kind: 'other' }]),
+    );
+
+    expect(readClaims(key)).toEqual([]);
+    expect(window.localStorage.getItem(inflightKey(key))).toBeNull();
   });
 });
 

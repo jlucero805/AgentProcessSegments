@@ -385,7 +385,7 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
           </aside>
         ) : null}
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        <main data-testid="help-main" className="min-w-0 flex-1 overflow-y-auto">
           {manifest === 'loading' ? (
             <div className="flex items-center gap-2 p-6 text-sm text-zinc-500">
               <Spinner /> Loading documentation…

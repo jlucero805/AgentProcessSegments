@@ -320,6 +320,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   and the Model select to have at least one option (`model-select[data-model-count]`
   other than `0`), not merely the Harness field to be mounted.
   The smoke also removes its request and cell on success, failure, and interrupt.
+- **The screenshot refresh asserts structure, not copy.** `scripts/screenshots.mjs`
+  locates the board columns, cell option, master drawer, chat, and Help through
+  `data-testid` hooks, the guarded Documentation `aria-label`, and the Getting started
+  Help slug instead of body text; `scripts/screenshots.test.mjs` fails when one of
+  those locators disappears, so drift is caught without Puppeteer.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.

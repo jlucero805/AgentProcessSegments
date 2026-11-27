@@ -467,7 +467,7 @@ export function ClarifyChat({
   });
 
   return (
-    <div className="flex h-full flex-col">
+    <div data-testid="chat-thread" className="flex h-full flex-col">
       {inlineErrors && inlineError ? (
         <div
           role="alert"

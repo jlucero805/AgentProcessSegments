@@ -585,7 +585,8 @@ built and vended by the brain; real-CLI verification is still pending.
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `OPENCODE_CONFIG_DIR` under its temp dir, so
   its skill catalog cannot read host config. `npm run test:e2e-env` guards the
   builders, their call sites, the screenshot script's missing-Puppeteer policy, its
-  interrupt cleanup, the GitHub credential-scope preflight, and the offline external-link
+  interrupt cleanup, its `data-testid`/`aria-label`/Help-slug locators, the GitHub
+  credential-scope preflight, and the offline external-link
   classifier. CI
   runs the E2E and MCP stdio smoke steps with the same hostile `SBOX_*`/`APS_*`
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression

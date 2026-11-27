@@ -294,6 +294,7 @@ export function MasterDetail({
   return (
     <aside
       data-testid="master-detail"
+      data-cell-id={cellId ?? undefined}
       className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
     >
       <header className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
@@ -323,7 +324,12 @@ export function MasterDetail({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <SectionTitle>Status</SectionTitle>
-                  <p className="mt-1 text-sm text-zinc-400">
+                  <p
+                    data-testid="master-schedule"
+                    data-enabled={status.enabled ? 'true' : 'false'}
+                    data-interval-minutes={status.intervalMinutes}
+                    className="mt-1 text-sm text-zinc-400"
+                  >
                     {status.enabled ? `Scheduled every ${status.intervalMinutes} min` : 'Disabled'}
                     {status.running ? ' · running' : ''}
                   </p>

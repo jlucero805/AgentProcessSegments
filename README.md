@@ -908,6 +908,10 @@ not a pass).
 `docs/screenshots/board.png`, `docs/screenshots/master.png`, and
 `docs/screenshots/help-getting-started.png` from a staged temp board. The Help capture
 is the visual baseline for the three rendered Getting started Mermaid diagrams.
+It locates the board, cell filter, master drawer, chat, and Help through `data-testid`
+hooks (plus the Documentation `aria-label` and the Getting started Help slug) rather
+than visible copy, and `scripts/screenshots.test.mjs` fails in the normal test suite
+when one of those locators disappears.
 It needs `npm run build` first and exits non-zero when Puppeteer is absent; pass
 `--allow-missing-puppeteer` to skip the capture deliberately (it prints the current
 image timestamps). The spawned server and the capture browser both get a pinned

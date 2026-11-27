@@ -18,6 +18,11 @@
 // change the staged images. No agent turn starts: the master timer is longer
 // than this script's deadline, and a current scorecard keeps the summary
 // scheduler from catching up.
+//
+// Locate elements through the data-testid hooks, the Documentation aria-label, and
+// the Getting started Help slug below, never through visible copy.
+// scripts/screenshots.test.mjs fails when one used here is missing from the SPA or
+// the Help manifest.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -47,8 +52,127 @@ const HELP_VIEWPORT_WIDTH = 1440;
 const HELP_MAX_HEIGHT = 3200;
 const HELP_BOTTOM_MARGIN = 12;
 const HELP_DIALOG = '[role="dialog"][aria-label="Documentation"]';
-const HELP_MERMAID = `${HELP_DIALOG} article svg[id^="help-mermaid-"]`;
+const HELP_MAIN = '[data-testid="help-main"]';
+const HELP_ARTICLE = '[data-testid="help-article"][data-slug="getting-started"]';
+const HELP_MERMAID = '[data-testid="help-article"] svg[id^="help-mermaid-"]';
 const HELP_FENCE_MARKERS = ['flowchart TB', 'sequenceDiagram', 'flowchart LR'];
+const BOARD_COLUMNS = ['intake', 'clarify', 'dispatch', 'review', 'merge', 'finalize'];
+
+// The staged demo board. Titles live here only: seed(), markWorking(), the
+// activity rows, and the readiness check all read this list, so the fixture and
+// the assertions cannot drift apart. Column mapping: Requests is clarify+not
+// started; Plan is clarify+started.
+const STAGED_REQUESTS = [
+  {
+    key: 'ranking',
+    title: 'Add ranking load test',
+    state: 'clarify',
+    started: 0,
+    status: 'none',
+    unchecked: 0,
+    ageMs: 0,
+  },
+  {
+    key: 'export',
+    title: 'Add export endpoint',
+    state: 'clarify',
+    started: 0,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 14 * 60_000,
+  },
+  {
+    key: 'photos',
+    title: 'Weekend photo workflow',
+    state: 'clarify',
+    started: 0,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 20 * 60_000,
+  },
+  {
+    key: 'auth',
+    title: 'Refactor auth middleware',
+    state: 'clarify',
+    started: 1,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 28 * 60_000,
+  },
+  {
+    key: 'mobile',
+    title: 'Mobile nav polish',
+    state: 'clarify',
+    started: 1,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 45 * 60_000,
+  },
+  {
+    key: 'working',
+    title: 'Billing webhook retries',
+    state: 'dispatch',
+    started: 1,
+    status: 'working',
+    unchecked: 0,
+    ageMs: 3 * 60_000,
+  },
+  {
+    key: 'homelab',
+    title: 'Home lab notes',
+    state: 'dispatch',
+    started: 1,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 50 * 60_000,
+  },
+  {
+    key: 'search',
+    title: 'Search ranking',
+    state: 'review',
+    started: 1,
+    status: 'idle',
+    unchecked: 1,
+    ageMs: 0,
+  },
+  {
+    key: 'pagination',
+    title: 'API pagination',
+    state: 'review',
+    started: 1,
+    status: 'idle',
+    unchecked: 1,
+    ageMs: 60 * 60_000,
+  },
+  {
+    key: 'worktree',
+    title: 'Worktree cleanup',
+    state: 'review',
+    started: 1,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 2 * 60 * 60_000,
+  },
+  {
+    key: 'merge',
+    title: 'Merge billing retries',
+    state: 'merge',
+    started: 1,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 6 * 60_000,
+  },
+  {
+    key: 'digest',
+    title: 'Digest: queue semantics',
+    state: 'finalize',
+    started: 1,
+    status: 'idle',
+    unchecked: 0,
+    ageMs: 3 * 60 * 60_000,
+  },
+];
+const STAGED_BY_KEY = new Map(STAGED_REQUESTS.map((request) => [request.key, request]));
 
 // The guard runs before the build check so --allow-missing-puppeteer also works
 // on an unbuilt tree; a deliberate skip wins over "run npm run build first".
@@ -274,35 +398,20 @@ function seed() {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
-    // Column mapping: Requests is clarify+not started; Plan is clarify+started.
-    const demo = [
-      ['Add ranking load test', 'clarify', 0, 'none', 0, 0],
-      ['Add export endpoint', 'clarify', 0, 'idle', 0, 14 * 60_000],
-      ['Weekend photo workflow', 'clarify', 0, 'idle', 0, 20 * 60_000],
-      ['Refactor auth middleware', 'clarify', 1, 'idle', 0, 28 * 60_000],
-      ['Mobile nav polish', 'clarify', 1, 'idle', 0, 45 * 60_000],
-      ['Billing webhook retries', 'dispatch', 1, 'working', 0, 3 * 60_000],
-      ['Home lab notes', 'dispatch', 1, 'idle', 0, 50 * 60_000],
-      ['Search ranking', 'review', 1, 'idle', 1, 0],
-      ['API pagination', 'review', 1, 'idle', 1, 60 * 60_000],
-      ['Worktree cleanup', 'review', 1, 'idle', 0, 2 * 60 * 60_000],
-      ['Merge billing retries', 'merge', 1, 'idle', 0, 6 * 60_000],
-      ['Digest: queue semantics', 'finalize', 1, 'idle', 0, 3 * 60 * 60_000],
-    ];
     const ids = new Map();
-    for (const [title, state, started, status, unchecked, ageMs] of demo) {
+    for (const request of STAGED_REQUESTS) {
       const id = randomUUID();
-      ids.set(title, id);
-      const updatedAt = now - ageMs;
+      ids.set(request.key, id);
+      const updatedAt = now - request.ageMs;
       insertRequest.run(
         id,
-        title,
-        `Staged demo request for the ${state} segment.`,
-        state,
-        started,
-        started,
-        status,
-        unchecked,
+        request.title,
+        `Staged demo request for the ${request.state} segment.`,
+        request.state,
+        request.started,
+        request.started,
+        request.status,
+        request.unchecked,
         workId,
         updatedAt - 2 * 60 * 60_000,
         updatedAt,
@@ -327,17 +436,17 @@ function seed() {
           skipped: 1,
         }),
       ],
-      ['prod', 'Search ranking', 20_000, 'Search ranking in Review'],
-      ['review', 'Search ranking', 14_000, 'Search ranking ready for review'],
-      ['advance', 'Merge billing retries', 9_000, 'Merge billing retries → Finalize'],
-      ['followup', 'Add ranking load test', 5_000, 'Add ranking load test'],
-      ['skip', 'Billing webhook retries', 2_000, 'Billing webhook retries still working'],
+      ['prod', 'search', 20_000, `${STAGED_BY_KEY.get('search').title} in Review`],
+      ['review', 'search', 14_000, `${STAGED_BY_KEY.get('search').title} ready for review`],
+      ['advance', 'merge', 9_000, `${STAGED_BY_KEY.get('merge').title} → Finalize`],
+      ['followup', 'ranking', 5_000, STAGED_BY_KEY.get('ranking').title],
+      ['skip', 'working', 2_000, `${STAGED_BY_KEY.get('working').title} still working`],
     ];
-    for (const [action, title, ageMs, detail] of events) {
+    for (const [action, key, ageMs, detail] of events) {
       insertEvent.run(
         randomUUID(),
         workId,
-        title ? (ids.get(title) ?? null) : null,
+        key ? (ids.get(key) ?? null) : null,
         action,
         detail,
         now - ageMs,
@@ -378,8 +487,8 @@ function seed() {
         advanced: 2,
         followUps: 1,
         skipped: 1,
-        followUpTitles: ['Add ranking load test'],
-        skipReasons: ['Billing webhook retries still working'],
+        followUpTitles: [STAGED_BY_KEY.get('ranking').title],
+        skipReasons: [`${STAGED_BY_KEY.get('working').title} still working`],
       },
       previous: {
         created: 2,
@@ -459,6 +568,7 @@ function seed() {
       ),
     );
 
+    return { personalId, workId };
   } finally {
     db.close();
   }
@@ -509,7 +619,9 @@ function markWorking() {
   const db = new Database(dbPath);
   try {
     db.pragma('busy_timeout = 5000');
-    const row = db.prepare("SELECT id FROM requests WHERE title = 'Billing webhook retries'").get();
+    const row = db
+      .prepare('SELECT id FROM requests WHERE title = ?')
+      .get(STAGED_BY_KEY.get('working').title);
     assert(row, 'staged working request is missing');
     db.prepare("UPDATE requests SET agent_status = 'working' WHERE id = ?").run(row.id);
   } finally {
@@ -517,22 +629,10 @@ function markWorking() {
   }
 }
 
-async function clickText(page, text) {
-  const found = await page.evaluate((label) => {
-    const elements = [...document.querySelectorAll('button, a')];
-    const element = elements.find((candidate) => candidate.textContent?.trim() === label);
-    if (!element) return false;
-    element.click();
-    return true;
-  }, text);
-  if (!found) throw new Error(`button not found: ${text}`);
-}
-
 async function helpDiagramState(page) {
   return page.evaluate(
-    ({ dialogSelector, mermaidSelector, markers }) => {
-      const dialog = document.querySelector(dialogSelector);
-      const article = dialog?.querySelector('article');
+    ({ articleSelector, mermaidSelector, markers }) => {
+      const article = document.querySelector(articleSelector);
       if (!article) return { found: false, svgs: 0, spinner: false, fences: [], text: '' };
 
       const text = article.innerText;
@@ -551,7 +651,7 @@ async function helpDiagramState(page) {
         }),
       };
     },
-    { dialogSelector: HELP_DIALOG, mermaidSelector: HELP_MERMAID, markers: HELP_FENCE_MARKERS },
+    { articleSelector: HELP_ARTICLE, mermaidSelector: HELP_MERMAID, markers: HELP_FENCE_MARKERS },
   );
 }
 
@@ -610,9 +710,9 @@ async function fitHelpViewport(page) {
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await page.evaluate((selector) => {
-      const scroll = document.querySelector(`${selector} main`);
+      const scroll = document.querySelector(selector);
       if (scroll) scroll.scrollTop = 0;
-    }, HELP_DIALOG);
+    }, HELP_MAIN);
 
     const state = await helpDiagramState(page);
     assert.equal(
@@ -654,7 +754,7 @@ function pngSize(file) {
 }
 
 async function capture() {
-  seed();
+  const { workId } = seed();
   writeConfig();
   mkdirSync(shotsDir, { recursive: true });
 
@@ -703,65 +803,57 @@ async function capture() {
   });
 
   await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page.waitForSelector('[data-testid="new-request"]', { visible: true, timeout: 15_000 });
   await waitFor(
-    () => page.evaluate(() => document.body.innerText.includes('Agent Process Segments')),
-    'the current branding',
-  );
-
-  const text = await page.evaluate(() => document.body.innerText);
-  assert(!text.includes('Sandbox Harness'), 'old brand is still rendered');
-  assert(!text.includes('process segments for agents'), 'old tagline is still rendered');
-
-  for (const title of [
-    'Add ranking load test',
-    'Add export endpoint',
-    'Weekend photo workflow',
-    'Refactor auth middleware',
-    'Mobile nav polish',
-    'Billing webhook retries',
-    'Home lab notes',
-    'Search ranking',
-    'API pagination',
-    'Worktree cleanup',
-    'Merge billing retries',
-    'Digest: queue semantics',
-  ]) {
-    await waitFor(
-      () => page.evaluate((label) => document.body.innerText.includes(label), title),
-      `board card ${title}`,
-    );
-  }
-  await waitFor(
-    () =>
-      page.evaluate(
-        () => document.body.innerText.includes('All cells') && document.body.innerText.includes('+ New request'),
-      ),
+    async () => {
+      const columns = await page.$$eval('[data-testid^="column-"]', (nodes) =>
+        nodes.map((node) => node.getAttribute('data-testid')),
+      );
+      const expected = BOARD_COLUMNS.map((column) => `column-${column}`);
+      return columns.join(',') === expected.join(',');
+    },
     'the board shell',
   );
+
+  for (const request of STAGED_REQUESTS) {
+    await waitFor(
+      () =>
+        page.evaluate(
+          (label) =>
+            [...document.querySelectorAll('[data-testid="request-card"]')].some((card) =>
+              card.textContent?.includes(label),
+            ),
+          request.title,
+        ),
+      `board card ${request.title}`,
+    );
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 300));
   await page.screenshot({ path: boardShot, captureBeyondViewport: false });
 
-  await clickText(page, 'Work repo');
-  await waitFor(
-    () => page.evaluate(() => document.body.innerText.includes('Cell master')),
-    'the Cell master action',
+  const cellOption = `[data-testid="cell-option"][data-cell-id="${workId}"]`;
+  await page.waitForSelector(cellOption, { visible: true, timeout: 10_000 });
+  await page.click(cellOption);
+  await page.click('[data-testid="nav-master"]');
+  await page.waitForSelector(`[data-testid="master-detail"][data-cell-id="${workId}"]`, {
+    visible: true,
+    timeout: 15_000,
+  });
+  await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
+  await page.waitForSelector('[data-testid="master-cron-loop"]', { visible: true, timeout: 10_000 });
+  await page.waitForSelector(
+    '[data-testid="master-schedule"][data-interval-minutes="15"][data-enabled="true"]',
+    { visible: true, timeout: 10_000 },
   );
-  await clickText(page, 'Cell master');
+  await page.waitForSelector('[data-testid="master-chat"]', { visible: true, timeout: 10_000 });
   await waitFor(
     () =>
       page.evaluate(
         () =>
-          document.body.innerText.includes('Work repo · process automation') &&
-          document.body.innerText.includes('Scheduled every 15 min') &&
-          document.body.innerText.includes('Master chat'),
-      ),
-    'the master drawer',
-  );
-  await waitFor(
-    () =>
-      page.evaluate(() =>
-        document.body.innerText.includes('Give me a quick status for this cell.'),
+          document
+            .querySelector('[data-testid="chat-thread"]')
+            ?.textContent?.includes('Give me a quick status for this cell.') ?? false,
       ),
     'the staged master chat',
   );
@@ -770,18 +862,9 @@ async function capture() {
   await new Promise((resolve) => setTimeout(resolve, 750));
   await page.screenshot({ path: masterShot, captureBeyondViewport: false });
 
-  await clickText(page, 'Help');
+  await page.click('[data-testid="nav-help"]');
   await page.waitForSelector(HELP_DIALOG, { visible: true, timeout: 10_000 });
-  await waitFor(
-    () =>
-      page.evaluate(
-        (selector) =>
-          document.querySelector(`${selector} article`)?.innerText.includes('Agent Process Segments') ??
-          false,
-        HELP_DIALOG,
-      ),
-    'the Getting started Help article',
-  );
+  await page.waitForSelector(HELP_ARTICLE, { visible: true, timeout: 15_000 });
   await waitForHelpDiagrams(page);
   helpCaptureHeight = await fitHelpViewport(page);
 

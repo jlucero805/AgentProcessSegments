@@ -58,6 +58,48 @@ export default tseslint.config(
     },
   },
   {
+    // Server tests must wait on an observable condition or fake timers. A
+    // wall-clock setTimeout/setInterval is a fixed sleep unless it is a
+    // bounded fail-fast guard, and guards must justify themselves with
+    // `eslint-disable-next-line no-restricted-syntax -- <reason>`.
+    files: ['src/server/test/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.name='setTimeout']",
+          message:
+            'Do not use wall-clock setTimeout in server tests; await an observable condition or use fake timers. A bounded fail-fast guard needs an eslint-disable-next-line no-restricted-syntax comment with a reason.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='setTimeout']",
+          message:
+            'Do not use wall-clock setTimeout in server tests; await an observable condition or use fake timers.',
+        },
+        {
+          selector: "CallExpression[callee.name='setInterval']",
+          message:
+            'Do not use setInterval in server tests; use fake timers or an observable condition.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='setInterval']",
+          message:
+            'Do not use setInterval in server tests; use fake timers or an observable condition.',
+        },
+        {
+          selector: "ImportDeclaration[source.value='node:timers/promises']",
+          message:
+            'Do not import node:timers/promises in server tests; it is a fixed sleep.',
+        },
+        {
+          selector: "ImportDeclaration[source.value='timers/promises']",
+          message:
+            'Do not import timers/promises in server tests; it is a fixed sleep.',
+        },
+      ],
+    },
+  },
+  {
     // The compiler-backed preset: the classic hook rules plus the React
     // correctness rules (set-state-in-effect, refs, purity, ...). Effects keep
     // synchronous state writes out of their bodies; see AGENTS.md.

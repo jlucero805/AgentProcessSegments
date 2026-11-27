@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { walkFiles } from '../src/util/files.js';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const packageJson = JSON.parse(
@@ -96,5 +97,56 @@ describe('zero-warning lint gate', () => {
       'sudo tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint',
     );
     expect(workflow).toContain('actionlint --version');
+  });
+});
+
+describe('server test wall-clock sleep guard', () => {
+  it('restricts setTimeout and setInterval to justified fail-fast guards', () => {
+    expect(eslintConfig).toContain("files: ['src/server/test/**/*.{ts,tsx}']");
+    for (const selector of [
+      "CallExpression[callee.name='setTimeout']",
+      "CallExpression[callee.property.name='setTimeout']",
+      "CallExpression[callee.name='setInterval']",
+      "CallExpression[callee.property.name='setInterval']",
+      "ImportDeclaration[source.value='node:timers/promises']",
+    ]) {
+      expect(eslintConfig, selector).toContain(selector);
+    }
+    expect(eslintConfig).toContain('observable condition');
+    expect(eslintConfig).toContain('fake timers');
+    expect(eslintConfig).toContain('eslint-disable-next-line no-restricted-syntax');
+  });
+
+  it('allows only the three documented fail-fast timer guards', () => {
+    const testDir = path.join(repoRoot, 'src/server/test');
+    const guardFile = 'lint-gate.test.ts';
+    const missing: string[] = [];
+    const exceptions: Record<string, number> = {};
+    for (const file of walkFiles(testDir)) {
+      if (!file.endsWith('.ts') || file === guardFile) continue;
+      const lines = readFileSync(path.join(testDir, file), 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (line.trimStart().startsWith('//')) return;
+        if (!/\bsetTimeout\s*\(/.test(line)) return;
+        const previous = lines[index - 1] ?? '';
+        if (
+          /\/\/\s*eslint-disable-next-line no-restricted-syntax\s+--\s+\S/.test(
+            previous,
+          )
+        ) {
+          exceptions[file] = (exceptions[file] ?? 0) + 1;
+          return;
+        }
+        missing.push(`${file}:${index + 1}`);
+      });
+    }
+    expect(
+      missing,
+      'use an observable wait or add a justified no-restricted-syntax disable',
+    ).toEqual([]);
+    expect(exceptions).toEqual({
+      'harness.test.ts': 2,
+      'migrate-paths.test.ts': 1,
+    });
   });
 });

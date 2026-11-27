@@ -953,4 +953,34 @@ describe('deploy/upgrade-vps.sh', () => {
     },
     30_000,
   );
+
+  it.skipIf(process.platform === 'win32')(
+    'creates the cutover root owner-only when an external run is already up to date',
+    () => {
+      const fixture = createFixture();
+      git(fixture.clone, ['reset', '--hard', fixture.v2]);
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      const run = path.join(fixture.root, 'external-run');
+
+      const result = runScript(
+        fixture,
+        ['--run', '--run-dir', run, '--health-timeout', '10'],
+        30_000,
+        '000',
+      );
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(output).toContain('already up to date');
+      expect(output).not.toContain('rolling back');
+      expect(stateOf(fixture)).toBe('success');
+      expect(modeOf(cutoverRoot)).toBe(0o700);
+      expect(modeOf(path.join(cutoverRoot, 'upgrades'))).toBe(0o700);
+      expect(modeOf(run)).toBe(0o700);
+      expect(latestRun(fixture)).toBe(realpathSync(run));
+      expect(calls(fixture, 'npm.calls')).toBe('');
+      expect(calls(fixture, 'restarts')).toBe('');
+    },
+    30_000,
+  );
 });

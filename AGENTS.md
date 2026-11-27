@@ -723,9 +723,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `db-backup.sqlite` is forced to `0600`. A local `umask 077` covers creation, then
     `chmod` makes the result independent of the caller's umask and repairs a retried run;
     both fail closed. A missing `~/.aps-cutover`/`upgrades` ancestor chain is created
-    `0700`; an existing shared root is not silently chmodded by the deploy script. The
-    snapshot remains a normal, manually restorable SQLite database. This is not encryption
-    at rest; older run directories, snapshots, and the shared root are tightened with
+    `0700`, including on the internal `--run --run-dir` path when the clone is already
+    at the target; an existing shared root is not silently chmodded by the deploy script.
+    The snapshot remains a normal, manually restorable SQLite database. This is not
+    encryption at rest; older run directories, snapshots, and the shared root are
+    tightened with
     `npm run repair:upgrades` (dry run by default; `--apply` to change), which scans
     `~/.aps-cutover` and `~/.aps-cutover/upgrades`, never follows a symlinked `upgrades/`,
     skips a symlinked root while still scanning through it, and never chmods `latest`.

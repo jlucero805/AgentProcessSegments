@@ -3020,7 +3020,8 @@ symlink target. An operator who ran both repairs could reasonably assume the who
 evidence tree was owner-only. `upgrade-vps.sh` also had one creation gap: its internal
 `--run --run-dir` path could reach `point_upgrade_latest` with the root still missing, and
 that helper used a bare `mkdir -p`, creating the root and `upgrades/` at `0755` under the
-usual umask.
+usual umask. D136 closed the remaining ordering gap on that path: an
+already-up-to-date run linked `latest` before creating the root.
 
 **Decision.** The shared `~/.aps-cutover` root is `0700`, the same boundary as its
 children. A new root is created `0700` by both deploy scripts: `upgrade-vps.sh` now runs
@@ -3485,3 +3486,21 @@ only fail-closed option.
 dangling link now fails the repair instead of passing as "nothing to repair". No new
 flag, exit code, report format, or child rule; the shell `chmod`s in
 `deploy/upgrade-vps.sh`/`cutover-vps.sh` are unchanged.
+
+## D136. The upgrade root is created before `latest` on the internal no-op path
+
+**Context.** D120 wrapped `point_upgrade_latest`'s `mkdir -p` in `umask 077`, but
+`run_upgrade`'s `OLD_SHA == TARGET` branch still wrote
+`~/.aps-cutover/upgrades/latest` before anything created `upgrades/`. An external
+`--run --run-dir` under a missing `~/.aps-cutover` therefore made `ln` fail, which the
+ERR trap turned into `rollback`, overwriting the no-op's `success` state with `failed`.
+
+**Decision.** One `ensure_upgrade_root` helper creates a missing `upgrades/` root under a
+local `umask 077`; both `point_upgrade_latest` and the up-to-date branch call it before
+the `latest` symlink. An existing root is still never chmodded (D73/D86/D120), and a
+genuine creation or link failure still fails closed through the ERR trap rather than being
+downgraded to a warning. `retention_after` and its `--no-prune` behavior are unchanged.
+
+**Cost.** Two call sites share one helper; a missing root plus an external run dir now
+finishes as `success` with `latest` pointed at the run directory. `repair:upgrades` still
+owns tightening an old root.

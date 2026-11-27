@@ -323,6 +323,26 @@ describe('SummaryScheduler', () => {
     fixture.db.close();
   });
 
+  it('ignores grouped reports for cells that no longer exist', () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(start));
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    recordAt(fixture, cell.id, start);
+    recordAt(fixture, 'deleted-cell', start + HOUR);
+    vi.setSystemTime(new Date(start + 2 * HOUR));
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      nextRunAt: start + INTERVAL,
+      lastRunAt: start,
+      running: false,
+      lastError: null,
+    });
+
+    fixture.db.close();
+  });
+
   it('keeps statusFor on its single-cell latest lookup', () => {
     vi.useFakeTimers();
     const start = Date.UTC(2026, 0, 1);
@@ -385,6 +405,7 @@ describe('SummaryScheduler', () => {
     await flush();
     expect(fixture.generate).toHaveBeenCalledTimes(1);
     expect(fixture.generate).toHaveBeenCalledWith(first.id);
+    expect(fixture.scheduler.status().running).toBe(true);
 
     const manual = fixture.scheduler.runNow(first.id);
     expect(fixture.generate).toHaveBeenCalledTimes(1);

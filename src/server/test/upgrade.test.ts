@@ -50,6 +50,19 @@ while [[ $# -gt 0 ]]; do
     *) break ;;
   esac
 done
+# Simulate state changing between the parent preflight and the detached run.
+if [[ -f "$root/refuse-detached-preflight" ]]; then
+  printf 'drift\n' >"$FIXTURE_CLONE/untracked-drift.txt"
+fi
+if [[ -f "$root/break-detached-pruner" ]]; then
+  for pruner in "$FIXTURE_HOME"/.aps-cutover/upgrades/*/prune-cutover-runs.mjs; do
+    [[ -f "$pruner" ]] || continue
+    printf '#!/usr/bin/env node\nprocess.exit(1);\n' >"$pruner"
+  done
+fi
+if [[ -f "$root/fail-detached-launch" ]]; then
+  exit 1
+fi
 exec "$@"
 `;
 
@@ -483,6 +496,8 @@ describe('deploy/upgrade-vps.sh', () => {
     if (newest === undefined) throw new Error('expected seeded runs');
     const current = path.basename(latestRun(fixture));
     expect(upgradeRuns(fixture)).toEqual([newest, current].sort());
+    const log = readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8');
+    expect(log.match(/prune failed \(/g)).toHaveLength(1);
   });
 
   it('prunes old runs after a rollback', () => {
@@ -531,6 +546,105 @@ describe('deploy/upgrade-vps.sh', () => {
       'pruning skipped (--no-prune)',
     );
   });
+
+  it('prunes old runs when a detached preflight refuses', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+    writeFileSync(path.join(fixture.root, 'refuse-detached-preflight'), '1\n');
+
+    const result = runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '1',
+      '--keep-days',
+      '0',
+    ]);
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(1);
+    expect(output).toContain('the detached upgrade did not complete');
+    expect(stateOf(fixture)).toBe('failed');
+    const newest = seeded.at(-1);
+    if (newest === undefined) throw new Error('expected seeded runs');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([newest, current].sort());
+    const log = readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8');
+    expect(log).toContain('REFUSED: clone has uncommitted changes');
+    expect(log.match(/prune failed \(/g)).toHaveLength(1);
+    expect(modeOf(latestRun(fixture))).toBe(0o700);
+  }, 30_000);
+
+  it('keeps every run when a refused detached preflight opts out of pruning', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+    writeFileSync(path.join(fixture.root, 'refuse-detached-preflight'), '1\n');
+
+    const result = runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '1',
+      '--keep-days',
+      '0',
+      '--no-prune',
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(stateOf(fixture)).toBe('failed');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([...seeded, current].sort());
+    expect(readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8')).toContain(
+      'pruning skipped (--no-prune)',
+    );
+  }, 30_000);
+
+  it('warns instead of failing when the pruner breaks on a refusal', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+    writeFileSync(path.join(fixture.root, 'refuse-detached-preflight'), '1\n');
+    writeFileSync(path.join(fixture.root, 'break-detached-pruner'), '1\n');
+
+    const result = runScript(fixture, [
+      '--detach',
+      '--health-timeout',
+      '10',
+      '--keep-runs',
+      '1',
+      '--keep-days',
+      '0',
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(stateOf(fixture)).toBe('failed');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([...seeded, current].sort());
+    const log = readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8');
+    expect(log.match(/prune failed \(/g)).toHaveLength(1);
+    expect(log).toContain('(exit 1); older run directories may remain');
+    expect(log).not.toContain('upgrade pruner not found');
+  }, 30_000);
+
+  it('prunes old runs when the detached upgrade cannot start', () => {
+    const fixture = createFixture();
+    const seeded = seedSuccessfulRuns(fixture, 7);
+    writeFileSync(path.join(fixture.root, 'fail-detached-launch'), '1\n');
+
+    const result = runScript(fixture, ['--detach', '--keep-runs', '1', '--keep-days', '0']);
+    const output = `${result.stdout}${result.stderr}`;
+
+    expect(result.status).toBe(1);
+    expect(output).toContain('the detached upgrade did not complete');
+    expect(stateOf(fixture)).toBe('failed');
+    const newest = seeded.at(-1);
+    if (newest === undefined) throw new Error('expected seeded runs');
+    const current = path.basename(latestRun(fixture));
+    expect(upgradeRuns(fixture)).toEqual([newest, current].sort());
+    const log = readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8');
+    expect(log.match(/prune failed \(/g)).toHaveLength(1);
+  }, 30_000);
 
   it('fails closed when the pruning helper is missing', () => {
     const fixture = createFixture();
@@ -605,6 +719,7 @@ describe('deploy/upgrade-vps.sh', () => {
     expect(output).toContain('uncommitted changes');
     expect(calls(fixture, 'npm.calls')).toBe('');
     expect(calls(fixture, 'restarts')).toBe('');
+    expect(existsSync(path.join(fixture.home, '.aps-cutover', 'upgrades'))).toBe(false);
   }, 30_000);
 
   it('refuses a live run without --detach or --dry-run', () => {

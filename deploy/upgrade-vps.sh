@@ -44,6 +44,7 @@ PAUSED=0
 MERGED=0
 RESTARTED=0
 ROLLED_BACK=0
+PRUNED=0
 NODE_MODULES_BACKED_UP=0
 SERVER_DIST_BACKED_UP=0
 WEB_DIST_BACKED_UP=0
@@ -121,6 +122,12 @@ refuse() {
   log "REFUSED: $*"
   if [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]]; then
     write_state failed
+    # A refusal is terminal, so prune like the other terminal states. Clear the
+    # ERR trap first: a prune problem must not fall into rollback(), which would
+    # write the state again and try to prune a second time.
+    trap - ERR
+    set +e
+    retention_after failed
   fi
   exit 2
 }
@@ -169,6 +176,13 @@ point_upgrade_latest() {
 retention_after() {
   local phase="$1"
   [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
+  # The ERR trap is inherited by subshells, so a rollback can run once inside a
+  # redirected subshell and again in the top-level shell. Only the top-level
+  # shell owns the single retention pass.
+  if [[ "${BASH_SUBSHELL:-0}" -gt 0 || "$PRUNED" -eq 1 ]]; then
+    return 0
+  fi
+  PRUNED=1
   if [[ "$NO_PRUNE" -eq 1 ]]; then
     log "pruning skipped (--no-prune)"
     return 0
@@ -613,6 +627,7 @@ detach_upgrade() {
     /bin/bash "$RUN_DIR/upgrade.sh" "${args[@]}"; then
     if [[ "$(cat "$RUN_DIR/state" 2>/dev/null || true)" == "launched" ]]; then
       write_state failed
+      retention_after failed || true
     fi
     log "ERROR: the detached upgrade did not complete; read $RUN_DIR/upgrade.log"
     exit 1

@@ -361,7 +361,9 @@ every terminal state the script keeps the current/`latest` run, the newest succe
 the newest 5 finished runs, any run modified in the last 30 days, and incomplete runs for
 a 7-day grace window, then removes the older terminal runs. Use `--keep-runs` and
 `--keep-days` to tune those windows, or `--no-prune` to leave pruning to an external
-schedule.
+schedule. A refused preflight in a detached run and a detached unit that cannot start are
+terminal too: both write `failed`, run the same retention pass, and make the launching
+command exit non-zero.
 
 ### Prune upgrade run directories
 

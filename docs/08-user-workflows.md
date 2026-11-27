@@ -126,10 +126,12 @@ beyond five.
   selected period is not shown, even when it is the cell's newest overall.
 - The sidebar's **Scorecards** page browses the same persisted reports. A period control
   defaults to **72h** and can be widened to **24h**, **7d**, **30d**, or **All**, or set
-  to **Custom** with a start and end date. Custom dates use the browser's local time and
-  cover both whole days (local midnight through the end of the end date); a start after
-  the end is rejected before any request is sent. The period filters by when a report was
-  generated, not by the window the report covers;
+  to **Custom** with a start and end date plus optional start and end times (defaults
+  **00:00** and **23:59**). Custom values use the browser's local time; the start is
+  exact at the selected minute and the end includes the whole end minute. A start after
+  the end at minute granularity is rejected before any request is sent, and equal start
+  and end minutes are valid. Clearing a time falls back to its default. The period
+  filters by when a report was generated, not by the window the report covers;
   each report still shows its own configured trailing window. With **All cells** selected
   it lists every cell with a report in the period, newest cell first, loading each cell's
   latest report in one latest-per-cell request rather than one request per cell. With a

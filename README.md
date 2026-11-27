@@ -113,7 +113,7 @@ and shows at most the newest five reports in the selected period. The **Usage** 
 totals tokens and cost by model, cell, and request, and the **Scorecards** page collects
 each cell’s persisted reports with its earlier history. The page defaults to reports
 generated in the last 72 hours, can widen to 24 hours, 7 days, 30 days, or all retained
-history, or use a custom local start/end date range; **All cells** loads each cell's
+history, or use a custom local start/end date and time range; **All cells** loads each cell's
 latest report in one latest-per-cell request, or switches to **Flat**, one chronological
 cross-cell feed with **Load more**. **Load older** pages through each cell's history
 within the selected period.
@@ -244,7 +244,7 @@ forever. The same startup/hourly job deletes old `cell_summaries` report rows in
 but always keeps the newest report per cell so the drawer can still show it under
 **All** and the scheduler does not treat a dormant cell as never summarized. Scorecard
 history is not rolled up. The Scorecards page filters by generation time, defaults to
-the last 72 hours, supports a custom local start/end date range, and bounds **All** and
+the last 72 hours, supports a custom local start/end date and time range, and bounds **All** and
 custom ranges by this retention window.
 
 Budget alert retention lives in `config.json` as `retention.budgetAlertsDays`, also
@@ -705,7 +705,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1415 vitest cases: 1062 server cases across 58 files (state machine,
+`npm test` runs 1427 vitest cases: 1063 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -721,7 +721,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 353 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 364 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, and manifest-aware served-page links, the source link, board,

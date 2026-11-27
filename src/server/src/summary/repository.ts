@@ -109,9 +109,17 @@ export class SummaryRepository {
    */
   grouped(options: SummaryGroupOptions = {}): SummaryGroup[] {
     const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
-    const where = options.since === undefined ? '' : ' WHERE created_at >= ?';
-    const params: Array<string | number> =
-      options.since === undefined ? [] : [options.since];
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (options.since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(options.since);
+    }
+    if (options.until !== undefined) {
+      clauses.push('created_at <= ?');
+      params.push(options.until);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db
       .prepare(
         `SELECT * FROM (

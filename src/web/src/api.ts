@@ -527,7 +527,7 @@ export const api = {
     return request(withQuery('/api/summaries', options));
   },
   getSummaryGroups(
-    options: { limit?: number; since?: number } = {},
+    options: { limit?: number; since?: number; until?: number } = {},
   ): Promise<SummaryGroupsResponse> {
     return request(withQuery('/api/summaries/grouped', options));
   },

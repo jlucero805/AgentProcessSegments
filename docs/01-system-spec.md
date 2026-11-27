@@ -427,10 +427,12 @@ never runs `VACUUM`; SQLite reuses freed pages.
 `idx_cell_summaries_created` for retention cutoffs. One row is written per generated
 scorecard; the scheduler and the drawer read only the newest row per cell, and the
 drawer requests the latest five. The Scorecards page reads history with inclusive
-generation-time bounds (`since` and `until`) and a tie-safe `(created_at, id)` keyset
-cursor (`before`/`beforeId`), ordered `created_at DESC, id DESC`. It defaults to the last
-72 hours, offers presets plus a custom local whole-day range, and requests 25 reports per
-cell plus one probe row. No schema change is needed for that read path.
+generation-time bounds (`since` and `until`). The all-cells view requests the newest 25
+per cell in one grouped feed, ordered by each group's newest report; the focused-cell view
+uses a tie-safe `(created_at, id)` keyset cursor (`before`/`beforeId`), ordered
+`created_at DESC, id DESC`. It defaults to the last 72 hours, offers presets plus a custom
+local whole-day range, and asks for one probe row to decide **Load older**. No schema
+change is needed for that read path.
 
 `retention.cellSummariesDays` in `config.json` (editable from the Config page) bounds the
 table: default 90 days, `0` keeps scorecard history forever. The `master_events`

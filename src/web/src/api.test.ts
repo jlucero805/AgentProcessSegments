@@ -214,11 +214,11 @@ describe('api client', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await api.getSummaryGroups({ limit: 25, since: 1_000 });
+    await api.getSummaryGroups({ limit: 25, since: 1_000, until: 3_000 });
     await api.getSummaryGroups();
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-      '/api/summaries/grouped?limit=25&since=1000',
+      '/api/summaries/grouped?limit=25&since=1000&until=3000',
     );
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/summaries/grouped');
   });

@@ -368,6 +368,7 @@ const summaryStatusQuerySchema = z.object({ cellId: z.string().min(1).optional()
 const summaryGroupsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
   since: z.coerce.number().int().min(0).optional(),
+  until: z.coerce.number().int().min(0).optional(),
 });
 const chatTestSchema = z.object({ channelId: z.string().min(1).optional() });
 const skillsQuerySchema = z.object({ requestId: z.string().optional() });

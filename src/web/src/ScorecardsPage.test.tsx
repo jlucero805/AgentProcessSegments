@@ -238,8 +238,8 @@ describe('ScorecardsPage', () => {
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
-    const prefilled = summaryRequests(urls)[1];
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    const prefilled = groupedRequests(urls)[1];
     expect(prefilled?.get('since')).not.toBeNull();
     expect(prefilled?.get('until')).not.toBeNull();
 
@@ -251,17 +251,17 @@ describe('ScorecardsPage', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
-    const applied = summaryRequests(urls)[2];
-    expect(applied?.get('limit')).toBe('26');
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+    const applied = groupedRequests(urls)[2];
+    expect(applied?.get('limit')).toBe('25');
     expect(applied?.get('since')).toBe(String(new Date(2026, 10, 1).getTime()));
     expect(applied?.get('until')).toBe(
       String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
     );
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(4), { timeout: ASYNC_TIMEOUT_MS });
-    expect(summaryRequests(urls)[3]?.has('until')).toBe(false);
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(4), { timeout: ASYNC_TIMEOUT_MS });
+    expect(groupedRequests(urls)[3]?.has('until')).toBe(false);
     expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
@@ -274,7 +274,7 @@ describe('ScorecardsPage', () => {
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
 
     fireEvent.change(screen.getByLabelText('Start date'), {
       target: { value: '2030-05-10' },
@@ -289,7 +289,7 @@ describe('ScorecardsPage', () => {
     const apply = screen.getByRole('button', { name: 'Apply' });
     expect(apply).toBeDisabled();
     fireEvent.click(apply);
-    expect(summaryRequests(urls)).toHaveLength(2);
+    expect(groupedRequests(urls)).toHaveLength(2);
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('reuses the custom bounds when loading older pages', async () => {
@@ -302,8 +302,8 @@ describe('ScorecardsPage', () => {
     expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
-    const custom = summaryRequests(urls)[1];
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    const custom = groupedRequests(urls)[1];
     const since = custom?.get('since');
     const until = custom?.get('until');
     expect(since).not.toBeNull();
@@ -315,14 +315,15 @@ describe('ScorecardsPage', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 24 * 60 * 60_000);
     try {
       fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
-      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     } finally {
       nowSpy.mockRestore();
     }
 
-    const older = summaryRequests(urls)[2];
+    const older = summaryRequests(urls)[0];
     expect(older?.get('since')).toBe(since);
     expect(older?.get('until')).toBe(until);
+    expect(older?.get('limit')).toBe('26');
     expect(older?.get('before')).toBe('99976');
     expect(older?.get('beforeId')).toBe('s24');
   }, SCORECARDS_TEST_TIMEOUT_MS);

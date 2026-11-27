@@ -2644,6 +2644,34 @@ describe('http api', () => {
       { cellId: alpha.id, ids: ['d', 'c'], hasMore: true },
     ]);
 
+    const bounded = await call(
+      'GET',
+      '/api/summaries/grouped?limit=2&since=1000&until=2000',
+    );
+    expect(bounded.status).toBe(200);
+    const boundedGroups = bounded.json().groups as Array<{
+      cellId: string;
+      reports: Array<{ id: string }>;
+      hasMore: boolean;
+    }>;
+    expect(
+      boundedGroups.map((group) => ({
+        cellId: group.cellId,
+        ids: group.reports.map((report) => report.id),
+        hasMore: group.hasMore,
+      })),
+    ).toEqual([
+      { cellId: alpha.id, ids: ['c', 'b'], hasMore: true },
+      { cellId: beta.id, ids: ['f'], hasMore: false },
+    ]);
+
+    const inverted = await call(
+      'GET',
+      '/api/summaries/grouped?since=3000&until=1000',
+    );
+    expect(inverted.status).toBe(200);
+    expect(inverted.json()).toEqual({ groups: [] });
+
     const byDefault = await call('GET', '/api/summaries/grouped');
     expect(byDefault.status).toBe(200);
     expect(
@@ -2666,6 +2694,9 @@ describe('http api', () => {
     expect((await call('GET', '/api/summaries/grouped?limit=51')).status).toBe(400);
     expect((await call('GET', '/api/summaries/grouped?since=-1')).status).toBe(400);
     expect((await call('GET', '/api/summaries/grouped?since=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/grouped?until=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/grouped?until=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/grouped?until=abc')).status).toBe(400);
   });
 
   it('returns usage totals, filters, buckets, and validation errors', async () => {

@@ -253,6 +253,27 @@ describe('summary repository grouped feed', () => {
     expect(repo.grouped({ since: 6_000 })).toEqual([]);
   });
 
+  it('applies an inclusive until filter before ranking', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'alpha-old', 1_000);
+    recordAt(repo, 'c1', 'alpha-new', 5_000);
+    recordAt(repo, 'c2', 'beta-new', 4_000);
+    recordAt(repo, 'c3', 'gamma-old', 2_000);
+
+    const groups = repo.grouped({ limit: 1, until: 2_000 });
+
+    expect(groups.map((group) => group.cellId)).toEqual(['c3', 'c1']);
+    expect(groups[0]?.reports.map((report) => report.content)).toEqual(['gamma-old']);
+    expect(groups[0]?.hasMore).toBe(false);
+    expect(groups[1]?.reports.map((report) => report.content)).toEqual(['alpha-old']);
+    expect(groups[1]?.hasMore).toBe(false);
+
+    const closed = repo.grouped({ limit: 1, since: 1_500, until: 4_000 });
+    expect(closed.map((group) => group.cellId)).toEqual(['c2', 'c3']);
+    expect(repo.grouped({ until: 0 })).toEqual([]);
+    expect(repo.grouped({ since: 5_000, until: 1_000 })).toEqual([]);
+  });
+
   it('orders groups by their newest report with the id tie-break', () => {
     const repo = setup();
     const alpha = recordAt(repo, 'c1', 'alpha-new', 5_000);

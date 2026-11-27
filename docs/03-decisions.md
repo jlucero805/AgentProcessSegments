@@ -2881,9 +2881,10 @@ it.
 **Cost.** While an identical unusable state persists, the log shows one row instead of
 one per tick, and the same applies to the stderr warning; a restart reports the
 still-broken file once. Operators editing an unusable file get a fresh report because the
-byte identity changes. A corrected file is read on the next `get()` and then cached as
-before, so later edits to an already-valid file still need a restart (unchanged). The
-digest is computed only on a failed load and only on the small operator file.
+byte identity changes. A corrected file is read on the next `get()` and then cached;
+D127 revalidates an already-valid file on change, so later edits no longer need a
+restart, while the digest is still computed only on a failed load and only on the small
+operator file.
 
 ## D116. The redundant unsigned webhook timestamp header is removed
 
@@ -3216,3 +3217,29 @@ subshell; a generic sink check would be speculative.
 in the existing build-failure tests of `src/server/test/upgrade.test.ts` and
 `src/server/test/cutover.test.ts`. No change to the success path, to failures outside a
 subshell, to retention, or to the rollback sequence.
+
+## D127. A changed valid process file is re-read without a restart
+
+**Context.** D115 left `ProcessStore` caching the first successful `process.json` load
+forever, so only an unusable file was re-read. A valid file edited on disk stayed ignored
+until a restart even though the file is the authoritative global template. That made a
+manual edit surprising and left the "no restart" promise true only for broken files.
+
+**Decision.** `ProcessStore` keeps the identity of the file that produced the cached
+config (`statSync` device, inode, size, modification time, and change time) and
+revalidates it on every `get()`. An unchanged identity returns the cache without reading
+the file; a changed or missing identity clears the cache and runs the existing `load()`.
+A successful load caches the result with the identity captured before the read, so a
+concurrent replacement is re-detected on the next call. A failure still returns the
+derived fallback, sets `preserveSource`, and reports through D115. `patch()` keeps
+`cached = next` but clears the identity after the write so the next `get()` revalidates
+what was actually written. External reloads are reads and do not emit `onChange`; only
+`patch()` notifies.
+
+**Cost.** One extra `statSync` per `get()` and no extra read while the metadata is
+unchanged. Detection is metadata-based: an in-place rewrite that keeps inode, size,
+modification time, and change time identical is not noticed; editors and atomic writers
+change one of those. An external edit that makes the file invalid falls back to the
+derived policy instead of serving the last-known-good config, matching the existing
+unusable-file contract, and only cells without their own `cells.process_json` snapshot
+are affected.

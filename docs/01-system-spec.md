@@ -142,9 +142,11 @@ contains merged global user settings) applies.
   the next successful save and lists the preserved copies.
 - **Process config file** (`process.json`): a missing, unreadable, or invalid file falls
   back to the policy derived from `master` until a valid patch saves one. Loading never
-  writes the file. Before the first save replaces an unusable file, its exact bytes are
-  copied to a sibling `process.json.invalid-<UTC>` (owner-only, never overwriting an
-  earlier copy); a failed copy refuses the save and reports `process.backupFailed`. At
+  writes the file. A valid file is re-read when its on-disk identity changes, so a manual
+  edit takes effect without a restart; deleting it returns to the derived fallback. Before
+  the first save replaces an unusable file, its exact bytes are copied to a sibling
+  `process.json.invalid-<UTC>` (owner-only, never overwriting an earlier copy); a failed
+  copy refuses the save and reports `process.backupFailed`. At
   most five preserved copies are kept per process file; after every successful save,
   older matching copies are pruned oldest first, and a failed prune reports
   `process.pruneFailed` without refusing the save. `GET/PATCH /api/process` return this

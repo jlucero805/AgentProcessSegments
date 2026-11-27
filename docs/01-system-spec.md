@@ -592,7 +592,7 @@ or `502`.
 
 `GET /api/notifications/deliveries` is a read-only, offset-paginated audit over both
 outboxes. Filters are `source` (`budget|event`), `kind`
-(`turn.failed|master.error|summary.failed`),
+(`turn.failed|master.error|summary.failed|spend.override`),
 `channel`, `status`, `alertId`, `from` (inclusive), and `to` (exclusive) on the delivery
 `created_at`, with `limit` 1–100 (default 25) and `offset`. `source` and `kind` are
 mutually exclusive; `alertId` is budget-only and cannot combine with an event filter.

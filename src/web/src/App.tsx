@@ -11,9 +11,13 @@ import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
 import {
   DEFAULT_RANGE,
+  DEFAULT_SCORECARDS_VIEW,
   parseScorecardPeriod,
+  parseScorecardView,
   writeScorecardPeriod,
+  writeScorecardView,
   type ScorecardPeriodSelection,
+  type ScorecardsView,
 } from './ScorecardPeriod';
 import { ScorecardsPage } from './ScorecardsPage';
 import { SkillsPage } from './SkillsPage';
@@ -40,6 +44,7 @@ function readRoute(): {
   helpSlug: string | null;
   helpAnchor: string | null;
   scorecardPeriod: ScorecardPeriodSelection;
+  scorecardView: ScorecardsView;
 } {
   if (typeof window === 'undefined') {
     return {
@@ -50,6 +55,7 @@ function readRoute(): {
       helpSlug: null,
       helpAnchor: null,
       scorecardPeriod: { range: DEFAULT_RANGE },
+      scorecardView: DEFAULT_SCORECARDS_VIEW,
     };
   }
   const params = new URLSearchParams(window.location.search);
@@ -76,6 +82,8 @@ function readRoute(): {
     helpAnchor: helpSlug && hash ? hash : null,
     scorecardPeriod:
       page === 'scorecards' ? parseScorecardPeriod(params) : { range: DEFAULT_RANGE },
+    scorecardView:
+      page === 'scorecards' ? parseScorecardView(params) : DEFAULT_SCORECARDS_VIEW,
   };
 }
 
@@ -117,6 +125,16 @@ export function App() {
   const [helpSlug, setHelpSlug] = useState<string | null>(initialRoute.helpSlug);
   const [helpAnchor, setHelpAnchor] = useState<string | null>(initialRoute.helpAnchor);
   const [scorecardPeriod, setScorecardPeriod] = useState(initialRoute.scorecardPeriod);
+  const [scorecardView, setScorecardView] = useState(initialRoute.scorecardView);
+  // Remount the page with the route's values after a history move; user changes
+  // update its local state directly and must not remount.
+  const [scorecardRouteRevision, setScorecardRouteRevision] = useState(0);
+  const previousScorecardRoute = useRef({
+    page: initialRoute.page,
+    period: initialRoute.scorecardPeriod,
+    view: initialRoute.scorecardView,
+  });
+  const skipScorecardPush = useRef(false);
   const [cellModalOpen, setCellModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
   const [terminalAvailable, setTerminalAvailable] = useState(false);
@@ -188,25 +206,56 @@ export function App() {
   // Keep the current page, floor, request, docs page, and open overlay in the URL
   // so a reload (or a phone switching apps) comes back to the same place.
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (page !== 'board') params.set('page', page);
-    if (cellId) params.set('cell', cellId);
-    if (detailId) params.set('request', detailId);
-    if (masterOpen) params.set('master', '1');
-    if (helpSlug) params.set('help', helpSlug);
-    if (page === 'scorecards') writeScorecardPeriod(params, scorecardPeriod);
+    // Merge this shell's route keys into the current query so page-owned state
+    // (for example the Scorecards period and layout) and unknown parameters
+    // survive navigation and reloads.
+    const params = new URLSearchParams(window.location.search);
+    const setOrDelete = (key: string, value: string | null) => {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    };
+    setOrDelete('page', page === 'board' ? null : page);
+    setOrDelete('cell', cellId);
+    setOrDelete('request', detailId);
+    setOrDelete('master', masterOpen ? '1' : null);
+    setOrDelete('help', helpSlug);
+    if (page === 'scorecards') {
+      writeScorecardPeriod(params, scorecardPeriod);
+      writeScorecardView(params, scorecardView);
+    } else {
+      writeScorecardPeriod(params, { range: DEFAULT_RANGE });
+      writeScorecardView(params, DEFAULT_SCORECARDS_VIEW);
+    }
     const search = params.toString();
     const hash = helpSlug && helpAnchor ? `#${helpAnchor}` : '';
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${search ? `?${search}` : ''}${hash}`,
-    );
-  }, [page, cellId, detailId, masterOpen, helpSlug, helpAnchor, scorecardPeriod]);
+    const url = `${window.location.pathname}${search ? `?${search}` : ''}${hash}`;
+
+    const previous = previousScorecardRoute.current;
+    const userChangedScorecardRoute =
+      page === 'scorecards' &&
+      previous.page === 'scorecards' &&
+      (previous.period !== scorecardPeriod || previous.view !== scorecardView);
+    previousScorecardRoute.current = {
+      page,
+      period: scorecardPeriod,
+      view: scorecardView,
+    };
+    const suppressPush = skipScorecardPush.current;
+    skipScorecardPush.current = false;
+
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (url === current) return;
+    if (userChangedScorecardRoute && !suppressPush) {
+      window.history.pushState(null, '', url);
+    } else {
+      window.history.replaceState(null, '', url);
+    }
+  }, [page, cellId, detailId, masterOpen, helpSlug, helpAnchor, scorecardPeriod, scorecardView]);
 
   useEffect(() => {
     const onPopState = () => {
       const route = readRoute();
+      skipScorecardPush.current = true;
       setPage(route.page);
       cellIdRef.current = route.cellId;
       setCellId(route.cellId);
@@ -215,6 +264,8 @@ export function App() {
       setHelpSlug(route.helpSlug);
       setHelpAnchor(route.helpAnchor);
       setScorecardPeriod(route.scorecardPeriod);
+      setScorecardView(route.scorecardView);
+      setScorecardRouteRevision((revision) => revision + 1);
       setNavOpen(false);
     };
     window.addEventListener('popstate', onPopState);
@@ -540,13 +591,15 @@ export function App() {
           ) : null}
           {page === 'scorecards' ? (
             <ScorecardsPage
-              key={cellId ?? 'all'}
+              key={`${cellId ?? 'all'}:${scorecardRouteRevision}`}
               cellId={cellId}
               onSelectCell={selectCell}
               onError={setError}
               cellsFeed={cellsFeed}
               initialPeriod={scorecardPeriod}
               onPeriodChange={setScorecardPeriod}
+              initialView={scorecardView}
+              onViewChange={setScorecardView}
             />
           ) : null}
           {page === 'config' ? (

@@ -362,6 +362,13 @@ function latestRequests(fetchMock: ReturnType<typeof installFetch>): URLSearchPa
     .map((url) => url.searchParams);
 }
 
+function feedRequests(fetchMock: ReturnType<typeof installFetch>): URLSearchParams[] {
+  return fetchMock.mock.calls
+    .map(([input]) => new URL(String(input), 'http://localhost'))
+    .filter((url) => url.pathname === '/api/summaries/feed')
+    .map((url) => url.searchParams);
+}
+
 function appliedRangeLabel(since: number, until: number): string {
   const format = (value: number) =>
     new Date(value).toLocaleString(undefined, {
@@ -705,6 +712,144 @@ describe('App', () => {
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
     );
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('restores the flat layout and period from the URL and keeps unrelated params', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?page=scorecards&period=7d&view=flat&utm=keep',
+    );
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    const first = render(<App />);
+    expect(
+      await screen.findByRole('button', { name: 'Flat' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(feedRequests(fetchMock).length).toBeGreaterThan(0), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const expectedSince = feedRequests(fetchMock)[0]!.get('since');
+    expect(expectedSince).not.toBeNull();
+    let params = new URLSearchParams(window.location.search);
+    expect(params.get('period')).toBe('7d');
+    expect(params.get('view')).toBe('flat');
+    expect(params.get('utm')).toBe('keep');
+
+    first.unmount();
+    render(<App />);
+    expect(
+      await screen.findByRole('button', { name: 'Flat' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(feedRequests(fetchMock).length).toBeGreaterThanOrEqual(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(
+      Math.abs(Number(feedRequests(fetchMock).at(-1)?.get('since')) - Number(expectedSince)),
+    ).toBeLessThan(60_000);
+    params = new URLSearchParams(window.location.search);
+    expect(params.get('view')).toBe('flat');
+    expect(params.get('utm')).toBe('keep');
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('moves between scorecard periods and layouts with browser history', async () => {
+    window.history.replaceState(null, '', '/?page=scorecards');
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    expect(
+      await screen.findByText('No scorecards in the last 72 hours', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(latestRequests(fetchMock).length).toBeGreaterThan(0), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(() => expect(latestRequests(fetchMock).length).toBeGreaterThanOrEqual(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('view')).toBe('flat'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(() => expect(feedRequests(fetchMock).length).toBeGreaterThan(0), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Grouped' }));
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).has('view')).toBe(false),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    window.history.back();
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('view')).toBe('flat'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Flat' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        ),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    window.history.back();
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(new URLSearchParams(window.location.search).has('view')).toBe(false);
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        ),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    window.history.forward();
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('view')).toBe('flat'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('preserves unrelated query parameters when the scorecard period changes', async () => {
+    window.history.replaceState(null, '', '/?page=scorecards&utm=keep');
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    expect(
+      await screen.findByText('No scorecards in the last 72 hours', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(new URLSearchParams(window.location.search).get('utm')).toBe('keep');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    await waitFor(
+      () => expect(new URLSearchParams(window.location.search).get('view')).toBe('flat'),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(new URLSearchParams(window.location.search).get('utm')).toBe('keep');
   }, APP_TEST_TIMEOUT_MS);
 
   it('focuses a cell from the flat feed and records it like the sidebar', async () => {

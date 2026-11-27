@@ -3,6 +3,7 @@ import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import {
   DEFAULT_RANGE,
+  DEFAULT_SCORECARDS_VIEW,
   ScorecardCustomRange,
   ScorecardPeriod,
   customRangeSeed,
@@ -15,6 +16,7 @@ import {
   type PageRangeKey,
   type RangeKey,
   type ScorecardPeriodSelection,
+  type ScorecardsView,
 } from './ScorecardPeriod';
 import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
@@ -36,8 +38,6 @@ interface ScorecardFeed {
   /** Inclusive window used for the first page; later pages reuse it. */
   window: DateWindow;
 }
-
-type ScorecardsView = 'grouped' | 'flat';
 
 const VIEWS: Array<{ key: ScorecardsView; label: string }> = [
   { key: 'grouped', label: 'Grouped' },
@@ -103,6 +103,8 @@ export function ScorecardsPage({
   cellsFeed,
   initialPeriod,
   onPeriodChange,
+  initialView,
+  onViewChange,
 }: {
   cellId: string | null;
   onSelectCell: (cellId: string | null) => void;
@@ -112,6 +114,10 @@ export function ScorecardsPage({
   initialPeriod?: ScorecardPeriodSelection;
   /** Called whenever the applied period changes, so the route can persist it. */
   onPeriodChange?: (selection: ScorecardPeriodSelection) => void;
+  /** Layout restored from the URL route. */
+  initialView?: ScorecardsView;
+  /** Called whenever the layout changes, so the route can persist it. */
+  onViewChange?: (view: ScorecardsView) => void;
 }) {
   const [initial] = useState(() => initialPeriodState(initialPeriod));
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
@@ -119,7 +125,7 @@ export function ScorecardsPage({
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
-  const [view, setView] = useState<ScorecardsView>('grouped');
+  const [view, setView] = useState<ScorecardsView>(initialView ?? DEFAULT_SCORECARDS_VIEW);
   const [range, setRange] = useState<PageRangeKey>(initial.range);
   const [customSeed, setCustomSeed] = useState<CustomRangeSeed>(initial.seed);
   const [appliedCustom, setAppliedCustom] = useState<DateWindow>(initial.window);
@@ -353,6 +359,16 @@ export function ScorecardsPage({
   const presetRange: RangeKey | null = range === 'custom' ? null : range;
   const flat = cellId === null && view === 'flat';
 
+  const changeView = (next: ScorecardsView) => {
+    if (next === view) return;
+    setGroups(null);
+    setFeed(null);
+    setLoadingMoreFeed(false);
+    setLoading(true);
+    setView(next);
+    onViewChange?.(next);
+  };
+
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -379,14 +395,7 @@ export function ScorecardsPage({
                   key={item.key}
                   type="button"
                   aria-pressed={view === item.key}
-                  onClick={() => {
-                    if (item.key === view) return;
-                    setGroups(null);
-                    setFeed(null);
-                    setLoadingMoreFeed(false);
-                    setLoading(true);
-                    setView(item.key);
-                  }}
+                  onClick={() => changeView(item.key)}
                   className={
                     view === item.key
                       ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'

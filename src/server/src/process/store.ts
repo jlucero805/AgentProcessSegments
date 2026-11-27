@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
+import { jsonParseReason } from '../util/json.js';
 import type { ProcessConfig } from './definition.js';
 import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
 
@@ -86,8 +87,14 @@ export class ProcessStore {
       return result.data;
     } catch (error) {
       this.preserveSource = true;
-      this.errors?.error('process.unreadable', error, { path: this.path });
-      console.warn(`ignoring unreadable process config at ${this.path}: ${String(error)}`);
+      // V8 can quote the input in a parse error, and process.json holds
+      // operator-authored prompts, so report the position only.
+      const reason = jsonParseReason(error);
+      this.errors?.error('process.unreadable', new Error(reason), {
+        path: this.path,
+        reason: 'invalid-json',
+      });
+      console.warn(`ignoring unreadable process config at ${this.path}: ${reason}`);
       return null;
     }
   }

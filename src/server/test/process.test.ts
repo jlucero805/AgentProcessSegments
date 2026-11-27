@@ -174,6 +174,12 @@ describe('ProcessStore', () => {
     const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
     expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
     expect(backupNames(file)).toEqual([]);
+    expect(errors.error).toHaveBeenCalledWith(
+      'process.unreadable',
+      expect.objectContaining({ message: expect.stringMatching(/^invalid JSON/) }),
+      { path: file, reason: 'invalid-json' },
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('Unexpected');
 
     const next = defaultProcess(DEFAULT_SETTINGS.master);
     segmentBy(next, 'intake').enabled = true;
@@ -192,6 +198,43 @@ describe('ProcessStore', () => {
     store.patch({ segments: next.segments });
     expect(backupNames(file)).toHaveLength(1);
     warn.mockRestore();
+  });
+
+  it('redacts a parser snippet from the unreadable report', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    const sentinel = 'SUPERSECRET-process-prompt';
+    writeFileSync(file, `{"segments":[{"prompt":"${sentinel}"`);
+
+    const errors = { error: vi.fn() };
+    const parse = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+      throw new SyntaxError(`Unexpected token 'S', "${sentinel}" is not valid JSON`);
+    });
+
+    try {
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+      expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      const [source, error, context] = errors.error.mock.calls[0]!;
+      expect(source).toBe('process.unreadable');
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toMatch(
+        /^invalid JSON(?: at position \d+(?: \(line \d+ column \d+\))?)?$/,
+      );
+      expect(error.message).not.toContain(sentinel);
+      expect(error.stack).not.toContain(sentinel);
+      expect(context).toEqual({ path: file, reason: 'invalid-json' });
+      expect(JSON.stringify(context)).not.toContain(sentinel);
+      expect(warn).toHaveBeenCalledWith(
+        `ignoring unreadable process config at ${file}: invalid JSON`,
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(sentinel);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('Unexpected token');
+    } finally {
+      parse.mockRestore();
+      warn.mockRestore();
+    }
   });
 
   it('preserves a schema-invalid file before the first save', () => {

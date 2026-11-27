@@ -2,9 +2,9 @@ import { loadConfig, requestsDir } from '../config.js';
 import { repairPermissions } from './repair-permissions.js';
 import {
   parseRepairArgs,
-  printRepairReport,
-  repairExitCode,
   runDirectly,
+  runRepairCli,
+  type RepairArgs,
 } from './repair-cli.js';
 import type { RepairDeps } from './permission-repair.js';
 
@@ -36,42 +36,32 @@ export function usage(): string {
   ].join('\n');
 }
 
+function parse(argv: string[]): RepairArgs {
+  return parseRepairArgs(argv, '--data-dir');
+}
+
 export function parseArgs(argv: string[]): CliOptions {
-  const args = parseRepairArgs(argv, '--data-dir');
+  const args = parse(argv);
   return { apply: args.apply, dataDir: args.value, help: args.help };
 }
 
 export function main(argv: string[] = process.argv.slice(2), deps: RepairDeps = {}): number {
-  let options: CliOptions;
-  try {
-    options = parseArgs(argv);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    console.error(usage());
-    return 1;
-  }
-
-  if (options.help) {
-    console.log(usage());
-    return 0;
-  }
-
-  let dataDir: string;
-  try {
-    dataDir = options.dataDir ?? loadConfig().dataDir;
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    return 1;
-  }
-
-  const result = repairPermissions(dataDir, { apply: options.apply, ...deps });
-  if (result.rootMissing) {
-    console.log(`nothing to repair: ${requestsDir(dataDir)} does not exist`);
-    return 0;
-  }
-
-  printRepairReport(result, options.apply, 'not a regular file or directory');
-  return repairExitCode(result);
+  return runRepairCli(argv, deps, {
+    usage: usage(),
+    parse,
+    target: (value) => {
+      if (value !== null) return { target: value };
+      try {
+        return { target: loadConfig().dataDir };
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return { exitCode: 1 };
+      }
+    },
+    missingRoot: (dataDir) => `nothing to repair: ${requestsDir(dataDir)} does not exist`,
+    skipFallback: 'not a regular file or directory',
+    run: repairPermissions,
+  });
 }
 
 runDirectly(import.meta.url, () => main());

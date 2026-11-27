@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1589 vitest cases: 1143 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
+- 1590 vitest cases: 1144 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1143 server + 446 web, plus the e2e env guard
+npm test                       # 1144 server + 446 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -825,15 +825,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the
     symlink/`ENOENT` policy, the dry-run counters, and the only `chmod` under
     `src/server/src/maintenance`. `repair-cli.ts` owns the shared
-    `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, the cutover
-    root default and command runner, and the direct-run bootstrap.
-    `repair-permissions.ts`, `repair-upgrade-permissions.ts`, and
-    `repair-run-permissions.ts` only describe their trees. The `repair:runs` and
-    `repair:upgrades` CLIs are usage text plus one command spec; `repair:permissions`
-    keeps its `loadConfig()` data-directory resolution and error path. Commands, flags,
-    output, exit codes, and traversal must not change. A new repair uses the same
-    scanner; the guard in `src/server/test/repair-permissions.test.ts` fails if another
-    maintenance module mentions `chmodSync`.
+    `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, the shared
+    command runner, and the direct-run bootstrap. `repair-permissions.ts`,
+    `repair-upgrade-permissions.ts`, and `repair-run-permissions.ts` only describe their
+    trees. All three CLIs are usage text plus one command spec on `runRepairCli`;
+    `repair:permissions` supplies only its `loadConfig()` data-directory resolver and its
+    missing-root wording. Commands, flags, output, exit codes, and traversal must not
+    change. A new repair uses the same scanner; the guard in
+    `src/server/test/repair-permissions.test.ts` fails if another maintenance module
+    mentions `chmodSync` or a CLI bypasses the shared runner.
 50. **The top-level shell owns the single deploy rollback.** `deploy/upgrade-vps.sh` and
     `deploy/cutover-vps.sh` keep `set -E` so a failure inside a shell function reaches the
     `ERR` trap, but the trap is inherited by the redirected `npm`/build/migration

@@ -125,10 +125,11 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   useEffect(() => {
     modelContextRef.current = undefined;
   }, [id]);
+  const formReady = form !== null;
   const cellId = form?.cellId ?? '';
   const requestHarness = form?.harness ?? '';
   useEffect(() => {
-    if (!form) return;
+    if (!formReady) return;
     const context = `${requestHarness}|${cellId}`;
     const previous = modelContextRef.current;
     modelContextRef.current = context;
@@ -166,7 +167,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     return () => {
       cancelled = true;
     };
-  }, [requestHarness, cellId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [formReady, requestHarness, cellId]);
 
   const set = <K extends keyof RequestFormState>(key: K, value: RequestFormState[K]) => {
     setForm((current) => {

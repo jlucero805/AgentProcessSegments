@@ -2997,7 +2997,7 @@ method and keeps the scan loop and single-cell paths untouched.
 (bounded by `retention.cellSummariesDays`) instead of issuing 3N indexed point queries;
 the single-cell status route remains one indexed lookup. The response shape, route
 validation, schema, retention, and web client are unchanged. `SummaryScheduler.scan()`
-still looks up each cell's latest report separately; that is a separate request.
+reuses the same grouped read; D132 records that change.
 
 ## D120. The shared cutover root is owner-only
 

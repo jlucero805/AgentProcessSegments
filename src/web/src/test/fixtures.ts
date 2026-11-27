@@ -1,4 +1,4 @@
-import type { MasterConfig, ModelPrice, Request, UsageResponse, UsageTotals } from '../types';
+import type { MasterConfig, ModelPrice, ProcessResponse, Request, UsageResponse, UsageTotals } from '../types';
 import { defaultProcess } from '../../../server/src/process/defaults';
 
 const fixtureMaster: MasterConfig = {
@@ -43,8 +43,13 @@ export function makeProcess() {
   return defaultProcess(fixtureMaster);
 }
 
-export function makeProcessResponse() {
-  return { ...makeProcess(), path: '/tmp/agent-process-segments/process.json' };
+export function makeProcessResponse(overrides: Partial<ProcessResponse> = {}): ProcessResponse {
+  return {
+    ...makeProcess(),
+    path: '/tmp/agent-process-segments/process.json',
+    preservedPath: null,
+    ...overrides,
+  };
 }
 
 export function makeUsageTotals(overrides: Partial<UsageTotals> = {}): UsageTotals {

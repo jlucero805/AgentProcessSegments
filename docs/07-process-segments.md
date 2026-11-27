@@ -41,6 +41,10 @@ Each cell also has its own **ticker** and **master chat**:
   replacing it. A failed copy refuses the save and reports `process.backupFailed`. At
   most five preserved copies are kept; after a successful save, older matching copies are
   pruned and a failed prune reports `process.pruneFailed` without refusing the save.
+- `GET`/`PATCH /api/process` return the copy made by the current server process as
+  `preservedPath` (or `null`), and the global process editor shows it after the
+  preserving save. The value is in memory, so a restart does not rediscover earlier
+  copies.
 - Missing or invalid files fall back to a conservative policy derived from
   `config.json`’s `master` section until you save a valid process.
 - Once the file exists, it is authoritative. The legacy `master.idleMinutes`,
@@ -320,6 +324,7 @@ unassigned request.
 ## Endpoints
 
 ```text
-GET   /api/process                 process.json plus its resolved path
+GET   /api/process                 process.json, its resolved path, and preservedPath
 PATCH /api/process {segments}      validate, write atomically, return the saved policy
+                                   plus its path and preservedPath
 ```

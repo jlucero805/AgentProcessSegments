@@ -1250,10 +1250,15 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     return { override };
   });
 
-  app.get('/api/process', async () => ({ ...processStore.get(), path: processStore.path }));
+  app.get('/api/process', async () => ({
+    ...processStore.get(),
+    path: processStore.path,
+    preservedPath: processStore.preservedPath(),
+  }));
   app.patch('/api/process', async (request) => ({
     ...processStore.patch(request.body),
     path: processStore.path,
+    preservedPath: processStore.preservedPath(),
   }));
 
   app.get('/api/master/status', async (request) => {

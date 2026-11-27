@@ -371,6 +371,154 @@ describe('SummaryScheduler', () => {
     fixture.db.close();
   });
 
+  it('scans due cells from one grouped latest-per-cell query', async () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(now));
+    const fixture = setup();
+    const overdue = fixture.cells.create('Overdue');
+    const current = fixture.cells.create('Current');
+    const missing = fixture.cells.create('Missing');
+    recordAt(fixture, overdue.id, now - INTERVAL - HOUR);
+    recordAt(fixture, current.id, now - HOUR);
+    vi.setSystemTime(new Date(now));
+
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+    const list = vi.spyOn(fixture.cells, 'list');
+
+    fixture.scheduler.start();
+    await flush();
+
+    expect(grouped).toHaveBeenCalledTimes(1);
+    expect(latest).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(fixture.generate).toHaveBeenCalledTimes(2);
+    expect(fixture.generate).toHaveBeenCalledWith(overdue.id);
+    expect(fixture.generate).toHaveBeenCalledWith(missing.id);
+    expect(fixture.generate).not.toHaveBeenCalledWith(current.id);
+
+    fixture.scheduler.stop();
+    fixture.db.close();
+  });
+
+  it('keeps the spend-cap skip while scanning from the grouped query', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    let pausedId: string | null = null;
+    const pause: SpendPause = {
+      scope: 'cell',
+      cellId: 'cell',
+      cellName: 'Paused',
+      label: 'Paused',
+      reason: 'cap_reached',
+      periodStart: Date.UTC(2026, 0, 1),
+      periodEnd: Date.UTC(2026, 1, 1),
+      budgetUsd: 10,
+      spendUsd: 10,
+      spendIsLowerBound: false,
+      unpricedTurns: 0,
+      percentUsed: 100,
+    };
+    const fixture = setup(undefined, (cellId) => (cellId === pausedId ? pause : null));
+    const paused = fixture.cells.create('Paused');
+    const due = fixture.cells.create('Due');
+    pausedId = paused.id;
+
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+
+    fixture.scheduler.start();
+    await flush();
+
+    expect(grouped).toHaveBeenCalledTimes(1);
+    expect(latest).not.toHaveBeenCalled();
+    expect(fixture.generate).toHaveBeenCalledTimes(1);
+    expect(fixture.generate).toHaveBeenCalledWith(due.id);
+    expect(fixture.generate).not.toHaveBeenCalledWith(paused.id);
+
+    fixture.scheduler.stop();
+    fixture.db.close();
+  });
+
+  it('applies failure backoff across grouped scans', async () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(start));
+    const fixture = setup(async () => {
+      throw new Error('model down');
+    });
+    fixture.cells.create('Alpha');
+
+    fixture.scheduler.start();
+    await flush();
+    expect(fixture.generate).toHaveBeenCalledTimes(1);
+
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+
+    vi.setSystemTime(new Date(start + 30 * 60_000 - 1_000));
+    fixture.scheduler.refresh();
+    await flush();
+    expect(grouped).toHaveBeenCalledTimes(1);
+    expect(latest).not.toHaveBeenCalled();
+    expect(fixture.generate).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date(start + 30 * 60_000 + 1_000));
+    fixture.scheduler.refresh();
+    await flush();
+    expect(grouped).toHaveBeenCalledTimes(2);
+    expect(latest).not.toHaveBeenCalled();
+    expect(fixture.generate).toHaveBeenCalledTimes(2);
+
+    fixture.scheduler.stop();
+    fixture.db.close();
+  });
+
+  it('skips the grouped scan on an empty board', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 0, 1)));
+    const fixture = setup();
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+    const list = vi.spyOn(fixture.cells, 'list');
+
+    fixture.scheduler.start();
+    await flush();
+
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(grouped).not.toHaveBeenCalled();
+    expect(latest).not.toHaveBeenCalled();
+    expect(fixture.generate).not.toHaveBeenCalled();
+
+    fixture.scheduler.stop();
+    fixture.db.close();
+  });
+
+  it('ignores grouped reports for deleted cells during a scan', async () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(start));
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    recordAt(fixture, cell.id, start - HOUR);
+    recordAt(fixture, 'deleted-cell', start);
+    vi.setSystemTime(new Date(start));
+
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+
+    fixture.scheduler.start();
+    await flush();
+
+    expect(grouped).toHaveBeenCalledTimes(1);
+    expect(latest).not.toHaveBeenCalled();
+    expect(fixture.generate).not.toHaveBeenCalled();
+
+    fixture.scheduler.stop();
+    fixture.db.close();
+  });
+
   it('runs cells one at a time and coalesces manual runs per cell', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -454,10 +602,16 @@ describe('SummaryScheduler', () => {
     const fixture = setup();
     fixture.settings.patch({ summary: { enabled: false } });
     const cell = fixture.cells.create('Alpha');
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+    const list = vi.spyOn(fixture.cells, 'list');
 
     fixture.scheduler.start();
     await flush();
     expect(fixture.generate).not.toHaveBeenCalled();
+    expect(grouped).not.toHaveBeenCalled();
+    expect(latest).not.toHaveBeenCalled();
+    expect(list).not.toHaveBeenCalled();
 
     await fixture.scheduler.runNow(cell.id);
     expect(fixture.generate).toHaveBeenCalledTimes(1);

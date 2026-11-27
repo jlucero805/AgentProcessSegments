@@ -160,13 +160,21 @@ export class SummaryScheduler {
       for (const cellId of this.failures.keys()) {
         if (!live.has(cellId)) this.failures.delete(cellId);
       }
+      // One grouped read replaces a latest() point lookup per cell. Decisions
+      // still follow the cell snapshot, so orphan summaries are ignored.
+      const latestAt = new Map<string, number>();
+      if (cells.length > 0) {
+        for (const { summary } of this.deps.summaries.latestPerCell()) {
+          latestAt.set(summary.cellId, summary.createdAt);
+        }
+      }
 
       for (const cell of cells) {
         if (this.jobs.has(cell.id)) continue;
         if (this.deps.spendCap?.(cell.id)) continue;
-        const latest = this.deps.summaries.latest(cell.id);
+        const createdAt = latestAt.get(cell.id);
         const failure = this.failures.get(cell.id);
-        const dueAt = latest ? latest.createdAt + intervalMs : 0;
+        const dueAt = createdAt !== undefined ? createdAt + intervalMs : 0;
         const retryAt = failure ? failure.at + backoffMs : 0;
         if (now < Math.max(dueAt, retryAt)) continue;
         void this.enqueue(cell.id).catch(() => {

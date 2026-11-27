@@ -1,18 +1,16 @@
 import {
   chmodSync,
   existsSync,
-  mkdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
-  statSync,
   symlinkSync,
   unlinkSync,
-  writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { dir, file, modeOf, silenceConsole } from './repair-fixtures.js';
 import { tmpDir } from './tmp.js';
 import {
   repairUpgradePermissions,
@@ -20,21 +18,6 @@ import {
 import { main, parseArgs, usage } from '../src/maintenance/repair-upgrade-permissions-cli.js';
 
 const posixIt = it.skipIf(process.platform === 'win32');
-
-function modeOf(target: string): number {
-  return statSync(target).mode & 0o777;
-}
-
-function dir(target: string, mode = 0o755): void {
-  mkdirSync(target, { recursive: true });
-  chmodSync(target, mode);
-}
-
-function file(target: string, mode = 0o644, body = '{}'): void {
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, body);
-  chmodSync(target, mode);
-}
 
 interface Fixture {
   root: string;
@@ -79,11 +62,6 @@ function workspace(): Fixture {
   file(path.join(cutoverRun, 'cutover.log'));
 
   return { root, upgrades, runs, loose, privateRun, withoutSnapshot, cutoverRun };
-}
-
-function silenceConsole(): void {
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
 }
 
 afterEach(() => {

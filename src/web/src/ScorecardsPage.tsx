@@ -124,6 +124,11 @@ export function ScorecardsPage({
   const [customSeed, setCustomSeed] = useState<CustomRangeSeed>(initial.seed);
   const [appliedCustom, setAppliedCustom] = useState<DateWindow>(initial.window);
   const loadGeneration = useRef(0);
+  /**
+   * Bumped whenever load() commits a new first page; paging captures this so a page
+   * fetched against a superseded window is dropped even when the generation matches.
+   */
+  const pageVersion = useRef(0);
   /** Bounds used by the load that produced the visible page; paging reuses them. */
   const pageWindow = useRef<DateWindow>({});
 
@@ -147,6 +152,7 @@ export function ScorecardsPage({
           api.getSummaryFeed({ limit: FEED_PAGE_SIZE, ...bounds }),
         ]);
         if (generation !== loadGeneration.current) return;
+        pageVersion.current += 1;
         pageWindow.current = bounds;
         setStatus(summaryStatus);
         setFeed({
@@ -182,6 +188,7 @@ export function ScorecardsPage({
         }));
       }
       if (generation !== loadGeneration.current) return;
+      pageVersion.current += 1;
       pageWindow.current = bounds;
       setStatus(summaryStatus);
       setGroups(next);
@@ -249,6 +256,7 @@ export function ScorecardsPage({
       const oldest = group?.reports.at(-1);
       if (!group || group.loadingMore || !group.hasMore || !oldest) return;
       const generation = loadGeneration.current;
+      const version = pageVersion.current;
       setGroups(
         (current) =>
           current?.map((item) =>
@@ -263,7 +271,7 @@ export function ScorecardsPage({
           before: oldest.createdAt,
           beforeId: oldest.id,
         });
-        if (generation !== loadGeneration.current) return;
+        if (generation !== loadGeneration.current || version !== pageVersion.current) return;
         const page = pageReports(older);
         setGroups((current) => {
           if (!current) return current;
@@ -298,6 +306,7 @@ export function ScorecardsPage({
   const loadMoreFeed = useCallback(async () => {
     if (!feed || loadingMoreFeed || !feed.hasMore || !feed.nextCursor) return;
     const generation = loadGeneration.current;
+    const version = pageVersion.current;
     setLoadingMoreFeed(true);
     try {
       const page = await api.getSummaryFeed({
@@ -306,7 +315,7 @@ export function ScorecardsPage({
         before: feed.nextCursor.before,
         beforeId: feed.nextCursor.beforeId,
       });
-      if (generation !== loadGeneration.current) return;
+      if (generation !== loadGeneration.current || version !== pageVersion.current) return;
       setFeed((current) => {
         if (!current) return current;
         const seen = new Set(current.reports.map((report) => report.id));

@@ -693,6 +693,48 @@ describe('App', () => {
     expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(patchAt);
   }, APP_TEST_TIMEOUT_MS);
 
+  it('refreshes the banner after deleting a paused cell', async () => {
+    const cell: CellDetail = {
+      ...makeCell(),
+      monthlyBudgetUsd: 100,
+      pauseOnExceeded: true,
+    };
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [cell]);
+    const baseFetch = globalThis.fetch;
+    let deleted = false;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${url}`);
+        if (url === '/api/cells/c1' && method === 'DELETE') {
+          deleted = true;
+          return new Response(null, { status: 204 });
+        }
+        if (url === '/api/cells' && method === 'GET' && deleted) return jsonResponse([]);
+        if (url === '/api/budgets') return jsonResponse(makeCellPausedBudgetView(cell, !deleted));
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    expect(await screen.findByText(/Alpha hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Alpha' }, { timeout: ASYNC_TIMEOUT_MS }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Alpha' })).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
+    );
+    const deleteAt = calls.indexOf('DELETE /api/cells/c1');
+    expect(deleteAt).toBeGreaterThan(-1);
+    expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(deleteAt);
+  }, APP_TEST_TIMEOUT_MS);
+
   it('refreshes Config budget rows after snoozing a pause from the banner', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
     const baseFetch = globalThis.fetch;

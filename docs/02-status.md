@@ -283,10 +283,10 @@ built and vended by the brain; real-CLI verification is still pending.
   the same monthly progress, and an app-wide banner surfaces alerts, pauses, and override
   controls. The Usage card and banner share one poll; the card keeps its last good status
   when a refresh fails and offers Retry when budget status cannot be loaded. Snoozing,
-  ending an override, saving the overall budget, or saving a cell budget/pause in the cell
-  editor refreshes that shared poll immediately. Unpriced turns are reported as unknown or
-  a lower bound, never guessed. Overall pauses block all new agent turns and stop every
-  live one; cell pauses are cell-scoped for both. A cap stop
+  ending an override, saving the overall budget, saving a cell budget/pause in the cell
+  editor, or deleting a cell refreshes that shared poll immediately. Unpriced turns are
+  reported as unknown or a lower bound, never guessed. Overall pauses block all new agent
+  turns and stop every live one; cell pauses are cell-scoped for both. A cap stop
   saves the partial transcript with a `⏸` line, emits `paused` before `done`, keeps the
   harness session for a later resume, and records harness-reported usage. A snooze
   suppresses admission and the in-flight stop for its scope without changing the budget,
@@ -444,7 +444,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1299 vitest cases (one environmental root-skip): 1001 server across 56 files and 298 web across 28 files,
+- 1300 vitest cases (one environmental root-skip): 1001 server across 56 files and 299 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

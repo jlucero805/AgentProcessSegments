@@ -276,7 +276,11 @@ built and vended by the brain; real-CLI verification is still pending.
   model call: request counts by state/status, created/updated/completed/dropped, stalled
   work, `master_events` activity, follow-up titles, skip reasons, and the prior window.
   Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
-  master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
+  master chat. If OpenCode refuses to resume that session because its recorded directory
+  no longer exists (for example after a data-directory move), the service forgets the
+  saved harness session id and retries once as a fresh session; transcript and usage are
+  kept, the recovered attempt counts as a success, and other failures keep the normal
+  backoff. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, up to five reports in a selectable generation-time period (default
   last 72 hours; presets or a custom local date-and-time range; no paging), and **Run
   scorecard now**. A dedicated **Scorecards** page
@@ -496,7 +500,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1519 vitest cases (one environmental root-skip): 1117 server across 59 files and 402 web across 29 files,
+- 1526 vitest cases (one environmental root-skip): 1124 server across 59 files and 402 web across 29 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CellRepository } from '../src/cells/repository.js';
 import { MasterEventRepository } from '../src/master/events.js';
 import { openDb, type Db } from '../src/db.js';
+import type { HarnessId } from '../src/domain/harness.js';
 import type { SummaryFailureNotification } from '../src/domain/notifications.js';
 import { summarySessionId } from '../src/domain/sessions.js';
 import { RequestRepository } from '../src/requests/repository.js';
@@ -279,14 +280,21 @@ describe('SummaryService', () => {
     script: (text: string) => string[],
     options: {
       onSummaryFailure?: (event: SummaryFailureNotification) => void;
+      harness?: HarnessId;
     } = {},
   ) {
     const base = tmpDir('summary');
-    const harness = createHarness(script, () => ({
-      model: 'cell-model',
-      effort: 'high',
-      harness: null,
-    }));
+    const harness = createHarness(
+      script,
+      () => ({
+        model: 'cell-model',
+        effort: 'high',
+        harness: null,
+      }),
+      undefined,
+      undefined,
+      options.harness ? { harness: options.harness } : {},
+    );
     open = harness;
     const events = new MasterEventRepository(harness.db);
     const summaries = new SummaryRepository(harness.db);
@@ -362,6 +370,90 @@ describe('SummaryService', () => {
     expect(second.content).toContain('# Second report');
     expect(fixture.harness.harness.sessions).toHaveLength(2);
     expect(fixture.harness.harness.sessions[1]?.sessionId).toBe('summary-session');
+  });
+
+  it('clears a stale OpenCode location and retries once as a fresh session', async () => {
+    let run = 0;
+    const fixture = setup(
+      () => {
+        run += 1;
+        if (run === 1) {
+          return [initLine('stale-summary'), textLine('# Warm'), resultLine()];
+        }
+        if (run === 2) {
+          return [
+            errorResultLine(
+              'Location not found: /root/.sandbox-harness/requests/__summary__:abc/cwd',
+            ),
+          ];
+        }
+        return [initLine('fresh-summary'), textLine('# Recovered'), resultLine()];
+      },
+      { harness: 'opencode' },
+    );
+    const cell = fixture.harness.cells.create('Alpha');
+
+    const warm = await fixture.service.generate(cell.id);
+    await settle();
+    fixture.harness.opencode.process?.emitExit(0);
+
+    const recovered = await fixture.service.generate(cell.id);
+
+    expect(warm.content).toContain('# Warm');
+    expect(recovered.content).toContain('# Recovered');
+    expect(recovered.content).not.toContain('Location not found');
+    expect(recovered.content).not.toContain('⚠');
+    expect(fixture.harness.opencode.sessions).toHaveLength(3);
+    expect(fixture.harness.opencode.sessions[1]?.sessionId).toBe('stale-summary');
+    expect(fixture.harness.opencode.sessions[2]?.sessionId).toBeNull();
+    expect(fixture.notify).not.toHaveBeenCalled();
+    expect(fixture.errors.error).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a stale location when no session was saved', async () => {
+    const fixture = setup(
+      () => [
+        errorResultLine('Location not found: /root/.sandbox-harness/requests/__summary__:abc/cwd'),
+      ],
+      { harness: 'opencode' },
+    );
+    const cell = fixture.harness.cells.create('Alpha');
+
+    await expect(fixture.service.generate(cell.id)).rejects.toThrow('Location not found');
+
+    expect(fixture.harness.opencode.sessions).toHaveLength(1);
+    expect(fixture.notify).toHaveBeenCalledWith({
+      cellId: cell.id,
+      source: 'summary.result',
+      reason: 'harness error result',
+      occurredAt: expect.any(Number),
+    });
+  });
+
+  it('gives up after the single stale-location retry', async () => {
+    let run = 0;
+    const fixture = setup(
+      () => {
+        run += 1;
+        if (run === 1) {
+          return [initLine('stale-summary'), textLine('# Warm'), resultLine()];
+        }
+        return [
+          errorResultLine('Location not found: /root/.sandbox-harness/requests/__summary__:abc/cwd'),
+        ];
+      },
+      { harness: 'opencode' },
+    );
+    const cell = fixture.harness.cells.create('Alpha');
+
+    await fixture.service.generate(cell.id);
+    await settle();
+    fixture.harness.opencode.process?.emitExit(0);
+
+    await expect(fixture.service.generate(cell.id)).rejects.toThrow('Location not found');
+
+    expect(fixture.harness.opencode.sessions).toHaveLength(3);
+    expect(fixture.notify).toHaveBeenCalledTimes(1);
   });
 
   it('records a generation failure and writes no row', async () => {

@@ -2829,12 +2829,15 @@ restart, which is why the settings store's approach does not fit here.
 reported: the failure kind, its detail (the `jsonParseReason` text, the zod message, or
 the fs error), and, when the file could be read, a SHA-256 of its bytes. A failure whose
 signature matches the previous one returns the fallback without touching the error sink or
-`console.warn`; a new signature reports once. A successful load or `ENOENT` clears the
-signature. Every load still reads and validates the file and still sets `preserveSource`,
-so the atomic write, the backup-before-save copy, and the five-copy prune are unchanged.
-The signature is never logged and the raw bytes are not retained in it.
+`console.warn`; a new signature reports once. A missing file and a successful load clear
+the signature. Every load still reads and validates the file and still sets
+`preserveSource`, so the atomic write, the backup-before-save copy, and the five-copy
+prune are unchanged. The signature is never logged and the raw bytes are not retained in
+it.
 
 **Cost.** While an identical unusable state persists, the log shows one row instead of
-one per tick, and the same applies to the stderr warning; a restart reports the still-broken
-file once. Operators editing the file get a fresh report because the byte identity changes.
-The digest is computed only on a failed read and only on the small operator file.
+one per tick, and the same applies to the stderr warning; a restart reports the
+still-broken file once. Operators editing an unusable file get a fresh report because the
+byte identity changes. A corrected file is read on the next `get()` and then cached as
+before, so later edits to an already-valid file still need a restart (unchanged). The
+digest is computed only on a failed load and only on the small operator file.

@@ -438,9 +438,9 @@ generation-time bounds (`since`/`until`). The all-cells view requests one latest
 feed with a `hasOlder` flag, or the flat cross-cell feed with server-owned paging; the
 focused-cell view uses a tie-safe `(created_at, id)` keyset cursor (`before`/`beforeId`),
 ordered `created_at DESC, id DESC`. It defaults to the last 72 hours, offers presets plus
-a custom local whole-day range, and requests 25 reports per cell plus one probe row. The
-flat feed returns 25 reports per page plus `hasMore` and the next cursor. No schema change
-is needed for either read path.
+a custom local date-and-time range at minute precision, and requests 25 reports per cell
+plus one probe row. The flat feed returns 25 reports per page plus `hasMore` and the next
+cursor. No schema change is needed for either read path.
 
 `retention.cellSummariesDays` in `config.json` (editable from the Config page) bounds the
 table: default 90 days, `0` keeps scorecard history forever. The `master_events`

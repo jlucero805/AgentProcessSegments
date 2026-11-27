@@ -2841,3 +2841,30 @@ still-broken file once. Operators editing an unusable file get a fresh report be
 byte identity changes. A corrected file is read on the next `get()` and then cached as
 before, so later edits to an already-valid file still need a restart (unchanged). The
 digest is computed only on a failed load and only on the small operator file.
+
+## D116. Scorecards custom ranges resolve to local minutes
+
+**Context.** D108 gave the Scorecards page a **Custom** period with two native date inputs
+and whole-day local bounds, and deferred time-of-day precision as separate work. Operators
+asking for "08:00–12:00 today" or an overnight run could only approximate the window by
+widening to whole days.
+
+**Decision.** The Custom row keeps the two date inputs and adds optional start and end
+`<input type="time">` inputs. `customWindow(start, end, startTime = '', endTime = '')`
+appends the time parameters, so every date-only call keeps its meaning. The start edge lands
+on the selected minute's first millisecond (`HH:mm:00.000`) and the end edge includes that
+whole minute (`HH:mm:59.999`), so equal endpoints mean one minute rather than an empty
+window. A blank time means the edge default — local midnight for the start and the last
+millisecond of the day for the end — which keeps a date-only range byte-identical to D108.
+`HH:mm:ss` values are accepted and truncated to the minute. Impossible dates (`2026-02-30`)
+and malformed times are rejected before any request, and an inverted pair reports "Choose a
+start date and time on or before the end date and time." The applied range is shown as
+`YYYY-MM-DD HH:mm – YYYY-MM-DD HH:mm (local)` and only moves on **Apply**; a draft edit does
+not affect Refresh or paging. `since`/`until` still travel as epoch ms, so no API,
+repository, schema, or scheduler change is needed.
+
+**Cost.** The request bounds now follow the operator's clock inputs instead of whole days,
+so a range can be as narrow as one minute; retention still bounds how far back it can reach.
+Selecting Custom from a preset still widens to whole days, so narrowing the seed to the
+preset's exact instant remains a separate improvement. Timezone selection, URL persistence
+of the range, and the drawer's own Custom control stay out of scope, as D108 recorded.

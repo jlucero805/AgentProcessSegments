@@ -113,8 +113,8 @@ and shows at most the newest five reports in the selected period. The **Usage** 
 totals tokens and cost by model, cell, and request, and the **Scorecards** page collects
 each cell’s persisted reports with its earlier history. The page defaults to reports
 generated in the last 72 hours, can widen to 24 hours, 7 days, 30 days, or all retained
-history, or use a custom local start/end date range; **All cells** loads each cell's
-latest report in one latest-per-cell request, or switches to **Flat**, one chronological
+history, or use a custom local start/end date-and-time range; **All cells** loads each
+cell's latest report in one latest-per-cell request, or switches to **Flat**, one chronological
 cross-cell feed with **Load more**. **Load older** pages through each cell's history
 within the selected period.
 
@@ -244,8 +244,8 @@ forever. The same startup/hourly job deletes old `cell_summaries` report rows in
 but always keeps the newest report per cell so the drawer can still show it under
 **All** and the scheduler does not treat a dormant cell as never summarized. Scorecard
 history is not rolled up. The Scorecards page filters by generation time, defaults to
-the last 72 hours, supports a custom local start/end date range, and bounds **All** and
-custom ranges by this retention window.
+the last 72 hours, supports a custom local start/end date-and-time range, and bounds **All**
+and custom ranges by this retention window.
 
 Budget alert retention lives in `config.json` as `retention.budgetAlertsDays`, also
 editable from the Config page. The default is 400 days; `0` keeps alert and delivery

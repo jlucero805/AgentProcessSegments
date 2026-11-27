@@ -44,33 +44,79 @@ export function dateInputValue(timestamp: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Local `YYYY-MM-DD HH:mm` label for an applied window bound. */
+export function formatMinute(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
+/** Local calendar day parsed from a `YYYY-MM-DD` input, or null when impossible. */
+function localDate(match: RegExpExecArray): { year: number; month: number; day: number } | null {
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const probe = new Date(year, month, day);
+  return probe.getFullYear() === year && probe.getMonth() === month && probe.getDate() === day
+    ? { year, month, day }
+    : null;
+}
+
+/** Local clock parsed from an `HH:mm` (or `HH:mm:ss`) input; blank means the day edge. */
+function localClock(
+  value: string,
+  edge: 'start' | 'end',
+): { hours: number; minutes: number } | null {
+  if (value === '') {
+    return edge === 'start' ? { hours: 0, minutes: 0 } : { hours: 23, minutes: 59 };
+  }
+  const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(value);
+  return match ? { hours: Number(match[1]), minutes: Number(match[2]) } : null;
+}
+
 /**
- * Local whole-day window for two date inputs. The start date includes local
- * midnight and the end date includes the last millisecond of the local day.
- * Returns a validation message when either date is missing or inverted.
+ * Local window for two date inputs and their optional time inputs. The start
+ * edge lands on the selected minute (`HH:mm:00.000`) and the end edge includes
+ * the whole selected minute (`HH:mm:59.999`); a blank time means local midnight
+ * for the start and the last millisecond of the day for the end. Returns a
+ * validation message when an input is missing, malformed, impossible, or
+ * inverted.
  */
-export function customWindow(start: string, end: string): DateWindow | string {
+export function customWindow(
+  start: string,
+  end: string,
+  startTime = '',
+  endTime = '',
+): DateWindow | string {
   const startMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
   const endMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
   if (!startMatch || !endMatch) return 'Choose both a start and end date.';
-  const bounded = (match: RegExpExecArray, edge: 'start' | 'end'): number | null => {
-    const year = Number(match[1]);
-    const month = Number(match[2]) - 1;
-    const day = Number(match[3]);
-    const date =
-      edge === 'start'
-        ? new Date(year, month, day, 0, 0, 0, 0)
-        : new Date(year, month, day, 23, 59, 59, 999);
-    return date.getFullYear() === year &&
-      date.getMonth() === month &&
-      date.getDate() === day
-      ? date.getTime()
-      : null;
-  };
-  const since = bounded(startMatch, 'start');
-  const until = bounded(endMatch, 'end');
-  if (since === null || until === null) return 'Choose a valid start and end date.';
-  if (until < since) return 'Choose a start date on or before the end date.';
+  const startDay = localDate(startMatch);
+  const endDay = localDate(endMatch);
+  if (startDay === null || endDay === null) return 'Choose a valid start and end date.';
+  const startClock = localClock(startTime, 'start');
+  const endClock = localClock(endTime, 'end');
+  if (startClock === null || endClock === null) return 'Choose a valid start and end time.';
+  const since = new Date(
+    startDay.year,
+    startDay.month,
+    startDay.day,
+    startClock.hours,
+    startClock.minutes,
+    0,
+    0,
+  ).getTime();
+  const until = new Date(
+    endDay.year,
+    endDay.month,
+    endDay.day,
+    endClock.hours,
+    endClock.minutes,
+    59,
+    999,
+  ).getTime();
+  if (until < since) return 'Choose a start date and time on or before the end date and time.';
   return { since, until };
 }
 

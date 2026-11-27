@@ -59,8 +59,8 @@ digests.
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
   polling scheduler with catch-up and backoff, a dedicated page for browsing reports
-  per cell with a generation-time period filter — presets plus a custom date range —
-  keyset paging, one latest-per-cell all-cells feed or one flat cross-cell feed with
+  per cell with a generation-time period filter — presets plus a custom date-and-time
+  range — keyset paging, one latest-per-cell all-cells feed or one flat cross-cell feed with
   server-side paging, and the Cell master drawer's latest-five view scoped by the same
   selectable generation-time period), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,

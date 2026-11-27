@@ -460,7 +460,9 @@ the root, the `upgrades` directory, and each direct run directory to `0700`, and
 top-level `db-backup.sqlite` to `0600`. It never follows a symlinked `upgrades/`, deletes
 anything, opens the database, changes snapshot contents, chmods the `latest` symlink, or
 touches `~/.aps-cutover/runs`. A symlinked root is skipped, while its `upgrades/` tree is
-still scanned through the link, so tighten the target yourself. The root is tightened
+still scanned through the link, so tighten the target yourself. Both deploy scripts warn
+at launch when an existing `~/.aps-cutover` root is not `0700`, naming these repair
+commands, but never change the mode themselves. The root is tightened
 first, so its run/upgrade names and the `latest` target stop being listable by other local
 accounts.
 
@@ -502,8 +504,9 @@ older version. `npm run repair:upgrades` previews and
 `npm run repair:upgrades -- --apply` changes modes for upgrade run directories and
 snapshots created by an older version. `npm run repair:runs` previews and
 `npm run repair:runs -- --apply` changes modes for cutover run directories and the shared
-`~/.aps-cutover` root created by an older version. None is part of the upgrade script
-yet.
+`~/.aps-cutover` root created by an older version. None runs automatically from the
+deploy scripts; a deploy only warns when it finds an existing `~/.aps-cutover` root that
+is not `0700`.
 
 ## Upgrade from Sandbox Harness
 
@@ -631,7 +634,10 @@ that unit if it is still present.
 Each real cutover creates (or tightens) its run directory under `~/.aps-cutover/runs/` to
 `0700`, so the evidence, `cutover.log`, `state`, and the `backup/` rollback copy stay
 owner-only. A missing `~/.aps-cutover` or `~/.aps-cutover/runs` ancestor is created `0700`
-too; an existing ancestor is left alone.
+too; an existing ancestor is left alone. When an existing `~/.aps-cutover` is not `0700`,
+the deploy warns and names `npm run repair:runs -- --apply` (or
+`npm run repair:upgrades -- --apply`) without changing it; a symlinked root is reported,
+never followed.
 
 The shared root and run directories left by an older version have not been tightened.
 After updating to a build with the owner-only mode, repair them explicitly:

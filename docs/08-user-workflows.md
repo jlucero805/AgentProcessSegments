@@ -283,22 +283,28 @@ APS signs the exact bytes it sends. When a signing secret is saved, every webhoo
 carries one signature header:
 
 - `X-APS-Signature-V2: t=<ms>,v2=<64 hex>` is the only signature. The `t` value is
-  milliseconds since epoch and is the same value as `X-APS-Timestamp`. The `v2` value is
-  HMAC-SHA256 over the exact ASCII timestamp digits, a literal `.`, and the exact raw body
-  bytes. Because the timestamp is inside the HMAC, changing it invalidates the signature.
+  milliseconds since epoch and is the only send-time timestamp in the request. The `v2`
+  value is HMAC-SHA256 over the exact ASCII timestamp digits, a literal `.`, and the exact
+  raw body bytes. Because the timestamp is inside the HMAC, changing it invalidates the
+  signature.
 
 A request without a saved secret has no signature header. Slack and Discord servers
 ignore signature headers; the signature covers the raw body for every format (`json`,
 `slack`, `discord`).
 
-#### Upgrading from the legacy header
+#### Upgrading from the legacy headers
 
-Earlier APS versions also sent `X-APS-Signature: sha256=<64 hex>` over the body only. That
-header is no longer sent, so a receiver that still verifies it sees no signature and
-should reject the delivery. Migrate the receiver to V2 first, then upgrade APS: older APS
-versions send both headers, so the receiver can be switched while the sender is still
-old. A receiver that treats a missing signature as "unsigned" must be fixed before the
-APS upgrade, not after.
+Earlier APS versions also sent `X-APS-Signature: sha256=<64 hex>` over the body only and
+an unsigned `X-APS-Timestamp` header. Both are no longer sent. A receiver that still verifies
+the body-only signature sees no signature and should reject the delivery; a receiver that
+reads `X-APS-Timestamp` must use V2's signed `t` instead (or, for JSON, the body's
+`occurredAt` / `alert.createdAt`). A request without a saved secret carries no send-time
+header.
+
+Migrate the receiver to V2 first, then upgrade APS: older APS versions send both the
+legacy signature and V2, so the receiver can be switched while the sender is still old. A
+receiver that treats a missing signature as "unsigned" must be fixed before the APS
+upgrade, not after.
 
 Verify V2 before parsing or trusting the body, and reject a timestamp outside your
 freshness window. Five minutes is a good default: reject stale and far-future values and
@@ -366,9 +372,8 @@ Every request carries these headers:
 
 - `content-type`: `application/json`, including Slack and Discord text bodies.
 - `x-aps-signature-v2`: `t=<ms>,v2=<64 hex>` when a secret is saved. The embedded `t` is
-  authoritative and must be within the freshness window.
-- `x-aps-timestamp`: milliseconds since epoch. It matches V2's `t` but is informational;
-  verify the `t` inside `X-APS-Signature-V2`, not this header alone.
+  authoritative and must be within the freshness window. It is the only send-time
+  timestamp.
 - `idempotency-key`: the alert id for budget alerts, or the event dedupe key for
   event notifications. It is informational and **not** signed.
 - `user-agent`: `aps-budget-alert/1` or `aps-notify/1`. It is informational only.

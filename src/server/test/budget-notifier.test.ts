@@ -317,13 +317,13 @@ describe('NotificationService', () => {
     const body = String(sent.init.body);
     const headers = new Headers(sent.init.headers);
     expect(headers.get('x-aps-signature')).toBeNull();
-    expect(headers.get('x-aps-timestamp')).toBe(String(NOW));
+    expect(headers.get('x-aps-timestamp')).toBeNull();
     expect(headers.get('x-aps-signature-v2')).toBe(
       `t=${NOW},v2=${webhookSignatureV2(secret, NOW, body)}`,
     );
   });
 
-  it('omits signature headers when no secret is set', async () => {
+  it('omits signature and timestamp headers when no secret is set', async () => {
     const fake = sender(() => ok());
     const context = setup({ send: fake.send });
     const record = addAlert(context.alerts);
@@ -334,7 +334,7 @@ describe('NotificationService', () => {
     const headers = new Headers(fake.calls[0]!.init.headers);
     expect(headers.get('x-aps-signature')).toBeNull();
     expect(headers.get('x-aps-signature-v2')).toBeNull();
-    expect(headers.get('x-aps-timestamp')).toBe(String(NOW));
+    expect(headers.get('x-aps-timestamp')).toBeNull();
   });
 
   it('signs Slack and Discord text bodies with V2', async () => {
@@ -349,6 +349,7 @@ describe('NotificationService', () => {
     const slackBody = String(fake.calls[0]!.init.body);
     const slackHeaders = new Headers(fake.calls[0]!.init.headers);
     expect(slackHeaders.get('x-aps-signature')).toBeNull();
+    expect(slackHeaders.get('x-aps-timestamp')).toBeNull();
     expect(slackHeaders.get('x-aps-signature-v2')).toBe(
       `t=${NOW},v2=${webhookSignatureV2(secret, NOW, slackBody)}`,
     );
@@ -373,6 +374,7 @@ describe('NotificationService', () => {
     const discordBody = String(fake.calls[1]!.init.body);
     const discordHeaders = new Headers(fake.calls[1]!.init.headers);
     expect(discordHeaders.get('x-aps-signature')).toBeNull();
+    expect(discordHeaders.get('x-aps-timestamp')).toBeNull();
     expect(discordHeaders.get('x-aps-signature-v2')).toBe(
       `t=${NOW},v2=${webhookSignatureV2(secret, NOW, discordBody)}`,
     );
@@ -396,7 +398,7 @@ describe('NotificationService', () => {
     const body = String(second.init.body);
     const headers = new Headers(second.init.headers);
     expect(headers.get('x-aps-signature')).toBeNull();
-    expect(headers.get('x-aps-timestamp')).toBe(String(NOW + 5 * 60_000));
+    expect(headers.get('x-aps-timestamp')).toBeNull();
     expect(headers.get('x-aps-signature-v2')).toBe(
       `t=${NOW + 5 * 60_000},v2=${webhookSignatureV2(secret, NOW + 5 * 60_000, body)}`,
     );

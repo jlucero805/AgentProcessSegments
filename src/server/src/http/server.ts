@@ -1272,11 +1272,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     ...processStore.get(),
     path: processStore.path,
     preservedPath: processStore.preservedPath(),
+    preservedCopies: processStore.preservedCopies(),
   }));
   app.patch('/api/process', async (request) => ({
     ...processStore.patch(request.body),
     path: processStore.path,
     preservedPath: processStore.preservedPath(),
+    preservedCopies: processStore.preservedCopies(),
   }));
 
   app.get('/api/master/status', async (request) => {

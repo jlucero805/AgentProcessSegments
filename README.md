@@ -216,10 +216,10 @@ block's defaults, is reported as `settings.invalid`, and the Config page names i
 banner until the next save. Before that save rewrites the file, the original bytes are
 copied aside, and the page lists every preserved copy, including copies left by earlier
 runs. The same rule applies to an invalid `process.json`, which reports
-`process.backupFailed` if the copy cannot be written; the global process editor shows the
-copy path after the preserving save. Preserved process copies are capped at the five
-newest; older copies are pruned after a successful save, and a prune failure is logged as
-`process.pruneFailed` without refusing the save.
+`process.backupFailed` if the copy cannot be written; the global process editor lists
+every preserved process copy, including ones left by earlier runs. Preserved process
+copies are capped at the five newest; older copies are pruned after a successful save,
+and a prune failure is logged as `process.pruneFailed` without refusing the save.
 
 Usage retention lives in `config.json` as `usage.retentionDays` and is editable from the
 Config page. The default is 90 days; `0` keeps raw usage history forever. Before raw
@@ -705,7 +705,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1410 vitest cases: 1059 server cases across 58 files (state machine,
+`npm test` runs 1415 vitest cases: 1062 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -721,7 +721,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 351 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 353 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, and manifest-aware served-page links, the source link, board,

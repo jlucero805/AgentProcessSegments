@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1410 vitest cases: 1059 server across 58 files (one environmental root-skip) and 351 web across 28 files, all green.
+- 1415 vitest cases: 1062 server across 58 files (one environmental root-skip) and 353 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1059 server + 351 web, plus the e2e env guard
+npm test                       # 1062 server + 353 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
@@ -263,8 +263,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   keeps at most the five newest `process.json.invalid-*` copies (pruning older ones after
   a successful save; a prune failure reports `process.pruneFailed` without refusing the
   save), and reports `process.backupFailed` for a failed copy. `GET/PATCH /api/process`
-  return this process's copy as `preservedPath`, and the global process editor shows it
-  after the preserving save. Env still owns paths, ports, and the harness.
+  return this process's copy as `preservedPath` and every existing
+  `process.json.invalid-*` copy as `preservedCopies` (newest first), and the global
+  process editor lists them, including copies left by earlier runs; `preservedPath`
+  itself is still in memory. Env still owns paths, ports, and the harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it

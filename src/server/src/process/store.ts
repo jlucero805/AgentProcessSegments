@@ -71,6 +71,15 @@ export class ProcessStore {
     return this.preservedFilePath;
   }
 
+  /**
+   * Existing preserved copies next to this process file, newest first. The copy
+   * this process made is first when it is among them, even if the clock moved
+   * backwards. Paths only; a missing or unreadable directory has no copies.
+   */
+  preservedCopies(): string[] {
+    return listPreservedCopies(this.path, { newest: this.preservedFilePath });
+  }
+
   private load(): ProcessConfig | null {
     this.preserveSource = false;
 

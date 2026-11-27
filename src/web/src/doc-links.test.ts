@@ -1,8 +1,9 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { HELP_MANIFEST } from '../../server/src/docs/manifest';
+import { walkFiles } from '../../server/src/util/files';
 import {
   checkDocLinks,
   checkHelpLinks,
@@ -12,6 +13,13 @@ import {
   markdownFiles,
   undefinedReferenceLabels,
 } from './doc-links';
+import { extractHeadings, helpSlugFromHref } from './docs';
+import {
+  GETTING_STARTED_HELP,
+  SPA_HELP_TARGETS,
+  VERIFY_WEBHOOK_SIGNATURES_HELP,
+  helpHref,
+} from './links';
 
 const repoRoot = path.resolve(process.cwd(), '../..');
 
@@ -470,3 +478,62 @@ describe('Help-served links and the manifest', () => {
   });
 });
 
+describe('SPA Help targets', () => {
+  it('declares the known in-app Help targets', () => {
+    expect(SPA_HELP_TARGETS).toEqual(
+      expect.arrayContaining([VERIFY_WEBHOOK_SIGNATURES_HELP, GETTING_STARTED_HELP]),
+    );
+  });
+
+  it('resolves every SPA Help target through the manifest and its headings', () => {
+    const entries = new Map(HELP_MANIFEST.map((entry) => [entry.slug, entry]));
+    for (const target of SPA_HELP_TARGETS) {
+      const entry = entries.get(target.slug);
+      expect(entry, `Help target "${target.slug}" is not in HELP_MANIFEST`).toBeDefined();
+      if (!entry) continue;
+
+      const source = path.join(repoRoot, entry.source);
+      expect(
+        existsSync(source),
+        `Help target "${target.slug}" source "${entry.source}" is missing`,
+      ).toBe(true);
+      if (!existsSync(source)) continue;
+
+      if (target.anchor !== null) {
+        const ids = extractHeadings(readFileSync(source, 'utf8')).map((heading) => heading.id);
+        expect(
+          ids,
+          `Help target "${target.slug}#${target.anchor}" is not a heading of "${entry.source}"`,
+        ).toContain(target.anchor);
+      }
+    }
+  });
+
+  it('builds the in-app href for every SPA Help target', () => {
+    for (const target of SPA_HELP_TARGETS) {
+      const expected = `?help=${target.slug}${target.anchor ? `#${target.anchor}` : ''}`;
+      expect(helpHref(target)).toBe(expected);
+      expect(helpSlugFromHref(helpHref(target))).toBe(target.slug);
+    }
+  });
+
+  it('rejects hard-coded Help targets in the SPA', () => {
+    const sourceRoot = path.join(repoRoot, 'src/web/src');
+    const problems: string[] = [];
+    for (const file of walkFiles(sourceRoot)) {
+      if (/\.test\.tsx?$/.test(file)) continue;
+      if (file.split(path.sep).includes('test')) continue;
+      if (file === 'links.ts' || file === 'docs.ts') continue;
+      const lines = readFileSync(path.join(sourceRoot, file), 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (
+          /\?help=[a-z0-9-]/i.test(line) ||
+          /(['"`])(?:getting-started|08-user-workflows)\1/.test(line)
+        ) {
+          problems.push(`${file}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(problems).toEqual([]);
+  });
+});

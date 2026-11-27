@@ -13,7 +13,7 @@ import { ScorecardsPage } from './ScorecardsPage';
 import { SkillsPage } from './SkillsPage';
 import { UsagePage } from './UsagePage';
 import { api, describeError } from './api';
-import { REPO_URL } from './links';
+import { GETTING_STARTED_HELP, REPO_URL } from './links';
 import { mergeSlashCommands } from './slash';
 import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
@@ -72,14 +72,17 @@ function NavButton({
   active,
   onClick,
   children,
+  testId,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
+      data-testid={testId}
       onClick={onClick}
       className={cn(
         'w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors',
@@ -249,7 +252,7 @@ export function App() {
   };
 
   const openHelp = () => {
-    setHelpSlug((current) => current ?? 'getting-started');
+    setHelpSlug((current) => current ?? GETTING_STARTED_HELP.slug);
     setHelpAnchor(null);
     setNavOpen(false);
   };
@@ -311,7 +314,7 @@ export function App() {
         </div>
 
         <nav className="space-y-0.5">
-          <NavButton active={page === 'board'} onClick={() => go('board')}>
+          <NavButton active={page === 'board'} onClick={() => go('board')} testId="nav-floor">
             Floor
           </NavButton>
           <NavButton active={page === 'usage'} onClick={() => go('usage')}>
@@ -326,7 +329,7 @@ export function App() {
           <NavButton active={page === 'skills'} onClick={() => go('skills')}>
             Skills
           </NavButton>
-          <NavButton active={page === 'config'} onClick={() => go('config')}>
+          <NavButton active={page === 'config'} onClick={() => go('config')} testId="nav-config">
             Config
           </NavButton>
         </nav>
@@ -375,6 +378,7 @@ export function App() {
             <Button
               variant="secondary"
               className="w-full"
+              data-testid="nav-master"
               onClick={() => {
                 setDetailId(null);
                 setMasterOpen(true);
@@ -387,6 +391,7 @@ export function App() {
           <Button
             variant="primary"
             className="w-full"
+            data-testid="new-request"
             onClick={() => {
               setMasterOpen(false);
               setCreateOpen(true);
@@ -419,6 +424,7 @@ export function App() {
               ref={helpButtonRef}
               type="button"
               aria-label="Help"
+              data-testid="nav-help"
               aria-current={helpSlug ? 'page' : undefined}
               onClick={openHelp}
               className={cn(

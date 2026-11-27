@@ -1297,7 +1297,9 @@ export function ConfigPage({
       ) : null}
 
       <div>
-        <h1 className="text-lg font-semibold text-zinc-100">Cell master</h1>
+        <h1 data-testid="config-heading" className="text-lg font-semibold text-zinc-100">
+          Cell master
+        </h1>
         <p className="mt-1 text-sm text-zinc-500">
           Each cell runs its own master on a cadence, starts or prods due work, records
           follow-up requests, and advances on exact markers. Requests without a cell stay
@@ -1332,7 +1334,12 @@ export function ConfigPage({
           <p className="break-all font-mono text-[11px] text-zinc-600">{path}</p>
           <div className="flex items-center justify-end gap-2">
             {saved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
-            <Button variant="primary" disabled={saving} onClick={() => void save()}>
+            <Button
+              variant="primary"
+              data-testid="save-schedule"
+              disabled={saving}
+              onClick={() => void save()}
+            >
               {saving ? <Spinner /> : 'Save schedule'}
             </Button>
           </div>
@@ -2009,10 +2016,7 @@ export function ConfigPage({
           <code className="text-zinc-500">X-APS-Signature-V2</code> header. Slack and Discord
           incoming webhooks accept the text-only format and ignore the signature header. See{' '}
           <a
-            href={helpHref(
-              VERIFY_WEBHOOK_SIGNATURES_HELP.slug,
-              VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
-            )}
+            href={helpHref(VERIFY_WEBHOOK_SIGNATURES_HELP)}
             className="font-medium text-blue-400 underline decoration-blue-900 underline-offset-2 hover:text-blue-300"
             onClick={(event) => {
               if (!onOpenHelp) return;

@@ -4,7 +4,7 @@ Rationale for choices made while rebuilding from `docs/01-system-spec.md`. Each 
 records the context, the choice, and what it costs. The original design's D1 to D41 are
 not reproduced; this file covers only decisions this rebuild made.
 
-## D1. better-sqlite3 v11 instead of the v9 pin
+## D1. better-sqlite3 v11 instead of the v9 pin (superseded by v13)
 
 **Context.** The spec pins v9 because v11 required Node 22 and a newer glibc on the
 original build machine. This machine runs Node 22.7.
@@ -14,6 +14,15 @@ and running a query.
 
 **Cost.** If the brain is later deployed onto an older Node, the pin has to come back.
 The data model and SQL are unchanged either way.
+
+**Superseded (v13).** v11 has no Node 24 prebuild and `prebuild-install` is deprecated, so
+every install on a current host downloaded nothing and compiled through `node-gyp`; on a
+Python 3.14 host that only works with node-gyp 11.5 or newer. v13 is the N-API line: it
+publishes prebuilds for the supported platforms inside the npm tarball and needs no
+install script. The cost is a Node 22 floor (`engines.node: ">=22"`, matching this repo's
+22.13 requirement), SQLite 3.54, and one wrinkle: `npm ci` still runs npm's implicit
+`node-gyp rebuild` for it because the lock-derived manifest lacks `gypfile: false`, so the
+Linux build toolchain stays a prerequisite and `npm run check:native` checks it.
 
 ## D2. Fastify 5 with its current plugin majors
 
@@ -153,7 +162,9 @@ their `mcp` entries into the generated `OPENCODE_CONFIG_DIR/opencode.json`; `--a
 makes them callable. Project and ancestor config files are disabled with
 `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checked-in `opencode.json(c)` or `.opencode`
 file cannot replace the reserved `aps` server or add servers, plugins, skills, agents, or
-permissions. JSON5 syntax is not accepted, and the generated file stays strict JSON.
+permissions. A project config found at the session cwd or an ancestor is named once on
+stderr by path only when it is ignored. JSON5 syntax is not accepted, and the generated
+file stays strict JSON.
 
 **Cost.** Claude's definition files are private storage, not a documented API, so a CLI
 change can break the read. The wildcard rules are verified from the CLI's own strings
@@ -226,10 +237,11 @@ Parse `text`, `tool_use`, `step_finish`, and `error`; capture the `ses_…` id a
 directory the harness merges. The child environment strips `OPENCODE_CONFIG` and
 `OPENCODE_CONFIG_CONTENT` before spawn: OpenCode layers both above that generated config,
 where an inline value could replace the bundled `aps` server or a read-only deny rule. A
-non-empty variable is named once on stderr and ignored, without its value. `PWD` is
-pinned to the session cwd because OpenCode resolves the project root from it. `--archived`
-keeps brain sessions out of the user's session list, and resume still works. KB sessions
-get explicit deny permissions instead of a tool allowlist.
+non-empty variable is named once on stderr and ignored, without its value. A project or
+ancestor config found at the session cwd is also named once on stderr by path only.
+`PWD` is pinned to the session cwd because OpenCode resolves the project root from it.
+`--archived` keeps brain sessions out of the user's session list, and resume still works.
+KB sessions get explicit deny permissions instead of a tool allowlist.
 
 **Cost.** A server start per turn (roughly a second) and no long-lived child. Session
 continuity still survives a brain restart because the session id lives in `session.json`
@@ -2237,7 +2249,8 @@ copied script keep their current modes, exactly as D86 chose for upgrades. There
 doc updates. Run contents, timing, names, retention, pruning, and the `latest` target are
 unchanged. This is not encryption at rest, and root can still read the files. Run
 directories left by an earlier version are tightened explicitly with
-`npm run repair:runs` (D110); the shared `~/.aps-cutover` root is left alone.
+`npm run repair:runs` (D110); the shared `~/.aps-cutover` root, which a new install
+already creates `0700`, is repaired by that command too (D120).
 
 ## D95. The legacy-branch dry run opens SQLite read-only
 
@@ -2280,14 +2293,16 @@ syscall filtering) would break the product.
 and `UMask=0077`. D114 later added `PrivateDevices=yes` and `ProtectProc=invisible`; the
 unit now scores 3.8 OK on systemd 259.
 `scripts/verify-systemd-unit.mjs` (already the `lint:unit` step) asserts the exact
-`[Service]` values, rejects the known-breaking values, and runs
+reviewed `[Service]` values, rejects the known-breaking values in any accepted boolean
+spelling after normalizing systemd's `0/1`, `no/yes`, `n/y`, `false/true`, `f/t`, and
+`off/on` forms, and runs
 `systemd-analyze security --offline=yes --user --threshold=48`, so an exposure above 4.8
 fails `npm run lint`. The directive map is the primary guard; the ceiling also
 catches new checks in later systemd versions. D114 rejected `ProtectHome=read-only`,
 `ProtectSystem=strict`, and `ProcSubset=pid` with live evidence and deferred
-`RestrictNamespaces` and `SystemCallFilter` until the real Claude Code sandbox is
-exercised. `PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute` stay off for the
-reasons commented in the unit.
+`RestrictNamespaces` and `SystemCallFilter` until an authenticated Claude Code turn
+exercises the real sandbox. `PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute`
+stay off for the reasons commented in the unit.
 
 **Cost.** In brain terminals, `sudo`/setuid escalation fails, `/etc`, `/usr`, and `/boot`
 are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do not run.
@@ -2662,13 +2677,14 @@ only `upgrades/`, and `prune:cutover` only removes runs.
 **Decision.** Add `npm run repair:runs`, a built maintenance CLI
 (`src/server/src/maintenance/repair-run-permissions.ts` plus
 `repair-run-permissions-cli.ts`). It is a dry run by default and changes modes only with
-`--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans only `DIR/runs`, one
-level deep: it sets the `runs` directory and every direct run directory to `0700`. It uses
-`lstat`, never follows a symlinked run directory, skips non-directory children, treats
-`ENOENT` as a skip, continues after other failures, and exits 1 if any entry failed. A
-missing `runs` is a successful no-op and is never created. It never deletes, reads file
-contents, descends into `dist/` or `backup/`, or opens SQLite. The shared
-`~/.aps-cutover` root, the `latest` symlink, and `upgrades/` keep their modes.
+`--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans `DIR/runs`, one
+level deep (D120 adds `DIR` itself): it sets the `runs` directory and every direct run
+directory to `0700`. It uses `lstat`, never follows a symlinked run directory, skips
+non-directory children, treats `ENOENT` as a skip, continues after other failures, and
+exits 1 if any entry failed. A missing `runs` is a successful no-op and is never created
+(D120 makes only a missing root the no-op). It never deletes, reads file contents,
+descends into `dist/` or `backup/`, or opens SQLite. The `latest` symlink and
+`upgrades/` keep their modes; the shared root is repaired by D120.
 
 Directory-level `0700` is the protection boundary; individual evidence files and the
 copied script keep their current modes, exactly as D86/D93 chose for upgrades. Cutover
@@ -2726,18 +2742,22 @@ an absolute `--outputFile.json` path because npm runs the workspace script with 
 timeout (600 s). The run also fails when a hog exits early. Exit codes are 0 pass, 1
 failure, 2 usage, and 130/143 on SIGINT/SIGTERM.
 
-The suite child is spawned `detached` so the whole npm-to-Vitest group is signalled on a
-timeout or interrupt. Hogs are stopped with SIGTERM then SIGKILL on every exit path, and
-each hog also polls `process.ppid` and exits when the runner disappears, which covers
-`SIGKILL` where no handler can run. The `aps-web-stress-hog` marker keeps a leaked hog
-findable, and the default log directory is an `aps-web-stress-*` mkdtemp under `TMPDIR`,
-so `clean-test-tmp.mjs` reclaims one left by a crash.
+Each iteration runs under `scripts/web-stress/suite-supervisor.mjs`, spawned `detached`
+so it is the session and process-group leader and npm, its shell, and the Vitest workers
+share that group. The runner signals the recorded group on a timeout or interrupt. The
+supervisor also polls `process.ppid` against the runner pid passed at spawn and SIGKILLs
+its own group when the runner disappears, so a `SIGKILL` of the runner cannot leave the
+suite running; hogs have their own `process.ppid` watchdog for the same reason. The
+`aps-web-stress-hog` marker keeps a leaked hog findable, and the default log directory is
+an `aps-web-stress-*` mkdtemp under `TMPDIR`, so `clean-test-tmp.mjs` reclaims one left by
+a crash.
 
 **Cost.** The default run is several minutes of full-suite work with four cores
 oversubscribed, so it is manual only: not in `npm test`, not in either CI workflow. It
-adds no Vitest cases or files (totals stay `1371 = 1046 server + 325 web`); its guard is
-a `node:test` file in `test:e2e-env`. Windows is not a goal (process groups are POSIX),
-and a filtered `--only` run is not a full-suite proof.
+adds no Vitest cases or files (the guarded totals in `AGENTS.md`, `README.md`, and
+`docs/02-status.md` stay unchanged); its guard is a `node:test` file in `test:e2e-env`.
+Windows is not a goal (process groups are POSIX), and a filtered `--only` run is not a
+full-suite proof.
 
 ## D113. Served Help links are checked against the manifest
 
@@ -2761,8 +2781,8 @@ URLs. Runtime behavior is unchanged: the service still filters missing sources a
 an empty list when `docs/` is absent.
 
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
-file. SPA-authored Help links and external URLs stay separate checks; missing and
-fragment targets remain the base link gate's findings.
+file. External URLs stay separate checks; SPA-authored Help links landed in D123. Missing
+and fragment targets remain the base link gate's findings.
 
 ## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
 
@@ -2798,11 +2818,29 @@ candidates resolved as:
 | `ProtectHome=read-only` + `ReadWritePaths=` | **REJECT** | `touch $HOME/...` fails with `Read-only file system`; home target repos lose worktrees |
 | `ProtectSystem=strict` + `ReadWritePaths=` | **REJECT** | `touch` in the outside repo (`/srv`) fails; target repos outside the allow-list break |
 
+**Re-run, 2026-11-27 (`204d9c8`).** The run used systemd 259, Node 24.22.3, and OpenCode
+2.3.2 on kernel 7.0.0-38-generic. A cached Claude Code **2.1.330 (Claude Code)** binary
+was present, but the host had no `~/.claude.json`, no `~/.claude/.credentials.json`, and
+no `ANTHROPIC_*`/`CLAUDE_*` environment. A direct `claude -p` with that binary returned
+`is_error: true` and `result: "Not logged in · Please run /login"`. The probe's control
+passed every check except `turn:claude` **SKIP** (`claude has no local state to seed a
+turn`), then both candidates ran and remained **DEFER**:
+
+| Candidate | Result | Evidence |
+| --- | --- | --- |
+| `RestrictNamespaces=~user` | **DEFER** | `boot`, `namespace` (user namespaces blocked), and `turn:opencode` pass; `turn:claude` SKIPs because the probe has no authenticated state to seed; `detach=0` |
+| `SystemCallFilter=@system-service` | **DEFER** | `boot`, `terminal`, `repair`, `worktree:home`, and `turn:opencode` pass; `turn:claude` SKIPs for the same reason; `detach=0` |
+
+No unit line, lint map, ceiling, or quoted score changed. The exact missing evidence is a
+real, seedable Claude Code login; a binary on `PATH` or in the npm cache is not enough.
+
 Adopt `PrivateDevices=yes` and `ProtectProc=invisible` in the unit and in
 `HARDENING_REQUIRED`; reject `ProcSubset=pid`, `ProtectSystem=strict`, and
-`ProtectHome=read-only` in `HARDENING_FORBIDDEN` with every accepted spelling; leave
-`RestrictNamespaces` and `SystemCallFilter` out of both maps until the Claude follow-up.
-The measured exposure is **3.8**, so `SECURITY_THRESHOLD` drops from 55 to **48** (the
+`ProtectHome` booleans with `read-only`/`tmpfs` in `HARDENING_FORBIDDEN` by normalizing
+every accepted boolean spelling; leave
+`RestrictNamespaces` and `SystemCallFilter` out of both maps until an authenticated
+Claude Code turn exercises the sandbox. The measured exposure is **3.8**, so
+`SECURITY_THRESHOLD` drops from 55 to **48** (the
 smallest tenth at least 1.0 above the score), and the unit gate now rejects more than one
 assignment of a list directive such as `ReadWritePaths=` so a duplicate line cannot widen
 a reviewed list. The probe stays manual: it needs a user manager, the built tree, literal
@@ -2813,10 +2851,10 @@ pure helpers and `buildProbePins` are guarded by `node:test` (`test:e2e-env`).
 the service's `/dev`; PTYs and standard tty devices remain. `ProtectProc=invisible` hides
 other users' processes, so a brain terminal can no longer inspect another login. The probe
 is slow (a real turn per candidate), copies local agent state into the run root, and
-depends on the host's CLI auth; a missing Claude binary defers the namespace and syscall
-verdicts. The four rejected/deferred directives keep their previous behavior, and a
-changed unit still installs by hand because `upgrade-vps.sh` refuses target commits that
-edit it.
+depends on the host's CLI auth; a missing or unauthenticated Claude Code defers the
+namespace and syscall verdicts. The five rejected/deferred directives keep their previous
+behavior, and a changed unit still installs by hand because `upgrade-vps.sh` refuses
+target commits that edit it.
 
 ## D115. An unusable process file is reported once per distinct state
 
@@ -2957,3 +2995,133 @@ method and keeps the scan loop and single-cell paths untouched.
 the single-cell status route remains one indexed lookup. The response shape, route
 validation, schema, retention, and web client are unchanged. `SummaryScheduler.scan()`
 still looks up each cell's latest report separately; that is a separate request.
+
+## D120. The shared cutover root is owner-only
+
+**Context.** D94 made `~/.aps-cutover/runs/<UTC>/` owner-only and D110 added
+`repair:runs` for older run directories, but both deliberately left the shared
+`~/.aps-cutover` root at its existing mode. A new install already gets a `0700` root
+because `prepare_run_dir` and cutover's `point_latest` create the ancestor chain under
+`umask 077`; an install that predates that change can keep a `0755` root indefinitely.
+The `0700` children protect run and snapshot contents, but a world-readable root still
+lets any local account list `runs/` and `upgrades/` names and resolve the `latest`
+symlink target. An operator who ran both repairs could reasonably assume the whole
+evidence tree was owner-only. `upgrade-vps.sh` also had one creation gap: its internal
+`--run --run-dir` path could reach `point_upgrade_latest` with the root still missing, and
+that helper used a bare `mkdir -p`, creating the root and `upgrades/` at `0755` under the
+usual umask.
+
+**Decision.** The shared `~/.aps-cutover` root is `0700`, the same boundary as its
+children. A new root is created `0700` by both deploy scripts: `upgrade-vps.sh` now runs
+`point_upgrade_latest`'s `mkdir -p` under a local `umask 077`, and `cutover-vps.sh` is
+unchanged. Neither script gains a chmod of an existing root; silently changing an
+operator's shared directory on the next run would violate the "existing ancestors are
+left alone" rule from D73/D86/D94. Instead, both existing dry-run-first repairs own the
+root: `npm run repair:runs` (D110) inspects `--root` itself before `runs/`,
+`npm run repair:upgrades` (D93) inspects `--root` itself before `upgrades/`, and each
+tightens a real directory to `0700` in its normal pass. That means either command fixes
+an old root, so an upgrade-only host does not have to remember the cutover repair.
+`latest` needs no separate change: on Linux a symlink's mode is ignored, and the `0700`
+root plus the `0700` target run directory already block traversal and resolution.
+
+A symlinked root is not chmodded, so a relocated tree is left for the operator to
+tighten, while its `runs/` or `upgrades/` tree is still scanned through the link. A
+non-directory root and the filesystem root (`--root /`) fail closed in the engine; both
+CLIs also refuse a resolved root equal to the current user's home directory before any
+inspection or chmod, so `--apply --root ~` cannot tighten the real home.
+
+**Why not a new command.** A dedicated `repair:cutover-root` would duplicate the three
+existing dry-run repairs' argument handling and output for one chmod, and the two
+evidence repairs already own the root's children. Leaving the root `0755` and documenting
+it was rejected because the name and symlink-target leak is real and new installs already
+use the tighter boundary.
+
+**Cost.** One more directory in each evidence repair and one explicit run for an old
+install; either command is sufficient. No run contents, retention, pruning, `latest`
+target, or child mode changes. This is not encryption at rest; root can still read the
+files.
+
+## D121. Maintenance permission repairs share one engine and CLI core
+
+**Context.** `repair:permissions` (D74), `repair:upgrades` (D93), and `repair:runs`
+(D110/D120) each carried a copy of the owner-only chmod engine: the `0700`/`0600`
+decision, the `lstat`/`stat` and kind checks, symlink refusal, the `ENOENT`-as-skip
+rule, the dry-run accounting, the report loop, argument parsing, the exit code, and the
+direct-run bootstrap. The cutover engines imported the requests engine only for
+`PRIVATE_*_MODE`/`RepairAction`, and the cutover CLIs imported its `formatMode`. A fix
+applied to one repair could silently miss the other two, and the security-sensitive
+`chmod` logic had three homes.
+
+**Decision.** Move the engine to `src/server/src/maintenance/permission-repair.ts`
+(`PermissionRepair`, both modes, the entry/result types, `formatMode`) and the CLI core
+to `repair-cli.ts` (`parseRepairArgs`, `printRepairReport`, `repairExitCode`,
+`runDirectly`). The three engines now only describe their tree; the three CLIs only hold
+their usage text, default target, and missing-root messages. Commands, flags, report
+lines, order, exit codes, and traversal are unchanged. The root rules stay explicit
+options instead of silent unification: `repair:permissions` follows a symlinked
+`requests/` root (`stat`) and records a session dir that vanishes between `readdir` and
+`lstat` as a skip; the cutover repairs use `lstat`, both skip a symlinked cutover root
+while refusing a symlinked `runs/` or `upgrades/` (D120), and missing children are
+silent.
+`src/server/test/repair-permissions.test.ts` guards the split: only
+`permission-repair.ts` may mention `chmodSync`, every engine constructs
+`PermissionRepair`, and every CLI imports the shared core.
+`src/server/test/permission-repair.test.ts` covers the policy seam directly: a missing
+root under every symlink mode, refused/followed/skipped symlinked roots, and the
+silent-versus-vanished child rule.
+
+**Cost.** Two new modules, one structural guard test, and one focused policy-seam test
+file. A future repair must use the shared scanner; the guard fails if it imports
+`chmodSync` directly. Changing either root rule is a separate decision (the symlinked
+`requests/` root is filed separately). The shell `chmod` in
+`deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this code.
+
+## D122. The stress harness covers the server suite too
+
+**Context.** `npm run test:web-stress` (D112) proves the web suite under four CPU hogs,
+but the server suite carries the explicit 30 s budgets for the cutover/upgrade cases and
+the process-heavy `deploy/*.sh` fixtures. Re-verifying those under load meant editing the
+web-only workspace constant or reconstructing a shell recipe, and a copy of the runner
+would let the two stress paths drift on the fail-closed rules.
+
+**Decision.** `scripts/web-stress.mjs` gains `--suite web|server` (default web) and
+`npm run test:server-stress` passes `--suite server`. A pure
+`scripts/web-stress/suites.mjs` holds the workspace, label, log prefix, and hog marker
+for each suite; `suiteArgs` builds the common `npm test --workspace <suite> --
+--reporter=verbose --reporter=json --outputFile.json=<abs>` argv. Both suites use the
+same 3 runs x 4 hogs x 600 s defaults, the same
+`buildPinnedEnv(process.env, { NODE_ENV: 'test' })`, sequential iterations, and the same
+fail-closed report and exit-code rules. Both suites run under D112's
+`suite-supervisor.mjs` group leader, so a `SIGKILL` of the runner reaps the npm/Vitest
+group for either workspace. Server output is `server-stress:`, the default log dir is
+`aps-server-stress-*`, and the hog marker is `aps-server-stress-hog`; web values are
+unchanged. There is no `all` mode: `npm test` already composes the suites, and one stress
+command per suite keeps the logs and labels clear.
+
+**Cost.** One more registry module, one CLI flag, one npm script, and guard cases; no
+Vitest case or file changes, so the guarded totals stay unchanged. It is manual only:
+not in `npm test`, not in either CI workflow. The suite registry only supplies the
+workspace, labels, and argv; the process-group spawn and supervisor behavior are shared
+with web.
+
+## D123. SPA Help targets are checked against the manifest
+
+**Context.** D99 and D113 prove that Markdown links and Help-served pages resolve, but the
+SPA's own Help affordances are TypeScript constants and literals. A manifest rename or a
+typo in `src/web/src/links.ts` or `HelpPanel.tsx` turned a Help link into Help's "Page not
+found" without failing any gate.
+
+**Decision.** `src/web/src/links.ts` declares `HelpTarget` plus `GETTING_STARTED_HELP`,
+`VERIFY_WEBHOOK_SIGNATURES_HELP`, and the `SPA_HELP_TARGETS` registry; `helpHref` accepts a
+target so a slug and anchor cannot be paired by accident. `HelpPanel`, `App`, and
+`ConfigPage` use those constants. `src/web/src/doc-links.test.ts` iterates the registry,
+requires each slug to be a `HELP_MANIFEST` entry and each non-null anchor to be an
+`extractHeadings` id of that entry's source, checks the built `?help=` href, and scans
+non-test `src/web/src` files for a quoted `?help=<slug>` or bare Help slug. `docs.ts`
+keeps the README-to-`getting-started` path alias, which `manifestProblems` already
+validates.
+
+**Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
+runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
+parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
+of scope. External URLs and image/non-Markdown targets stay separate checks.

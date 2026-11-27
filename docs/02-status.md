@@ -151,14 +151,20 @@ built and vended by the brain; real-CLI verification is still pending.
   `--apply` to change). It never recurses into `cwd/` checkouts. A missing state file is
   empty; an unreadable or invalid one is reported and moved to
   `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write.
-- Upgrade evidence: `npm run repair:upgrades` tightens `~/.aps-cutover/upgrades` and each
-  direct run directory to `0700` and each top-level `db-backup.sqlite` to `0600` (dry run
-  by default; `--apply` to change). It never follows symlinks, deletes anything, opens the
-  database, or touches `~/.aps-cutover/runs`.
-- Cutover evidence: `npm run repair:runs` tightens `~/.aps-cutover/runs` and each direct
-  run directory to `0700` (dry run by default; `--apply` to change). It never follows
-  symlinks, deletes anything, descends into `dist/` or `backup/`, reads or changes run
-  contents, or touches `~/.aps-cutover/upgrades` or the shared `~/.aps-cutover` root.
+- Upgrade evidence: `npm run repair:upgrades` tightens the shared `~/.aps-cutover` root,
+  `~/.aps-cutover/upgrades`, and each direct run directory to `0700` and each top-level
+  `db-backup.sqlite` to `0600` (dry run by default; `--apply` to change). It never follows
+  a symlinked `upgrades/`, deletes anything, opens the database, chmods the `latest`
+  symlink, or touches `~/.aps-cutover/runs`.
+- Cutover evidence: `npm run repair:runs` tightens the shared `~/.aps-cutover` root,
+  `~/.aps-cutover/runs`, and each direct run directory to `0700` (dry run by default;
+  `--apply` to change). It never follows a symlinked `runs/`, deletes anything, descends
+  into `dist/` or `backup/`, reads or changes run contents, chmods the `latest` symlink,
+  or touches `~/.aps-cutover/upgrades`. Either repair skips a symlinked root while still
+  scanning its subtree through the link.
+  All three repairs share the `maintenance/permission-repair.ts` engine and the
+  `maintenance/repair-cli.ts` core; they differ only in the tree they scan and the
+  root-symlink rule.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -183,7 +189,8 @@ built and vended by the brain; real-CLI verification is still pending.
   with the winning entry used whole; OpenCode merges `mcp` entries from the global
   `opencode.json`/`opencode.jsonc`, both read as JSONC (comments and trailing commas
   accepted, JSON5 not), and runs with `--auto`. Project/ancestor config is disabled with
-  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; process-level config env overrides are stripped,
+  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; a file found at the session cwd or an ancestor is
+  named once on stderr by path only; process-level config env overrides are stripped,
   not merged. Read-only KB sessions exclude user servers and plugins. The
   bundled `aps` key is reserved: a user entry with that name is
   replaced by the bundled server, with a one-time warning naming its config file and
@@ -214,9 +221,12 @@ built and vended by the brain; real-CLI verification is still pending.
   `/api` still returns JSON, and hashed assets are served. Unknown routes return
   `{ "error": "not_found" }` whether or not a build is present. Headless Chromium runs
   (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport; Puppeteer required, or
-  pass `--allow-missing-puppeteer` to skip deliberately) create a request, open the
-  drawer and chat, open Help and confirm its Getting started Mermaid diagram renders as
-  an SVG, and open the Config page with no page or console errors.
+  pass `--allow-missing-puppeteer` to skip deliberately) create a request and a cell,
+  remove both on success, failure, and interrupt, open the drawer and chat, open Help
+  and confirm its Getting started Mermaid diagram renders as an SVG, and open the
+  Config page with no page or console errors. The smoke asserts `data-testid` hooks,
+  accessible `aria-label`s, and Help `data-slug`s, not visible copy;
+  `scripts/ui-smoke.test.mjs` guards all three.
 - Mobile shell: the sidebar is off-canvas with a hamburger below `md`, board columns
   scroll horizontally with snap, and the drawer fills the screen. A 390 px Chromium run
   verified the menu, board scroll, and full-width drawer.
@@ -476,20 +486,22 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1440 vitest cases (one environmental root-skip): 1068 server across 58 files and 372 web across 28 files,
+- 1475 vitest cases (one environmental root-skip): 1097 server across 59 files and 378 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
   `PATH` and validated by its `--version` output), and `scripts/e2e.mjs` (built brain +
   deterministic
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
-  `npm run test:web-stress` runs the web suite three times under four CPU hogs on demand;
-  it fails closed on a failed iteration, a dead hog, or a missing report, leaves no hog
-  processes behind, and is manual (not part of `npm test` or CI).
+  `npm run test:web-stress` and `npm run test:server-stress` run the web or server suite
+  three times under four CPU hogs on demand; they fail closed on a failed iteration, a
+  dead hog, or a missing report, leave no hog or suite processes behind, and are manual
+  (not part of `npm test` or CI).
   The web suite also resolves every local documentation link, image, and Help `#anchor`,
   checks links on Help-served pages against the manifest in
-  `src/server/src/docs/manifest.ts`, and requires served images and non-Markdown links to
-  resolve through the `/api/docs/assets/` route (external URLs are never fetched); run it
+  `src/server/src/docs/manifest.ts`, requires served images and non-Markdown links to
+  resolve through the `/api/docs/assets/` route, and checks the SPA's own Help targets in
+  `src/web/src/links.ts` against that manifest (external URLs are never fetched); run it
   alone with `npm run check:docs`.
   Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`
   override in `eslint.config.mjs`; the three bounded fail-fast guards carry reviewed
@@ -518,7 +530,8 @@ built and vended by the brain; real-CLI verification is still pending.
   (`--keep-runs`/`--keep-days`/`--no-prune`) prunes older runs after every terminal state.
   The same retention can be run by hand with `npm run prune:upgrades`.
   Runs and snapshots left by an older version are tightened with `npm run repair:upgrades`
-  (dry run first), and cutover run directories with `npm run repair:runs` (dry run first).
+  (dry run first), and cutover run directories and the shared `~/.aps-cutover` root with
+  `npm run repair:runs` (dry run first).
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`
   with APS paths, bound to `127.0.0.1:7391`; SPA and API are served with `/api` winning
   over the SPA fallback, and unknown routes return `{ "error": "not_found" }`. The
@@ -561,12 +574,15 @@ built and vended by the brain; real-CLI verification is still pending.
   `workflow`-scoped credential: run `npm run check:github-scope` first (exit 0 is the only
   green light, 1 means a classic token is missing `workflow` or `repo`/`public_repo`, 2
   means it could not be classified) and follow invariant 47 instead of using a deploy key.
+  If the scope is missing, run `npm run grant:github-scope` from an interactive terminal;
+  it wraps the refresh and, outside a TTY, prints the command instead of blocking.
 
 ## Deviations from the spec
 
-- `better-sqlite3` is v11, not the spec's v9 pin. The rebuild targeted Node 22.7, where
-  v9 has no prebuilt binary; this host runs Node 24, where v11 compiles from source and
-  needs `make`, `g++`, and `python3`.
+- `better-sqlite3` is v13, not the spec's v9 pin. v13 is N-API with prebuilds published in
+  the npm tarball (Node 22 or newer), so no ABI-specific download is needed. `node-pty`
+  1.1.0 still compiles on Linux, so installs need `make`, `g++`, and `python3`; Python 3.14
+  needs npm 11.7 or newer. `npm run check:native` reports both modules and the toolchain.
 - `@fastify/static` v10, `@fastify/websocket` v11, Fastify v5, zod v4. The spec named the
   plugins, not versions. Static v10 clears the path-traversal route-guard advisories;
   zod 4 clears the oversized-collection memory advisory and needed only the `ZodType`

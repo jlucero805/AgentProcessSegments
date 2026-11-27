@@ -92,7 +92,9 @@ describe('Board', () => {
     const onOpen = vi.fn();
 
     render(<Board cellId={null} onOpen={onOpen} onError={() => {}} />);
-    fireEvent.click(await screen.findByText('Groom this'));
+    const card = await screen.findByText('Groom this');
+    expect(screen.getByTestId('request-card')).toHaveAttribute('data-request-id', 'a');
+    fireEvent.click(card);
 
     expect(onOpen).toHaveBeenCalledWith('a');
   });

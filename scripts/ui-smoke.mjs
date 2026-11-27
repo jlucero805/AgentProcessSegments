@@ -8,11 +8,18 @@
 //
 // Set UI_MOBILE=1 for a 390x844 viewport (off-canvas menu, horizontal board,
 // full-width drawer). Set UI_BASE for a different running brain.
-// The script creates a request through the UI, checks the drawer/chat, the Config
-// schedule card, drops the request through the API, and fails on page or console errors.
-// A missing Puppeteer fails the run; --allow-missing-puppeteer skips it
-// deliberately and prints SKIPPED (a skip is not a pass).
+// The script creates a request and a cell through the UI, checks the drawer/chat and
+// the Config schedule card, removes both through the API on every exit path, verifies
+// the request ended in the dropped state, and fails on page or console errors. A
+// missing Puppeteer fails the run; --allow-missing-puppeteer skips it deliberately
+// and prints SKIPPED (a skip is not a pass).
+//
+// Locate elements through the data-testid hooks, accessible aria-labels, and Help
+// data-slugs below, never through visible copy. scripts/ui-smoke.test.mjs fails when
+// one used here is missing from the SPA or the Help manifest.
 import { resolveUiSmokePuppeteer } from './e2e/puppeteer.mjs';
+import { createSignalCleanup } from './e2e/signal-cleanup.mjs';
+import { cleanupUiSmokeArtifacts } from './e2e/ui-smoke-cleanup.mjs';
 
 const guard = await resolveUiSmokePuppeteer({ argv: process.argv.slice(2) });
 if (!guard.ok) {
@@ -21,12 +28,98 @@ if (!guard.ok) {
 }
 const puppeteer = guard.puppeteer;
 
-const base = process.env.UI_BASE ?? 'http://127.0.0.1:7391';
+const base = (process.env.UI_BASE ?? 'http://127.0.0.1:7391').replace(/\/+$/, '');
 const mobile = process.env.UI_MOBILE === '1';
+const REQUEST_TITLE = 'Browser smoke';
+const CELL_NAME = 'Smoke cell';
+const BOARD_COLUMNS = ['intake', 'clarify', 'dispatch', 'review', 'merge', 'finalize'];
 let browser;
 let page;
+let requestId;
+let cellId;
+let baselineRequestIds = null;
+let baselineCellIds = null;
+let baselineReady = false;
+let artifactsRemoved = false;
+let cleanupFailed = false;
+
+async function fetchJson(route) {
+  const response = await fetch(`${base}${route}`);
+  if (!response.ok) throw new Error(`GET ${route} -> ${response.status}`);
+  return response.json();
+}
+
+async function removeArtifacts() {
+  if (!requestId && !cellId && !baselineReady) return;
+  if (artifactsRemoved) return;
+  artifactsRemoved = true;
+  try {
+    const { failures } = await cleanupUiSmokeArtifacts({
+      base,
+      request: { id: requestId, title: REQUEST_TITLE },
+      cell: { id: cellId, name: CELL_NAME },
+      baselineRequestIds: baselineReady ? baselineRequestIds : null,
+      baselineCellIds: baselineReady ? baselineCellIds : null,
+      log: (message) => console.error(message),
+    });
+    if (failures.length > 0) {
+      cleanupFailed = true;
+      console.error(
+        `ui smoke cleanup failed for ${failures.length} artifact(s); the board may need manual cleanup`,
+      );
+    }
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`ui smoke cleanup failed: ${error.message}`);
+  }
+}
+
+async function closeBrowser() {
+  const current = browser;
+  if (!current) return;
+  try {
+    await current.close();
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`ui smoke cleanup: browser close failed: ${error.message}`);
+    try {
+      current.process()?.kill('SIGKILL');
+    } catch {
+      // The browser already exited.
+    }
+  } finally {
+    browser = null;
+  }
+}
+
+async function cleanup() {
+  try {
+    await removeArtifacts();
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`ui smoke cleanup failed: ${error.message}`);
+  }
+  await closeBrowser();
+}
+
+function forceCleanup() {
+  try {
+    browser?.process()?.kill('SIGKILL');
+  } catch {
+    // The browser already exited.
+  }
+}
+
+const signalCleanup = createSignalCleanup({ cleanup, force: forceCleanup });
+
 try {
-  browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+  browser = await puppeteer.launch({
+    headless: true,
+    // Puppeteer's default signal handlers exit immediately and would skip cleanup.
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    args: ['--no-sandbox'],
+  });
   page = await browser.newPage();
   if (mobile) await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 } catch (error) {
@@ -46,15 +139,8 @@ page.on('console', (message) => {
   }
 });
 
-async function hasText(text) {
-  return page.evaluate(
-    (label) => document.body.innerText.toLowerCase().includes(label.toLowerCase()),
-    text,
-  );
-}
-
 const HELP_MERMAID_SELECTOR =
-  '[role="dialog"][aria-label="Documentation"] article svg[id^="help-mermaid-"]';
+  '[data-testid="help-article"] svg[id^="help-mermaid-"]';
 
 async function waitForMermaidDiagram() {
   try {
@@ -62,9 +148,7 @@ async function waitForMermaidDiagram() {
   } catch (error) {
     const article = await page
       .evaluate(() => {
-        const node = document.querySelector(
-          '[role="dialog"][aria-label="Documentation"] article',
-        );
+        const node = document.querySelector('[data-testid="help-article"]');
         return node ? node.innerText : '';
       })
       .catch(() => '');
@@ -77,17 +161,6 @@ async function waitForMermaidDiagram() {
       { cause: error },
     );
   }
-}
-
-async function clickText(text) {
-  const found = await page.evaluate((label) => {
-    const elements = [...document.querySelectorAll('button, a')];
-    const element = elements.find((candidate) => candidate.textContent?.trim() === label);
-    if (!element) return false;
-    element.click();
-    return true;
-  }, text);
-  if (!found) throw new Error(`button not found: ${text}`);
 }
 
 async function sidebarBox() {
@@ -128,9 +201,17 @@ async function openMenu(step) {
 try {
   await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('agent process segments'),
+    (count) => document.querySelectorAll('[data-testid^="column-"]').length === count,
     { timeout: 15_000 },
+    BOARD_COLUMNS.length,
   );
+  const columnIds = await page.$$eval('[data-testid^="column-"]', (columns) =>
+    columns.map((column) => column.getAttribute('data-testid')),
+  );
+  const expectedColumns = BOARD_COLUMNS.map((column) => `column-${column}`);
+  if (columnIds.join(',') !== expectedColumns.join(',')) {
+    throw new Error(`board columns differ: ${JSON.stringify(columnIds)}`);
+  }
 
   const background = await page.evaluate(() => {
     const root = document.getElementById('root')?.firstElementChild;
@@ -140,17 +221,13 @@ try {
     throw new Error(`Tailwind did not apply; root background is ${background}`);
   }
 
-  for (const label of ['Requests', 'Plan', 'Implement', 'Review', 'Merge', 'Finalize']) {
-    if (!(await hasText(label))) throw new Error(`board column missing: ${label}`);
-  }
-
   if (mobile) {
     const closed = await sidebarBox();
     if (!closed || closed.x >= 0 || closed.open !== 'false') {
       throw new Error(`menu should start off-canvas: ${JSON.stringify(closed)}`);
     }
     const scroll = await page.evaluate(() => {
-      const column = document.querySelector('[data-testid="column-intake"]');
+      const column = document.querySelector('[data-testid^="column-"]');
       const board = column?.parentElement;
       return board ? { scrollWidth: board.scrollWidth, clientWidth: board.clientWidth } : null;
     });
@@ -159,34 +236,63 @@ try {
     }
   }
 
+  // Cleanup must never remove an artifact that existed before this run. Capture the
+  // ids first, then use the create-response ids; the baseline is only the fallback
+  // for a response that was lost after the server created the artifact.
+  const [baselineRequests, baselineCells] = await Promise.all([
+    fetchJson('/api/requests'),
+    fetchJson('/api/cells'),
+  ]);
+  baselineRequestIds = new Set(
+    baselineRequests
+      .filter((request) => request.title === REQUEST_TITLE)
+      .map((request) => request.id),
+  );
+  baselineCellIds = new Set(
+    baselineCells.filter((cell) => cell.name === CELL_NAME).map((cell) => cell.id),
+  );
+  baselineReady = true;
+
   await openMenu('create');
-  await clickText('+ New request');
-  await page.waitForSelector('input[placeholder="What should the agent do?"]', { timeout: 10_000 });
-  await page.type('input[placeholder="What should the agent do?"]', 'Browser smoke');
+  await page.click('[data-testid="new-request"]');
+  await page.waitForSelector('[data-testid="create-title"]', { visible: true, timeout: 10_000 });
+  await page.type('[data-testid="create-title"]', REQUEST_TITLE);
   await page.type(
-    'textarea[placeholder^="Context, links"]',
+    '[data-testid="create-body"]',
     'Created by a real Chromium against the running brain.',
   );
-  await clickText('Create request');
+  const [requestResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${base}/api/requests` &&
+        response.request().method() === 'POST',
+    ),
+    page.click('[data-testid="create-submit"]'),
+  ]);
+  if (requestResponse.status() !== 201) {
+    throw new Error(`create request failed: ${requestResponse.status()}`);
+  }
+  const createdRequest = await requestResponse.json();
+  if (typeof createdRequest.id !== 'string') {
+    throw new Error('create request response did not contain an id');
+  }
+  requestId = createdRequest.id;
 
+  await page.waitForSelector('[data-testid="request-detail"]', { timeout: 15_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('finalize digest'),
+    (title) =>
+      document.querySelector('[data-testid="request-title"]')?.textContent?.trim() === title,
     { timeout: 15_000 },
+    REQUEST_TITLE,
   );
-  // The Harness field's label renders uppercase with no colon, so its "effective:" hint
-  // is the stable marker for that field.
-  await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('effective:'), {
-    timeout: 15_000,
-  });
-  await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('send'), {
-    timeout: 10_000,
-  });
+  // These mount only after the drawer's form and chat have loaded.
+  await page.waitForSelector('[data-testid="finalize-digest"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="harness-select"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="composer-send"]', { visible: true, timeout: 10_000 });
 
   if (mobile) {
     const drawer = await page.evaluate(() => {
-      const aside = [...document.querySelectorAll('aside')].find((element) =>
-        element.textContent?.includes('Finalize digest'),
-      );
+      const aside = document.querySelector('[data-testid="request-detail"]');
       if (!aside) return null;
       const rect = aside.getBoundingClientRect();
       return { x: rect.x, width: rect.width, viewport: window.innerWidth };
@@ -202,56 +308,71 @@ try {
     );
     close?.click();
   });
+  await page.waitForSelector('[data-testid="request-detail"]', { hidden: true, timeout: 10_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('browser smoke'),
+    (id) =>
+      [...document.querySelectorAll('[data-testid="request-card"]')].some(
+        (card) => card.dataset.requestId === id,
+      ),
     { timeout: 10_000 },
+    requestId,
   );
 
   await openMenu('cell');
-  await page.click('button[aria-label="New cell"]');
+  await page.click('[data-testid="new-cell"]');
+  await page.waitForSelector('[data-testid="cell-name"]', { visible: true, timeout: 15_000 });
+  await page.type('[data-testid="cell-name"]', CELL_NAME);
+  // The submit button only enables after the cell draft's process has loaded.
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('cell process segments'),
+    () => {
+      const button = document.querySelector('[data-testid="cell-submit"]');
+      return button instanceof HTMLButtonElement && !button.disabled;
+    },
     { timeout: 15_000 },
   );
-  await page.type('input[placeholder="e.g. Work repo"]', 'Smoke cell');
-  await clickText('Create cell');
+  const [cellResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${base}/api/cells` && response.request().method() === 'POST',
+    ),
+    page.click('[data-testid="cell-submit"]'),
+  ]);
+  if (cellResponse.status() !== 201) {
+    throw new Error(`create cell failed: ${cellResponse.status()}`);
+  }
+  const createdCell = await cellResponse.json();
+  if (typeof createdCell.id !== 'string') {
+    throw new Error('create cell response did not contain an id');
+  }
+  cellId = createdCell.id;
   await page.waitForFunction(
-    () => document.body.innerText.includes('Smoke cell'),
+    (name) =>
+      [...document.querySelectorAll('[data-testid="cell-option"]')].some(
+        (option) => option.textContent?.trim() === name,
+      ),
     { timeout: 15_000 },
+    CELL_NAME,
   );
-  const cells = await (await fetch(`${base}/api/cells`)).json();
-  const smokeCell = cells.find((cell) => cell.name === 'Smoke cell');
 
   await openMenu('master');
-  await clickText('Cell master');
+  await page.click('[data-testid="nav-master"]');
+  await page.waitForSelector('[data-testid="master-detail"]', { timeout: 15_000 });
+  await page.waitForSelector('[data-testid="master-cron-loop"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="master-title"]', { visible: true, timeout: 10_000 });
   await page.waitForFunction(
-    () =>
-      document.body.innerText.toLowerCase().includes('process automation') &&
-      document.body.innerText.toLowerCase().includes('cron loop'),
-    { timeout: 15_000 },
-  );
-  if (smokeCell) {
-    await page.waitForFunction(
-      () =>
-        document.body.innerText.includes('Smoke cell') &&
-        document.body.innerText.toLowerCase().includes('cell policy'),
-      { timeout: 10_000 },
-    );
-  }
-  await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('master chat'),
+    (name) => document.querySelector('[data-testid="master-title"]')?.textContent?.includes(name),
     { timeout: 10_000 },
+    CELL_NAME,
   );
+  await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
+  await page.waitForSelector('[data-testid="master-chat"]', { visible: true, timeout: 10_000 });
   await page.evaluate(() => {
     const close = [...document.querySelectorAll('button')].find(
       (button) => button.getAttribute('aria-label') === 'Close master detail',
     );
     close?.click();
   });
-  await page.waitForFunction(
-    () => !document.body.innerText.toLowerCase().includes('process automation'),
-    { timeout: 5_000 },
-  );
+  await page.waitForSelector('[data-testid="master-detail"]', { hidden: true, timeout: 5_000 });
 
   if (!mobile) {
     await page.click('button[aria-label="Terminal"]');
@@ -274,30 +395,20 @@ try {
   }
 
   await openMenu('config');
-  await clickText('Config');
+  await page.click('[data-testid="nav-config"]');
   // The settings cards mount only after every config fetch resolves, so the
-  // page heading and the schedule card prove the page is really loaded. The
-  // sidebar also has a "Cell master" button when a cell is selected, so match
-  // the main heading instead of the page text.
+  // page heading and the schedule card prove the page is really loaded.
   try {
-    await page.waitForFunction(
-      () =>
-        [...document.querySelectorAll('main h1')].some(
-          (heading) => heading.textContent?.trim() === 'Cell master',
-        ),
-      { timeout: 15_000 },
-    );
+    await page.waitForSelector('[data-testid="config-heading"]', {
+      visible: true,
+      timeout: 15_000,
+    });
     // The Schedule card only renders after every settings fetch resolves, so this
     // button proves the Config page finished loading.
-    await page.waitForFunction(
-      () =>
-        [...document.querySelectorAll('button')].some(
-          (button) =>
-            button.textContent?.trim() === 'Save schedule' &&
-            button.getClientRects().length > 0,
-        ),
-      { timeout: 15_000 },
-    );
+    await page.waitForSelector('[data-testid="save-schedule"]', {
+      visible: true,
+      timeout: 15_000,
+    });
   } catch (error) {
     throw new Error(`Config schedule card did not load: ${error.message}`, { cause: error });
   }
@@ -309,21 +420,29 @@ try {
   }
 
   await openMenu('help');
-  await clickText('Help');
+  await page.click('[data-testid="nav-help"]');
   await page.waitForSelector('[role="dialog"][aria-label="Documentation"]', { timeout: 10_000 });
-  await page.waitForFunction(
-    () =>
-      document.body.innerText.toLowerCase().includes('getting started') &&
-      document.body.innerText.toLowerCase().includes('agent process segments'),
-    { timeout: 10_000 },
-  );
+  await page.waitForSelector('[data-testid="help-article"][data-slug="getting-started"]', {
+    visible: true,
+    timeout: 15_000,
+  });
   await waitForMermaidDiagram();
   if (!mobile) {
-    await clickText('Process segments');
+    await page.waitForSelector(
+      '[data-testid="help-nav"] [data-testid="help-page-link"][data-slug="07-process-segments"]',
+      { visible: true, timeout: 10_000 },
+    );
+    await page.click(
+      '[data-testid="help-nav"] [data-testid="help-page-link"][data-slug="07-process-segments"]',
+    );
     await page.waitForFunction(
       () => window.location.search.includes('help=07-process-segments'),
       { timeout: 5_000 },
     );
+    await page.waitForSelector('[data-testid="help-article"][data-slug="07-process-segments"]', {
+      visible: true,
+      timeout: 10_000,
+    });
   }
   await page.click('button[aria-label="Close help"]');
   await page.waitForSelector('[role="dialog"][aria-label="Documentation"]', {
@@ -332,34 +451,45 @@ try {
   });
 
   await openMenu('floor');
-  await clickText('Floor');
+  await page.click('[data-testid="nav-floor"]');
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('requests'),
+    () => document.querySelectorAll('[data-testid^="column-"]').length === 6,
     { timeout: 10_000 },
   );
 
-  const list = await (await fetch(`${base}/api/requests?view=intake`)).json();
-  const created = list.find((request) => request.title === 'Browser smoke');
-  if (created) {
-    await fetch(`${base}/api/requests/${created.id}/drop`, { method: 'POST' });
-  }
-  if (smokeCell) {
-    await fetch(`${base}/api/cells/${smokeCell.id}`, { method: 'DELETE' });
-  }
+  await removeArtifacts();
 
   const shot = process.env.UI_SHOT ?? (mobile ? '/tmp/sbox-ui-mobile.png' : '/tmp/sbox-ui-smoke.png');
   await page.screenshot({ path: shot, fullPage: true });
 
   if (errors.length > 0) throw new Error(`browser errors:\n${errors.join('\n')}`);
+  await closeBrowser();
+  if (cleanupFailed) {
+    throw new Error('artifact cleanup failed; the smoke request or cell may still be on the board');
+  }
   console.log(`ui smoke ok (${mobile ? 'mobile' : 'desktop'})`);
   console.log('root background:', background);
-  console.log('request:', created?.id ?? 'not found');
+  console.log('request:', requestId);
+  console.log('cell:', cellId);
   console.log('screenshot:', shot);
 } catch (error) {
-  console.error('ui smoke FAILED:', error.message);
-  console.error('page text:', (await page.evaluate(() => document.body.innerText)).slice(0, 800));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('ui smoke FAILED:', message);
+  try {
+    if (page && !page.isClosed()) {
+      const text = await page.evaluate(() => document.body.innerText);
+      console.error('page text:', text.slice(0, 800));
+    }
+  } catch {
+    // A closed or crashed page must not hide the original failure.
+  }
   if (errors.length > 0) console.error(errors.join('\n'));
   process.exitCode = 1;
 } finally {
-  await browser.close();
+  try {
+    await signalCleanup.run();
+  } finally {
+    signalCleanup.dispose();
+    if (cleanupFailed && process.exitCode === undefined) process.exitCode = 1;
+  }
 }

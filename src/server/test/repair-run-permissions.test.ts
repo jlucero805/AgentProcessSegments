@@ -120,6 +120,8 @@ describe('repair-run-permissions args', () => {
     expect(usage()).toContain('--dry-run');
     expect(usage()).toContain('--root DIR');
     expect(usage()).toContain('runs');
+    expect(usage()).toContain('root');
+    expect(usage()).toContain('upgrades/');
     expect(usage()).toContain('never follows symlinks');
     expect(usage()).toContain('one level deep');
   });
@@ -132,11 +134,13 @@ describe('repair-run-permissions preview', () => {
     const result = repairRunPermissions(fixture.root, { apply: false });
 
     expect(result.rootMissing).toBe(false);
-    expect(result.tightened).toBe(4);
+    expect(result.runsMissing).toBe(false);
+    expect(result.tightened).toBe(5);
     expect(result.private).toBe(1);
     expect(result.skipped).toBe(2);
     expect(result.failed).toBe(0);
 
+    expect(modeOf(fixture.root)).toBe(0o755);
     expect(modeOf(fixture.runs)).toBe(0o755);
     expect(modeOf(fixture.loose)).toBe(0o755);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
@@ -156,6 +160,11 @@ describe('repair-run-permissions preview', () => {
 
     expect(main(['--root', fixture.root])).toBe(0);
     expect(lines.some((line) => line.includes('would chmod 0700'))).toBe(true);
+    expect(
+      lines.some(
+        (line) => line.includes('would chmod 0700') && line.includes(fixture.root),
+      ),
+    ).toBe(true);
     expect(lines.some((line) => line.includes('pending'))).toBe(true);
     expect(lines.some((line) => line.includes('Re-run with --apply'))).toBe(true);
   });
@@ -168,6 +177,7 @@ describe('repair-run-permissions apply', () => {
 
     expect(main(['--root', fixture.root, '--apply'])).toBe(0);
 
+    expect(modeOf(fixture.root)).toBe(0o700);
     expect(modeOf(fixture.runs)).toBe(0o700);
     expect(modeOf(fixture.loose)).toBe(0o700);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
@@ -186,8 +196,7 @@ describe('repair-run-permissions apply', () => {
     expect(modeOf(path.join(fixture.loose, 'backup', 'systemd', 'unit'))).toBe(0o644);
     expect(modeOf(fixture.notes)).toBe(0o644);
 
-    // The shared root, the latest symlink, and the upgrade tree are out of scope.
-    expect(modeOf(fixture.root)).toBe(0o755);
+    // The latest symlink and the upgrade tree stay out of scope.
     expect(modeOf(fixture.upgrades)).toBe(0o755);
     expect(modeOf(fixture.upgradeRun)).toBe(0o755);
     expect(modeOf(path.join(fixture.upgradeRun, 'db-backup.sqlite'))).toBe(0o644);
@@ -211,7 +220,7 @@ describe('repair-run-permissions apply', () => {
 
     expect(result.tightened).toBe(0);
     expect(result.failed).toBe(0);
-    expect(result.private).toBe(5);
+    expect(result.private).toBe(6);
     expect(result.skipped).toBe(2);
     expect(calls).toBe(0);
   });
@@ -225,6 +234,7 @@ describe('repair-run-permissions apply', () => {
     expect(result.failed).toBe(0);
     expect(result.skipped).toBe(2);
     expect(modeOf(fixture.outside)).toBe(0o755);
+    expect(modeOf(fixture.root)).toBe(0o700);
     expect(modeOf(fixture.runs)).toBe(0o700);
   });
 
@@ -240,6 +250,7 @@ describe('repair-run-permissions apply', () => {
 
     expect(result.failed).toBe(1);
     expect(modeOf(denied)).toBe(0o755);
+    expect(modeOf(fixture.root)).toBe(0o700);
     expect(modeOf(fixture.runs)).toBe(0o700);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
     expect(modeOf(fixture.emptyRun)).toBe(0o700);
@@ -262,7 +273,8 @@ describe('repair-run-permissions apply', () => {
     expect(result.failed).toBe(0);
     expect(result.tightened).toBe(0);
     expect(result.private).toBe(1);
-    expect(result.skipped).toBe(6);
+    expect(result.skipped).toBe(7);
+    expect(modeOf(fixture.root)).toBe(0o755);
     expect(modeOf(fixture.loose)).toBe(0o755);
 
     silenceConsole();
@@ -271,8 +283,9 @@ describe('repair-run-permissions apply', () => {
 });
 
 describe('repair-run-permissions edge cases', () => {
-  it('reports a missing runs tree as nothing to tighten', () => {
+  it('repairs a loose root when runs is missing and never creates it', () => {
     const root = tmpDir('repair-runs-missing');
+    chmodSync(root, 0o755);
     const lines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
       lines.push(String(line));
@@ -280,11 +293,109 @@ describe('repair-run-permissions edge cases', () => {
 
     const result = repairRunPermissions(root, { apply: false });
 
-    expect(result.rootMissing).toBe(true);
-    expect(result.entries).toEqual([]);
+    expect(result.rootMissing).toBe(false);
+    expect(result.runsMissing).toBe(true);
+    expect(result.tightened).toBe(1);
+    expect(result.private).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({ path: root, action: 'tighten' });
+    expect(modeOf(root)).toBe(0o755);
     expect(main(['--root', root])).toBe(0);
-    expect(lines.some((line) => line.includes('nothing to tighten'))).toBe(true);
+    expect(lines.some((line) => line.includes('runs directory not found'))).toBe(true);
+    expect(
+      lines.some((line) => line.includes('would chmod 0700') && line.includes(root)),
+    ).toBe(true);
     expect(existsSync(path.join(root, 'runs'))).toBe(false);
+
+    silenceConsole();
+    expect(main(['--root', root, '--apply'])).toBe(0);
+    expect(modeOf(root)).toBe(0o700);
+    expect(existsSync(path.join(root, 'runs'))).toBe(false);
+  });
+
+  it('does not create a missing root', () => {
+    const root = path.join(tmpDir('repair-runs-absent'), 'absent');
+    const lines: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+
+    const result = repairRunPermissions(root, { apply: true });
+
+    expect(result.rootMissing).toBe(true);
+    expect(result.runsMissing).toBe(true);
+    expect(result.entries).toEqual([]);
+    expect(existsSync(root)).toBe(false);
+    expect(main(['--root', root, '--apply'])).toBe(0);
+    expect(lines.some((line) => line.includes('nothing to tighten'))).toBe(true);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it('fails when the root is not a directory', () => {
+    const root = path.join(tmpDir('repair-runs-root-file'), 'root');
+    file(root);
+    silenceConsole();
+
+    const result = repairRunPermissions(root, { apply: false });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0]?.detail).toBe('not a directory');
+    expect(main(['--root', root])).toBe(1);
+  });
+
+  posixIt('skips a symlinked root without following it', () => {
+    const base = tmpDir('repair-runs-root-link');
+    const target = path.join(base, 'target');
+    const runs = path.join(target, 'runs');
+    const run = path.join(runs, '20260101T000000Z');
+    dir(target, 0o755);
+    dir(runs, 0o755);
+    dir(run, 0o755);
+    const link = path.join(base, 'root');
+    symlinkSync(target, link, 'dir');
+    silenceConsole();
+
+    const result = repairRunPermissions(link, { apply: true });
+
+    expect(result.failed).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.entries[0]).toMatchObject({
+      path: link,
+      action: 'skip',
+      detail: 'symlink',
+    });
+    expect(readlinkSync(link)).toBe(target);
+    expect(modeOf(target)).toBe(0o755);
+    expect(modeOf(runs)).toBe(0o700);
+    expect(modeOf(run)).toBe(0o700);
+    expect(main(['--root', link, '--apply'])).toBe(0);
+  });
+
+  it('refuses the filesystem root', () => {
+    const chmodCalls: Array<[string, number]> = [];
+    const chmod = (target: string, mode: number): void => {
+      chmodCalls.push([target, mode]);
+    };
+    silenceConsole();
+
+    const result = repairRunPermissions('/', { apply: true, chmod });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0]?.detail).toContain('filesystem root');
+    expect(chmodCalls).toEqual([]);
+    expect(main(['--root', '/'], { chmod })).toBe(1);
+    expect(chmodCalls).toEqual([]);
+  });
+
+  it('refuses the home directory as --root', () => {
+    silenceConsole();
+    const chmod = vi.fn();
+
+    expect(main(['--root', os.homedir(), '--apply'], { chmod })).toBe(1);
+    expect(chmod).not.toHaveBeenCalled();
   });
 
   it('fails when runs is not a directory', () => {
@@ -295,6 +406,7 @@ describe('repair-run-permissions edge cases', () => {
     const result = repairRunPermissions(root, { apply: false });
 
     expect(result.rootMissing).toBe(false);
+    expect(result.runsMissing).toBe(false);
     expect(result.failed).toBe(1);
     expect(main(['--root', root])).toBe(1);
   });
@@ -309,8 +421,53 @@ describe('repair-run-permissions edge cases', () => {
     const result = repairRunPermissions(root, { apply: true });
 
     expect(result.rootMissing).toBe(false);
+    expect(result.runsMissing).toBe(false);
     expect(result.failed).toBe(1);
     expect(modeOf(outside)).toBe(0o755);
     expect(main(['--root', root, '--apply'])).toBe(1);
+  });
+});
+
+describe('repair-run-permissions root repair', () => {
+  posixIt('continues after a root chmod failure and exits 1', () => {
+    const fixture = workspace();
+    const chmod = (target: string, mode: number): void => {
+      if (target === fixture.root) throw new Error('EACCES: permission denied');
+      chmodSync(target, mode);
+    };
+
+    const result = repairRunPermissions(fixture.root, { apply: true, chmod });
+
+    expect(result.failed).toBe(1);
+    expect(modeOf(fixture.root)).toBe(0o755);
+    expect(modeOf(fixture.runs)).toBe(0o700);
+    expect(modeOf(fixture.loose)).toBe(0o700);
+
+    silenceConsole();
+    expect(main(['--root', fixture.root, '--apply'], { chmod })).toBe(1);
+  });
+
+  posixIt('treats a vanished root as a skip, not a failure', () => {
+    const fixture = workspace();
+    const chmod = (target: string, mode: number): void => {
+      if (target === fixture.root) {
+        const error = new Error('gone') as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
+      }
+      chmodSync(target, mode);
+    };
+
+    const result = repairRunPermissions(fixture.root, { apply: true, chmod });
+
+    expect(result.failed).toBe(0);
+    expect(result.tightened).toBe(4);
+    expect(result.private).toBe(1);
+    expect(result.skipped).toBe(3);
+    expect(modeOf(fixture.root)).toBe(0o755);
+    expect(modeOf(fixture.runs)).toBe(0o700);
+
+    silenceConsole();
+    expect(main(['--root', fixture.root, '--apply'], { chmod })).toBe(0);
   });
 });

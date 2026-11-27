@@ -149,6 +149,9 @@ renders as unknown or as an explicit lower bound, never as zero.
 ## Requirements
 
 - Node 22.13 or newer (Vite 8 and Vitest 5 already need 22.12; ESLint 10 needs 22.13).
+- On Linux, `make`, `g++`, and `python3` for `node-pty`, which ships no Linux prebuild and
+  compiles during `npm ci`; Python 3.14 needs npm 11.7 or newer. `npm run check:native`
+  checks both native modules and the toolchain.
 - `git` for per-request worktrees
 - `claude` and/or `opencode` on `PATH` to run real agent turns. `APS_HARNESS` picks the
   brain default (legacy `SBOX_HARNESS` still works), and each cell can override it, so one
@@ -159,6 +162,7 @@ renders as unknown or as an explicit lower bound, never as zero.
 
 ```bash
 npm ci --include=dev
+npm run check:native
 npm test
 npm run e2e
 npm run build
@@ -208,8 +212,10 @@ config directory instead.
 
 Project `opencode.json`/`opencode.jsonc` and `.opencode` config in the repo are ignored
 for harness sessions: the child sets `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checked-in
-file cannot replace the bundled `aps` server or re-enable a read-only deny. Use the
-global OpenCode config directory for settings you want the harness to apply.
+file cannot replace the bundled `aps` server or re-enable a read-only deny. The harness
+names an ignored file found at the session cwd or an ancestor once on stderr (path only)
+and never reads or logs its settings. Use the global OpenCode config directory for
+settings you want the harness to apply.
 
 App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config page. Each
 block and notification channel validates on its own; an invalid one falls back to that
@@ -389,28 +395,34 @@ are written again. After upgrading and restarting, preview and apply the one-tim
 npm run build
 npm run repair:permissions              # preview
 npm run repair:permissions -- --apply   # tighten old request workdirs
-npm run repair:upgrades                 # preview old upgrade evidence
-npm run repair:upgrades -- --apply      # tighten old upgrade run dirs/snapshots
-npm run repair:runs                     # preview old cutover evidence
-npm run repair:runs -- --apply          # tighten old cutover run dirs
+npm run repair:upgrades                 # preview old upgrade evidence and root
+npm run repair:upgrades -- --apply      # tighten old upgrade run dirs/snapshots and root
+npm run repair:runs                     # preview old cutover evidence and root
+npm run repair:runs -- --apply          # tighten old cutover run dirs and root
 ```
 
 The command only tightens the known `requests/` artifacts (`requests/`, each session
 dir, `cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
 `opencode/opencode.json`). It never rewrites transcripts, never recurses into `cwd/`
-checkouts, and is safe while the brain runs.
+checkouts, and is safe while the brain runs. All three commands below share one
+implementation and the same dry-run/`--apply` contract; they differ only in the tree
+they scan.
 
 Upgrade run directories and snapshots from an older version are repaired the same way:
-`npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets
-`~/.aps-cutover/upgrades` and each run directory to `0700` and each `db-backup.sqlite` to
-`0600`. It never follows symlinks, deletes anything, opens the database, or touches
-cutover runs.
+`npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets the
+shared `~/.aps-cutover` root, `~/.aps-cutover/upgrades`, and each run directory to
+`0700`, and each `db-backup.sqlite` to `0600`. It never follows a symlinked `upgrades/`,
+deletes anything, opens the database, chmods the `latest` symlink, or touches cutover
+runs.
 
 Cutover evidence is repaired separately: `npm run repair:runs` previews and
-`npm run repair:runs -- --apply` sets `~/.aps-cutover/runs` and each direct run directory
-to `0700`. It never follows symlinks, deletes anything, descends into `dist/` or
-`backup/`, reads or changes run contents, or touches `~/.aps-cutover/upgrades`. The
-shared `~/.aps-cutover` root and the `latest` symlink are left alone.
+`npm run repair:runs -- --apply` sets the shared `~/.aps-cutover` root,
+`~/.aps-cutover/runs`, and each direct run directory to `0700`. It never follows a
+symlinked `runs/`, deletes anything, descends into `dist/` or `backup/`, reads or
+changes run contents, or touches `~/.aps-cutover/upgrades` or the `latest` symlink. New
+installs already create the root `0700`; either repair command also tightens an older
+root. A symlinked root is skipped, while its `runs/` or `upgrades/` tree is still
+scanned through the link, so tighten the target yourself.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -431,9 +443,9 @@ Each cutover leaves evidence and a rollback backup under `~/.aps-cutover/runs/`.
 cutover prunes older runs before it starts and after it finishes; it keeps the newest 10
 runs and anything modified in the last 30 days by default, plus the current run, the
 `latest` target, and the newest successful rollback point. Pass `--no-prune` to opt out.
-Run directories left by an older version are tightened with `npm run repair:runs` (dry
-run first). You can still prune by hand with `npm run prune:cutover -- --dry-run` and then
-`npm run prune:cutover`; see
+Run directories and the shared root left by an older version are tightened with
+`npm run repair:runs` (dry run first). You can still prune by hand with
+`npm run prune:cutover -- --dry-run` and then `npm run prune:cutover`; see
 [`deploy/vps.md`](deploy/vps.md#prune-cutover-run-directories-and-backups).
 
 Once the host is on the Agent Process Segments names, upgrade it with
@@ -706,7 +718,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1440 vitest cases: 1068 server cases across 58 files (state machine,
+`npm test` runs 1475 vitest cases: 1097 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -722,10 +734,10 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 372 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 378 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
-Help anchors, and manifest-aware served-page links, the source link, board,
+Help anchors, manifest-aware served-page links, and SPA Help targets, the source link, board,
 create modal, composer, cell bar, cell creation, config/process and pricing editor,
 budget and alert-delivery cards including chat bot routing, delivery history, and
 spend-cap overrides, budget banner, master detail and scorecard, the usage page and
@@ -752,19 +764,24 @@ environments they hand to their children, the missing-Puppeteer policy, the inte
 cleanup coordinator, and the GitHub credential-scope preflight; it is not counted in the
 vitest totals.
 
-`npm run test:web-stress` is the manual parallel-load proof for the web suite. It runs
-three full iterations sequentially while four busy-loop CPU processes compete
-(`--runs`, `--hogs`), and fails on a failed iteration, a hog that exits early, a
-per-iteration `--timeout`, or a missing Vitest JSON report (Vitest's `verbose` and `json`
-reporters both run; the report goes to an absolute path because npm runs the workspace
-script from `src/web`). `--hogs 0` gives a quiet baseline, `--only` narrows the suite
-while iterating, `--fail-fast` stops after the first failure, and `--keep-logs` keeps the
-per-run `results.json`/`output.log`. The default log directory is a fresh
-`aps-web-stress-*` under `TMPDIR`, so `TMPDIR=/var/tmp npm run test:web-stress` works
-when `/tmp` is small; an explicit `--log-dir` is never deleted (an all-pass run removes
-only its own `run-*` children). The runner exits 0 only when every iteration passed and
-every hog stayed alive (1 on a failed run, 2 on a usage error, 130/143 on interrupt),
-reaps its hogs on every path including `SIGKILL`, and is not part of `npm test` or CI.
+`npm run test:web-stress` and `npm run test:server-stress` are the manual parallel-load
+proofs for the web and server suites. They share one runner
+(`scripts/web-stress.mjs --suite web|server`): three full iterations sequentially while
+four busy-loop CPU processes compete (`--runs`, `--hogs`), failing on a failed
+iteration, a hog that exits early, a per-iteration `--timeout`, or a missing Vitest JSON
+report (Vitest's `verbose` and `json` reporters both run; the report goes to an absolute
+path because npm runs the workspace script from its own directory). `--hogs 0` gives a
+quiet baseline, `--only` narrows the suite while iterating, `--fail-fast` stops after
+the first failure, and `--keep-logs` keeps the per-run `results.json`/`output.log`. The
+default log directory is a fresh `aps-web-stress-*` or `aps-server-stress-*` under
+`TMPDIR`, so `TMPDIR=/var/tmp npm run test:web-stress` works when `/tmp` is small; an
+explicit `--log-dir` is never deleted (an all-pass run removes only its own `run-*`
+children). The runner exits 0 only when every iteration passed and every hog stayed
+alive (1 on a failed run, 2 on a usage error, 130/143 on interrupt), reaps its hogs and
+the npm/Vitest process group on every path including `SIGKILL` (a group-leader
+supervisor kills its own group when the runner disappears), and is not part of
+`npm test` or CI. The server suite normally reports one root-only case as skipped; zero
+failures is the pass condition.
 
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing
@@ -788,8 +805,12 @@ finding fails it too. Link and anchor correctness is a test rather than a lint s
 external URLs. It also imports the Help manifest: a served page may link only a manifest
 page or a `?help=<slug>` target whose slug and anchor exist in
 `src/server/src/docs/manifest.ts`, and a manifest entry must have a unique lowercase
-slug, an existing Markdown source, and the slug the SPA derives from that source. The
-unit gate runs `systemd-analyze verify`, treats a diagnostic
+slug, an existing Markdown source, and the slug the SPA derives from that source. Served
+images must be existing `docs/screenshots/` files that resolve onto
+`/api/docs/assets/...`, and a local non-Markdown link must reach that same asset route.
+The SPA's own Help targets are declared in `src/web/src/links.ts`; the same test checks each
+slug and anchor against the manifest source and rejects a hard-coded `?help=<slug>`
+elsewhere in the SPA. The unit gate runs `systemd-analyze verify`, treats a diagnostic
 naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
 values, asserts the reviewed sandboxing directives, and fails when the offline
 `systemd-analyze security` exposure exceeds 4.8. The reviewed set includes
@@ -850,12 +871,16 @@ env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_CLAUDE_BIN=/bin/false \
 
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point
-`UI_BASE` at a running brain, then run it. It creates and drops a request, opens the
+`UI_BASE` at a running brain, then run it. It creates a request and a cell, opens the
 drawer/chat, opens Help and Config, verifies that the Help Getting started page renders
-its Mermaid diagram as an SVG, and fails on page errors. `UI_MOBILE=1` runs the
-same flow at 390×844 with the off-canvas menu checks. It fails when Puppeteer is
-absent; pass `--allow-missing-puppeteer` to skip it deliberately (the skip prints
-`SKIPPED` and is not a pass).
+its Mermaid diagram as an SVG, removes both artifacts on success, failure, and
+interrupt, and fails on page errors. It locates elements through `data-testid` hooks,
+accessible `aria-label`s, and Help `data-slug`s rather than visible copy, and
+`scripts/ui-smoke.test.mjs` fails in the normal test suite when one it references
+disappears from the SPA or the Help manifest. `UI_MOBILE=1` runs the same flow at
+390×844 with the off-canvas menu checks. It fails when Puppeteer is absent; pass
+`--allow-missing-puppeteer` to skip it deliberately (the skip prints `SKIPPED` and is
+not a pass).
 
 `node scripts/screenshots.mjs` uses the same optional Puppeteer install to rebuild
 `docs/screenshots/board.png`, `docs/screenshots/master.png`, and
@@ -881,4 +906,7 @@ A push that adds or edits a file under `.github/workflows/` also needs a `workfl
 credential. Run `npm run check:github-scope` before such a push: exit 0 is the only green
 light, exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit
 2 means the credential could not be classified. See `AGENTS.md` invariant 47 for the
-remediation instead of working around the rejection with a deploy key.
+remediation instead of working around the rejection with a deploy key. If the scope is
+missing, run `npm run grant:github-scope` from an interactive terminal; it wraps
+`gh auth refresh` and re-verifies, and outside a TTY it prints the operator command and
+exits 1 instead of blocking on the device-flow approval.

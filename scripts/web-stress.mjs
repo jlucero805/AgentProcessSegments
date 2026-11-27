@@ -1,17 +1,20 @@
 #!/usr/bin/env node
-// Stress-run the web Vitest suite under competing CPU load.
+// Stress-run a Vitest workspace suite under competing CPU load.
 //
 //   npm run test:web-stress
-//   node scripts/web-stress.mjs --runs 5 --hogs 8 --verbose
+//   npm run test:server-stress
+//   node scripts/web-stress.mjs --suite server --runs 5 --hogs 8 --verbose
 //
 // Fails closed: a failed iteration, a hog that exited early, a per-iteration
 // timeout, or a missing Vitest JSON report is a non-zero exit, never a pass.
 // Hogs are reaped on every exit path, and each hog exits by itself when this
 // process disappears (even after SIGKILL).
 //
-// The suite child runs in its own process group so a timeout or an interrupt
-// kills npm, its shell, and the Vitest workers together. A filtered run
-// (--only) is useful while iterating but is not a full-suite proof.
+// Each iteration runs under scripts/web-stress/suite-supervisor.mjs, a
+// detached group leader. A timeout or interrupt signals the whole npm-to-Vitest
+// group, and when this process is SIGKILLed the supervisor sees its parent go
+// away and SIGKILLs that same group, so no suite process is orphaned. A
+// filtered run (--only) is useful while iterating but is not a full-suite proof.
 import { spawn } from 'node:child_process';
 import {
   closeSync,
@@ -30,9 +33,10 @@ import { createSignalCleanup } from './e2e/signal-cleanup.mjs';
 import { parseArgs, USAGE, UsageError } from './web-stress/args.mjs';
 import { checkHogs, startHogs, stopHogs } from './web-stress/hogs.mjs';
 import { ResultsError, formatFailures, formatRunLine, formatSlowest, readResults } from './web-stress/results.mjs';
+import { SUITES, suiteArgs } from './web-stress/suites.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const WORKSPACE = 'src/web';
+const SUITE_SUPERVISOR = path.join(root, 'scripts', 'web-stress', 'suite-supervisor.mjs');
 const HOG_WARMUP_MS = 300;
 const SUITE_STOP_MS = 5000;
 const OUTPUT_TAIL_LINES = 20;
@@ -45,17 +49,13 @@ function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function fail(message) {
-  console.error(`web-stress: ${message}`);
-  process.exit(2);
-}
-
 let options;
 try {
   options = parseArgs(process.argv.slice(2));
 } catch (error) {
   if (!(error instanceof UsageError)) throw error;
-  console.error(`web-stress: ${error.message}`);
+  const errorLabel = SUITES[error.suite]?.label ?? SUITES.web.label;
+  console.error(`${errorLabel}: ${error.message}`);
   console.error(USAGE);
   process.exit(2);
 }
@@ -64,11 +64,19 @@ if (options.help) {
   process.exit(0);
 }
 
+const suite = SUITES[options.suite];
+const label = suite.label;
+
+function fail(message) {
+  console.error(`${label}: ${message}`);
+  process.exit(2);
+}
+
 const defaultLogDir = options.logDir === null;
 let logDir;
 try {
   logDir = defaultLogDir
-    ? mkdtempSync(path.join(os.tmpdir(), 'aps-web-stress-'))
+    ? mkdtempSync(path.join(os.tmpdir(), suite.logPrefix))
     : path.resolve(options.logDir);
   mkdirSync(logDir, { recursive: true });
 } catch (error) {
@@ -78,15 +86,15 @@ try {
 const cpus =
   typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
 console.log(
-  `web-stress: cpus=${cpus} hogs=${options.hogs} runs=${options.runs} ` +
+  `${label}: suite=${options.suite} cpus=${cpus} hogs=${options.hogs} runs=${options.runs} ` +
     `node=${process.version} tmp=${logDir}`,
 );
 if (options.hogs > cpus) {
-  console.log(`web-stress: note: ${options.hogs} hogs on ${cpus} CPUs oversubscribes heavily`);
+  console.log(`${label}: note: ${options.hogs} hogs on ${cpus} CPUs oversubscribes heavily`);
 }
 if (options.only.length > 0) {
   console.log(
-    `web-stress: warning: --only ${options.only.join(' ')} filters the suite; ` +
+    `${label}: warning: --only ${options.only.join(' ')} filters the suite; ` +
       'this run is not a full-suite proof',
   );
 }
@@ -96,29 +104,61 @@ let active = null;
 let keepLogs = options.keepLogs;
 let cleanupStarted = false;
 
-function killGroup(child, signal) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+// Signal the whole suite group, not just the direct child. On POSIX the group
+// id is the supervisor's pid; it outlives the leader while npm or a Vitest
+// worker is still alive, so cleanup must keep targeting it.
+function signalGroup(entry, signal) {
+  if (!entry) return;
+  if (entry.pgid === null) {
+    try {
+      entry.child.kill(signal);
+    } catch {
+      // The child already exited.
+    }
+    return;
+  }
   try {
-    if (process.platform === 'win32') child.kill(signal);
-    else process.kill(-child.pid, signal);
+    process.kill(-entry.pgid, signal);
   } catch {
-    // The child or its process group already exited.
+    // The group already exited.
   }
 }
 
-async function waitForExit(child, timeoutMs) {
+function groupAlive(entry) {
+  if (!entry) return false;
+  if (entry.pgid === null) {
+    return entry.child.exitCode === null && entry.child.signalCode === null;
+  }
+  try {
+    process.kill(-entry.pgid, 0);
+    return true;
+  } catch (error) {
+    // ESRCH is gone; EPERM still means a group exists. Treat anything else as
+    // live so cleanup escalates instead of silently skipping.
+    return !(error && typeof error === 'object' && error.code === 'ESRCH');
+  }
+}
+
+async function waitForGroupGone(entry, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  while (child.exitCode === null && child.signalCode === null) {
-    if (Date.now() >= deadline) return;
+  while (groupAlive(entry)) {
+    if (Date.now() >= deadline) return false;
     await sleep(50);
   }
+  return true;
 }
 
+// Idempotent per iteration: the timeout path and the final cleanup can both
+// stop the same suite without racing two signal escalations.
 async function stopSuite(entry) {
   if (!entry) return;
-  killGroup(entry.child, 'SIGTERM');
-  await waitForExit(entry.child, SUITE_STOP_MS);
-  killGroup(entry.child, 'SIGKILL');
+  entry.stopPromise ??= (async () => {
+    signalGroup(entry, 'SIGTERM');
+    if (await waitForGroupGone(entry, SUITE_STOP_MS)) return;
+    signalGroup(entry, 'SIGKILL');
+    await waitForGroupGone(entry, SUITE_STOP_MS);
+  })();
+  await entry.stopPromise;
 }
 
 function removeLogs() {
@@ -147,7 +187,7 @@ async function cleanup() {
 
 // A second signal cannot await cleanup, so release every handle synchronously.
 function forceCleanup() {
-  if (active) killGroup(active.child, 'SIGKILL');
+  signalGroup(active, 'SIGKILL');
   for (const child of hogs.children) {
     try {
       process.kill(child.pid, 'SIGKILL');
@@ -172,29 +212,52 @@ function tailLines(file) {
 function runSuite({ resultsPath, outputPath }) {
   return new Promise((resolve) => {
     const fd = openSync(outputPath, 'w');
-    const args = [
-      'test',
-      '--workspace',
-      WORKSPACE,
-      '--',
-      '--reporter=verbose',
-      '--reporter=json',
-      `--outputFile.json=${resultsPath}`,
-      ...options.only,
-    ];
-    const child = spawn(npmCommand(), args, {
-      cwd: root,
-      env: buildPinnedEnv(process.env, { NODE_ENV: 'test' }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
-    });
-    active = { child, fd };
+    const npmArgs = suiteArgs(suite, { resultsPath, only: options.only });
+    const useSupervisor = process.platform !== 'win32';
+    const child = spawn(
+      useSupervisor ? process.execPath : npmCommand(),
+      useSupervisor
+        ? [SUITE_SUPERVISOR, '--parent-pid', String(process.pid), '--', npmCommand(), ...npmArgs]
+        : npmArgs,
+      {
+        cwd: root,
+        env: buildPinnedEnv(process.env, { NODE_ENV: 'test' }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: useSupervisor,
+      },
+    );
+
+    const entry = {
+      child,
+      fd,
+      pgid: useSupervisor && Number.isInteger(child.pid) ? child.pid : null,
+    };
+    active = entry;
 
     let timedOut = false;
-    const timer = setTimeout(() => {
+    let timer = null;
+    let settled = false;
+
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      try {
+        closeSync(fd);
+      } catch {
+        // Already closed by the timeout path.
+      }
+      if (active === entry) active = null;
+      resolve(outcome);
+    };
+
+    timer = setTimeout(() => {
       timedOut = true;
-      killGroup(child, 'SIGTERM');
-      setTimeout(() => killGroup(child, 'SIGKILL'), SUITE_STOP_MS).unref();
+      // Resolve only after the group is gone, so the next iteration cannot
+      // start while a dying npm/Vitest tree still holds the CPU.
+      void stopSuite(entry).then(() => {
+        finish({ code: null, signal: null, timedOut: true, summary: null, error: null });
+      });
     }, options.timeoutSeconds * 1000);
 
     const sink = (stream, target) => {
@@ -210,31 +273,21 @@ function runSuite({ resultsPath, outputPath }) {
     sink(child.stdout, process.stdout);
     sink(child.stderr, process.stderr);
 
-    let settled = false;
-    const finish = (outcome) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        closeSync(fd);
-      } catch {
-        // Already closed by the error path.
-      }
-      active = null;
-      resolve(outcome);
-    };
-
     child.on('error', (error) => {
       finish({
         code: null,
         signal: null,
         timedOut,
         summary: null,
-        error: `could not start npm: ${error.message}`,
+        error: `could not start ${useSupervisor ? 'the suite supervisor' : 'npm'}: ${error.message}`,
       });
     });
 
-    child.on('close', (code, signal) => {
+    child.on('close', async (code, signal) => {
+      if (settled) return;
+      // A supervisor crash can leave npm behind; reap that group before the
+      // next iteration starts.
+      if (groupAlive(entry)) await stopSuite(entry);
       let summary = null;
       let error = null;
       if (!timedOut) {
@@ -254,12 +307,12 @@ let completed = 0;
 
 try {
   if (options.hogs > 0) {
-    hogs = startHogs({ count: options.hogs });
-    console.log(`web-stress: hog pids=${hogs.children.map((child) => child.pid).join(' ')}`);
+    hogs = startHogs({ count: options.hogs, marker: suite.hogMarker });
+    console.log(`${label}: hog pids=${hogs.children.map((child) => child.pid).join(' ')}`);
     await sleep(HOG_WARMUP_MS);
     checkHogs(hogs);
   } else {
-    console.log('web-stress: hog pids=none');
+    console.log(`${label}: hog pids=none`);
   }
 
   for (let index = 1; index <= options.runs; index += 1) {
@@ -308,16 +361,16 @@ try {
 } catch (error) {
   failedRuns += 1;
   keepLogs = true;
-  console.error(`web-stress: ${error instanceof Error ? error.message : error}`);
+  console.error(`${label}: ${error instanceof Error ? error.message : error}`);
 } finally {
   await signalCleanup.run();
   signalCleanup.dispose();
 }
 
 if (failedRuns === 0) {
-  console.log(`web-stress: PASS (${completed}/${options.runs} runs, hogs alive throughout)`);
+  console.log(`${label}: PASS (${completed}/${options.runs} runs, hogs alive throughout)`);
 } else {
-  console.log(`web-stress: FAIL (${failedRuns} failing ${failedRuns === 1 ? 'run' : 'runs'})`);
+  console.log(`${label}: FAIL (${failedRuns} failing ${failedRuns === 1 ? 'run' : 'runs'})`);
 }
-if (keepLogs) console.log(`web-stress: logs in ${logDir}`);
+if (keepLogs) console.log(`${label}: logs in ${logDir}`);
 process.exitCode = failedRuns === 0 ? 0 : 1;

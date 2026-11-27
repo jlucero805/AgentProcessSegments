@@ -56,6 +56,13 @@ function doneEvent(text: string): string {
   )},"ts":1}]}\n`;
 }
 
+/** Advance the active fake clock and flush React/stream work in one `act`. */
+async function advanceFakeTimers(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
 describe('ClarifyChat live turns', () => {
   it('attaches to a live turn, streams text, and re-enables the composer', async () => {
     const live = controllableStream();
@@ -199,6 +206,146 @@ describe('ClarifyChat live turns', () => {
     expect(await screen.findByText('Stopped. You can interject.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled();
     expect(sendBodies).toHaveLength(0);
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('clears the stopping state when the stop request never resolves', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    const stopped: string[] = [];
+    let resolveStop!: (response: Response) => void;
+    const stopResponse = new Promise<Response>((resolve) => {
+      resolveStop = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/stop')) {
+          stopped.push(url);
+          return stopResponse;
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-stop-fallback" started commands={[]} onError={() => {}} />);
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    seedClaim('req-stop-fallback', 'in flight', Date.now());
+
+    const composer = screen.getByPlaceholderText('Queue a message…');
+    fireEvent.change(composer, { target: { value: 'do not send' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    // Fake only the fallback timeout. Leaving setInterval real means the live
+    // elapsed ticker can still be cleared by the component's real clearInterval.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+
+      expect(stopped).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Stopping…' })).toBeDisabled();
+      expect(screen.getAllByText('Stopping…')).toHaveLength(2);
+      expect(screen.queryByText('Stopped. You can interject.')).not.toBeInTheDocument();
+
+      await advanceFakeTimers(4_000);
+
+      expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument();
+      expect(screen.queryByText('Stopping…')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled();
+      expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+      expect(window.localStorage.getItem('aps-queue:req-stop-fallback')).toBeNull();
+      expect(window.localStorage.getItem(inflightKey('aps-queue:req-stop-fallback'))).toBeNull();
+      expect(sendBodies).toHaveLength(0);
+
+      await advanceFakeTimers(4_000);
+      expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument();
+      expect(screen.queryByText('Stopping…')).not.toBeInTheDocument();
+
+      await act(async () => {
+        resolveStop(jsonResponse({ stopped: true }));
+      });
+      expect(screen.getByText('Stopped. You can interject.')).toBeInTheDocument();
+
+      await act(async () => {
+        live.controller.close();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('ticks elapsed seconds while the turn runs and stops after done', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    // The ticker interval is created as soon as running flips, so the fake
+    // clock must be installed before render. Keep setTimeout real so Testing
+    // Library and unrelated timers are not driven by the fake clock.
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    try {
+      render(<ClarifyChat requestId="req-elapsed" started commands={[]} onError={() => {}} />);
+      await advanceFakeTimers(0);
+
+      expect(screen.getByText('Agent is working…')).toBeInTheDocument();
+      expect(screen.queryByText('Agent is working… 1s')).not.toBeInTheDocument();
+
+      await advanceFakeTimers(1_000);
+      expect(screen.getByText('Agent is working… 1s')).toBeInTheDocument();
+
+      await advanceFakeTimers(1_000);
+      expect(screen.getByText('Agent is working… 2s')).toBeInTheDocument();
+
+      await act(async () => {
+        live.controller.enqueue(encoder.encode(doneEvent('ticker done')));
+        live.controller.close();
+      });
+      await advanceFakeTimers(0);
+
+      expect(screen.getByText('ticker done')).toBeInTheDocument();
+      expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument();
+
+      await advanceFakeTimers(5_000);
+      expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument();
+      expect(screen.queryByText(/3s/)).not.toBeInTheDocument();
+      expect(sendBodies).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('clears queued messages when a hard cap stops the turn', async () => {

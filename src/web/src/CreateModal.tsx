@@ -55,6 +55,7 @@ export function CreateModal({ open, onClose, cellId, onCreated, onError }: Creat
         <Field label="Title">
           <Input
             autoFocus
+            data-testid="create-title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="What should the agent do?"
@@ -63,6 +64,7 @@ export function CreateModal({ open, onClose, cellId, onCreated, onError }: Creat
         <Field label="Body" hint="optional">
           <Textarea
             rows={5}
+            data-testid="create-body"
             value={body}
             onChange={(event) => setBody(event.target.value)}
             placeholder="Context, links, constraints, and what done looks like."
@@ -79,7 +81,12 @@ export function CreateModal({ open, onClose, cellId, onCreated, onError }: Creat
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={saving}>
+          <Button
+            type="submit"
+            variant="primary"
+            data-testid="create-submit"
+            disabled={saving}
+          >
             {saving ? <Spinner /> : 'Create request'}
           </Button>
         </div>

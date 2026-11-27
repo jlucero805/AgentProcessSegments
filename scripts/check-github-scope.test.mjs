@@ -127,6 +127,7 @@ test('a classic token without workflow fails with the remediation', posixOnly, (
   assert.match(result.stdout, /FAIL: missing scope\(s\): workflow/);
   assert.match(result.stdout, /refusing to allow an OAuth App to create or update workflow/);
   assert.match(result.stdout, /gh auth refresh -h github\.com -s workflow/);
+  assert.match(result.stdout, /npm run grant:github-scope/);
   assert.match(result.stdout, /GH_TOKEN/);
   assert.match(result.stdout, /Do not add a deploy key/);
   assert.equal(result.stderr, '');

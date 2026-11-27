@@ -60,8 +60,9 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary. 
 OpenCode child env also strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` and sets
 `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so process-level overrides and project/ancestor
 config cannot supply MCP servers, plugins, skills, agents, or permissions. A set override
-variable warns once and is ignored; only the generated config (which already contains
-merged global user settings) applies.
+variable warns once and is ignored; a project or ancestor config found at the session
+cwd is named once on stderr by path only. Only the generated config (which already
+contains merged global user settings) applies.
 
 ---
 
@@ -162,11 +163,17 @@ restart. `openDb` keeps the database, its `-wal`/`-shm` sidecars, and any leftov
 is created `0700`; an existing parent is left alone (the default parent is the repo/cwd).
 The deploy `upgrade-vps.sh` writes its `db-backup.sqlite` snapshot `0600` inside a `0700`
 run directory, and `cutover-vps.sh` creates its `~/.aps-cutover/runs/<UTC>` evidence
-directories `0700`. Upgrade snapshots and run directories left by an older version are
-tightened with `npm run repair:upgrades` (dry run first), which scans only
-`~/.aps-cutover/upgrades` and never follows symlinks. Cutover run directories are repaired
-separately with `npm run repair:runs` (dry run first), which scans only
+directories `0700`. The shared `~/.aps-cutover` root is `0700` on a new install; neither
+deploy script silently chmods an existing root. Upgrade snapshots, run directories, and
+the shared root left by an older version are tightened with `npm run repair:upgrades`
+(dry run first), which scans `~/.aps-cutover` and `~/.aps-cutover/upgrades` and never
+follows a symlinked `upgrades/`. Cutover evidence is repaired separately with
+`npm run repair:runs` (dry run first), which tightens the shared root plus
 `~/.aps-cutover/runs`, one level deep, and never descends into `dist/` or `backup/`.
+Either repair skips a symlinked root while still scanning its subtree through the link,
+and neither chmods the `latest` symlink. All three repairs are thin entry points over one engine and CLI
+core, so the owner-only modes, `ENOENT`-as-skip rule, dry-run accounting, and exit codes
+cannot drift; each keeps its own tree and root rule.
 Maintenance paths that must not
 migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair by default without schema or
@@ -883,7 +890,8 @@ defaults.
   global `opencode.json`/`opencode.jsonc` as JSONC, comments and trailing commas included,
   strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from its child env, and sets
   `OPENCODE_CONFIG_PROJECT_DISABLE=1` so project/ancestor config cannot add servers,
-  plugins, skills, agents, or permissions).
+  plugins, skills, agents, or permissions; an ignored project config found at the
+  session cwd or an ancestor is named once on stderr by path only).
   The KB session (`__kb__`) is read-only: `Read` plus the KB MCP tools, no plugins, no
   user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.
@@ -949,7 +957,9 @@ defaults.
   `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
   artifacts and never recurses into `cwd/` checkouts. Upgrade run directories and
   snapshots are repaired separately with `npm run repair:upgrades` (dry run first), and
-  cutover run directories with `npm run repair:runs` (dry run first).
+  cutover run directories and the shared `~/.aps-cutover` root with
+  `npm run repair:runs` (dry run first). All three share one engine and CLI core; only
+  the tree and the root-symlink rule differ.
   Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
   below. An existing legacy
@@ -1151,7 +1161,7 @@ npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for server src + tests + vitest config and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
-npm run check:docs          # local Markdown links, images, Help anchors, and manifest pages
+npm run check:docs          # local Markdown links, images, Help anchors, manifest pages, and SPA Help targets
 npm run lint                # eslint; bash -n + shellcheck; actionlint; unit verify + sandbox + security; markdownlint
 npm run probe:sandbox       # manual live sandbox probe; needs systemd, a user manager, and an agent CLI
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js

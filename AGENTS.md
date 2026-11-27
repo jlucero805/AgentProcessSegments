@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1440 vitest cases: 1068 server across 58 files (one environmental root-skip) and 372 web across 28 files, all green.
+- 1475 vitest cases: 1097 server across 59 files (one environmental root-skip) and 378 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,15 +121,19 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1068 server + 372 web, plus the e2e env guard
-npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
+npm test                       # 1097 server + 378 web, plus the e2e env guard
+npm run check:docs             # local Markdown links, images, Help anchors, manifest pages, SPA Help targets
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
-                               # interrupt cleanup, and the GitHub scope preflight
+                               # interrupt cleanup, the native-module preflight, and the
+                               # GitHub scope preflight/grant
+npm run check:native           # native modules load; Linux toolchain + npm/python floor
 npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
+npm run grant:github-scope     # interactive: add the workflow scope to the host gh credential
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run test:web-stress        # manual: web suite 3x under 4 CPU hogs; fails on a failed
                                # iteration, a dead hog, or a missing result report
+npm run test:server-stress     # same contract for the server suite (`--suite server`)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 APS_HARNESS=opencode APS_DB=/tmp/agent-process-segments.sqlite node src/server/dist/app.js
@@ -151,7 +155,7 @@ npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs
                                 # --prune-orphans also retires refs with no request row
 npm run repair:permissions      # tighten old request workdirs (dry run first)
 npm run repair:upgrades         # tighten old upgrade run dirs/snapshots (dry run first)
-npm run repair:runs             # tighten old cutover run dirs (dry run first)
+npm run repair:runs             # tighten the cutover root and old run dirs (dry run first)
 npm run prune:cutover -- --dry-run  # prune old cutover runs by hand; keeps
                                     # latest, newest success, newest 10, 30 days
 npm run prune:upgrades -- --dry-run # prune old upgrade runs by hand; keeps
@@ -173,9 +177,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
   `NODE_ENV=production npm test --workspace src/web`, which the published CI workflow
-  (`.github/workflows/ci.yml`) runs as its own step. The manual stress runner
-  (`npm run test:web-stress`) pins `NODE_ENV=test` through `buildPinnedEnv` for the same
-  reason, independent of the config pin.
+  (`.github/workflows/ci.yml`) runs as its own step. The manual stress runners
+  (`npm run test:web-stress`, `npm run test:server-stress`) pin `NODE_ENV=test` through
+  `buildPinnedEnv` for the same reason, independent of the config pin.
 - **The web suite runs in `pool: 'vmThreads'`.** It creates one jsdom environment per
   worker instead of one per test file (28 files), which roughly halves wall time while
   keeping per-file isolation. A VM context has no `ReadableStream`/`TransformStream`, so
@@ -236,8 +240,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **Project OpenCode config is ignored.** Every OpenCode child and the `opencode models`
   probe set `OPENCODE_CONFIG_PROJECT_DISABLE=1`; project and ancestor
   `opencode.json(c)`/`.opencode` config cannot add MCP servers, plugins, skills, agents,
-  or permissions. User settings come from the global config directory the harness
-  merges. Never describe `OPENCODE_CONFIG_DIR` as outranking project config.
+  or permissions. A file found at the session cwd or an ancestor is named once on
+  stderr by path only, never by its contents, so a repo can tell its config is ignored.
+  User settings come from the global config directory the harness merges. Never describe
+  `OPENCODE_CONFIG_DIR` as outranking project config.
 - **Claude allow rules support MCP wildcards.** User servers merged from
   `~/.claude.json` and `<cwd>/.mcp.json` are allowed with `mcp__<server>__*`, alongside
   the explicit harness tools. Merge order follows Claude's local > project > user
@@ -299,6 +305,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   is passed.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
+- **The UI smoke asserts structure, not copy.** `scripts/ui-smoke.mjs` locates
+  elements through `data-testid` hooks, accessible `aria-label`s, and Help `data-slug`s;
+  `scripts/ui-smoke.test.mjs` fails when one it uses is missing from `src/web/src` or
+  the Help manifest, so locator drift is caught without Puppeteer.
+  The smoke also removes its request and cell on success, failure, and interrupt.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.
@@ -315,9 +326,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   workspace `test`/`typecheck`/`build`/`dev`/`preview`, and `npm run lint:js`/`lint:md`
   run `scripts/check-dev-deps.mjs` first and print this hint when a project-local binary
   is missing.
-- **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
-  On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
-  `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.
+- **Native modules need a Linux toolchain.** `better-sqlite3` is v13 (N-API with bundled
+  prebuilds, Node >= 22) and `node-pty` is 1.1.0, which ships no Linux prebuild and compiles
+  on every install. `npm ci` also runs npm's implicit `node-gyp` pass for `better-sqlite3`
+  even though it ships a prebuild, so `make`, `g++`, and `python3` are required on Linux.
+  Python 3.14 needs npm >= 11.7 (bundled node-gyp >= 12); upgrade with
+  `npm install -g npm@latest`. A full disk (`ENOSPC`) surfaces as a gyp `write` error, not
+  as a disk error. `npm run check:native` reports both halves.
 - **systemd user units need a user manager.** In a non-login shell set
   `XDG_RUNTIME_DIR=/run/user/<uid>` before `systemctl --user`. Linger starts the user
   manager at boot; the brain's unit is in `deploy/`.
@@ -643,7 +658,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     exposure ceiling), and
     `markdownlint-cli2 "**/*.md"`, so an ESLint or ShellCheck warning, a shell syntax
     error, a workflow error, a non-zero verify exit, any verify diagnostic naming the
-    unit, a missing, changed, or forbidden hardening directive, a duplicate
+    unit, a missing, changed, or forbidden hardening directive (forbidden boolean
+    directives in any accepted spelling), a duplicate
     list-directive assignment, an exposure level above 4.8, or a Markdown finding fails
     the gate just like an error. The unit gate
     treats diagnostics as fatal because `systemd-analyze` exits 0 for unknown keys and
@@ -691,12 +707,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     creates (or tightens) every run directory to `0700`, and the `VACUUM INTO`
     `db-backup.sqlite` is forced to `0600`. A local `umask 077` covers creation, then
     `chmod` makes the result independent of the caller's umask and repairs a retried run;
-    both fail closed. Missing `~/.aps-cutover`/`upgrades` ancestors are created `0700`;
-    existing ancestors are left alone. The snapshot remains a normal, manually restorable
-    SQLite database. This is not encryption at rest; older run directories and snapshots
-    are tightened explicitly with `npm run repair:upgrades` (dry run by default;
-    `--apply` to change), which scans only `~/.aps-cutover/upgrades` and never follows
-    symlinks.
+    both fail closed. A missing `~/.aps-cutover`/`upgrades` ancestor chain is created
+    `0700`; an existing shared root is not silently chmodded by the deploy script. The
+    snapshot remains a normal, manually restorable SQLite database. This is not encryption
+    at rest; older run directories, snapshots, and the shared root are tightened with
+    `npm run repair:upgrades` (dry run by default; `--apply` to change), which scans
+    `~/.aps-cutover` and `~/.aps-cutover/upgrades`, never follows a symlinked `upgrades/`,
+    skips a symlinked root while still scanning through it, and never chmods `latest`.
 43. **Only `db.ts` opens SQLite directly.** Under `src/server/src`, no other module may
     import `better-sqlite3` or construct `new Database(...)`. Production calls `openDb`;
     maintenance paths that must not migrate or reconcile a live brain call
@@ -712,18 +729,22 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `continue-on-error` or shell fallback), and its exact command, runtime scope,
     threshold, and order are guarded by `src/server/test/ci-workflow.test.ts`. Do not
     weaken any of them without updating the guard and this invariant.
-45. **Cutover run directories are owner-only.** `deploy/cutover-vps.sh` creates (or
-    tightens) every cutover run directory under `~/.aps-cutover/runs/` to `0700`, on both
-    the detached launch and the internal `--run --run-dir` path. A local `umask 077`
-    covers creation, including a missing `~/.aps-cutover`/`runs` ancestor chain, and a
+45. **Cutover evidence is owner-only.** `deploy/cutover-vps.sh` creates (or tightens)
+    every cutover run directory under `~/.aps-cutover/runs/` to `0700`, on both the
+    detached launch and the internal `--run --run-dir` path. A local `umask 077` covers
+    creation, including a missing `~/.aps-cutover`/`runs` ancestor chain, and a
     `point_latest` root mkdir; existing ancestors are left alone. The explicit `chmod`
     makes the leaf independent of the caller's umask and repairs a retried run; mode
     failures fail closed. Files inside keep their current modes because the directory is
-    the protection boundary. This is not encryption at rest; older run directories are
-    tightened explicitly with `npm run repair:runs` (dry run by default; `--apply` to
-    change), which scans only `~/.aps-cutover/runs`, one level deep, never follows
-    symlinks, deletes, or reads run contents, and leaves `~/.aps-cutover`, `latest`, and
-    `upgrades/` alone.
+    the protection boundary. The shared `~/.aps-cutover` root is `0700` too: a missing
+    root is created that way, and an existing root is repaired explicitly with either
+    `npm run repair:runs` or `npm run repair:upgrades` (dry run by default; `--apply` to
+    change). `repair:runs` tightens the root, `~/.aps-cutover/runs`, and each direct run
+    directory, one level deep. It never follows a symlinked `runs/`, deletes, or reads run
+    contents, and leaves `latest` and `upgrades/` alone; a symlinked root is skipped while
+    `runs/` is still scanned through the link. `latest` needs no mode of its own because
+    the `0700` root and its `0700` target run directory are the boundary. This is not
+    encryption at rest.
 46. **Documentation links resolve in Help.** Every local link, image, and `#fragment` in
     the root Markdown, `docs/`, `deploy/vps.md`, and `.opencode/skills` must resolve.
     `src/web/src/doc-links.test.ts` walks that corpus (`.git`, `node_modules`, and `dist`
@@ -736,7 +757,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     Help serves: a served page may only link another manifest page or a `?help=<slug>`
     target whose slug and `#fragment` exist in `src/server/src/docs/manifest.ts`, and the
     manifest itself must keep unique lowercase slugs, existing Markdown sources, and
-    `slugForDocPath(source) === slug`. Served images must be existing files under
+    `slugForDocPath(source) === slug`. The SPA's own Help targets live in
+    `src/web/src/links.ts` (`SPA_HELP_TARGETS`), and the same test requires every declared
+    slug to be a `HELP_MANIFEST` entry and every non-null anchor an `extractHeadings` id of
+    that entry's source. It also rejects a quoted `?help=<slug>` or a bare Help slug
+    elsewhere in `src/web/src`, so components must use the typed constants rather than
+    duplicating a target. Served images must be existing files under
     `docs/screenshots/` that `resolveDocImage` rewrites onto `/api/docs/assets/...`, and a
     served page may not link a local non-Markdown file unless `resolveDocHref` sends it to
     that same asset route. Internal-only docs (`05-plan`, `06-refactor-audit`,
@@ -749,21 +775,43 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     Run `npm run check:github-scope` before such a push: exit 0 is the only green light,
     exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit 2
     means the credential could not be classified. The harness host's `gh` OAuth token
-    currently carries only `gist`, `read:org`, and `repo`; fix it with
-    `gh auth refresh -h github.com -s workflow`, or export `GH_TOKEN`/`GITHUB_TOKEN` with a
-    classic PAT holding `repo` and `workflow` (or a fine-grained PAT with Contents and
-    Workflows read/write). Do not add a deploy key, switch `origin` to SSH, or push through
-    the API to work around the rejection; stop and report instead. The check lives in
-    `scripts/check-github-scope.mjs` and its tests in `scripts/check-github-scope.test.mjs`.
-48. **The web stress run is fail-closed and leaves no hog behind.** `npm run
-    test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite `--runs` times
-    (default 3) while `--hogs` busy-loop processes (default 4) compete. An iteration
-    fails on a non-zero suite exit, a missing, empty, unparsable, or zero-test Vitest
-    JSON report, or the per-iteration `--timeout` (default 600 s); the run also fails
-    when a hog exits early. Do not turn any of those into a warning or a pass. Hogs are
-    stopped on every exit path and each hog exits by itself when the runner dies, so a
-    killed run cannot leave a core burning; keep both layers. It is manual only: do not
-    add it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
+    currently carries only `gist`, `read:org`, and `repo`. From an interactive terminal
+    run `npm run grant:github-scope`, which wraps
+    `gh auth refresh -h github.com -s workflow` and re-verifies; outside a TTY it prints
+    the command and exits 1 instead of blocking on the device-flow approval. Alternatively
+    export `GH_TOKEN`/`GITHUB_TOKEN` with a classic PAT holding `repo` and `workflow` (or a
+    fine-grained PAT with Contents and Workflows read/write). Do not add a deploy key,
+    switch `origin` to SSH, or push through the API to work around the rejection; stop and
+    report instead. The check lives in `scripts/check-github-scope.mjs` (tests in
+    `scripts/check-github-scope.test.mjs`); the grant helper lives in
+    `scripts/grant-github-scope.mjs` (tests in `scripts/grant-github-scope.test.mjs`).
+48. **The suite stress run is fail-closed and leaves no suite or hog process behind.**
+    `npm run test:web-stress` and `npm run test:server-stress` (`scripts/web-stress.mjs`,
+    `--suite web|server`) run the full web or server suite `--runs` times (default 3)
+    while `--hogs` busy-loop processes (default 4) compete. An iteration fails on a
+    non-zero suite exit, a missing, empty, unparsable, or zero-test Vitest JSON report,
+    or the per-iteration `--timeout` (default 600 s); the run also fails when a hog exits
+    early. Do not turn any of those into a warning or a pass. Each iteration runs under
+    `scripts/web-stress/suite-supervisor.mjs`, a detached group leader: the runner
+    signals the recorded group on timeout or interrupt, and the supervisor SIGKILLs its
+    own group when its parent disappears, so a `SIGKILL` of the runner cannot leave npm,
+    its shell, or the Vitest workers running. Hogs are stopped on every exit path and
+    each hog exits by itself when the runner dies; the `aps-web-stress-hog` and
+    `aps-server-stress-hog` markers keep a leak findable. Keep all three layers. It is
+    manual only: do not add it to `npm test` or CI, and keep its `node:test` guard in
+    `test:e2e-env`.
+49. **The three maintenance permission repairs share one engine.** `PermissionRepair` in
+    `src/server/src/maintenance/permission-repair.ts` owns `PRIVATE_DIR_MODE`/
+    `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the
+    symlink/`ENOENT` policy, the dry-run counters, and the only `chmod` under
+    `src/server/src/maintenance`. `repair-cli.ts` owns the shared
+    `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, and the
+    direct-run bootstrap. `repair-permissions.ts`, `repair-upgrade-permissions.ts`, and
+    `repair-run-permissions.ts` only describe their trees; their CLIs only hold the
+    usage text, default target, and missing-root message. Commands, flags, output, exit
+    codes, and traversal must not change. A new repair uses the same scanner; the guard
+    in `src/server/test/repair-permissions.test.ts` fails if another maintenance module
+    mentions `chmodSync`.
 
 ## Extension recipes
 

@@ -127,6 +127,12 @@ and error-event shape.
 - `util/preserved-copies.ts` owns the `*.invalid-<UTC>` prefix, stamp/suffix ordering, and
   preserved-copy listing for both `SettingsStore` and `ProcessStore`; each store keeps its
   own pinning and error routing.
+- `maintenance/permission-repair.ts` owns the owner-only mode decision, the symlink/kind/
+  `ENOENT` policy, the counters, and the only repair `chmod`; `maintenance/repair-cli.ts`
+  owns argument parsing, reporting, exit codes, and the direct-run bootstrap for
+  `repair:permissions`, `repair:upgrades`, and `repair:runs`, whose engines and CLIs are
+  now thin tree/usage descriptions; `permission-repair.test.ts` pins the root and
+  missing-child policies.
 
 ## Deferred, with reasons
 

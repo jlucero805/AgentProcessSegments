@@ -6,10 +6,11 @@ audience gate; do not widen the bind.
 
 This runbook assumes a single-user VPS with:
 
-- Node 20 or newer on `PATH` (verified on Node 24).
+- Node 22.13 or newer on `PATH` (verified on Node 24; `better-sqlite3` v13 needs Node 22).
 - `git`.
-- Build tools (`make`, `g++`, `python3`) when `better-sqlite3` v11 has no prebuild for the
-  Node version; on Node 24 it compiles from source.
+- Build tools (`make`, `g++`, `python3`): `node-pty` has no Linux prebuild and compiles
+  during `npm ci`, and npm still runs an implicit gyp pass for `better-sqlite3`. Python
+  3.14 needs npm 11.7 or newer; `npm run check:native` reports both.
 - an agent CLI on the service `PATH`: `claude` (default) or `opencode`.
 - `herdr-core` installed if you use interactive terminals. The brain drives the agent CLI
   directly and does not import herdr.
@@ -133,7 +134,9 @@ tab kills it. Sessions are visible via `GET /api/terminals`, up to four at once.
 creation with `APS_TERMINAL=0` in the unit. The UI hides the action on phones, but the
 session API is a direct shell: keep the brain on loopback or behind an authenticated
 tunnel. The node-pty native module is built during `npm ci --include=dev`; this host
-already has `make`, `g++`, and `python3`.
+already has `make`, `g++`, and `python3`. Run `npm run check:native` after installing and
+before trusting a terminal session: it loads both native modules and names the missing
+piece.
 
 ## Install as a systemd user unit
 
@@ -208,10 +211,11 @@ Three candidates were rejected by the live probe (`npm run probe:sandbox`, D114)
 - `ProcSubset=pid` removes `/proc/meminfo`, so `ps`, `free`, and `uptime` fail inside a
   browser terminal.
 
-`RestrictNamespaces=~user` and `SystemCallFilter=@system-service` are deferred until the
-real Claude Code sandbox is exercised. `PrivateNetwork`, `PrivateUsers`, and
-`MemoryDenyWriteExecute` stay off for the reasons in the unit. Read D96 and D114 in
-`docs/03-decisions.md` before adding any of them.
+`RestrictNamespaces=~user` and `SystemCallFilter=@system-service` are deferred until an
+authenticated Claude Code turn exercises the real sandbox. A cached binary is not enough:
+without a seedable login the probe skips `turn:claude` and keeps both deferred (D114).
+`PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute` stay off for the reasons in
+the unit. Read D96 and D114 in `docs/03-decisions.md` before adding any of them.
 
 ### Rerun the sandbox probe
 
@@ -449,11 +453,14 @@ npm run repair:upgrades              # preview
 npm run repair:upgrades -- --apply   # tighten old upgrade run dirs and snapshots
 ```
 
-The command scans only `~/.aps-cutover/upgrades`. It sets the `upgrades` directory and
-each direct run directory to `0700`, and each top-level `db-backup.sqlite` to `0600`. It
-never follows symlinks, deletes anything, opens the database, changes snapshot contents,
-or touches `~/.aps-cutover/runs` (cutover evidence is repaired separately with
-`npm run repair:runs`).
+The command scans the shared `~/.aps-cutover` root and `~/.aps-cutover/upgrades`. It sets
+the root, the `upgrades` directory, and each direct run directory to `0700`, and each
+top-level `db-backup.sqlite` to `0600`. It never follows a symlinked `upgrades/`, deletes
+anything, opens the database, changes snapshot contents, chmods the `latest` symlink, or
+touches `~/.aps-cutover/runs`. A symlinked root is skipped, while its `upgrades/` tree is
+still scanned through the link, so tighten the target yourself. The root is tightened
+first, so its run/upgrade names and the `latest` target stop being listable by other local
+accounts.
 
 Notes:
 
@@ -492,8 +499,9 @@ Then run the one-time repairs. `npm run repair:permissions` previews and
 older version. `npm run repair:upgrades` previews and
 `npm run repair:upgrades -- --apply` changes modes for upgrade run directories and
 snapshots created by an older version. `npm run repair:runs` previews and
-`npm run repair:runs -- --apply` changes modes for cutover run directories created by an
-older version. None is part of the upgrade script yet.
+`npm run repair:runs -- --apply` changes modes for cutover run directories and the shared
+`~/.aps-cutover` root created by an older version. None is part of the upgrade script
+yet.
 
 ## Upgrade from Sandbox Harness
 
@@ -623,19 +631,22 @@ Each real cutover creates (or tightens) its run directory under `~/.aps-cutover/
 owner-only. A missing `~/.aps-cutover` or `~/.aps-cutover/runs` ancestor is created `0700`
 too; an existing ancestor is left alone.
 
-Run directories left by an older version have not been tightened. After updating to a
-build with the owner-only mode, repair them explicitly:
+The shared root and run directories left by an older version have not been tightened.
+After updating to a build with the owner-only mode, repair them explicitly:
 
 ```bash
 npm run build
-npm run repair:runs              # preview
-npm run repair:runs -- --apply   # tighten old cutover run dirs
+npm run repair:runs              # preview the root and old run dirs
+npm run repair:runs -- --apply   # tighten the root and old run dirs
 ```
 
-The command scans only `~/.aps-cutover/runs`. It sets the `runs` directory and each direct
-run directory to `0700`. It never follows symlinks, deletes anything, descends into
-`dist/` or `backup/`, reads or changes run contents, or touches `~/.aps-cutover` itself,
-the `latest` symlink, or `~/.aps-cutover/upgrades`.
+The command scans `~/.aps-cutover` itself, `~/.aps-cutover/runs`, and each direct run
+directory. It sets all of them to `0700`, and never follows a symlinked `runs/`, deletes
+anything, descends into `dist/` or `backup/`, reads or changes run contents, or touches
+the `latest` symlink or `~/.aps-cutover/upgrades`. New installs already create the root
+`0700`; either repair command also tightens an older root. A symlinked root is not
+chmodded; its `runs/` tree is still scanned through the link, so tighten the target
+yourself.
 
 After it finishes, verify the new unit and paths:
 
@@ -783,8 +794,16 @@ agent CLI children per request; it does not attach to herdr panes.
 
 ## Troubleshooting
 
-- `better-sqlite3` install fails with `not found: make`: install the toolchain
-  (`sudo apt-get install -y make g++ python3`), then run `npm ci --include=dev` again.
+- Native install fails with `not found: make` or a gyp error: install the toolchain
+  (`sudo apt-get install -y make g++ python3`), then run
+  `npm rebuild node-pty --foreground-scripts` (the only package with a source build) or
+  `rm -rf node_modules && npm ci --include=dev` for a clean re-extract to see the build
+  output. On Python 3.14, gyp itself crashes unless npm is 11.7 or newer (bundled node-gyp
+  12): run `npm install -g npm@latest`. `npm run check:native` names the failing module.
+- A gyp `write` error usually means the disk is full: check `df -h`, then retry.
+- npm prints `install-scripts ... not yet covered by allowScripts` for `node-pty`/`esbuild`:
+  review them with `npm install-scripts ls` and approve (or deny) them; a denied native
+  build leaves the module without its binary, which `npm run check:native` catches.
 - `GET /api/models` returns `source: "fallback"`: the selected agent binary is not on the
   service `PATH`. Install `claude`/`opencode`, add its directory to
   `Environment=PATH=...`, and restart.

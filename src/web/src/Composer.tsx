@@ -113,6 +113,7 @@ export function Composer({ commands = [], onSend, disabled, placeholder }: Compo
         <Button
           variant="primary"
           size="sm"
+          data-testid="composer-send"
           disabled={disabled || value.trim() === ''}
           onClick={submit}
         >

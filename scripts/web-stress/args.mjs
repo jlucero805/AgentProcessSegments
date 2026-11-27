@@ -2,14 +2,16 @@
 //
 // A usage error is a one-line message the entry prints before the usage block
 // and exits 2, so a typo never looks like a failed suite iteration.
+import { SUITE_NAMES } from './suites.mjs';
 
 export const USAGE = `Usage: node scripts/web-stress.mjs [options]
 
-Runs the web Vitest suite under competing CPU load. Fails closed on a failed
-iteration, a hog that exited early, a per-iteration timeout, or a missing
-Vitest JSON report.
+Runs a Vitest workspace suite under competing CPU load. Fails closed on a
+failed iteration, a hog that exited early, a per-iteration timeout, or a
+missing Vitest JSON report.
 
 Options:
+  --suite <name>    Vitest workspace to stress: web (default) or server
   --runs <n>        suite iterations to run (default 3; minimum 1)
   --hogs <n>        busy-loop CPU processes kept alive (default 4; 0 = quiet baseline)
   --timeout <s>     wall-clock limit per iteration in seconds (default 600)
@@ -17,11 +19,12 @@ Options:
   --fail-fast       stop after the first failing iteration
   --verbose         stream each iteration's captured output live
   --log-dir <dir>   per-run results.json/output.log location
-                    (default: a fresh aps-web-stress-* directory under the OS temp dir)
+                    (default: a fresh aps-<suite>-stress-* directory under the OS temp dir)
   --keep-logs       keep the log directory after an all-pass run
   --help, -h        print this usage`;
 
 export const DEFAULTS = Object.freeze({
+  suite: 'web',
   runs: 3,
   hogs: 4,
   timeoutSeconds: 600,
@@ -63,61 +66,76 @@ export function parseArgs(argv) {
     return { ...options, help: true };
   }
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const { flag, value: inline } = splitFlag(argv[index]);
+  try {
+    for (let index = 0; index < argv.length; index += 1) {
+      const { flag, value: inline } = splitFlag(argv[index]);
 
-    const value = () => {
-      if (inline !== undefined) {
-        if (inline === '') throw new UsageError(`${flag} needs a value`);
-        return inline;
-      }
-      const next = argv[index + 1];
-      if (next === undefined || next.startsWith('--')) {
-        throw new UsageError(`${flag} needs a value`);
-      }
-      index += 1;
-      return next;
-    };
+      const value = () => {
+        if (inline !== undefined) {
+          if (inline === '') throw new UsageError(`${flag} needs a value`);
+          return inline;
+        }
+        const next = argv[index + 1];
+        if (next === undefined || next.startsWith('--')) {
+          throw new UsageError(`${flag} needs a value`);
+        }
+        index += 1;
+        return next;
+      };
 
-    const noValue = () => {
-      if (inline !== undefined) throw new UsageError(`${flag} does not take a value`);
-    };
+      const noValue = () => {
+        if (inline !== undefined) throw new UsageError(`${flag} does not take a value`);
+      };
 
-    switch (flag) {
-      case '--runs':
-        options.runs = integer(flag, value(), 1);
-        break;
-      case '--hogs':
-        options.hogs = integer(flag, value(), 0);
-        break;
-      case '--timeout':
-        options.timeoutSeconds = integer(flag, value(), 1);
-        break;
-      case '--only': {
-        const pattern = value();
-        options.only.push(pattern);
-        break;
+      switch (flag) {
+        case '--suite': {
+          const suite = value();
+          if (!SUITE_NAMES.includes(suite)) {
+            throw new UsageError(`--suite must be one of: ${SUITE_NAMES.join(', ')}`);
+          }
+          options.suite = suite;
+          break;
+        }
+        case '--runs':
+          options.runs = integer(flag, value(), 1);
+          break;
+        case '--hogs':
+          options.hogs = integer(flag, value(), 0);
+          break;
+        case '--timeout':
+          options.timeoutSeconds = integer(flag, value(), 1);
+          break;
+        case '--only': {
+          const pattern = value();
+          options.only.push(pattern);
+          break;
+        }
+        case '--log-dir':
+          options.logDir = value();
+          break;
+        case '--fail-fast':
+          noValue();
+          options.failFast = true;
+          break;
+        case '--verbose':
+          noValue();
+          options.verbose = true;
+          break;
+        case '--keep-logs':
+          noValue();
+          options.keepLogs = true;
+          break;
+        default:
+          throw new UsageError(
+            flag.startsWith('-') ? `unknown argument: ${flag}` : `unexpected argument: ${flag}`,
+          );
       }
-      case '--log-dir':
-        options.logDir = value();
-        break;
-      case '--fail-fast':
-        noValue();
-        options.failFast = true;
-        break;
-      case '--verbose':
-        noValue();
-        options.verbose = true;
-        break;
-      case '--keep-logs':
-        noValue();
-        options.keepLogs = true;
-        break;
-      default:
-        throw new UsageError(
-          flag.startsWith('-') ? `unknown argument: ${flag}` : `unexpected argument: ${flag}`,
-        );
     }
+  } catch (error) {
+    if (error instanceof UsageError && error.suite === undefined) {
+      error.suite = options.suite;
+    }
+    throw error;
   }
 
   return options;

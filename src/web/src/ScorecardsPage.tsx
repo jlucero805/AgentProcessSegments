@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
+import {
+  DEFAULT_RANGE,
+  ScorecardPeriod,
+  rangeOption,
+  sinceFor,
+  type RangeKey,
+} from './ScorecardPeriod';
 import type { CellDetail, Summary, SummaryStatus } from './types';
 import { timeAgo } from './types';
 import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
@@ -13,29 +20,8 @@ interface ScorecardGroup {
   loadingMore: boolean;
 }
 
-type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
-
-const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms: number | null }> = [
-  { key: '24h', label: '24h', spellout: 'the last 24 hours', ms: 24 * 60 * 60_000 },
-  { key: '72h', label: '72h', spellout: 'the last 72 hours', ms: 72 * 60 * 60_000 },
-  { key: '7d', label: '7d', spellout: 'the last 7 days', ms: 7 * 24 * 60 * 60_000 },
-  { key: '30d', label: '30d', spellout: 'the last 30 days', ms: 30 * 24 * 60 * 60_000 },
-  { key: 'all', label: 'All', spellout: 'all time', ms: null },
-];
-
-const DEFAULT_RANGE: RangeKey = '72h';
 /** Reports rendered per cell before the group offers "Load older". */
 const PAGE_SIZE = 25;
-
-function rangeOption(range: RangeKey) {
-  return RANGES.find((option) => option.key === range) ?? RANGES[1]!;
-}
-
-/** Inclusive lower bound for the selected period; undefined means all time. */
-function sinceFor(range: RangeKey): number | undefined {
-  const option = rangeOption(range);
-  return option.ms === null ? undefined : Date.now() - option.ms;
-}
 
 /** Keep one probe row so the caller knows whether another page exists. */
 function pageReports(reports: Summary[]): { reports: Summary[]; hasMore: boolean } {
@@ -204,32 +190,14 @@ export function ScorecardsPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div
-            className="flex rounded-lg border border-zinc-800 p-0.5"
-            role="group"
-            aria-label="Scorecard period"
-          >
-            {RANGES.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                aria-pressed={range === item.key}
-                onClick={() => {
-                  if (item.key === range) return;
-                  setGroups(null);
-                  setLoading(true);
-                  setRange(item.key);
-                }}
-                className={
-                  range === item.key
-                    ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
-                    : 'rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200'
-                }
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          <ScorecardPeriod
+            value={range}
+            onChange={(next) => {
+              setGroups(null);
+              setLoading(true);
+              setRange(next);
+            }}
+          />
           <Button
             variant="secondary"
             size="sm"

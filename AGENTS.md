@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1318 vitest cases: 1014 server across 56 files (one environmental root-skip) and 304 web across 28 files, all green.
+- 1322 vitest cases: 1015 server across 56 files (one environmental root-skip) and 307 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -57,9 +57,10 @@ digests.
   segments with per-cell tickers, follow-up callouts, event log, per-cell master chats,
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
-  polling scheduler with catch-up and backoff, and a dedicated page for browsing
-  reports per cell with a generation-time period filter and keyset paging), a cell
-  creation flow that
+  polling scheduler with catch-up and backoff, a dedicated page for browsing reports
+  per cell with a generation-time period filter and keyset paging, and the Cell master
+  drawer's latest-five view scoped by the same selectable generation-time period), a
+  cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight
@@ -114,7 +115,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1014 server + 304 web, plus the e2e env guard
+npm test                       # 1015 server + 307 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and

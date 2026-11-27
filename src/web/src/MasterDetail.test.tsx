@@ -29,6 +29,76 @@ function makeCell(): CellDetail {
   };
 }
 
+function makeReport(id: string, content: string, createdAt: number) {
+  return {
+    id,
+    cellId: 'c1',
+    windowStart: createdAt - 360 * 60_000,
+    windowEnd: createdAt,
+    windowMinutes: 360,
+    content,
+    stats: {},
+    createdAt,
+  };
+}
+
+function summaryRequests(urls: string[]): URLSearchParams[] {
+  return urls
+    .filter((url) => url.startsWith('/api/summaries?'))
+    .map((url) => new URL(url, 'http://localhost').searchParams);
+}
+
+function stubMasterDetail(
+  summaries: (params: URLSearchParams) => unknown,
+  extra: { scorecardRun?: unknown; urls?: string[] } = {},
+) {
+  const cell = makeCell();
+  const urls = extra.urls ?? [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url === '/api/process') return jsonResponse(makeProcessResponse());
+      if (url === '/api/master/status?cellId=c1') {
+        return jsonResponse({
+          enabled: true,
+          intervalMinutes: 3,
+          running: false,
+          nextRunAt: null,
+          lastRunAt: null,
+          lastResult: null,
+        });
+      }
+      if (url === '/api/cells') return jsonResponse([cell]);
+      if (url.startsWith('/api/master/events')) return jsonResponse([]);
+      if (url.startsWith('/api/summaries?')) {
+        const params = new URL(url, 'http://localhost').searchParams;
+        return jsonResponse(summaries(params));
+      }
+      if (url === '/api/summaries/status?cellId=c1') {
+        return jsonResponse({
+          enabled: false,
+          intervalMinutes: 360,
+          windowMinutes: 360,
+          running: false,
+          nextRunAt: null,
+          lastRunAt: null,
+          lastError: null,
+        });
+      }
+      if (url === '/api/summaries/run?cellId=c1') {
+        return jsonResponse(extra.scorecardRun ?? null);
+      }
+      if (url === '/api/requests/__master__%3Ac1/clarify') {
+        return jsonResponse({ started: true, active: false, transcript: [] });
+      }
+      return jsonResponse([]);
+    }),
+  );
+  return urls;
+}
+
 describe('MasterDetail', () => {
   it('shows the cell policy, activity, chat, and run control', async () => {
     const captured: { ran?: boolean; result?: Record<string, unknown> } = {};
@@ -64,8 +134,7 @@ describe('MasterDetail', () => {
             },
           ]);
         }
-        if (url === '/api/summaries/latest?cellId=c1') return jsonResponse(null);
-        if (url === '/api/summaries?cellId=c1&limit=5') return jsonResponse([]);
+        if (url.startsWith('/api/summaries?')) return jsonResponse([]);
         if (url === '/api/summaries/status?cellId=c1') {
           return jsonResponse({
             enabled: false,
@@ -123,6 +192,19 @@ describe('MasterDetail', () => {
     expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
     expect(urls.some((url) => url === '/api/config')).toBe(false);
 
+    const [initialSummary] = summaryRequests(urls);
+    expect(initialSummary?.get('cellId')).toBe('c1');
+    expect(initialSummary?.get('limit')).toBe('5');
+    const since = Number(initialSummary?.get('since'));
+    expect(Number.isFinite(since)).toBe(true);
+    expect(Math.abs(since - (Date.now() - 72 * 60 * 60_000))).toBeLessThan(60_000);
+    expect(urls.some((url) => url.startsWith('/api/summaries/latest'))).toBe(false);
+    const period = screen.getByRole('group', { name: 'Scorecard period' });
+    expect(within(period).getByRole('button', { name: '72h' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
     fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
     await waitFor(() => expect(captured.ran).toBe(true), { timeout: ASYNC_TIMEOUT_MS });
     expect(await screen.findByText(/Last cycle: 0 started/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
@@ -154,8 +236,7 @@ describe('MasterDetail', () => {
         }
         if (url === '/api/cells') return jsonResponse([makeCell()]);
         if (url.startsWith('/api/master/events')) return jsonResponse(events);
-        if (url === '/api/summaries/latest?cellId=c1') return jsonResponse(null);
-        if (url === '/api/summaries?cellId=c1&limit=5') return jsonResponse([]);
+        if (url.startsWith('/api/summaries?')) return jsonResponse([]);
         if (url === '/api/summaries/status?cellId=c1') {
           return jsonResponse({
             enabled: false,
@@ -241,8 +322,7 @@ describe('MasterDetail', () => {
         }
         if (url === '/api/cells') return jsonResponse([cell]);
         if (url.startsWith('/api/master/events')) return jsonResponse([]);
-        if (url === '/api/summaries/latest?cellId=c1') return jsonResponse(scorecard);
-        if (url === '/api/summaries?cellId=c1&limit=5') return jsonResponse([scorecard]);
+        if (url.startsWith('/api/summaries?')) return jsonResponse([scorecard]);
         if (url === '/api/summaries/status?cellId=c1') {
           return jsonResponse({
             enabled: true,
@@ -291,5 +371,97 @@ describe('MasterDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure' }));
     expect(onConfigure).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('reloads the scorecard history for the selected period and all time', async () => {
+    const now = Date.now();
+    const reports = [
+      makeReport('s2', 'Newest scorecard', now),
+      makeReport('s1', 'Older scorecard', now - 60 * 60_000),
+    ];
+    const urls = stubMasterDetail((params) => {
+      const since = params.get('since');
+      return since ? reports.filter((report) => report.createdAt >= Number(since)) : reports;
+    });
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('Newest scorecard', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(screen.getByText('Earlier scorecards (1)')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument();
+
+    const initial = summaryRequests(urls)[0];
+    expect(initial?.get('limit')).toBe('5');
+    expect(Math.abs(Number(initial?.get('since')) - (Date.now() - 72 * 60 * 60_000))).toBeLessThan(60_000);
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(
+      () =>
+        expect(
+          summaryRequests(urls).some((params) => {
+            const since = Number(params.get('since'));
+            return (
+              Number.isFinite(since) &&
+              Math.abs(since - (Date.now() - 7 * 24 * 60 * 60_000)) < 60_000
+            );
+          }),
+        ).toBe(true),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    await waitFor(
+      () => expect(summaryRequests(urls).some((params) => !params.has('since'))).toBe(true),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(summaryRequests(urls).find((params) => !params.has('since'))?.get('limit')).toBe('5');
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('keeps a report generated outside the period out of the card', async () => {
+    const old = makeReport('old', 'Old scorecard', Date.now() - 10 * 24 * 60 * 60_000);
+    stubMasterDetail((params) => (params.has('since') ? [] : [old]));
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText(/No scorecards in the last 72 hours/)).toBeInTheDocument();
+    expect(screen.queryByText('Old scorecard')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Scorecard period' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(await screen.findByText('Old scorecard', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('shows the all-time empty state when no scorecard exists', async () => {
+    stubMasterDetail(() => []);
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText(/No scorecards in the last 72 hours/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(await screen.findByText(/No scorecard yet/)).toBeInTheDocument();
   }, MASTER_DETAIL_TEST_TIMEOUT_MS);
 });

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +24,10 @@ const hardenedLines = Object.entries(HARDENING_REQUIRED).map(
   ([key, value]) => `${key}=${value}`,
 );
 
+const TRUE_SPELLINGS = ['1', 'yes', 'y', 'true', 't', 'on', 'YES', 'Y', 'TRUE', 'T', 'On'];
+const FALSE_SPELLINGS = ['0', 'no', 'n', 'false', 'f', 'off', 'NO', 'N', 'FALSE', 'F', 'Off'];
+const BOOLEAN_FORBIDDEN = ['MemoryDenyWriteExecute', 'PrivateNetwork', 'PrivateUsers'];
+
 function serviceUnit(lines) {
   return [
     '[Unit]',
@@ -34,6 +40,10 @@ function serviceUnit(lines) {
     'WantedBy=default.target',
     '',
   ].join('\n');
+}
+
+function forbiddenLine(line) {
+  return hardeningProblems(serviceUnit([...hardenedLines, line]));
 }
 
 test('returns diagnostics that name the unit file', () => {
@@ -109,12 +119,87 @@ test('reports a forbidden stricter filesystem or proc setting', () => {
   ]);
 });
 
-test('reports forbidden directives in an alternate boolean spelling', () => {
-  const unit = serviceUnit([...hardenedLines, 'MemoryDenyWriteExecute=1']);
+test('rejects every accepted true spelling of a forbidden boolean directive', () => {
+  for (const key of BOOLEAN_FORBIDDEN) {
+    for (const spelling of TRUE_SPELLINGS) {
+      assert.deepEqual(
+        forbiddenLine(`${key}=${spelling}`),
+        [`${key}=${spelling} is not allowed`],
+        `${key}=${spelling}`,
+      );
+    }
+  }
+});
 
-  assert.deepEqual(hardeningProblems(unit), [
-    'MemoryDenyWriteExecute=1 is not allowed',
-  ]);
+test('accepts false and empty spellings of a forbidden boolean directive', () => {
+  for (const key of BOOLEAN_FORBIDDEN) {
+    for (const spelling of FALSE_SPELLINGS) {
+      assert.deepEqual(forbiddenLine(`${key}=${spelling}`), [], `${key}=${spelling}`);
+    }
+    assert.deepEqual(forbiddenLine(`${key}=`), [], `${key}=`);
+  }
+});
+
+test('rejects every ProtectHome value that exposes the home directory', () => {
+  for (const spelling of [...TRUE_SPELLINGS, 'read-only', 'tmpfs']) {
+    assert.deepEqual(
+      forbiddenLine(`ProtectHome=${spelling}`),
+      [`ProtectHome=${spelling} is not allowed`],
+      `ProtectHome=${spelling}`,
+    );
+  }
+});
+
+test('accepts false and empty ProtectHome spellings', () => {
+  for (const spelling of FALSE_SPELLINGS) {
+    assert.deepEqual(
+      forbiddenLine(`ProtectHome=${spelling}`),
+      [],
+      `ProtectHome=${spelling}`,
+    );
+  }
+  assert.deepEqual(forbiddenLine('ProtectHome='), []);
+});
+
+test('required directives keep their exact canonical spelling', () => {
+  for (const [key, spelling, expected] of [
+    ['NoNewPrivileges', '1', 'NoNewPrivileges=1 (expected yes)'],
+    ['PrivateTmp', 'on', 'PrivateTmp=on (expected yes)'],
+    ['ProtectSystem', 'yes', 'ProtectSystem=yes (expected full)'],
+  ]) {
+    const unit = hardenedLines.map((line) =>
+      line.startsWith(`${key}=`) ? `${key}=${spelling}` : line,
+    );
+
+    assert.deepEqual(
+      hardeningProblems(serviceUnit(unit)),
+      [expected],
+      `${key}=${spelling}`,
+    );
+  }
+});
+
+test('the CLI rejects a forbidden boolean synonym before platform checks', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'aps-unit-synonym-'));
+  try {
+    const unitPath = path.join(dir, 'unit.service');
+    writeFileSync(
+      unitPath,
+      realUnit.replace('[Service]\n', '[Service]\nMemoryDenyWriteExecute=1\n'),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [path.join(repoRoot, 'scripts/verify-systemd-unit.mjs'), '--unit', unitPath],
+      { encoding: 'utf8' },
+    );
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /unit hardening: MemoryDenyWriteExecute=1 is not allowed/);
+    assert.doesNotMatch(result.stderr, /systemd-analyze verify/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('reports an extra list assignment that would widen the sandbox', () => {

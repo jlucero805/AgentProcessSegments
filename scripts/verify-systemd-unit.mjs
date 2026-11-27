@@ -26,6 +26,40 @@ Runs systemd-analyze verify, checks the reviewed sandboxing directives, and
 runs the offline security review on the deploy unit. Relative paths resolve
 from ${repoRoot}; the default is ${DEFAULT_UNIT}.`;
 
+/** Directives whose values are systemd booleans; ProtectHome also takes enum values. */
+export const BOOLEAN_DIRECTIVES = new Set([
+  'MemoryDenyWriteExecute',
+  'PrivateNetwork',
+  'PrivateUsers',
+  'ProtectHome',
+]);
+
+/**
+ * Canonical yes/no for every spelling systemd's parse_boolean accepts, so a synonym
+ * cannot bypass a forbidden-value check. Unknown values (ProtectHome=read-only) pass
+ * through unchanged.
+ */
+export function normalizeBoolean(value) {
+  switch (value.toLowerCase()) {
+    case '1':
+    case 'yes':
+    case 'y':
+    case 'true':
+    case 't':
+    case 'on':
+      return 'yes';
+    case '0':
+    case 'no':
+    case 'n':
+    case 'false':
+    case 'f':
+    case 'off':
+      return 'no';
+    default:
+      return value;
+  }
+}
+
 /** Sandboxing directives the deploy unit must set, with exact [Service] values. */
 export const HARDENING_REQUIRED = {
   NoNewPrivileges: 'yes',
@@ -52,10 +86,10 @@ export const HARDENING_REQUIRED = {
 
 /** Directives that must stay off: the brain needs the capability they remove. */
 export const HARDENING_FORBIDDEN = {
-  MemoryDenyWriteExecute: ['yes', 'true', 'on', '1', 'y'],
-  PrivateNetwork: ['yes', 'true', 'on', '1', 'y'],
-  PrivateUsers: ['yes', 'true', 'on', '1', 'y'],
-  ProtectHome: ['yes', 'true', 'on', '1', 'y', 'read-only', 'tmpfs'],
+  MemoryDenyWriteExecute: ['yes'],
+  PrivateNetwork: ['yes'],
+  PrivateUsers: ['yes'],
+  ProtectHome: ['yes', 'read-only', 'tmpfs'],
   ProtectSystem: ['strict'],
   ProcSubset: ['pid'],
 };
@@ -175,7 +209,10 @@ export function hardeningProblems(
   for (const [key, values] of Object.entries(forbidden)) {
     const value = effectiveDirectiveValue(assignments, key);
     if (value === undefined) continue;
-    if (values.includes(value)) {
+    const isBoolean = BOOLEAN_DIRECTIVES.has(key);
+    const actual = isBoolean ? normalizeBoolean(value) : value;
+    const blocked = isBoolean ? values.map((entry) => normalizeBoolean(entry)) : values;
+    if (blocked.includes(actual)) {
       problems.push(`${key}=${value} is not allowed`);
     }
   }

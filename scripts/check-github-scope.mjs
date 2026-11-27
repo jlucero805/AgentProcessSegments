@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Classify whether the current GitHub credential can push changes under
 // `.github/workflows/`. GitHub rejects those pushes from a token without the
-// `workflow` scope, and the harness host's OAuth token has only ever carried
-// `gist`, `read:org`, and `repo`.
+// `workflow` scope. This preflight, not a doc, is the source of truth for which
+// scopes are granted.
 //
 // Usage:
 //   node scripts/check-github-scope.mjs [--host <host>] [--json]

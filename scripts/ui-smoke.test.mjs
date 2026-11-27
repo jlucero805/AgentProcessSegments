@@ -170,6 +170,17 @@ test('ui smoke proves the drawer harness resolved before continuing', () => {
   );
 });
 
+test('ui smoke requires a populated drawer model catalog', () => {
+  const source = readFileSync(script, 'utf8');
+
+  assert.ok(
+    source.includes(
+      '[data-testid="model-select"][data-model-count]:not([data-model-count="0"])',
+    ),
+    'the drawer step must require at least one model option, not just a resolved harness',
+  );
+});
+
 function productionWebSource() {
   const webRoot = path.join(repoRoot, 'src', 'web', 'src');
   const files = readdirSync(webRoot, { recursive: true }).filter(

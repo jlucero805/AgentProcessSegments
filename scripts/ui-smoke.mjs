@@ -298,6 +298,18 @@ try {
   } catch (error) {
     throw new Error(`Request drawer harness did not resolve: ${error.message}`, { cause: error });
   }
+  // A resolved harness is not enough: a 200 /api/models can still carry an empty
+  // catalog. Require at least one model option beyond "Harness default".
+  try {
+    await page.waitForSelector(
+      '[data-testid="model-select"][data-model-count]:not([data-model-count="0"])',
+      { visible: true, timeout: 15_000 },
+    );
+  } catch (error) {
+    throw new Error(`Request drawer model catalog did not load: ${error.message}`, {
+      cause: error,
+    });
+  }
   await page.waitForSelector('[data-testid="composer-send"]', { visible: true, timeout: 10_000 });
 
   if (mobile) {

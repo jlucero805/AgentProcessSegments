@@ -223,9 +223,9 @@ built and vended by the brain; real-CLI verification is still pending.
   (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport; Puppeteer required, or
   pass `--allow-missing-puppeteer` to skip deliberately) create a request and a cell,
   remove both on success, failure, and interrupt, open the drawer and chat, confirm the
-  drawer resolved the request's harness, open Help and confirm its Getting started
-  Mermaid diagram renders as an SVG, and open the Config page with no page or console
-  errors. The smoke asserts `data-testid` hooks,
+  drawer resolved the request's harness and loaded at least one model option, open Help
+  and confirm its Getting started Mermaid diagram renders as an SVG, and open the Config
+  page with no page or console errors. The smoke asserts `data-testid` hooks,
   accessible `aria-label`s, and Help `data-slug`s, not visible copy;
   `scripts/ui-smoke.test.mjs` guards all three.
 - Mobile shell: the sidebar is off-canvas with a hamburger below `md`, board columns
@@ -487,7 +487,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1479 vitest cases (one environmental root-skip): 1097 server across 59 files and 382 web across 28 files,
+- 1480 vitest cases (one environmental root-skip): 1097 server across 59 files and 383 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

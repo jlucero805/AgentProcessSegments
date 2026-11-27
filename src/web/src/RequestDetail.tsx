@@ -494,7 +494,12 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Model">
-                  <Select value={form.model} onChange={(event) => set('model', event.target.value)}>
+                  <Select
+                    data-testid="model-select"
+                    data-model-count={models.length}
+                    value={form.model}
+                    onChange={(event) => set('model', event.target.value)}
+                  >
                     <option value="">Harness default</option>
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>

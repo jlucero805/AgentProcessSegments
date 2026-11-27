@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1479 vitest cases: 1097 server across 59 files (one environmental root-skip) and 382 web across 28 files, all green.
+- 1480 vitest cases: 1097 server across 59 files (one environmental root-skip) and 383 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1097 server + 382 web, plus the e2e env guard
+npm test                       # 1097 server + 383 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -312,8 +312,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   elements through `data-testid` hooks, accessible `aria-label`s, and Help `data-slug`s;
   `scripts/ui-smoke.test.mjs` fails when one it uses is missing from `src/web/src` or
   the Help manifest, so locator drift is caught without Puppeteer. The request drawer
-  step requires the harness to have resolved (`harness-effective[data-resolved="true"]`),
-  not merely the Harness field to be mounted.
+  step requires the harness to have resolved (`harness-effective[data-resolved="true"]`)
+  and the Model select to have at least one option (`model-select[data-model-count]`
+  other than `0`), not merely the Harness field to be mounted.
   The smoke also removes its request and cell on success, failure, and interrupt.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning

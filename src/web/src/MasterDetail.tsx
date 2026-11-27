@@ -323,7 +323,12 @@ export function MasterDetail({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <SectionTitle>Status</SectionTitle>
-                  <p className="mt-1 text-sm text-zinc-400">
+                  <p
+                    data-testid="master-schedule"
+                    data-enabled={String(status.enabled)}
+                    data-interval-minutes={String(status.intervalMinutes)}
+                    className="mt-1 text-sm text-zinc-400"
+                  >
                     {status.enabled ? `Scheduled every ${status.intervalMinutes} min` : 'Disabled'}
                     {status.running ? ' · running' : ''}
                   </p>
@@ -535,7 +540,7 @@ export function MasterDetail({
         >
           Master chat — scheduler notes and your questions
         </div>
-        <div className="h-[calc(100%-1.75rem)]">
+        <div data-testid="master-chat-body" className="h-[calc(100%-1.75rem)]">
           <ClarifyChat
             requestId={masterSessionId(cellId)}
             started

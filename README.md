@@ -907,7 +907,10 @@ not a pass).
 `node scripts/screenshots.mjs` uses the same optional Puppeteer install to rebuild
 `docs/screenshots/board.png`, `docs/screenshots/master.png`, and
 `docs/screenshots/help-getting-started.png` from a staged temp board. The Help capture
-is the visual baseline for the three rendered Getting started Mermaid diagrams.
+is the visual baseline for the three rendered Getting started Mermaid diagrams. It
+locates the staged board through `data-testid` hooks and Help `data-slug`s rather than
+app copy; the only text it matches is seeded fixture data and the brand identity.
+`scripts/screenshots.test.mjs` enforces the hook and slug contract without Puppeteer.
 It needs `npm run build` first and exits non-zero when Puppeteer is absent; pass
 `--allow-missing-puppeteer` to skip the capture deliberately (it prints the current
 image timestamps). The spawned server and the capture browser both get a pinned

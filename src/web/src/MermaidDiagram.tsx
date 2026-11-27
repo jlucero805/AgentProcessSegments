@@ -43,6 +43,7 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
   if (state.status === 'loading') {
     return (
       <div
+        data-testid="mermaid-loading"
         role="status"
         className="mb-3 flex items-center gap-2 rounded-lg border border-zinc-800 bg-black/50 p-3 text-xs text-zinc-500"
       >
@@ -53,7 +54,10 @@ export function MermaidDiagram({ source }: MermaidDiagramProps) {
 
   if (state.status === 'error') {
     return (
-      <pre className="mb-3 overflow-x-auto rounded-lg border border-zinc-800 bg-black/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300">
+      <pre
+        data-testid="mermaid-error"
+        className="mb-3 overflow-x-auto rounded-lg border border-zinc-800 bg-black/50 p-3 font-mono text-[11px] leading-relaxed text-zinc-300"
+      >
         <code>{source}</code>
       </pre>
     );

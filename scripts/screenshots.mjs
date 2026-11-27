@@ -18,6 +18,12 @@
 // change the staged images. No agent turn starts: the master timer is longer
 // than this script's deadline, and a current scorecard keeps the summary
 // scheduler from catching up.
+//
+// Locate the staged UI through data-testid hooks and Help data-slugs, never
+// through app-owned copy. The only text this script matches is seeded fixture
+// data (ids and the staged chat line) plus the brand identity.
+// scripts/screenshots.test.mjs fails when a hook or slug disappears or
+// body-copy matching returns.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -46,9 +52,13 @@ const MASTER_INTERVAL_MINUTES = 15;
 const HELP_VIEWPORT_WIDTH = 1440;
 const HELP_MAX_HEIGHT = 3200;
 const HELP_BOTTOM_MARGIN = 12;
-const HELP_DIALOG = '[role="dialog"][aria-label="Documentation"]';
-const HELP_MERMAID = `${HELP_DIALOG} article svg[id^="help-mermaid-"]`;
-const HELP_FENCE_MARKERS = ['flowchart TB', 'sequenceDiagram', 'flowchart LR'];
+const HELP_DIALOG = '[data-testid="help-dialog"]';
+const HELP_ARTICLE = '[data-testid="help-article"]';
+const HELP_MERMAID = 'svg[id^="help-mermaid-"]';
+const HELP_SLUG = 'getting-started';
+const BRAND_TITLE = 'Agent Process Segments';
+const OLD_BRAND_TAGLINE = 'process segments for agents';
+const SEED_CHAT_MESSAGE = 'Give me a quick status for this cell.';
 
 // The guard runs before the build check so --allow-missing-puppeteer also works
 // on an unbuilt tree; a deliberate skip wins over "run npm run build first".
@@ -441,7 +451,7 @@ function seed() {
           {
             role: 'you',
             kind: 'text',
-            text: 'Give me a quick status for this cell.',
+            text: SEED_CHAT_MESSAGE,
             ts: now - 120_000,
           },
           {
@@ -459,6 +469,7 @@ function seed() {
       ),
     );
 
+    return { requestIds: ids, cellIds: { personal: personalId, work: workId } };
   } finally {
     db.close();
   }
@@ -517,32 +528,30 @@ function markWorking() {
   }
 }
 
-async function clickText(page, text) {
-  const found = await page.evaluate((label) => {
-    const elements = [...document.querySelectorAll('button, a')];
-    const element = elements.find((candidate) => candidate.textContent?.trim() === label);
-    if (!element) return false;
-    element.click();
-    return true;
-  }, text);
-  if (!found) throw new Error(`button not found: ${text}`);
-}
-
 async function helpDiagramState(page) {
   return page.evaluate(
-    ({ dialogSelector, mermaidSelector, markers }) => {
-      const dialog = document.querySelector(dialogSelector);
-      const article = dialog?.querySelector('article');
-      if (!article) return { found: false, svgs: 0, spinner: false, fences: [], text: '' };
+    ({ articleSelector, mermaidSelector }) => {
+      const article = document.querySelector(articleSelector);
+      if (!article) {
+        return {
+          found: false,
+          slug: null,
+          svgs: 0,
+          loading: 0,
+          errors: 0,
+          text: '',
+          rects: [],
+        };
+      }
 
-      const text = article.innerText;
-      const svgs = [...document.querySelectorAll(mermaidSelector)];
+      const svgs = [...article.querySelectorAll(mermaidSelector)];
       return {
         found: true,
+        slug: article.getAttribute('data-slug'),
         svgs: svgs.length,
-        spinner: text.includes('Rendering diagram…'),
-        fences: markers.filter((marker) => text.includes(marker)),
-        text: text.slice(0, 300),
+        loading: article.querySelectorAll('[data-testid="mermaid-loading"]').length,
+        errors: article.querySelectorAll('[data-testid="mermaid-error"]').length,
+        text: article.textContent?.slice(0, 300) ?? '',
         rects: svgs.map((svg) => {
           // The wrapper carries the diagram's padding; measure it so the
           // capture includes the full bordered card.
@@ -551,44 +560,70 @@ async function helpDiagramState(page) {
         }),
       };
     },
-    { dialogSelector: HELP_DIALOG, mermaidSelector: HELP_MERMAID, markers: HELP_FENCE_MARKERS },
+    { articleSelector: HELP_ARTICLE, mermaidSelector: HELP_MERMAID },
   );
 }
 
 function describeHelpState(state) {
   if (!state?.found) return 'the Help article is missing';
   const details = [`${state.svgs} Mermaid SVG(s)`];
-  if (state.spinner) details.push('a diagram is still loading');
-  if (state.fences.length > 0) details.push(`source fallback markers: ${state.fences.join(', ')}`);
+  if (state.loading > 0) details.push(`${state.loading} diagram(s) still loading`);
+  if (state.errors > 0) details.push(`${state.errors} diagram(s) failed to render`);
   return `${details.join('; ')}; article text: ${state.text}`;
+}
+
+function helpDiagramsReady(state) {
+  return (
+    state.found &&
+    state.slug === HELP_SLUG &&
+    state.svgs === 3 &&
+    state.loading === 0 &&
+    state.errors === 0
+  );
+}
+
+function assertHelpReady(state) {
+  assert(state.found, `the Help article is missing (${describeHelpState(state)})`);
+  assert.equal(
+    state.slug,
+    HELP_SLUG,
+    `expected the ${HELP_SLUG} Help article (${describeHelpState(state)})`,
+  );
+  assert.equal(
+    state.svgs,
+    3,
+    `expected 3 ${HELP_SLUG} Mermaid diagrams (${describeHelpState(state)})`,
+  );
+  assert.equal(
+    state.loading,
+    0,
+    `a ${HELP_SLUG} diagram is still loading (${describeHelpState(state)})`,
+  );
+  assert.equal(
+    state.errors,
+    0,
+    `a ${HELP_SLUG} diagram failed to render (${describeHelpState(state)})`,
+  );
 }
 
 async function waitForHelpDiagrams(page) {
   try {
     await waitFor(
-      async () => {
-        const state = await helpDiagramState(page);
-        return state.found && state.svgs === 3 && !state.spinner;
-      },
-      'the three Getting started Mermaid diagrams',
+      async () => helpDiagramsReady(await helpDiagramState(page)),
+      `the three ${HELP_SLUG} Mermaid diagrams`,
       30_000,
     );
   } catch (error) {
     const state = await helpDiagramState(page).catch(() => null);
     throw new Error(
-      `Help Getting started did not render three Mermaid diagrams ` +
+      `Help ${HELP_SLUG} did not render three Mermaid diagrams ` +
         `(${describeHelpState(state)}): ${error.message}`,
       { cause: error },
     );
   }
 
   const state = await helpDiagramState(page);
-  assert.equal(
-    state.svgs,
-    3,
-    `expected 3 Getting started Mermaid diagrams (${describeHelpState(state)})`,
-  );
-  assert(!state.spinner, `a Getting started diagram is still loading (${describeHelpState(state)})`);
+  assertHelpReady(state);
   return state;
 }
 
@@ -615,11 +650,7 @@ async function fitHelpViewport(page) {
     }, HELP_DIALOG);
 
     const state = await helpDiagramState(page);
-    assert.equal(
-      state.svgs,
-      3,
-      `expected 3 Getting started Mermaid diagrams (${describeHelpState(state)})`,
-    );
+    assertHelpReady(state);
 
     const needed = Math.ceil(
       Math.max(...state.rects.map((rect) => rect.bottom)) + HELP_BOTTOM_MARGIN,
@@ -654,7 +685,7 @@ function pngSize(file) {
 }
 
 async function capture() {
-  seed();
+  const seeded = seed();
   writeConfig();
   mkdirSync(shotsDir, { recursive: true });
 
@@ -704,84 +735,83 @@ async function capture() {
 
   await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await waitFor(
-    () => page.evaluate(() => document.body.innerText.includes('Agent Process Segments')),
+    () =>
+      page.evaluate(
+        (title) =>
+          document.querySelector('[data-testid="brand-title"]')?.textContent?.trim() === title,
+        BRAND_TITLE,
+      ),
     'the current branding',
   );
 
-  const text = await page.evaluate(() => document.body.innerText);
-  assert(!text.includes('Sandbox Harness'), 'old brand is still rendered');
-  assert(!text.includes('process segments for agents'), 'old tagline is still rendered');
+  const tagline = await page.evaluate(
+    () => document.querySelector('[data-testid="brand-tagline"]')?.textContent?.trim() ?? '',
+  );
+  assert.notEqual(tagline, OLD_BRAND_TAGLINE, 'old tagline is still rendered');
 
-  for (const title of [
-    'Add ranking load test',
-    'Add export endpoint',
-    'Weekend photo workflow',
-    'Refactor auth middleware',
-    'Mobile nav polish',
-    'Billing webhook retries',
-    'Home lab notes',
-    'Search ranking',
-    'API pagination',
-    'Worktree cleanup',
-    'Merge billing retries',
-    'Digest: queue semantics',
-  ]) {
-    await waitFor(
-      () => page.evaluate((label) => document.body.innerText.includes(label), title),
-      `board card ${title}`,
-    );
+  await waitFor(
+    () => page.evaluate(() => document.querySelectorAll('[data-testid^="column-"]').length === 6),
+    'the six board columns',
+  );
+
+  for (const id of seeded.requestIds.values()) {
+    await page.waitForSelector(`[data-testid="request-card"][data-request-id="${id}"]`, {
+      timeout: 10_000,
+    });
   }
   await waitFor(
     () =>
-      page.evaluate(
-        () => document.body.innerText.includes('All cells') && document.body.innerText.includes('+ New request'),
-      ),
-    'the board shell',
+      page.evaluate(() => document.querySelectorAll('[data-testid="request-card"]').length === 12),
+    'the twelve staged cards',
   );
+
+  await page.waitForSelector('[data-testid="sidebar"]', { timeout: 10_000 });
+  await page.waitForSelector('[data-testid="new-request"]', { visible: true, timeout: 10_000 });
+  for (const id of Object.values(seeded.cellIds)) {
+    await page.waitForSelector(`[data-testid="cell-option"][data-cell-id="${id}"]`, {
+      timeout: 10_000,
+    });
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 300));
   await page.screenshot({ path: boardShot, captureBeyondViewport: false });
 
-  await clickText(page, 'Work repo');
-  await waitFor(
-    () => page.evaluate(() => document.body.innerText.includes('Cell master')),
-    'the Cell master action',
+  await page.click(`[data-testid="cell-option"][data-cell-id="${seeded.cellIds.work}"]`);
+  await page.waitForSelector('[data-testid="nav-master"]', { visible: true, timeout: 10_000 });
+  await page.click('[data-testid="nav-master"]');
+
+  await page.waitForSelector('[data-testid="master-detail"]', { timeout: 15_000 });
+  await page.waitForSelector('[data-testid="master-cron-loop"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="master-title"]', { visible: true, timeout: 10_000 });
+  await page.waitForFunction(
+    (name) => document.querySelector('[data-testid="master-title"]')?.textContent?.includes(name),
+    { timeout: 10_000 },
+    'Work repo',
   );
-  await clickText(page, 'Cell master');
-  await waitFor(
-    () =>
-      page.evaluate(
-        () =>
-          document.body.innerText.includes('Work repo · process automation') &&
-          document.body.innerText.includes('Scheduled every 15 min') &&
-          document.body.innerText.includes('Master chat'),
-      ),
-    'the master drawer',
+  await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
+  await page.waitForSelector('[data-testid="master-chat"]', { visible: true, timeout: 10_000 });
+  await page.waitForSelector('[data-testid="master-chat-body"]', { visible: true, timeout: 10_000 });
+  await page.waitForSelector(
+    '[data-testid="master-schedule"][data-enabled="true"][data-interval-minutes="15"]',
+    { visible: true, timeout: 10_000 },
   );
-  await waitFor(
-    () =>
-      page.evaluate(() =>
-        document.body.innerText.includes('Give me a quick status for this cell.'),
-      ),
-    'the staged master chat',
+  await page.waitForFunction(
+    ({ selector, message }) =>
+      document.querySelector(selector)?.textContent?.includes(message) ?? false,
+    { timeout: 20_000 },
+    { selector: '[data-testid="master-chat-body"]', message: SEED_CHAT_MESSAGE },
   );
 
   // Let the drawer's first layout/paint settle before capturing the viewport.
   await new Promise((resolve) => setTimeout(resolve, 750));
   await page.screenshot({ path: masterShot, captureBeyondViewport: false });
 
-  await clickText(page, 'Help');
+  await page.click('[data-testid="nav-help"]');
   await page.waitForSelector(HELP_DIALOG, { visible: true, timeout: 10_000 });
-  await waitFor(
-    () =>
-      page.evaluate(
-        (selector) =>
-          document.querySelector(`${selector} article`)?.innerText.includes('Agent Process Segments') ??
-          false,
-        HELP_DIALOG,
-      ),
-    'the Getting started Help article',
-  );
+  await page.waitForSelector(`${HELP_ARTICLE}[data-slug="${HELP_SLUG}"]`, {
+    visible: true,
+    timeout: 10_000,
+  });
   await waitForHelpDiagrams(page);
   helpCaptureHeight = await fitHelpViewport(page);
 

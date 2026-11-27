@@ -803,9 +803,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `workflow` scope (`refusing to allow an OAuth App to create or update workflow ...`).
     Run `npm run check:github-scope` before such a push: exit 0 is the only green light,
     exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit 2
-    means the credential could not be classified. The harness host's `gh` OAuth token
-    currently carries only `gist`, `read:org`, and `repo`. From an interactive terminal
-    run `npm run grant:github-scope`, which wraps
+    means the credential could not be classified. The preflight is the only source of truth
+    for the current scopes: do not assume the credential already carries `workflow`, and do
+    not record the host's scope list in this file. From an interactive terminal run
+    `npm run grant:github-scope`, which wraps
     `gh auth refresh -h github.com -s workflow` and re-verifies; outside a TTY it prints
     the command and exits 1 instead of blocking on the device-flow approval. Alternatively
     export `GH_TOKEN`/`GITHUB_TOKEN` with a classic PAT holding `repo` and `workflow` (or a

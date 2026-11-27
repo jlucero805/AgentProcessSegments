@@ -2300,9 +2300,9 @@ spelling after normalizing systemd's `0/1`, `no/yes`, `n/y`, `false/true`, `f/t`
 fails `npm run lint`. The directive map is the primary guard; the ceiling also
 catches new checks in later systemd versions. D114 rejected `ProtectHome=read-only`,
 `ProtectSystem=strict`, and `ProcSubset=pid` with live evidence and deferred
-`RestrictNamespaces` and `SystemCallFilter` until the real Claude Code sandbox is
-exercised. `PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute` stay off for the
-reasons commented in the unit.
+`RestrictNamespaces` and `SystemCallFilter` until an authenticated Claude Code turn
+exercises the real sandbox. `PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute`
+stay off for the reasons commented in the unit.
 
 **Cost.** In brain terminals, `sudo`/setuid escalation fails, `/etc`, `/usr`, and `/boot`
 are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do not run.
@@ -2815,12 +2815,29 @@ candidates resolved as:
 | `ProtectHome=read-only` + `ReadWritePaths=` | **REJECT** | `touch $HOME/...` fails with `Read-only file system`; home target repos lose worktrees |
 | `ProtectSystem=strict` + `ReadWritePaths=` | **REJECT** | `touch` in the outside repo (`/srv`) fails; target repos outside the allow-list break |
 
+**Re-run, 2026-11-27 (`204d9c8`).** A cached Claude Code **2.1.330 (Claude Code)**
+binary was present, but the host had no `~/.claude.json`, no
+`~/.claude/.credentials.json`, and no `ANTHROPIC_*`/`CLAUDE_*` environment. A direct
+`claude -p` with that binary returned `is_error:true` and
+`result:"Not logged in · Please run /login"`. The probe's control passed every check
+except `turn:claude` **SKIP** (`claude has no local state to seed a turn`), then both
+candidates ran and remained **DEFER**:
+
+| Candidate | Result | Evidence |
+| --- | --- | --- |
+| `RestrictNamespaces=~user` | **DEFER** | `boot`, `namespace` (user namespaces blocked), and `turn:opencode` pass; `turn:claude` SKIPs because the probe has no authenticated state to seed; `detach=0` |
+| `SystemCallFilter=@system-service` | **DEFER** | `boot`, `terminal`, `repair`, `worktree:home`, and `turn:opencode` pass; `turn:claude` SKIPs for the same reason; `detach=0` |
+
+No unit line, lint map, ceiling, or quoted score changed. The exact missing evidence is a
+real, seedable Claude Code login; a binary on `PATH` or in the npm cache is not enough.
+
 Adopt `PrivateDevices=yes` and `ProtectProc=invisible` in the unit and in
 `HARDENING_REQUIRED`; reject `ProcSubset=pid`, `ProtectSystem=strict`, and
 `ProtectHome` booleans with `read-only`/`tmpfs` in `HARDENING_FORBIDDEN` by normalizing
 every accepted boolean spelling; leave
-`RestrictNamespaces` and `SystemCallFilter` out of both maps until the Claude follow-up.
-The measured exposure is **3.8**, so `SECURITY_THRESHOLD` drops from 55 to **48** (the
+`RestrictNamespaces` and `SystemCallFilter` out of both maps until an authenticated
+Claude Code turn exercises the sandbox. The measured exposure is **3.8**, so
+`SECURITY_THRESHOLD` drops from 55 to **48** (the
 smallest tenth at least 1.0 above the score), and the unit gate now rejects more than one
 assignment of a list directive such as `ReadWritePaths=` so a duplicate line cannot widen
 a reviewed list. The probe stays manual: it needs a user manager, the built tree, literal
@@ -2831,8 +2848,8 @@ pure helpers and `buildProbePins` are guarded by `node:test` (`test:e2e-env`).
 the service's `/dev`; PTYs and standard tty devices remain. `ProtectProc=invisible` hides
 other users' processes, so a brain terminal can no longer inspect another login. The probe
 is slow (a real turn per candidate), copies local agent state into the run root, and
-depends on the host's CLI auth; a missing Claude binary defers the namespace and syscall
-verdicts. The four rejected/deferred directives keep their previous behavior, and a
+depends on the host's CLI auth; a missing or unauthenticated Claude Code defers the
+namespace and syscall verdicts. The four rejected/deferred directives keep their previous behavior, and a
 changed unit still installs by hand because `upgrade-vps.sh` refuses target commits that
 edit it.
 

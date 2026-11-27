@@ -73,8 +73,8 @@ UMask=0077
 # would break the loopback listener; PrivateUsers needs the real home;
 # MemoryDenyWriteExecute breaks V8's JIT; ProcSubset=pid hides /proc/meminfo and
 # breaks ps/free (rejected by the live probe, D114). RestrictNamespaces and
-# SystemCallFilter stay off until the real Claude Code sandbox is exercised
-# (deferred, D114). See D96 and D114 in docs/03-decisions.md.
+# SystemCallFilter stay off until an authenticated Claude Code turn exercises
+# the real sandbox (deferred, D114). See D96 and D114 in docs/03-decisions.md.
 
 [Install]
 WantedBy=default.target

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import path from 'node:path';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import { jsonParseReason } from '../util/json.js';
-import { listPreservedCopies } from '../util/preserved-copies.js';
+import { listPreservedCopies, preservedCopyPrefix } from '../util/preserved-copies.js';
 import type { ProcessConfig } from './definition.js';
 import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
 
@@ -192,9 +193,10 @@ export class ProcessStore {
     }
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    let backup = `${this.path}.invalid-${stamp}`;
+    const base = path.join(path.dirname(this.path), preservedCopyPrefix(this.path));
+    let backup = `${base}${stamp}`;
     for (let suffix = 1; existsSync(backup); suffix += 1) {
-      backup = `${this.path}.invalid-${stamp}-${suffix}`;
+      backup = `${base}${stamp}-${suffix}`;
     }
 
     try {

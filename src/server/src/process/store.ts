@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import { jsonParseReason } from '../util/json.js';
-import { listPreservedCopies } from '../util/preserved-copies.js';
+import { createPreservedCopy, listPreservedCopies } from '../util/preserved-copies.js';
 import type { ProcessConfig } from './definition.js';
 import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
 
@@ -151,35 +151,14 @@ export class ProcessStore {
   private preserveUnusableSource(): string | null {
     if (!this.preserveSource) return null;
 
-    let raw: string;
-    try {
-      raw = readFileSync(this.path, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.preserveSource = false;
-        return null;
-      }
-      this.errors?.error('process.backupFailed', error, { path: this.path });
-      throw error;
-    }
-
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    let backup = `${this.path}.invalid-${stamp}`;
-    for (let suffix = 1; existsSync(backup); suffix += 1) {
-      backup = `${this.path}.invalid-${stamp}-${suffix}`;
-    }
-
-    try {
-      writePrivateFile(backup, raw);
-    } catch (error) {
-      this.errors?.error('process.backupFailed', error, { path: this.path });
-      throw error;
-    }
-
-    this.preservedFilePath = backup;
+    const copy = createPreservedCopy(this.path, {
+      label: 'process config',
+      onError: (error) =>
+        this.errors?.error('process.backupFailed', error, { path: this.path }),
+    });
     this.preserveSource = false;
-    console.warn(`preserving unusable process config at ${this.path} as ${backup}`);
-    return backup;
+    if (copy !== null) this.preservedFilePath = copy;
+    return copy;
   }
 
   /**

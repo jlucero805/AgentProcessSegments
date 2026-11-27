@@ -124,6 +124,9 @@ and error-event shape.
 - Removed dead exports: `KB_REQUEST_ID`, the unused web `sendClarify`, the duplicated
   web `TRANSITIONS`/`STATES` constants, and the unused `AGENT_BADGE.dot`.
 - `App` parses the URL once; `KbEntries` no longer issues duplicate initial searches.
+- The three owner-only repair CLIs share `private-path-repair.ts` and
+  `private-path-repair-cli.ts`; each adapter declares only its root, symlink policy, and
+  child shape (D121).
 - `util/preserved-copies.ts` owns the `*.invalid-<UTC>` prefix, stamp/suffix ordering, and
   preserved-copy listing for both `SettingsStore` and `ProcessStore`; each store keeps its
   own pinning and error routing.

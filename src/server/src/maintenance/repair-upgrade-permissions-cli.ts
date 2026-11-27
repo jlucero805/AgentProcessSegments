@@ -1,7 +1,10 @@
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { formatMode } from './repair-permissions.js';
+import {
+  parseRepairArgs,
+  printRepairResult,
+  runRepairCliIfDirect,
+} from './private-path-repair-cli.js';
 import {
   repairUpgradePermissions,
   type UpgradeRepairDeps,
@@ -33,62 +36,13 @@ export function usage(): string {
 }
 
 export function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
-    apply: false,
-    root: path.join(os.homedir(), '.aps-cutover'),
-    help: false,
-  };
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === '--apply') {
-      options.apply = true;
-    } else if (arg === '--dry-run') {
-      options.apply = false;
-    } else if (arg === '--root') {
-      const value = argv[index + 1];
-      if (!value || value.startsWith('--')) throw new Error('--root needs a directory');
-      options.root = path.resolve(value);
-      index += 1;
-    } else if (arg === '--help' || arg === '-h') {
-      options.help = true;
-    } else {
-      throw new Error(`unknown argument: ${arg}`);
-    }
-  }
-
-  return options;
+  const root = path.join(os.homedir(), '.aps-cutover');
+  const parsed = parseRepairArgs(argv, '--root', root);
+  return { apply: parsed.apply, root: parsed.value, help: parsed.help };
 }
 
 function printResult(result: UpgradeRepairResult, apply: boolean): void {
-  for (const entry of result.entries) {
-    if (entry.action === 'private') continue;
-    if (entry.action === 'skip') {
-      console.log(
-        `skip             ${entry.path} (${entry.detail ?? 'not a regular file or directory'})`,
-      );
-      continue;
-    }
-    if (entry.action === 'error') {
-      console.error(`error            ${entry.path}: ${entry.detail ?? 'unknown error'}`);
-      continue;
-    }
-
-    const was = entry.mode === null ? 'missing' : formatMode(entry.mode);
-    console.log(
-      `${apply ? 'chmod' : 'would chmod'} ${formatMode(entry.target)}  ${entry.path}  (was ${was})`,
-    );
-  }
-
-  console.log('');
-  console.log(
-    `${result.tightened} ${apply ? 'tightened' : 'pending'}, ` +
-      `${result.private} already private, ${result.skipped} skipped, ` +
-      `${result.failed} error(s)`,
-  );
-  if (!apply && result.tightened > 0) {
-    console.log('Re-run with --apply to make these changes.');
-  }
+  printRepairResult(result, apply, 'not a regular file or directory');
 }
 
 export function main(argv: string[] = process.argv.slice(2), deps: UpgradeRepairDeps = {}): number {
@@ -116,15 +70,4 @@ export function main(argv: string[] = process.argv.slice(2), deps: UpgradeRepair
   return result.failed > 0 ? 1 : 0;
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (invokedDirectly) {
-  try {
-    const code = main();
-    if (code !== 0) process.exitCode = code;
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  }
-}
+runRepairCliIfDirect(import.meta.url, () => main());

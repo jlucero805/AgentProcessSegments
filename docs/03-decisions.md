@@ -2995,3 +2995,48 @@ the tighter boundary.
 install; upgrade-only hosts must run `repair:runs` once because `repair:upgrades` still
 leaves the shared root alone. No run contents, retention, pruning, `latest` target, or
 child mode changes. This is not encryption at rest; root can still read the files.
+
+## D121. The owner-only repair CLIs share one private-path engine
+
+**Context.** `repair:permissions` (D74), `repair:upgrades` (D93), and `repair:runs`
+(D110/D120) each carried a near-duplicate engine/CLI pair: `consider`, `inspect`,
+`addSkip`, `addError`, the entry/result shape, argument parsing, output formatting, and
+the direct-invocation wrapper. The copies had already drifted in intentional ways -
+upgrade snapshots add a file-level `0600` rule that cutover run directories do not - so a
+future fix to symlink handling, `ENOENT`, or mode comparison in one path could silently
+miss the other two.
+
+**Decision.** The three commands now share
+`src/server/src/maintenance/private-path-repair.ts` and
+`private-path-repair-cli.ts`. The engine owns the private-mode constants, entry/result
+accounting, `consider`, `inspect`, `addSkip`, `addError`, `formatMode`, the root scan,
+and the shared context/result builders. It exposes a small policy seam: the root is
+followed (`statSync`, `repair:permissions` today) or rejected (`lstatSync` plus one
+`is a symbolic link` error, `repair:upgrades`); a missing direct child is silent or
+recorded as a `vanished` skip; and each direct child is a directory or a directory plus
+known top-level files.
+
+`repair:permissions` scans the `requests/` tree, each session directory, `cwd/`,
+`opencode/` plus `opencode/opencode.json`, `session.json`, `transcript.json`, and
+`mcp-config.json`. `repair:upgrades` scans `<root>/upgrades`, each run directory, and
+each top-level `db-backup.sqlite` as `0600`. `repair:runs` keeps the D120 two-level
+root scan - `<root>`, `<root>/runs`, and its direct run directories, with
+`rootMissing`/`runsMissing`, a symlinked root skip, and a filesystem-root refusal - as a
+thin adapter built from the same shared primitives; it does not duplicate the mode
+accounting or output logic. The shared CLI helper owns flag parsing, result printing,
+and the direct-invocation wrapper; each command still supplies its own usage text,
+default, missing-root wording, and skip fallback detail.
+
+This is behavior-preserving. Command names, flags, defaults, scan depth, symlink
+handling, counts, output text, and exit codes are unchanged, and the existing suites
+stayed byte-identical. The D120 root behavior is preserved, including the
+`runs directory not found` message and the refusal of `--root /`. The
+`repair:permissions` root is deliberately still followed with `stat` to keep this change
+free of behavior changes; making that root reject a symlink is follow-up
+`e182d9b9-2bb9-4829-8cdd-0e445c7932e6`.
+
+**Cost.** The shared engine adds one indirection layer for a small amount of code, and
+the per-command policy is declared rather than written as loops. The alternative - three
+copies of security-sensitive chmod logic - remains a drift risk, so the consolidation is
+the smaller long-term cost. No deploy script, retention rule, database path, or evidence
+format changes.

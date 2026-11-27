@@ -1,6 +1,18 @@
-import { chmodSync, lstatSync, readdirSync, type Stats } from 'node:fs';
+import { lstatSync, readdirSync, type Stats } from 'node:fs';
 import path from 'node:path';
-import { PRIVATE_DIR_MODE, type RepairAction } from './repair-permissions.js';
+import {
+  addError,
+  addSkip,
+  buildRepairResult,
+  consider,
+  createRepairContext,
+  inspect,
+  isMissing,
+  type RepairAction,
+  type RepairContext,
+  type RepairDeps,
+  type RepairResult,
+} from './private-path-repair.js';
 
 export interface RunRepairEntry {
   path: string;
@@ -24,149 +36,22 @@ export interface RunRepairResult {
   runsMissing: boolean;
 }
 
-export interface RunRepairDeps {
-  chmod?: (file: string, mode: number) => void;
-}
+export type RunRepairDeps = RepairDeps;
 
-interface Context {
-  entries: RunRepairEntry[];
-  tightened: number;
-  private: number;
-  skipped: number;
-  failed: number;
-  apply: boolean;
-  chmod: (file: string, mode: number) => void;
-  seen: Set<string>;
-}
-
-function errorDetail(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT';
-}
-
-function addSkip(ctx: Context, target: string, detail: string): void {
-  ctx.entries.push({
-    path: target,
-    kind: 'dir',
-    mode: null,
-    target: PRIVATE_DIR_MODE,
-    action: 'skip',
-    detail,
-  });
-  ctx.skipped += 1;
-}
-
-function addError(ctx: Context, target: string, error: unknown): void {
-  ctx.entries.push({
-    path: target,
-    kind: 'dir',
-    mode: null,
-    target: PRIVATE_DIR_MODE,
-    action: 'error',
-    detail: errorDetail(error),
-  });
-  ctx.failed += 1;
-}
-
-function consider(ctx: Context, target: string, mode: number): void {
-  if (ctx.seen.has(target)) return;
-  ctx.seen.add(target);
-
-  const current = mode & 0o777;
-
-  if (current === PRIVATE_DIR_MODE) {
-    ctx.entries.push({
-      path: target,
-      kind: 'dir',
-      mode: current,
-      target: PRIVATE_DIR_MODE,
-      action: 'private',
-    });
-    ctx.private += 1;
-    return;
-  }
-
-  if (!ctx.apply) {
-    ctx.entries.push({
-      path: target,
-      kind: 'dir',
-      mode: current,
-      target: PRIVATE_DIR_MODE,
-      action: 'tighten',
-    });
-    ctx.tightened += 1;
-    return;
-  }
-
-  try {
-    ctx.chmod(target, PRIVATE_DIR_MODE);
-    ctx.entries.push({
-      path: target,
-      kind: 'dir',
-      mode: current,
-      target: PRIVATE_DIR_MODE,
-      action: 'tighten',
-    });
-    ctx.tightened += 1;
-  } catch (error) {
-    if (isMissing(error)) {
-      addSkip(ctx, target, 'vanished');
-    } else {
-      ctx.entries.push({
-        path: target,
-        kind: 'dir',
-        mode: current,
-        target: PRIVATE_DIR_MODE,
-        action: 'error',
-        detail: errorDetail(error),
-      });
-      ctx.failed += 1;
-    }
-  }
-}
-
-/**
- * Inspect one direct child of `runs/`. A missing child is silent because
- * retention may remove a run while the scan is in progress.
- */
-function inspect(ctx: Context, target: string): void {
-  let stat: Stats;
-  try {
-    stat = lstatSync(target);
-  } catch (error) {
-    if (!isMissing(error)) addError(ctx, target, error);
-    return;
-  }
-
-  if (stat.isSymbolicLink()) {
-    addSkip(ctx, target, 'symlink');
-    return;
-  }
-  if (!stat.isDirectory()) {
-    addSkip(ctx, target, 'not a directory');
-    return;
-  }
-
-  consider(ctx, target, stat.mode);
+function toRunResult(
+  result: RepairResult,
+  runsMissing: boolean,
+): RunRepairResult {
+  // The shared engine only emits the dir kind this command exposes.
+  return { ...result, entries: result.entries as RunRepairEntry[], runsMissing };
 }
 
 function result(
-  ctx: Context,
+  ctx: RepairContext,
   rootMissing: boolean,
   runsMissing: boolean,
 ): RunRepairResult {
-  return {
-    entries: ctx.entries,
-    tightened: ctx.tightened,
-    private: ctx.private,
-    skipped: ctx.skipped,
-    failed: ctx.failed,
-    rootMissing,
-    runsMissing,
-  };
+  return toRunResult(buildRepairResult(ctx, rootMissing), runsMissing);
 }
 
 /**
@@ -180,22 +65,13 @@ export function repairRunPermissions(
   cutoverRoot: string,
   options: { apply: boolean } & RunRepairDeps,
 ): RunRepairResult {
-  const ctx: Context = {
-    entries: [],
-    tightened: 0,
-    private: 0,
-    skipped: 0,
-    failed: 0,
-    apply: options.apply,
-    chmod: options.chmod ?? chmodSync,
-    seen: new Set<string>(),
-  };
+  const ctx = createRepairContext(options);
   const root = path.resolve(cutoverRoot);
 
   // The root itself is now a chmod target, so never treat the filesystem
   // root as a cutover root.
   if (path.dirname(root) === root) {
-    addError(ctx, root, new Error('refusing to repair the filesystem root'));
+    addError(ctx, root, 'dir', new Error('refusing to repair the filesystem root'));
     return result(ctx, false, true);
   }
 
@@ -204,20 +80,20 @@ export function repairRunPermissions(
     rootStat = lstatSync(root);
   } catch (error) {
     if (isMissing(error)) return result(ctx, true, true);
-    addError(ctx, root, error);
+    addError(ctx, root, 'dir', error);
     return result(ctx, false, true);
   }
 
   if (rootStat.isSymbolicLink()) {
     // A relocated root is left for the operator; `runs/` is still scanned
     // through the link exactly as before.
-    addSkip(ctx, root, 'symlink');
+    addSkip(ctx, root, 'dir', 'symlink');
   } else if (!rootStat.isDirectory()) {
-    addError(ctx, root, new Error('not a directory'));
+    addError(ctx, root, 'dir', new Error('not a directory'));
     return result(ctx, false, true);
   } else {
     // Tighten the root first so an unreadable root can be listed in apply mode.
-    consider(ctx, root, rootStat.mode);
+    consider(ctx, root, 'dir', rootStat.mode);
   }
 
   const runs = path.join(root, 'runs');
@@ -227,33 +103,33 @@ export function repairRunPermissions(
     runsStat = lstatSync(runs);
   } catch (error) {
     if (isMissing(error)) return result(ctx, false, true);
-    addError(ctx, runs, error);
+    addError(ctx, runs, 'dir', error);
     return result(ctx, false, false);
   }
 
   if (runsStat.isSymbolicLink()) {
-    addError(ctx, runs, new Error('is a symbolic link'));
+    addError(ctx, runs, 'dir', new Error('is a symbolic link'));
     return result(ctx, false, false);
   }
   if (!runsStat.isDirectory()) {
-    addError(ctx, runs, new Error('not a directory'));
+    addError(ctx, runs, 'dir', new Error('not a directory'));
     return result(ctx, false, false);
   }
 
   // Tighten the container first so an unreadable directory can be listed in
   // apply mode. Nothing above the root is touched.
-  consider(ctx, runs, runsStat.mode);
+  consider(ctx, runs, 'dir', runsStat.mode);
 
   let names: string[];
   try {
     names = readdirSync(runs).sort();
   } catch (error) {
-    addError(ctx, runs, error);
+    addError(ctx, runs, 'dir', error);
     return result(ctx, false, false);
   }
 
   for (const name of names) {
-    inspect(ctx, path.join(runs, name));
+    inspect(ctx, path.join(runs, name), 'dir');
   }
 
   return result(ctx, false, false);

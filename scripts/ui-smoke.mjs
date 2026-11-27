@@ -9,7 +9,7 @@
 // Set UI_MOBILE=1 for a 390x844 viewport (off-canvas menu, horizontal board,
 // full-width drawer). Set UI_BASE for a different running brain.
 // The script creates a request through the UI, checks the drawer/chat, the Config
-// page, drops the request through the API, and fails on page or console errors.
+// schedule card, drops the request through the API, and fails on page or console errors.
 // A missing Puppeteer fails the run; --allow-missing-puppeteer skips it
 // deliberately and prints SKIPPED (a skip is not a pass).
 import { resolveUiSmokePuppeteer } from './e2e/puppeteer.mjs';
@@ -173,7 +173,9 @@ try {
     () => document.body.innerText.toLowerCase().includes('finalize digest'),
     { timeout: 15_000 },
   );
-  await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('harness:'), {
+  // The Harness field's label renders uppercase with no colon, so its "effective:" hint
+  // is the stable marker for that field.
+  await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('effective:'), {
     timeout: 15_000,
   });
   await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('send'), {
@@ -274,13 +276,27 @@ try {
   await openMenu('config');
   await clickText('Config');
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('cell master'),
+    () =>
+      [...document.querySelectorAll('h1')].some(
+        (heading) => heading.textContent?.trim() === 'Cell master',
+      ),
     { timeout: 15_000 },
   );
-  await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('run master now'),
-    { timeout: 10_000 },
-  );
+  try {
+    // The Schedule card only renders after every settings fetch resolves, so this
+    // button proves the Config page finished loading.
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('button')].some(
+          (button) =>
+            button.textContent?.trim() === 'Save schedule' &&
+            button.getClientRects().length > 0,
+        ),
+      { timeout: 15_000 },
+    );
+  } catch (error) {
+    throw new Error(`Config schedule card did not load: ${error.message}`, { cause: error });
+  }
   if (mobile) {
     const menu = await sidebarBox();
     if (!menu || menu.open !== 'false') {

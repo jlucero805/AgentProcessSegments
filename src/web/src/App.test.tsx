@@ -761,6 +761,118 @@ describe('App', () => {
     expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(deleteAt);
   }, APP_TEST_TIMEOUT_MS);
 
+  it('removes a sidebar-deleted cell from the open Config page', async () => {
+    const cells = [makeCell()];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${url}`);
+        if (url === '/api/cells/c1' && method === 'DELETE') {
+          cells.splice(0, cells.length);
+          return new Response(null, { status: 204 });
+        }
+        if (url.startsWith('/api/budgets/overrides/history')) {
+          return jsonResponse({ overrides: [], total: 0, limit: 20, offset: 0 });
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Config' }));
+    expect(
+      await screen.findByRole('checkbox', { name: 'Alpha master' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    );
+
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('checkbox', { name: 'Alpha master' }),
+        ).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(calls).toContain('DELETE /api/cells/c1');
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('shows a sidebar cell edit in the open Config page', async () => {
+    const cells = [makeCell()];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/cells/c1' && init?.method === 'PATCH') {
+          const patch = JSON.parse(String(init.body)) as Partial<CellDetail>;
+          cells[0] = { ...cells[0], ...patch };
+          return jsonResponse(cells[0]);
+        }
+        if (url.startsWith('/api/budgets/overrides/history')) {
+          return jsonResponse({ overrides: [], total: 0, limit: 20, offset: 0 });
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Config' }));
+    expect(
+      await screen.findByRole('checkbox', { name: 'Alpha master' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Edit Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    );
+    fireEvent.change(await screen.findByLabelText('Cell name'), { target: { value: 'Beta' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save cell' }));
+
+    expect(
+      await screen.findByRole('checkbox', { name: 'Beta master' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Alpha master' })).not.toBeInTheDocument();
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('applies a Config master toggle to the shared cell list', async () => {
+    const cells = [makeCell()];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/cells/c1' && init?.method === 'PATCH') {
+          const patch = JSON.parse(String(init.body)) as Partial<CellDetail>;
+          cells[0] = { ...cells[0], ...patch };
+          return jsonResponse(cells[0]);
+        }
+        if (url.startsWith('/api/budgets/overrides/history')) {
+          return jsonResponse({ overrides: [], total: 0, limit: 20, offset: 0 });
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Config' }));
+    const toggle = await screen.findByRole(
+      'checkbox',
+      { name: 'Alpha master' },
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).not.toBeChecked(), { timeout: ASYNC_TIMEOUT_MS });
+  }, APP_TEST_TIMEOUT_MS);
+
   it('refreshes Config budget rows after snoozing a pause from the banner', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
     const baseFetch = globalThis.fetch;

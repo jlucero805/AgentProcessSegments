@@ -123,6 +123,10 @@ export function App() {
     }
   }, []);
 
+  const handleCellChanged = useCallback((cell: CellDetail) => {
+    setCells((current) => current.map((item) => (item.id === cell.id ? cell : item)));
+  }, []);
+
   useEffect(() => {
     void (async () => {
       await loadCells();
@@ -510,6 +514,8 @@ export function App() {
           {page === 'config' ? (
             <ConfigPage
               onError={setError}
+              cells={cells}
+              onCellChanged={handleCellChanged}
               budgetFeed={budgetFeed}
               onOpenHelp={openHelpAt}
               onEditCell={(cell) => {

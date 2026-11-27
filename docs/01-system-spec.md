@@ -1115,7 +1115,9 @@ carried in the `done` event:
   `Composer.tsx` is a custom input with a `/` slash-command autocomplete from
   `/api/commands`, disabled for the KB chat. KB chat is `ClarifyChat` against `__kb__`.
 - **SkillsPage** installs, lists, and removes plugins. **CellBar** creates, switches,
-  renames, and deletes cells, filtering the board by `cellId`.
+  renames, and deletes cells, filtering the board by `cellId`. `App` owns the one cell
+  list that both `CellBar` and `ConfigPage` render, so a sidebar delete, create, or save
+  and a Config master toggle stay in sync without a remount.
 - **Config and budgets:** `ConfigPage` edits the scheduler, process template, and overall
   monthly budget/warning percentage, plus the overall pause-on-exceeded option; it also
   shows the current UTC-month status for the overall and per-cell budgets and a read-only

@@ -551,9 +551,9 @@ describe('App', () => {
     );
 
     fireEvent.click(
-      screen.getAllByRole('button', {
+      within(screen.getByLabelText('Budget alerts')).getByRole('button', {
         name: 'Dismiss budget alert for overall spend',
-      })[0]!,
+      }),
     );
 
     await waitFor(() =>
@@ -594,7 +594,9 @@ describe('App', () => {
     );
 
     fireEvent.click(
-      screen.getAllByRole('button', { name: 'Snooze overall spend' })[1]!,
+      within(screen.getByTestId('spend-budgets-card')).getByRole('button', {
+        name: 'Snooze overall spend',
+      }),
     );
 
     await waitFor(() =>

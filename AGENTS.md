@@ -823,13 +823,15 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the
     symlink/`ENOENT` policy, the dry-run counters, and the only `chmod` under
     `src/server/src/maintenance`. `repair-cli.ts` owns the shared
-    `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, and the
-    direct-run bootstrap. `repair-permissions.ts`, `repair-upgrade-permissions.ts`, and
-    `repair-run-permissions.ts` only describe their trees; their CLIs only hold the
-    usage text, default target, and missing-root message. Commands, flags, output, exit
-    codes, and traversal must not change. A new repair uses the same scanner; the guard
-    in `src/server/test/repair-permissions.test.ts` fails if another maintenance module
-    mentions `chmodSync`.
+    `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, the cutover
+    root default and command runner, and the direct-run bootstrap.
+    `repair-permissions.ts`, `repair-upgrade-permissions.ts`, and
+    `repair-run-permissions.ts` only describe their trees. The `repair:runs` and
+    `repair:upgrades` CLIs are usage text plus one command spec; `repair:permissions`
+    keeps its `loadConfig()` data-directory resolution and error path. Commands, flags,
+    output, exit codes, and traversal must not change. A new repair uses the same
+    scanner; the guard in `src/server/test/repair-permissions.test.ts` fails if another
+    maintenance module mentions `chmodSync`.
 50. **The top-level shell owns the single deploy rollback.** `deploy/upgrade-vps.sh` and
     `deploy/cutover-vps.sh` keep `set -E` so a failure inside a shell function reaches the
     `ERR` trap, but the trap is inherited by the redirected `npm`/build/migration

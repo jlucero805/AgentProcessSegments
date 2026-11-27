@@ -320,5 +320,10 @@ describe('repair-permissions shared engine', () => {
     ]) {
       expect(source(cli)).toContain("from './repair-cli.js'");
     }
+
+    for (const cli of ['repair-upgrade-permissions-cli.ts', 'repair-run-permissions-cli.ts']) {
+      expect(source(cli)).toContain('parseCutoverRepairArgs');
+      expect(source(cli)).toContain('runCutoverRepairCli');
+    }
   });
 });

@@ -164,7 +164,9 @@ built and vended by the brain; real-CLI verification is still pending.
   scanning its subtree through the link.
   All three repairs share the `maintenance/permission-repair.ts` engine and the
   `maintenance/repair-cli.ts` core; they differ only in the tree they scan and the
-  root-symlink rule.
+  root-symlink rule. The `repair:runs` and `repair:upgrades` CLIs also share the cutover
+  root parser and command runner; only `repair:permissions` keeps its own data-directory
+  resolution.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the

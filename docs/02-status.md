@@ -413,7 +413,10 @@ built and vended by the brain; real-CLI verification is still pending.
   (owner-only, never overwriting) or refuses the save with `process.backupFailed`. An
   unusable file is re-read on every load, so a correction takes effect without a restart,
   while its `process.unreadable`/`process.invalid` report and stderr warning are emitted
-  once per distinct state (kind, detail, and file bytes) instead of on every read. Only
+  once per distinct state (kind, detail, and file bytes) instead of on every read. A
+  cached valid file is revalidated on every read by device, inode, size, and nanosecond
+  mtime; an external edit or deletion takes effect without a restart, while a rewrite that
+  preserves all four fields is still not detected. Only
   the five newest preserved copies are kept; older matching copies are pruned after a
   successful save, and a failed prune reports `process.pruneFailed` without refusing the
   save. `GET/PATCH /api/process` also return `preservedPath`, the copy this process made
@@ -487,7 +490,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1488 vitest cases (one environmental root-skip): 1105 server across 59 files and 383 web across 28 files,
+- 1493 vitest cases (one environmental root-skip): 1110 server across 59 files and 383 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

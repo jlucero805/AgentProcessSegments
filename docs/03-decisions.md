@@ -2882,8 +2882,9 @@ it.
 one per tick, and the same applies to the stderr warning; a restart reports the
 still-broken file once. Operators editing an unusable file get a fresh report because the
 byte identity changes. A corrected file is read on the next `get()` and then cached as
-before, so later edits to an already-valid file still need a restart (unchanged). The
-digest is computed only on a failed load and only on the small operator file.
+before. D128 later removed the last caveat: a valid cached file is revalidated on every
+read, so later edits no longer need a restart. The digest is computed only on a failed
+load and only on the small operator file.
 
 ## D116. The redundant unsigned webhook timestamp header is removed
 
@@ -3236,3 +3237,29 @@ No UI signal or dedupe is added here.
 **Cost.** One optional input field, one logging helper, and one engine call site, plus
 tests and docs. Repeated failures repeat the record; `removeWorktree`'s deliberate
 best-effort silence and retention reports are untouched.
+
+## D128. A valid process file is revalidated on every read
+
+**Context.** D115 kept an unusable `process.json` read on every load, so a correction was
+noticed without a restart, but it deliberately left the successful-load cache alone. Once
+the file was valid, an out-of-band edit was ignored until the process restarted even
+though the docs call the file authoritative. Invalid and valid files therefore behaved
+inconsistently: the broken one noticed a fix immediately and the valid one never noticed
+a change.
+
+**Decision.** `ProcessStore.get()` records the file's `dev`, `ino`, `size`, and `mtimeNs`
+from a bigint stat and re-stats the path before serving the cache. A changed identity, a
+deletion, or a failed stat drops the cache and goes through the existing load path. The
+identity is captured before the bytes are read, so a write racing the read leaves a stale
+identity and triggers another reload instead of pairing new metadata with old content. A
+successful load caches the config and identity; failures stay uncached and D115 continues
+to dedupe their reports. `patch()` records a fresh identity after its atomic write and
+clears the unusable signature, so a later external reintroduction of the same invalid
+bytes reports again. There is no watcher, timer, or `onChange` broadcast for an external
+reload; the master cycle and `GET /api/process` see the change on their next `get()`.
+
+**Cost.** Every `get()` adds one `statSync` on the process file and a string comparison;
+the file is read only when it changed. A rewrite that preserves `dev`, `ino`, `size`, and
+nanosecond mtime is still missed, and an unused server notices an edit only when the
+policy is next read. The API shape, cell snapshots, fallback behavior, and preserved-copy
+rules are unchanged.

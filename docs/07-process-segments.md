@@ -51,6 +51,10 @@ Each cell also has its own **ticker** and **master chat**:
   a restart. The `process.unreadable`/`process.invalid` row and the stderr warning are
   reported once per distinct state (failure kind, detail, and file bytes) per server
   process; editing the file reports again.
+- A cached valid file is revalidated on every read using its device, inode, size, and
+  nanosecond mtime. An out-of-band edit, replacement, or deletion is noticed on the next
+  read and takes effect without a restart; no watcher or timer is involved. A rewrite that
+  keeps all of those identity fields unchanged is still not detected.
 - Once the file exists, it is authoritative. The legacy `master.idleMinutes`,
   `master.autoReview`, and `master.prompt` values are only used to derive the fallback
   when `process.json` is absent.

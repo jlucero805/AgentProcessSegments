@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import { jsonParseReason } from '../util/json.js';
@@ -22,6 +22,8 @@ function bytesIdentity(raw: string): string {
  */
 export class ProcessStore {
   private cached: ProcessConfig | null = null;
+  /** Stat identity of the cached valid file, so external edits are noticed. */
+  private cachedIdentity: string | null = null;
   private readonly listeners = new Set<(process: ProcessConfig) => void>();
   /** Set when the loaded file was unusable; the next save preserves its bytes. */
   private preserveSource = false;
@@ -37,8 +39,13 @@ export class ProcessStore {
   ) {}
 
   get(): ProcessConfig {
-    if (this.cached) return this.cached;
-    const loaded = this.load();
+    const identity = this.identity();
+    if (this.cached && identity !== null && identity === this.cachedIdentity) {
+      return this.cached;
+    }
+    this.cached = null;
+    this.cachedIdentity = null;
+    const loaded = this.load(identity);
     if (loaded) {
       this.cached = loaded;
       return loaded;
@@ -53,7 +60,11 @@ export class ProcessStore {
     // an unusable file on disk and preserves it.
     this.get();
     this.write(next);
+    // The write replaced whatever was on disk, so an old unusable signature no
+    // longer describes the file; a later regression must report again.
+    this.lastUnusable = null;
     this.cached = next;
+    this.cachedIdentity = this.identity();
     for (const listener of this.listeners) listener(next);
     return next;
   }
@@ -80,7 +91,21 @@ export class ProcessStore {
     return listPreservedCopies(this.path, { newest: this.preservedFilePath });
   }
 
-  private load(): ProcessConfig | null {
+  /**
+   * Cheap identity of the file's current on-disk state. A cached config is
+   * reused only while this value is unchanged; a failed stat falls through to
+   * the read path, which reports the real error.
+   */
+  private identity(): string | null {
+    try {
+      const stat = statSync(this.path, { bigint: true });
+      return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+    } catch {
+      return null;
+    }
+  }
+
+  private load(identity: string | null): ProcessConfig | null {
     this.preserveSource = false;
 
     let raw: string;
@@ -114,6 +139,7 @@ export class ProcessStore {
         });
         return null;
       }
+      this.cachedIdentity = identity;
       this.lastUnusable = null;
       return result.data;
     } catch (error) {

@@ -5,6 +5,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -33,6 +34,13 @@ function segmentBy(config: ProcessConfig, id: string) {
   const segment = config.segments.find((item) => item.id === id);
   if (!segment) throw new Error(`missing segment ${id}`);
   return segment;
+}
+
+/** Write contents and pin a distinct mtime so stat revalidation is deterministic. */
+function writeAt(file: string, contents: string, second: number): void {
+  writeFileSync(file, contents);
+  const when = new Date(Date.UTC(2026, 0, 1, 0, 0, second));
+  utimesSync(file, when, when);
 }
 
 /** Names of preserved copy files for `file`, oldest first. */
@@ -158,6 +166,132 @@ describe('ProcessStore', () => {
     expect(segmentBy(loaded, 'merge')).toMatchObject({ enabled: false, maxConcurrent: 1 });
     expect(segmentBy(loaded, 'implement')).toMatchObject({ maxConcurrent: null });
     expect(segmentBy(loaded, 'implement').prompt).toContain('cell master');
+  });
+
+  it('reloads a valid file that changes on disk', () => {
+    const file = tempFile();
+    const first = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(first, 'intake').enabled = true;
+    writeAt(file, JSON.stringify(first), 1);
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.get()).toEqual(first);
+
+    const second = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(second, 'intake').enabled = true;
+    segmentBy(second, 'plan').enabled = true;
+    writeAt(file, JSON.stringify(second), 2);
+
+    expect(store.get()).toEqual(second);
+  });
+
+  it('keeps revalidating after a patch', () => {
+    const file = tempFile();
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    const saved = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(saved, 'intake').enabled = true;
+    store.patch({ segments: saved.segments });
+    expect(store.get()).toEqual(saved);
+
+    const external = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(external, 'plan').enabled = true;
+    writeAt(file, JSON.stringify(external), 3);
+
+    expect(store.get()).toEqual(external);
+  });
+
+  it('falls back when a cached file is removed and reloads a recreated file', () => {
+    const file = tempFile();
+    const fallback = () => defaultProcess(DEFAULT_SETTINGS.master);
+    const first = fallback();
+    segmentBy(first, 'intake').enabled = true;
+    writeAt(file, JSON.stringify(first), 4);
+
+    const store = new ProcessStore(file, fallback);
+    expect(store.get()).toEqual(first);
+
+    rmSync(file);
+    expect(store.get()).toEqual(fallback());
+
+    const recreated = fallback();
+    segmentBy(recreated, 'plan').enabled = true;
+    writeAt(file, JSON.stringify(recreated), 5);
+    expect(store.get()).toEqual(recreated);
+  });
+
+  it('reports a valid file that becomes unusable once and preserves it on save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const fallback = () => defaultProcess(DEFAULT_SETTINGS.master);
+      const first = fallback();
+      segmentBy(first, 'intake').enabled = true;
+      writeAt(file, JSON.stringify(first), 6);
+
+      const errors = { error: vi.fn() };
+      const store = new ProcessStore(file, fallback, errors);
+      expect(store.get()).toEqual(first);
+
+      const ignoring = () =>
+        warn.mock.calls.filter(([line]) =>
+          String(line).startsWith('ignoring unreadable process config'),
+        );
+
+      writeAt(file, '{bad\n', 7);
+      expect(store.get()).toEqual(fallback());
+      expect(store.get()).toEqual(fallback());
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      expect(errors.error).toHaveBeenCalledWith(
+        'process.unreadable',
+        expect.objectContaining({ message: expect.stringMatching(/^invalid JSON/) }),
+        { path: file, reason: 'invalid-json' },
+      );
+      expect(ignoring()).toHaveLength(1);
+
+      store.patch({ segments: first.segments });
+      const names = backupNames(file);
+      expect(names).toHaveLength(1);
+      expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe('{bad\n');
+
+      const corrected = fallback();
+      segmentBy(corrected, 'plan').enabled = true;
+      writeAt(file, JSON.stringify(corrected), 8);
+      expect(store.get()).toEqual(corrected);
+      store.patch({ segments: corrected.segments });
+      expect(backupNames(file)).toHaveLength(1);
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      expect(ignoring()).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('reports the same unusable bytes again after a patch replaced them', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const fallback = () => defaultProcess(DEFAULT_SETTINGS.master);
+      const original = '{bad\n';
+      writeAt(file, original, 9);
+
+      const errors = { error: vi.fn() };
+      const store = new ProcessStore(file, fallback, errors);
+      expect(store.get()).toEqual(fallback());
+
+      store.patch({ segments: fallback().segments });
+      expect(backupNames(file)).toHaveLength(1);
+      expect(errors.error).toHaveBeenCalledTimes(1);
+
+      writeAt(file, original, 10);
+      expect(store.get()).toEqual(fallback());
+      expect(errors.error).toHaveBeenCalledTimes(2);
+      const ignoring = warn.mock.calls.filter(([line]) =>
+        String(line).startsWith('ignoring unreadable process config'),
+      );
+      expect(ignoring).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('falls back for an invalid file and rejects invalid patches', () => {

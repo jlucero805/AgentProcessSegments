@@ -705,7 +705,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1402 vitest cases: 1052 server cases across 57 files (state machine,
+`npm test` runs 1403 vitest cases: 1052 server cases across 57 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -721,7 +721,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 350 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 351 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, and manifest-aware served-page links, the source link, board,

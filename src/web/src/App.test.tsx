@@ -858,6 +858,56 @@ describe('App', () => {
     expect(cellGets).toBe(1);
   }, APP_TEST_TIMEOUT_MS);
 
+  it('shows a sidebar cell edit in the open Config page', async () => {
+    const cell = makeCell();
+    const cells = [cell];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/cells/c1' && init?.method === 'PATCH') {
+          const patch = JSON.parse(String(init.body)) as Partial<CellDetail>;
+          cells[0] = { ...cells[0], ...patch };
+          return jsonResponse(cells[0]);
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Config'));
+    expect(
+      await screen.findByRole(
+        'checkbox',
+        { name: 'Alpha master' },
+        { timeout: ASYNC_TIMEOUT_MS },
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      await screen.findByRole(
+        'button',
+        { name: 'Edit Alpha' },
+        { timeout: ASYNC_TIMEOUT_MS },
+      ),
+    );
+    fireEvent.change(await screen.findByLabelText('Cell name'), {
+      target: { value: 'Beta' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save cell' }));
+
+    expect(
+      await screen.findByRole(
+        'checkbox',
+        { name: 'Beta master' },
+        { timeout: ASYNC_TIMEOUT_MS },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Alpha master' })).not.toBeInTheDocument();
+  }, APP_TEST_TIMEOUT_MS);
+
   it('refreshes Config budget rows after snoozing a pause from the banner', async () => {
     installFetch(makeRequest({ id: 'a', title: 'Url card' }));
     const baseFetch = globalThis.fetch;

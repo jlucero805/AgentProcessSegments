@@ -294,10 +294,14 @@ APS_WEBHOOK_SECRET='the exact 16-256 character secret' \
 
 Point the webhook at `http://127.0.0.1:8787` (loopback may use HTTP). For a remote
 receiver, terminate HTTPS in front and keep the example on loopback. It prints the
-bound URL and, after a verified request, the event kind and a safe id; replace its
-`onVerified` handler with your durable work. Pointed at an older APS that sends only the
-legacy header, the example returns 401; upgrade the sender first or use
-`verifyWebhookSignature` and accept body-only security.
+bound URL and, after a verified request, `accepted <event> <id>` using one id from
+`alert.id`, `turn.turnId`, `master.cellId`, `summary.cellId`, or `override.overrideId`;
+with no usable id it prints just the event kind. The line never includes signatures,
+the secret, the body, or raw error text, and the id is not a dedupe key:
+`summary.failed` and `master.error` have no dedicated event id and can repeat for the
+same cell. Replace its `onVerified` handler with your durable work. Pointed at an older
+APS that sends only the legacy header, the example returns 401; upgrade the sender
+first or use `verifyWebhookSignature` and accept body-only security.
 
 The core V2 check is:
 

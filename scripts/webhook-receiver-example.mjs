@@ -187,13 +187,21 @@ function stringField(value, key) {
   return typeof field === 'string' ? field : null;
 }
 
+/** Treat an empty string like a missing field so the log never ends in a space. */
+function nonEmptyString(value, key) {
+  const field = stringField(value, key);
+  return field === '' ? null : field;
+}
+
 function eventSummary(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return 'event';
-  const event = stringField(body, 'event') ?? 'event';
+  const event = nonEmptyString(body, 'event') ?? 'event';
   const id =
-    stringField(body.alert, 'id') ??
-    stringField(body.turn, 'turnId') ??
-    stringField(body.master, 'cellId');
+    nonEmptyString(body.alert, 'id') ??
+    nonEmptyString(body.turn, 'turnId') ??
+    nonEmptyString(body.master, 'cellId') ??
+    nonEmptyString(body.summary, 'cellId') ??
+    nonEmptyString(body.override, 'overrideId');
   return id === null ? event : `${event} ${id}`;
 }
 

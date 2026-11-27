@@ -30,6 +30,46 @@ const BODY = JSON.stringify({
   text: 'hi',
 });
 
+const SUMMARY_BODY = JSON.stringify({
+  version: 1,
+  event: 'summary.failed',
+  severity: 'error',
+  title: 'Scorecard failed: cell-42',
+  occurredAt: FIXED_NOW,
+  text: 'summary text marker',
+  summary: {
+    cellId: 'cell-42',
+    source: 'summary.result',
+    reason: 'summary-reason-marker',
+    occurredAt: FIXED_NOW,
+  },
+});
+
+const OVERRIDE_BODY = JSON.stringify({
+  version: 1,
+  event: 'spend.override',
+  severity: 'warning',
+  title: 'Spend cap override marker',
+  occurredAt: FIXED_NOW,
+  text: 'override text marker',
+  override: {
+    overrideId: 'ovr-9',
+    change: 'granted',
+    scope: 'overall',
+    cellId: null,
+    reason: 'cap_reached',
+    periodStart: FIXED_NOW,
+    expiresAt: FIXED_NOW + 86_400_000,
+    note: 'override-note-marker',
+    budgetUsd: 100,
+    spendUsd: 101.25,
+    spendIsLowerBound: false,
+    capSpendUsd: 120,
+    capSpendIsLowerBound: false,
+    occurredAt: FIXED_NOW,
+  },
+});
+
 function sign(body = BODY, secret = SECRET) {
   return `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
 }
@@ -293,6 +333,104 @@ test('receiver verifies before parsing and calls onVerified once', async (t) => 
   assert.ok(!text.includes(SECRET));
   assert.ok(!text.includes(v2Hex()));
   assert.ok(!text.includes('"text":"hi"'));
+});
+
+test('accepted log names a summary.failed cell id and nothing else', async (t) => {
+  const { receiver, logs } = await start(t);
+  const response = await post(receiver.url, SUMMARY_BODY);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+
+  assert.deepEqual(logs, ['accepted summary.failed cell-42']);
+  const text = logs.join('\n');
+  const markers = [
+    SECRET,
+    v2Hex(SUMMARY_BODY),
+    'summary text marker',
+    'Scorecard failed',
+    'summary.result',
+    'summary-reason-marker',
+  ];
+  for (const marker of markers) {
+    assert.ok(!text.includes(marker), `log leaked ${marker}`);
+  }
+});
+
+test('accepted log names a spend.override override id and nothing else', async (t) => {
+  const { receiver, logs } = await start(t);
+  const response = await post(receiver.url, OVERRIDE_BODY);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+
+  assert.deepEqual(logs, ['accepted spend.override ovr-9']);
+  const text = logs.join('\n');
+  const markers = [
+    SECRET,
+    v2Hex(OVERRIDE_BODY),
+    'override text marker',
+    'Spend cap override marker',
+    'granted',
+    'cap_reached',
+    'override-note-marker',
+    '101.25',
+  ];
+  for (const marker of markers) {
+    assert.ok(!text.includes(marker), `log leaked ${marker}`);
+  }
+});
+
+test('accepted log keeps the existing turn and master ids', async (t) => {
+  const { receiver, logs } = await start(t);
+  const cases = [
+    [
+      JSON.stringify({ version: 1, event: 'turn.failed', turn: { turnId: 'turn-3' } }),
+      'accepted turn.failed turn-3',
+    ],
+    [
+      JSON.stringify({ version: 1, event: 'master.error', master: { cellId: 'cell-7' } }),
+      'accepted master.error cell-7',
+    ],
+  ];
+
+  for (const [body, expected] of cases) {
+    const response = await post(receiver.url, body);
+    assert.equal(response.status, 200, body);
+    await response.json();
+    assert.deepEqual(logs.at(-1), expected, body);
+  }
+});
+
+test('accepted log falls back to the bare event when no safe id exists', async (t) => {
+  const { receiver, logs } = await start(t);
+  const cases = [
+    [
+      JSON.stringify({ version: 1, event: 'master.error', master: { source: 'master.turn' } }),
+      'accepted master.error',
+    ],
+    [
+      JSON.stringify({ version: 1, event: 'summary.failed', summary: { cellId: '' } }),
+      'accepted summary.failed',
+    ],
+    [
+      JSON.stringify({ version: 1, event: 'spend.override', override: { overrideId: 42 } }),
+      'accepted spend.override',
+    ],
+    [JSON.stringify({ version: 1, event: 'mystery' }), 'accepted mystery'],
+    [JSON.stringify({ version: 1, event: '' }), 'accepted event'],
+    ['null', 'accepted event'],
+    ['[]', 'accepted event'],
+  ];
+
+  for (const [body, expected] of cases) {
+    const response = await post(receiver.url, body);
+    assert.equal(response.status, 200, body);
+    await response.json();
+    assert.deepEqual(logs.at(-1), expected, body);
+  }
+
+  for (const line of logs) {
+    assert.equal(line, line.trimEnd(), `trailing whitespace in "${line}"`);
+  }
 });
 
 test('receiver accepts uppercase V2 hex signatures', async (t) => {

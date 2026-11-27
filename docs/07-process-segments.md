@@ -47,6 +47,10 @@ Each cell also has its own **ticker** and **master chat**:
   copies.
 - Missing or invalid files fall back to a conservative policy derived from
   `config.json`’s `master` section until you save a valid process.
+- An unusable file is still re-read on every load, so a corrected one takes effect without
+  a restart. The `process.unreadable`/`process.invalid` row and the stderr warning are
+  reported once per distinct state (failure kind, detail, and file bytes) per server
+  process; editing the file reports again.
 - Once the file exists, it is authoritative. The legacy `master.idleMinutes`,
   `master.autoReview`, and `master.prompt` values are only used to derive the fallback
   when `process.json` is absent.

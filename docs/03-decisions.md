@@ -2048,13 +2048,14 @@ every card's save response through the existing metadata helper, and shows a
 non-dismissible `role="status"` notice below the recovery banner: the absolute path, a
 warning that it may contain credentials, and a reminder to delete it after review. Only
 paths cross the API; the store never reads the copy back, and no contents, secrets, or
-metadata are added. The value is not a `config.json` key and is not reconstructed across
-restarts.
+metadata are added. The value is not a `config.json` key, and the single path is not
+reconstructed across restarts; D103 lists the existing copies instead.
 
 **Cost.** The notice can outlive a manual deletion of the copy and keeps naming it until
-the page or server reloads, and a restarted process does not rediscover earlier copies.
-The Config page gains one small state field, one response field on each endpoint, and one
-card; copying, opening, or pruning the file remains separate work.
+the page or server reloads. The Config page gains one small state field, one response
+field on each endpoint, and one card; copying, opening, or pruning the file remains
+separate work. D103 adds the cross-restart listing; the single `preservedPath` is still
+per-process.
 
 ## D89. Notification event history has a configurable retention window
 
@@ -2429,3 +2430,26 @@ backup-before-save copy, and the five-copy prune are unchanged.
 malformed file gets only a position; Node 20-style messages without a position suffix
 collapse to `invalid JSON`. There is no file-content leak, and the preserved
 `process.json.invalid-*` copy still holds the original bytes for inspection.
+
+## D103. The Config page lists preserved settings copies across restarts
+
+**Context.** D88 names only the copy the current process made. After a restart that path
+is null even when `config.json.invalid-<UTC>` copies still sit next to the settings file,
+so the notice disappears and the operator has to inspect the directory to find them.
+
+**Decision.** `SettingsStore.preservedCopies()` scans the settings file's directory for
+regular files whose names start with `<basename>.invalid-` and returns their absolute
+paths newest first, ordered by the embedded UTC stamp and then the numeric collision
+suffix. It is path-only and never reads a copy back. A missing or unreadable directory
+returns an empty list without failing the config endpoint or logging, because this is an
+optional read-only display path and a missing config directory is normal on a first run.
+`GET` and `PATCH /api/config` return the list as `preservedCopies` beside `preservedPath`;
+the Config page merges the two, deduplicating and keeping the current process's copy
+first, and lists every path in the existing `role="status"` notice. The list is not
+pruned or capped here: bounding the files is separate work.
+
+**Cost.** Every config response now scans the settings directory. A legacy backlog is
+listed in full until the separate pruning work lands, and a copy deleted after the page
+loaded stays on screen until the next response or reload. The list is filesystem state,
+not a `config.json` key, and it can include copies made by processes that are no longer
+running.

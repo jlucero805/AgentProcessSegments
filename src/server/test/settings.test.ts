@@ -1372,6 +1372,107 @@ describe('settings recovery', () => {
   });
 });
 
+describe('preserved copy listing', () => {
+  it('lists existing copies newest first and ignores unrelated entries', () => {
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(DEFAULT_SETTINGS));
+    const base = `${file}.invalid-2026-01-01T00-00-00-000Z`;
+    const older = `${file}.invalid-2025-12-31T23-59-59-999Z`;
+    writeFileSync(base, 'base');
+    writeFileSync(`${base}-2`, 'two');
+    writeFileSync(`${base}-10`, 'ten');
+    writeFileSync(older, 'older');
+    writeFileSync(
+      path.join(path.dirname(file), 'other.json.invalid-2026-01-01T00-00-00-000Z'),
+      'other',
+    );
+    writeFileSync(`${file}.tmp-1`, 'tmp');
+    mkdirSync(`${base}-dir`);
+
+    expect(new SettingsStore(file).preservedCopies()).toEqual([
+      `${base}-10`,
+      `${base}-2`,
+      base,
+      older,
+    ]);
+  });
+
+  it('returns no copies for a missing settings file or directory', () => {
+    expect(new SettingsStore(tempFile()).preservedCopies()).toEqual([]);
+
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(DEFAULT_SETTINGS));
+    expect(new SettingsStore(file).preservedCopies()).toEqual([]);
+  });
+
+  it('treats an unreadable settings directory as having no copies', () => {
+    const parent = tempFile('not-a-directory');
+    writeFileSync(parent, 'x');
+
+    expect(
+      new SettingsStore(path.join(parent, 'config.json')).preservedCopies(),
+    ).toEqual([]);
+  });
+
+  it('lists an existing copy after a restart while preservedPath stays per-process', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const original = '{not json\n';
+      writeFileSync(file, original);
+
+      const store = new SettingsStore(file);
+      expect(store.get()).toEqual(DEFAULT_SETTINGS);
+      expect(store.preservedPath()).toBeNull();
+      store.patch({ master: { intervalMinutes: 2 } });
+      const copy = store.preservedPath();
+      expect(copy).not.toBeNull();
+
+      const restarted = new SettingsStore(file);
+      expect(restarted.preservedPath()).toBeNull();
+      expect(restarted.preservedCopies()).toEqual([copy]);
+      expect(readFileSync(copy!, 'utf8')).toBe(original);
+
+      store.patch({ master: { intervalMinutes: 3 } });
+      expect(store.preservedCopies()).toEqual([copy]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('puts the copy this process made first even when its name sorts older', () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
+      const file = tempFile();
+      writeFileSync(file, '{not json\n');
+      writeFileSync(`${file}.invalid-2026-01-03T00-00-00-000Z`, 'future');
+
+      const store = new SettingsStore(file);
+      store.get();
+      store.patch({ master: { intervalMinutes: 2 } });
+      const own = store.preservedPath();
+      expect(own).not.toBeNull();
+      expect(store.preservedCopies()[0]).toBe(own);
+      expect(store.preservedCopies()).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not load or rewrite the file when listing copies', () => {
+    const file = tempFile();
+    const original = '{not json\n';
+    writeFileSync(file, original);
+
+    const store = new SettingsStore(file);
+    expect(store.preservedCopies()).toEqual([]);
+    expect(readFileSync(file, 'utf8')).toBe(original);
+  });
+});
+
 describe('email notification settings', () => {
   const email = {
     enabled: true,

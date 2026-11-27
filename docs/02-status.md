@@ -189,9 +189,9 @@ built and vended by the brain; real-CLI verification is still pending.
   with the winning entry used whole; OpenCode merges `mcp` entries from the global
   `opencode.json`/`opencode.jsonc`, both read as JSONC (comments and trailing commas
   accepted, JSON5 not), and runs with `--auto`. Project/ancestor config is disabled with
-  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; a file found at the session cwd or an ancestor is
-  named once on stderr by path only; process-level config env overrides are stripped,
-  not merged. Read-only KB sessions exclude user servers and plugins. The
+  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; a regular file found at the session cwd or an
+  ancestor is named once on stderr by path only; process-level config env overrides are
+  stripped, not merged. Read-only KB sessions exclude user servers and plugins. The
   bundled `aps` key is reserved: a user entry with that name is
   replaced by the bundled server, with a one-time warning naming its config file and
   scope. A missing config file stays silent; one that exists but is unreadable or

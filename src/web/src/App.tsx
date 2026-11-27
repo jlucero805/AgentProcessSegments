@@ -341,9 +341,9 @@ export function App() {
               setNavOpen(false);
             }}
             reload={() => {
+              // A deleted cell can contribute a pause or alert; refresh both
+              // feeds instead of waiting for the next budget poll.
               void loadCells();
-              // A deleted cell can take its budget or pause with it; refresh
-              // the one shared budget feed instead of waiting for the next poll.
               void budgetFeed.reload();
             }}
             onError={setError}

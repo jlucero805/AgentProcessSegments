@@ -693,13 +693,14 @@ describe('App', () => {
     expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(patchAt);
   }, APP_TEST_TIMEOUT_MS);
 
-  it('refreshes the banner after deleting a paused cell', async () => {
+  it('refreshes the banner after deleting a cell', async () => {
     const cell: CellDetail = {
       ...makeCell(),
       monthlyBudgetUsd: 100,
       pauseOnExceeded: true,
     };
-    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], [cell]);
+    const cells = [cell];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
     const baseFetch = globalThis.fetch;
     let deleted = false;
     const calls: string[] = [];
@@ -711,25 +712,47 @@ describe('App', () => {
         calls.push(`${method} ${url}`);
         if (url === '/api/cells/c1' && method === 'DELETE') {
           deleted = true;
+          cells.splice(0, cells.length);
           return new Response(null, { status: 204 });
         }
-        if (url === '/api/cells' && method === 'GET' && deleted) return jsonResponse([]);
-        if (url === '/api/budgets') return jsonResponse(makeCellPausedBudgetView(cell, !deleted));
+        if (url === '/api/budgets') {
+          if (deleted) return jsonResponse(makeCellPausedBudgetView(cell, false));
+          return jsonResponse({
+            ...makeCellPausedBudgetView(cell, true),
+            alerts: [makeBudgetAlert({ scope: 'cell', cellId: 'c1', cellName: 'Alpha' })],
+          });
+        }
         return baseFetch(input, init);
       }),
     );
 
     render(<App />);
-    expect(await screen.findByText(/Alpha hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Alpha hard cap reached/, undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Alpha reached 80%/, undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete Alpha' }, { timeout: ASYNC_TIMEOUT_MS }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    );
 
-    await waitFor(() =>
-      expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
+    await waitFor(
+      () => {
+        expect(screen.queryByText(/Alpha hard cap reached/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Alpha reached 80%/)).not.toBeInTheDocument();
+      },
+      { timeout: ASYNC_TIMEOUT_MS },
     );
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Alpha' })).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('button', { name: 'Delete Alpha' }),
+        ).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
+
     const deleteAt = calls.indexOf('DELETE /api/cells/c1');
     expect(deleteAt).toBeGreaterThan(-1);
     expect(calls.lastIndexOf('GET /api/budgets')).toBeGreaterThan(deleteAt);

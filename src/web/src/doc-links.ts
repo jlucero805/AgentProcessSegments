@@ -1,6 +1,12 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { extractHeadings, helpSlugFromHref, resolveDocHref, slugForDocPath } from './docs';
+import {
+  extractHeadings,
+  helpSlugFromHref,
+  resolveDocHref,
+  resolveDocImage,
+  slugForDocPath,
+} from './docs';
 
 export interface DocLink {
   /** 1-based line in the file that contains the link. */
@@ -92,6 +98,14 @@ export function extractDocLinks(markdown: string): DocLink[] {
   const masked = maskCode(markdown);
   const links: DocLink[] = [];
 
+  // A definition can feed either a link or an image. Tag it as an image when at
+  // least one usage renders it as one, so the Help gate can apply the asset rule.
+  const imageLabels = new Set<string>();
+  for (const match of masked.matchAll(REFERENCE_USAGE)) {
+    if (match[1] !== '!') continue;
+    imageLabels.add(normalizeLabel(match[3] === '' ? match[2]! : match[3]!));
+  }
+
   for (const match of masked.matchAll(INLINE_LINK)) {
     links.push({
       line: lineAt(markdown, match.index ?? 0),
@@ -104,7 +118,7 @@ export function extractDocLinks(markdown: string): DocLink[] {
     links.push({
       line: lineAt(markdown, match.index ?? 0),
       target: stripAngles(match[2]!),
-      kind: 'reference',
+      kind: imageLabels.has(normalizeLabel(match[1]!)) ? 'image' : 'reference',
     });
   }
 
@@ -115,7 +129,7 @@ export function extractDocLinks(markdown: string): DocLink[] {
     links.push({
       line: lineAt(markdown, match.index ?? 0),
       target: match[3] ?? match[4] ?? '',
-      kind: 'html',
+      kind: tag === 'img' ? 'image' : 'html',
     });
   }
 
@@ -400,6 +414,35 @@ function helpTarget(raw: string): { slug: string; fragment: string | null } | nu
   }
 }
 
+const ASSET_PREFIX = '/api/docs/assets/';
+const SCREENSHOTS_PREFIX = 'docs/screenshots/';
+const IMAGE_NOT_SERVED = 'local image is not served by Help';
+const TARGET_NOT_SERVED = 'local non-Markdown target is not served by Help';
+
+function isExternalTarget(raw: string): boolean {
+  return EXTERNAL.test(raw) || raw.startsWith('//');
+}
+
+/**
+ * A served page may embed only images the asset route serves: an existing file
+ * under `docs/screenshots` that `resolveDocImage` maps onto `/api/docs/assets/`.
+ * External, protocol-relative, data, and already-asset sources need no check;
+ * missing targets and fragments stay `checkDocLinks`' findings.
+ */
+function servedImageProblem(root: string, absoluteFile: string, raw: string): string | null {
+  if (raw === '' || isExternalTarget(raw) || raw.startsWith(ASSET_PREFIX)) return null;
+  if (raw.includes('#')) return null;
+  if (raw.startsWith('?')) return IMAGE_NOT_SERVED;
+
+  const resolution = resolveLinkTarget(root, absoluteFile, raw);
+  if (resolution === null) return IMAGE_NOT_SERVED;
+  if ('error' in resolution) return null;
+  if (!existsSync(resolution.target.absolute)) return null;
+  if (!resolution.target.relative.startsWith(SCREENSHOTS_PREFIX)) return IMAGE_NOT_SERVED;
+  if (!resolveDocImage(raw).startsWith(ASSET_PREFIX)) return IMAGE_NOT_SERVED;
+  return null;
+}
+
 /**
  * Validate links on Help-served pages against the manifest.
  *
@@ -407,7 +450,8 @@ function helpTarget(raw: string): { slug: string; fragment: string | null } | nu
  * Help, so they may link anywhere in the repo. A served page may only point at
  * a manifest page (or a `?help=` slug that resolves to one), because Help
  * rewrites every local `*.md` link to `?help=<basename>` and the server 404s
- * anything the manifest does not list.
+ * anything the manifest does not list. Images must also resolve onto the asset
+ * route, and local non-Markdown links must be served there too.
  */
 export function checkHelpLinks(
   root: string,
@@ -451,7 +495,6 @@ export function checkHelpLinks(
       continue;
     }
     for (const link of extractDocLinks(markdown)) {
-      if (link.kind === 'image') continue;
       const raw = link.target.trim();
       if (raw === '') continue; // checkDocLinks owns the empty target.
       const problem = (reason: string): DocLinkProblem => ({
@@ -460,6 +503,15 @@ export function checkHelpLinks(
         target: raw,
         reason,
       });
+
+      if (link.kind === 'image') {
+        const reason = servedImageProblem(absoluteRoot, absoluteFile, raw);
+        if (reason !== null) problems.push(problem(reason));
+        continue;
+      }
+      // Anchors and app-root routes name no repo file; anchors are
+      // checkDocLinks' job and the SPA owns its own paths.
+      if (raw.startsWith('#') || raw.startsWith('/')) continue;
 
       const help = helpTarget(raw);
       if (help !== null) {
@@ -484,8 +536,14 @@ export function checkHelpLinks(
       const relative = resolution.target.relative;
       // Missing and escaping targets are checkDocLinks' findings.
       if (!existsSync(resolution.target.absolute)) continue;
-      const slug = helpSlugFromHref(resolveDocHref(raw));
-      if (slug === null) continue;
+      const href = resolveDocHref(raw);
+      const slug = helpSlugFromHref(href);
+      if (slug === null) {
+        // Fragments on non-Markdown targets are checkDocLinks' findings.
+        if (resolution.target.fragment !== null) continue;
+        if (!href.startsWith(ASSET_PREFIX)) problems.push(problem(TARGET_NOT_SERVED));
+        continue;
+      }
 
       const entry = entries.get(slug);
       if (!entry) {

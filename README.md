@@ -698,7 +698,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1367 vitest cases: 1042 server cases across 57 files (state machine,
+`npm test` runs 1376 vitest cases: 1051 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -732,6 +732,10 @@ runtime, such as the root-only harness permission test, so it reports one fewer 
 than the suite runs. The totals are quoted identically in this file, `AGENTS.md`, and
 `docs/02-status.md`, and `src/server/test/doc-counts.test.ts` fails when they drift
 apart.
+
+Server tests also have a static guard: `src/server/test/no-fixed-sleeps.test.ts` fails
+when a test adds a `setTimeout` or `node:timers/promises` wall-clock wait. Only
+explicitly allowlisted bounded fail-fast guards pass.
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
 environments they hand to their children, the missing-Puppeteer policy, and the interrupt

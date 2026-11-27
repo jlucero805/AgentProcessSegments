@@ -3320,3 +3320,41 @@ variant was rejected because the same wrapped field row fits the narrower card.
 retention, or dependency change. The page's tests run unchanged as the extraction guard. The
 drawer can still show at most five reports, by design, and the Custom range is not persisted
 across drawer opens (D107).
+
+## D131. The Scorecards period is URL route state
+
+**Context.** D20 keeps the current page, cell, request, master, and Help target in the SPA
+query string so a reload or a phone switching apps returns to the same place. D108 and
+D118 added preset and Custom scorecard periods, but both kept the selection in
+`ScorecardsPage` component state, so a reload or a shared link always fell back to the
+default 72 hours. D108 and D118 explicitly left URL persistence as separate work.
+
+**Decision.** The applied Scorecards period is part of the route. A non-default preset is
+stored as `period=24h|7d|30d|all`, the default 72h is omitted, and Custom adds local
+`startDate`, `startTime`, `endDate`, and `endTime` values alongside `period=custom`.
+Only the applied selection is written: selecting a preset or Custom commits immediately,
+**Apply** commits an edited Custom draft, and draft edits, Refresh, paging, layout
+switches, and cell changes do not rewrite the period. Route writes use the existing
+`replaceState` effect, so changing the period creates no back-button entry. `App` parses
+the params back into one selection, holds the committed copy, and reseeds the page when
+its cell key remounts it. `parseScorecardPeriod` accepts absent or blank Custom times as
+`00:00`/`23:59`, validates dates and times through `customWindow`, and falls back to 72h
+for an unknown preset or a missing, malformed, impossible, or inverted Custom range; the
+normal URL sync then removes the bad keys. `writeScorecardPeriod` clears all five keys
+before writing, and `customRangeSeedFromWindow` converts an applied `DateWindow` back to
+the four local fields so the shared `ScorecardCustomRange` panel from D130, which
+reports only the window, can still persist the exact selection.
+
+**Why local fields.** The existing control is a pair of native local date/time inputs and
+the summary reads already use browser-local bounds. Storing the wall-clock fields round
+trips those controls exactly, including the inclusive end minute (`:59.999`), and keeps
+the URL readable and editable. A link shared across timezones selects the same local
+wall-clock range in the recipient's browser, matching the app's local-time contract; it
+does not preserve an absolute instant across zones.
+
+**Cost.** No API, schema, scheduler, retention, or report-content change: the three
+summary reads already accept inclusive epoch-ms bounds. The URL gains at most five short
+parameters, and a tampered or partial period URL silently loads the default 72h range.
+Only the Scorecards page is persisted; the Cell master drawer keeps its own unpersisted
+period. This supersedes the "URL persistence is separate work" sentences in D108 and D118
+without rewriting them.

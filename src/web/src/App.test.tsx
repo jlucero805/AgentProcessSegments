@@ -355,6 +355,22 @@ function installFetch(
   return fetchMock;
 }
 
+function latestRequests(fetchMock: ReturnType<typeof installFetch>): URLSearchParams[] {
+  return fetchMock.mock.calls
+    .map(([input]) => new URL(String(input), 'http://localhost'))
+    .filter((url) => url.pathname === '/api/summaries/latest-per-cell')
+    .map((url) => url.searchParams);
+}
+
+function appliedRangeLabel(since: number, until: number): string {
+  const format = (value: number) =>
+    new Date(value).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  return `Applied: ${format(since)} – ${format(until)} (local; the end minute is included)`;
+}
+
 describe('App', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/');
@@ -533,6 +549,163 @@ describe('App', () => {
     ).toBeInTheDocument();
     expect(window.location.search).toContain('page=scorecards');
   });
+
+  it('restores a scorecard preset from the URL', async () => {
+    window.history.replaceState(null, '', '/?page=scorecards&period=7d');
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(
+      await screen.findByText('No scorecards in the last 7 days'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(latestRequests(fetchMock).length).toBeGreaterThan(0));
+    const params = latestRequests(fetchMock)[0]!;
+    const since = Number(params.get('since'));
+    expect(Math.abs(since - (Date.now() - 7 * 24 * 60 * 60_000))).toBeLessThan(60_000);
+    expect(params.has('until')).toBe(false);
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('restores an applied custom scorecard range from the URL', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?page=scorecards&period=custom&startDate=2026-11-01&startTime=08:00&endDate=2026-11-01&endTime=12:00',
+    );
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Start date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('Start time')).toHaveValue('08:00');
+    expect(screen.getByLabelText('End date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('End time')).toHaveValue('12:00');
+
+    const since = new Date(2026, 10, 1, 8, 0, 0, 0).getTime();
+    const until = new Date(2026, 10, 1, 12, 0, 59, 999).getTime();
+    expect(screen.getByText(appliedRangeLabel(since, until))).toBeInTheDocument();
+
+    await waitFor(() => expect(latestRequests(fetchMock).length).toBeGreaterThan(0));
+    const params = latestRequests(fetchMock)[0]!;
+    expect(params.get('since')).toBe(String(since));
+    expect(params.get('until')).toBe(String(until));
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('writes applied scorecard period changes to the URL', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      window.history.replaceState(null, '', '/?page=scorecards');
+      installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+      render(<App />);
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'Scorecards' }),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(new URLSearchParams(window.location.search).has('period')).toBe(false),
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '7d' }));
+      await waitFor(() =>
+        expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      await waitFor(() =>
+        expect(new URLSearchParams(window.location.search).get('period')).toBe('custom'),
+      );
+      let params = new URLSearchParams(window.location.search);
+      expect(params.get('startDate')).toBe('2026-11-08');
+      expect(params.get('startTime')).toBe('00:00');
+      expect(params.get('endDate')).toBe('2026-11-15');
+      expect(params.get('endTime')).toBe('23:59');
+
+      const beforeDraft = window.location.search;
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: '08:00' },
+      });
+      expect(window.location.search).toBe(beforeDraft);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      await waitFor(() =>
+        expect(new URLSearchParams(window.location.search).get('startTime')).toBe('08:00'),
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'All' }));
+      await waitFor(() =>
+        expect(new URLSearchParams(window.location.search).get('period')).toBe('all'),
+      );
+      params = new URLSearchParams(window.location.search);
+      expect(params.has('startDate')).toBe(false);
+      expect(params.has('startTime')).toBe(false);
+      expect(params.has('endDate')).toBe(false);
+      expect(params.has('endTime')).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  }, APP_TEST_TIMEOUT_MS);
+
+  it.each([
+    ['the default', '/?page=scorecards&period=72h'],
+    ['an unknown period', '/?page=scorecards&period=bogus'],
+    [
+      'an incomplete custom range',
+      '/?page=scorecards&period=custom&startDate=2026-11-01',
+    ],
+  ])('normalizes %s to the default 72h load', async (_name, route) => {
+    window.history.replaceState(null, '', route);
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+
+    expect(
+      await screen.findByText('No scorecards in the last 72 hours'),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.has('period')).toBe(false);
+      expect(params.has('startDate')).toBe(false);
+    });
+    await waitFor(() => expect(latestRequests(fetchMock).length).toBeGreaterThan(0));
+    const params = latestRequests(fetchMock)[0]!;
+    const since = Number(params.get('since'));
+    expect(Math.abs(since - (Date.now() - 72 * 60 * 60_000))).toBeLessThan(60_000);
+    expect(params.has('until')).toBe(false);
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('drops the scorecard period on other pages and restores it on return', async () => {
+    window.history.replaceState(null, '', '/?page=scorecards&period=7d');
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get('page')).toBe('skills');
+      expect(params.has('period')).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scorecards' }));
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).get('period')).toBe('7d'),
+    );
+  }, APP_TEST_TIMEOUT_MS);
 
   it('focuses a cell from the flat feed and records it like the sidebar', async () => {
     window.history.replaceState(null, '', '/?page=scorecards');

@@ -114,7 +114,9 @@ five reports in the selected period. The **Usage** page
 totals tokens and cost by model, cell, and request, and the **Scorecards** page collects
 each cell’s persisted reports with its earlier history. The page defaults to reports
 generated in the last 72 hours, can widen to 24 hours, 7 days, 30 days, or all retained
-history, or use a custom local start/end date and time range; **All cells** loads each cell's
+history, or use a custom local start/end date and time range. The applied period is kept
+in the URL (`72h` omitted), so a reload or shared link reopens the same range; invalid
+period parameters fall back to 72h. **All cells** loads each cell's
 latest report in one latest-per-cell request, or switches to **Flat**, one chronological
 cross-cell feed with **Load more**. In **Flat**, a report's cell name selects that cell,
 the same as the sidebar filter. **Load older** pages through each cell's history
@@ -721,7 +723,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1519 vitest cases: 1117 server cases across 59 files (state machine,
+`npm test` runs 1554 vitest cases: 1117 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -737,7 +739,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 402 web cases across 29 files (shared contract re-exports, NDJSON
+real socket) and 437 web cases across 30 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, manifest-aware served-page links, served image/non-Markdown targets,

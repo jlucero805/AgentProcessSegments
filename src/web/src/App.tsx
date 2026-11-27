@@ -9,6 +9,12 @@ import { HelpPanel } from './HelpPanel';
 import { KbEntries } from './KbEntries';
 import { MasterDetail } from './MasterDetail';
 import { RequestDetail } from './RequestDetail';
+import {
+  DEFAULT_RANGE,
+  parseScorecardPeriod,
+  writeScorecardPeriod,
+  type ScorecardPeriodSelection,
+} from './ScorecardPeriod';
 import { ScorecardsPage } from './ScorecardsPage';
 import { SkillsPage } from './SkillsPage';
 import { UsagePage } from './UsagePage';
@@ -33,6 +39,7 @@ function readRoute(): {
   masterOpen: boolean;
   helpSlug: string | null;
   helpAnchor: string | null;
+  scorecardPeriod: ScorecardPeriodSelection;
 } {
   if (typeof window === 'undefined') {
     return {
@@ -42,6 +49,7 @@ function readRoute(): {
       masterOpen: false,
       helpSlug: null,
       helpAnchor: null,
+      scorecardPeriod: { range: DEFAULT_RANGE },
     };
   }
   const params = new URLSearchParams(window.location.search);
@@ -66,6 +74,8 @@ function readRoute(): {
     masterOpen,
     helpSlug,
     helpAnchor: helpSlug && hash ? hash : null,
+    scorecardPeriod:
+      page === 'scorecards' ? parseScorecardPeriod(params) : { range: DEFAULT_RANGE },
   };
 }
 
@@ -106,6 +116,7 @@ export function App() {
   const [masterOpen, setMasterOpen] = useState(initialRoute.masterOpen);
   const [helpSlug, setHelpSlug] = useState<string | null>(initialRoute.helpSlug);
   const [helpAnchor, setHelpAnchor] = useState<string | null>(initialRoute.helpAnchor);
+  const [scorecardPeriod, setScorecardPeriod] = useState(initialRoute.scorecardPeriod);
   const [cellModalOpen, setCellModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<CellDetail | null>(null);
   const [terminalAvailable, setTerminalAvailable] = useState(false);
@@ -183,6 +194,7 @@ export function App() {
     if (detailId) params.set('request', detailId);
     if (masterOpen) params.set('master', '1');
     if (helpSlug) params.set('help', helpSlug);
+    if (page === 'scorecards') writeScorecardPeriod(params, scorecardPeriod);
     const search = params.toString();
     const hash = helpSlug && helpAnchor ? `#${helpAnchor}` : '';
     window.history.replaceState(
@@ -190,7 +202,7 @@ export function App() {
       '',
       `${window.location.pathname}${search ? `?${search}` : ''}${hash}`,
     );
-  }, [page, cellId, detailId, masterOpen, helpSlug, helpAnchor]);
+  }, [page, cellId, detailId, masterOpen, helpSlug, helpAnchor, scorecardPeriod]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -202,6 +214,7 @@ export function App() {
       setMasterOpen(route.masterOpen);
       setHelpSlug(route.helpSlug);
       setHelpAnchor(route.helpAnchor);
+      setScorecardPeriod(route.scorecardPeriod);
       setNavOpen(false);
     };
     window.addEventListener('popstate', onPopState);
@@ -532,6 +545,8 @@ export function App() {
               onSelectCell={selectCell}
               onError={setError}
               cellsFeed={cellsFeed}
+              initialPeriod={scorecardPeriod}
+              onPeriodChange={setScorecardPeriod}
             />
           ) : null}
           {page === 'config' ? (

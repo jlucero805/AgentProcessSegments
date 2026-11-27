@@ -6,6 +6,7 @@ import {
   ScorecardCustomRange,
   ScorecardPeriod,
   customRangeSeed,
+  customRangeSeedFromWindow,
   customWindow,
   presetWindow,
   rangeOption,
@@ -13,6 +14,7 @@ import {
   type DateWindow,
   type PageRangeKey,
   type RangeKey,
+  type ScorecardPeriodSelection,
 } from './ScorecardPeriod';
 import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
@@ -67,6 +69,27 @@ function windowLabel(summary: Summary): string {
   ).toLocaleTimeString()}`;
 }
 
+/** Initial applied period and Custom draft for the page's first render. */
+function initialPeriodState(selection?: ScorecardPeriodSelection): {
+  range: PageRangeKey;
+  seed: CustomRangeSeed;
+  window: DateWindow;
+} {
+  if (selection?.range === 'custom' && selection.custom) {
+    const window = customWindow(
+      selection.custom.start,
+      selection.custom.end,
+      selection.custom.startTime,
+      selection.custom.endTime,
+    );
+    if (typeof window !== 'string') {
+      return { range: 'custom', seed: selection.custom, window };
+    }
+  }
+  const range = selection && selection.range !== 'custom' ? selection.range : DEFAULT_RANGE;
+  return { range, seed: customRangeSeed(range), window: {} };
+}
+
 /**
  * Browse the persisted scorecard reports. The sidebar's cell selection, or a flat
  * item's cell name, scopes the page to one cell; "All cells" shows each cell's newest
@@ -78,23 +101,28 @@ export function ScorecardsPage({
   onSelectCell,
   onError,
   cellsFeed,
+  initialPeriod,
+  onPeriodChange,
 }: {
   cellId: string | null;
   onSelectCell: (cellId: string | null) => void;
   onError: (message: string) => void;
   cellsFeed: CellsFeed;
+  /** Applied period restored from the URL route, if any. */
+  initialPeriod?: ScorecardPeriodSelection;
+  /** Called whenever the applied period changes, so the route can persist it. */
+  onPeriodChange?: (selection: ScorecardPeriodSelection) => void;
 }) {
+  const [initial] = useState(() => initialPeriodState(initialPeriod));
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [feed, setFeed] = useState<ScorecardFeed | null>(null);
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
   const [view, setView] = useState<ScorecardsView>('grouped');
-  const [range, setRange] = useState<PageRangeKey>(DEFAULT_RANGE);
-  const [customSeed, setCustomSeed] = useState<CustomRangeSeed>(() =>
-    customRangeSeed(DEFAULT_RANGE),
-  );
-  const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
+  const [range, setRange] = useState<PageRangeKey>(initial.range);
+  const [customSeed, setCustomSeed] = useState<CustomRangeSeed>(initial.seed);
+  const [appliedCustom, setAppliedCustom] = useState<DateWindow>(initial.window);
   const loadGeneration = useRef(0);
   /** Bounds used by the load that produced the visible page; paging reuses them. */
   const pageWindow = useRef<DateWindow>({});
@@ -192,6 +220,7 @@ export function ScorecardsPage({
     setFeed(null);
     setLoadingMoreFeed(false);
     setLoading(true);
+    onPeriodChange?.({ range: 'custom', custom: seed });
   };
 
   const applyCustom = (bounds: DateWindow) => {
@@ -202,12 +231,16 @@ export function ScorecardsPage({
     ) {
       return;
     }
+    const seed = customRangeSeedFromWindow(bounds);
+    if (!seed) return;
+    setCustomSeed(seed);
     setRange('custom');
     setAppliedCustom(bounds);
     setGroups(null);
     setFeed(null);
     setLoadingMoreFeed(false);
     setLoading(true);
+    onPeriodChange?.({ range: 'custom', custom: seed });
   };
 
   const loadOlder = useCallback(
@@ -364,6 +397,7 @@ export function ScorecardsPage({
               setLoadingMoreFeed(false);
               setLoading(true);
               setRange(next);
+              onPeriodChange?.({ range: next });
             }}
             onSelectCustom={selectCustom}
             customSelected={range === 'custom'}

@@ -58,7 +58,7 @@ function installFetch(
   }),
   activeCell = cell,
   requestGate?: Promise<void>,
-  options: { models?: 'ok' | 'fail' } = {},
+  options: { models?: 'ok' | 'fail' | 'empty' } = {},
 ) {
   const patched: Record<string, unknown>[] = [];
   const urls: string[] = [];
@@ -88,6 +88,9 @@ function installFetch(
       if (url === '/api/cells') return jsonResponse([activeCell]);
       if (url.startsWith('/api/models') && options.models === 'fail') {
         return jsonResponse({ error: 'boom', message: 'model discovery failed' }, 500);
+      }
+      if (url.startsWith('/api/models') && options.models === 'empty') {
+        return jsonResponse({ ...models('claude'), models: [] });
       }
       if (url === `/api/models?cellId=${activeCell.id}`) {
         return jsonResponse(models(activeCell.harness ?? 'claude'));
@@ -180,6 +183,7 @@ describe('RequestDetail harness override', () => {
     expect(
       await screen.findByText('Opus 5.5', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('model-select')).toHaveAttribute('data-model-count', '2');
     expect(urls.filter((url) => url === '/api/models')).toHaveLength(1);
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Changed title' } });
@@ -214,5 +218,38 @@ describe('RequestDetail harness override', () => {
     expect(hint).toHaveAttribute('data-resolved', 'false');
     expect(hint).toHaveTextContent('effective: not resolved (brain default)');
     expect(onError).not.toHaveBeenCalled();
+  }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
+
+  it('leaves the model list empty when the catalog is empty', async () => {
+    const { urls } = installFetch(
+      makeRequest({
+        id: 'req-1',
+        cellId: null,
+        harness: null,
+        model: null,
+      }),
+      cell,
+      undefined,
+      { models: 'empty' },
+    );
+
+    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+
+    await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(urls).toContain('/api/models'), { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('harness-effective')).toHaveAttribute(
+          'data-resolved',
+          'true',
+        ),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    const modelSelect = screen.getByTestId('model-select');
+    expect(modelSelect).toHaveAttribute('data-model-count', '0');
+    expect(modelSelect.querySelectorAll('option')).toHaveLength(1);
+    expect(modelSelect).toHaveTextContent('Harness default');
+    expect(screen.queryByText('Opus 5.5')).not.toBeInTheDocument();
   }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 });

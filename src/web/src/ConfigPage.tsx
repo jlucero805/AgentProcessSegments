@@ -69,6 +69,10 @@ import {
 } from './ui';
 
 interface ConfigPageProps {
+  /** The app-owned cell list; the sidebar, Config, and its selectors share it. */
+  cells: CellDetail[];
+  /** Apply a cell returned by a mutation to the app-owned list. */
+  onCellChanged: (cell: CellDetail) => void;
   onError: (message: string) => void;
   onEditCell?: (cell: CellDetail) => void;
   /** The app's single budget snapshot, shared with the banner and Usage page. */
@@ -223,6 +227,8 @@ function mergePrice(list: ModelPrice[], created: ModelPrice): ModelPrice[] {
 
 /** Edits the global master defaults, process template, and per-cell switches. */
 export function ConfigPage({
+  cells,
+  onCellChanged,
   onError,
   onEditCell,
   budgetFeed,
@@ -239,7 +245,6 @@ export function ConfigPage({
   const [preservedCopies, setPreservedCopies] = useState<string[]>([]);
   const [processPath, setProcessPath] = useState('');
   const [processPreservedPath, setProcessPreservedPath] = useState<string | null>(null);
-  const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -336,14 +341,12 @@ export function ConfigPage({
       const [
         config,
         processConfig,
-        cellList,
         eventList,
         statusResponse,
         deliveryResponse,
       ] = await Promise.all([
         api.getConfig(),
         api.getProcess(),
-        api.getCells(),
         api.getMasterEvents({ limit: 20 }),
         api.getNotificationStatus().catch(() => null),
         api.getNotificationDeliveries({ limit: 10, offset: 0 }).catch(() => null),
@@ -378,7 +381,6 @@ export function ConfigPage({
           ? processConfig.preservedPath
           : null,
       );
-      setCells(cellList);
       setEvents(eventList);
       setBudget(loadedBudget);
       setBudgetMonthly(
@@ -1132,7 +1134,7 @@ export function ConfigPage({
   async function toggleCell(cell: CellDetail) {
     try {
       const updated = await api.patchCell(cell.id, { masterEnabled: !cell.masterEnabled });
-      setCells((current) => current.map((item) => (item.id === cell.id ? updated : item)));
+      onCellChanged(updated);
     } catch (error) {
       onError(describeError(error));
     }

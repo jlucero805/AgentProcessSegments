@@ -7,6 +7,7 @@ import type { BudgetFeed } from './useBudgets';
 import type {
   BudgetsResponse,
   Cell,
+  CellDetail,
   ChatView,
   DeliveryHistoryItem,
   DeliveryHistoryResponse,
@@ -62,6 +63,8 @@ const cell: Cell = {
   autocompactPercent: 80,
   createdAt: 1,
 };
+
+const cellDetail: CellDetail = { ...cell, process: null };
 
 const budget = {
   monthlyUsd: 100,
@@ -284,14 +287,28 @@ function makeBudgetFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
 
 type TestConfigPageProps = Omit<
   ComponentProps<typeof ConfigPageComponent>,
-  'budgetFeed'
+  'budgetFeed' | 'cells' | 'onCellChanged'
 > & {
   budgetFeed?: BudgetFeed;
+  cells?: CellDetail[];
+  onCellChanged?: (cell: CellDetail) => void;
 };
 
 /** Render ConfigPage with a deterministic shared feed unless a test supplies one. */
-function ConfigPage({ budgetFeed, ...props }: TestConfigPageProps) {
-  return <ConfigPageComponent {...props} budgetFeed={budgetFeed ?? makeBudgetFeed()} />;
+function ConfigPage({
+  budgetFeed,
+  cells = [cellDetail],
+  onCellChanged = () => {},
+  ...props
+}: TestConfigPageProps) {
+  return (
+    <ConfigPageComponent
+      {...props}
+      cells={cells}
+      onCellChanged={onCellChanged}
+      budgetFeed={budgetFeed ?? makeBudgetFeed()}
+    />
+  );
 }
 
 const overrideHistory: SpendCapOverrideHistoryResponse = {
@@ -512,6 +529,7 @@ interface Captured {
   };
   process?: { segments?: SegmentConfig[] };
   cell?: { masterEnabled?: boolean };
+  cellGets?: number;
   price?: ModelPriceInput;
   deletedPriceId?: string;
   deliveryQuery?: string;
@@ -750,7 +768,10 @@ function installFetch(
       captured.cell = JSON.parse(String(init.body)) as Captured['cell'];
       return jsonResponse({ ...cell, ...captured.cell });
     }
-    if (url === '/api/cells') return jsonResponse([cell]);
+    if (url === '/api/cells') {
+      captured.cellGets = (captured.cellGets ?? 0) + 1;
+      return jsonResponse([cell]);
+    }
     return jsonResponse([]);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -1191,13 +1212,65 @@ describe('ConfigPage', () => {
 
   it('toggles a cell master', async () => {
     const captured = installFetch();
+    const onCellChanged = vi.fn();
 
-    render(<ConfigPage onError={() => {}} />);
+    render(<ConfigPage onCellChanged={onCellChanged} onError={() => {}} />);
 
     const cellToggle = await screen.findByRole('checkbox', { name: 'Alpha master' });
     expect(cellToggle).toBeChecked();
     fireEvent.click(cellToggle);
     await waitFor(() => expect(captured.cell).toEqual({ masterEnabled: false }));
+    await waitFor(() =>
+      expect(onCellChanged).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'c1', masterEnabled: false }),
+      ),
+    );
+    expect(captured.cellGets ?? 0).toBe(0);
+  });
+
+  it('renders cells from the shared list and drops a deleted one', async () => {
+    const captured = installFetch();
+
+    const { rerender } = render(
+      <ConfigPage cells={[cellDetail]} onError={() => {}} />,
+    );
+    expect(await screen.findByRole('checkbox', { name: 'Alpha master' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('checkbox', { name: 'Master enabled' }),
+    ).toBeInTheDocument();
+    expect(captured.cellGets ?? 0).toBe(0);
+
+    rerender(<ConfigPage cells={[]} onError={() => {}} />);
+
+    expect(
+      screen.queryByRole('checkbox', { name: 'Alpha master' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText('No cells yet. Create one in the left menu.'),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the shared list unchanged when a cell toggle fails', async () => {
+    installFetch();
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === '/api/cells/c1' && init?.method === 'PATCH') {
+          return jsonResponse({ error: 'cell_unavailable', message: 'cell unavailable' }, 500);
+        }
+        return baseFetch(input, init);
+      }),
+    );
+    const onCellChanged = vi.fn();
+    const onError = vi.fn();
+
+    render(<ConfigPage onCellChanged={onCellChanged} onError={onError} />);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Alpha master' }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(onCellChanged).not.toHaveBeenCalled();
   });
 
   it('shows recent activity', async () => {

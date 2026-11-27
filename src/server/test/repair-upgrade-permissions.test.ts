@@ -123,11 +123,12 @@ describe('repair-upgrade-permissions preview', () => {
     const result = repairUpgradePermissions(fixture.root, { apply: false });
 
     expect(result.rootMissing).toBe(false);
-    expect(result.tightened).toBe(4);
+    expect(result.tightened).toBe(5);
     expect(result.private).toBe(2);
     expect(result.skipped).toBe(2);
     expect(result.failed).toBe(0);
 
+    expect(modeOf(fixture.root)).toBe(0o755);
     expect(modeOf(fixture.upgrades)).toBe(0o755);
     expect(modeOf(fixture.loose)).toBe(0o755);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
@@ -152,12 +153,13 @@ describe('repair-upgrade-permissions preview', () => {
 });
 
 describe('repair-upgrade-permissions apply', () => {
-  posixIt('applies owner-only modes without touching the root, runs, or files', () => {
+  posixIt('applies owner-only modes without touching runs or unrelated files', () => {
     const fixture = workspace();
     silenceConsole();
 
     expect(main(['--root', fixture.root, '--apply'])).toBe(0);
 
+    expect(modeOf(fixture.root)).toBe(0o700);
     expect(modeOf(fixture.upgrades)).toBe(0o700);
     expect(modeOf(fixture.loose)).toBe(0o700);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
@@ -173,8 +175,7 @@ describe('repair-upgrade-permissions apply', () => {
     );
     expect(realpathSync(path.join(fixture.upgrades, 'latest'))).toBe(realpathSync(fixture.loose));
 
-    // The cutover root, the cutover runs tree, and its files are out of scope.
-    expect(modeOf(fixture.root)).toBe(0o755);
+    // The cutover runs tree, its files, and the latest symlink are out of scope.
     expect(modeOf(fixture.runs)).toBe(0o755);
     expect(modeOf(fixture.cutoverRun)).toBe(0o755);
     expect(modeOf(path.join(fixture.cutoverRun, 'cutover.log'))).toBe(0o644);
@@ -195,7 +196,7 @@ describe('repair-upgrade-permissions apply', () => {
 
     expect(result.tightened).toBe(0);
     expect(result.failed).toBe(0);
-    expect(result.private).toBe(6);
+    expect(result.private).toBe(7);
     expect(calls).toBe(0);
   });
 
@@ -258,8 +259,8 @@ describe('repair-upgrade-permissions apply', () => {
 });
 
 describe('repair-upgrade-permissions edge cases', () => {
-  it('reports a missing upgrades tree as nothing to tighten', () => {
-    const root = tmpDir('repair-upgrades-missing');
+  it('reports a missing cutover root as nothing to tighten', () => {
+    const root = path.join(tmpDir('repair-upgrades-missing'), 'absent');
     const lines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
       lines.push(String(line));
@@ -271,7 +272,62 @@ describe('repair-upgrade-permissions edge cases', () => {
     expect(result.entries).toEqual([]);
     expect(main(['--root', root])).toBe(0);
     expect(lines.some((line) => line.includes('nothing to tighten'))).toBe(true);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  posixIt('tightens the root when only the upgrades tree is missing', () => {
+    const root = tmpDir('repair-upgrades-no-tree');
+    chmodSync(root, 0o755);
+    silenceConsole();
+
+    const preview = repairUpgradePermissions(root, { apply: false });
+    expect(preview.rootMissing).toBe(false);
+    expect(preview.tightened).toBe(1);
+    expect(preview.entries.map((entry) => entry.path)).toEqual([root]);
+    expect(modeOf(root)).toBe(0o755);
+
+    expect(main(['--root', root, '--apply'])).toBe(0);
+    expect(modeOf(root)).toBe(0o700);
     expect(existsSync(path.join(root, 'upgrades'))).toBe(false);
+  });
+
+  posixIt('refuses a symlinked cutover root without following it', () => {
+    const parent = tmpDir('repair-upgrades-root-link');
+    const outside = path.join(parent, 'outside');
+    dir(outside, 0o755);
+    const root = path.join(parent, 'root');
+    symlinkSync(outside, root, 'dir');
+    silenceConsole();
+
+    const result = repairUpgradePermissions(root, { apply: true });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0]?.detail).toBe('is a symbolic link');
+    expect(modeOf(outside)).toBe(0o755);
+    expect(main(['--root', root, '--apply'])).toBe(1);
+  });
+
+  it('fails when the cutover root is not a directory', () => {
+    const root = path.join(tmpDir('repair-upgrades-root-file'), 'root');
+    file(root);
+    silenceConsole();
+
+    const result = repairUpgradePermissions(root, { apply: false });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0]?.detail).toBe('not a directory');
+    expect(main(['--root', root])).toBe(1);
+  });
+
+  it('refuses the home directory and the filesystem root as --root', () => {
+    silenceConsole();
+    const chmod = vi.fn();
+
+    expect(main(['--root', os.homedir(), '--apply'], { chmod })).toBe(1);
+    expect(main(['--root', path.parse(process.cwd()).root, '--apply'], { chmod })).toBe(1);
+    expect(chmod).not.toHaveBeenCalled();
   });
 
   it('fails when upgrades is not a directory', () => {
@@ -297,6 +353,7 @@ describe('repair-upgrade-permissions edge cases', () => {
 
     expect(result.rootMissing).toBe(false);
     expect(result.failed).toBe(1);
+    expect(modeOf(root)).toBe(0o700);
     expect(modeOf(outside)).toBe(0o755);
     expect(main(['--root', root, '--apply'])).toBe(1);
   });

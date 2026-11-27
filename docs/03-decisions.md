@@ -2193,16 +2193,18 @@ to `requests/`, and `prune:cutover` only removes `~/.aps-cutover/runs`.
 **Decision.** Add `npm run repair:upgrades`, a built maintenance CLI
 (`src/server/src/maintenance/repair-upgrade-permissions.ts` plus
 `repair-upgrade-permissions-cli.ts`). It is a dry run by default and changes modes only
-with `--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans only
-`DIR/upgrades`, one level deep: it sets the `upgrades` directory and every direct run
-directory to `0700`, and every top-level regular `db-backup.sqlite` to `0600`. It uses
+with `--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans `DIR` and
+`DIR/upgrades`, one level deep: it sets the shared root and the `upgrades` directory and
+every direct run directory to `0700`, and every top-level regular `db-backup.sqlite` to
+`0600`. It uses
 `lstat`, never follows a symlinked run directory or snapshot, skips non-directory children
 and non-regular snapshots, treats `ENOENT` as a skip, continues after other failures, and
-exits 1 if any entry failed. It never deletes, reads file contents, or opens SQLite. The
-`.aps-cutover` ancestor, `runs/`, `dist-backup/`, `node_modules.bak/`, and other files keep
-their modes: the `0700` run directory protects the evidence, while the snapshot is
-additionally `0600` because it may be copied out. The repair is an explicit post-upgrade
-step, not a hook in `upgrade-vps.sh`.
+exits 1 if any entry failed. It never deletes, reads file contents, or opens SQLite. D120
+extends this scan to the shared `~/.aps-cutover` root, which is set to `0700`; `runs/`,
+`dist-backup/`, `node_modules.bak/`, and other files keep their modes: the `0700` run
+directory protects the evidence, while the snapshot is additionally `0600` because it may
+be copied out. The repair is an explicit post-upgrade step, not a hook in
+`upgrade-vps.sh`.
 
 **Cost.** Operators must run the repair once after the first fixed upgrade, and the built
 CLI needs `npm run build` first, like `repair:permissions`. It is not encryption at rest,
@@ -2240,7 +2242,8 @@ copied script keep their current modes, exactly as D86 chose for upgrades. There
 doc updates. Run contents, timing, names, retention, pruning, and the `latest` target are
 unchanged. This is not encryption at rest, and root can still read the files. Run
 directories left by an earlier version are tightened explicitly with
-`npm run repair:runs` (D110); the shared `~/.aps-cutover` root is left alone.
+`npm run repair:runs` (D110); D120 makes that repair, and the `repair:upgrades` sibling,
+also set the shared `~/.aps-cutover` root to `0700`.
 
 ## D95. The legacy-branch dry run opens SQLite read-only
 
@@ -2665,13 +2668,15 @@ only `upgrades/`, and `prune:cutover` only removes runs.
 **Decision.** Add `npm run repair:runs`, a built maintenance CLI
 (`src/server/src/maintenance/repair-run-permissions.ts` plus
 `repair-run-permissions-cli.ts`). It is a dry run by default and changes modes only with
-`--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans only `DIR/runs`, one
-level deep: it sets the `runs` directory and every direct run directory to `0700`. It uses
+`--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans `DIR` and `DIR/runs`,
+one level deep: it sets the shared root, the `runs` directory, and every direct run
+directory to `0700`. It uses
 `lstat`, never follows a symlinked run directory, skips non-directory children, treats
 `ENOENT` as a skip, continues after other failures, and exits 1 if any entry failed. A
-missing `runs` is a successful no-op and is never created. It never deletes, reads file
-contents, descends into `dist/` or `backup/`, or opens SQLite. The shared
-`~/.aps-cutover` root, the `latest` symlink, and `upgrades/` keep their modes.
+missing shared root is a successful no-op and is never created. It never deletes, reads
+file contents, descends into `dist/` or `backup/`, or opens SQLite. D120 extends this
+scan to the shared `~/.aps-cutover` root, which is set to `0700`; the `latest` symlink
+and `upgrades/` keep their modes.
 
 Directory-level `0700` is the protection boundary; individual evidence files and the
 copied script keep their current modes, exactly as D86/D93 chose for upgrades. Cutover
@@ -2957,3 +2962,45 @@ method and keeps the scan loop and single-cell paths untouched.
 the single-cell status route remains one indexed lookup. The response shape, route
 validation, schema, retention, and web client are unchanged. `SummaryScheduler.scan()`
 still looks up each cell's latest report separately; that is a separate request.
+
+## D120. The shared cutover root is owner-only
+
+**Context.** D93 and D110 made the `~/.aps-cutover/upgrades` and `~/.aps-cutover/runs`
+subtrees owner-only, but both repairs deliberately left the shared `~/.aps-cutover` root
+at its existing mode. On an install created under the usual `umask 022` that root was
+`0755`, so any local account that could traverse `$HOME` could list the run and upgrade
+directory names and resolve `~/.aps-cutover/latest` to the newest run directory. The
+child `0700` directories protected the contents, but the names and the `latest` target
+were still exposed. The root is application-owned (its only entries are `runs/`,
+`upgrades/`, `latest`, and `prune.log`), so unlike the database parent covered by D73 it
+can be repaired without touching a user-owned directory. `deploy/cutover-vps.sh` already
+created a missing root `0700` under a local `umask 077`; `deploy/upgrade-vps.sh` only did
+so on the normal path, because `point_upgrade_latest` used a bare `mkdir -p` and could
+create `~/.aps-cutover` and `upgrades/` at `0755` on an internal run whose `--run-dir` was
+outside the root.
+
+**Decision.** The shared `~/.aps-cutover` root is owner-only (`0700`). A new root is
+created `0700` by both deploy scripts: `upgrade-vps.sh` now runs
+`point_upgrade_latest`'s `mkdir -p` under a local `umask 077`, and `cutover-vps.sh` is
+unchanged. Neither deploy script silently chmods an existing root; that keeps a deploy
+run from changing shared state and preserves the "existing ancestors are left alone"
+rule above the app-owned boundary.
+
+Existing roots are repaired explicitly. `npm run repair:runs` and
+`npm run repair:upgrades` each `lstat` the shared root before their own subtree and set a
+real directory to `0700` using the existing dry-run/`--apply`, `ENOENT`-skip, and
+error-continuation semantics. A missing root is still a successful no-op and is never
+created; a symlinked or non-directory root is one error and is never followed or
+chmodded. Because the root itself is now a chmod target, both CLIs refuse a resolved
+`--root` equal to the current user's home directory or a filesystem root before scanning,
+so `--apply --root ~` cannot tighten the real home. A missing `runs/` or `upgrades/`
+subtree is no longer the "nothing to tighten" case: the root is still considered and the
+normal summary is printed. The `latest` symlink needs no separate mode; POSIX symlink
+permission bits are not used for access control, `chmod` on a symlink follows its target,
+and the `0700` parent blocks listing and resolution. Repair never chmods `latest`, root
+files such as `prune.log`, or files below the run directories.
+
+**Cost.** Operators must run either repair once after the first build with this change;
+the built CLI needs `npm run build` first, like the other repairs. It is not encryption at
+rest, root can still read the files, and a symlinked root must be handled manually. Run
+contents, timing, names, retention, pruning, and the `latest` target are unchanged.

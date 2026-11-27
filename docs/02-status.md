@@ -151,14 +151,16 @@ built and vended by the brain; real-CLI verification is still pending.
   `--apply` to change). It never recurses into `cwd/` checkouts. A missing state file is
   empty; an unreadable or invalid one is reported and moved to
   `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write.
-- Upgrade evidence: `npm run repair:upgrades` tightens `~/.aps-cutover/upgrades` and each
-  direct run directory to `0700` and each top-level `db-backup.sqlite` to `0600` (dry run
-  by default; `--apply` to change). It never follows symlinks, deletes anything, opens the
-  database, or touches `~/.aps-cutover/runs`.
-- Cutover evidence: `npm run repair:runs` tightens `~/.aps-cutover/runs` and each direct
-  run directory to `0700` (dry run by default; `--apply` to change). It never follows
-  symlinks, deletes anything, descends into `dist/` or `backup/`, reads or changes run
-  contents, or touches `~/.aps-cutover/upgrades` or the shared `~/.aps-cutover` root.
+- Upgrade evidence: `npm run repair:upgrades` tightens the shared `~/.aps-cutover` root,
+  `~/.aps-cutover/upgrades`, and each direct run directory to `0700` and each top-level
+  `db-backup.sqlite` to `0600` (dry run by default; `--apply` to change). It never follows
+  symlinks, deletes anything, opens the database, chmods the `latest` symlink, or touches
+  `~/.aps-cutover/runs`.
+- Cutover evidence: `npm run repair:runs` tightens the shared `~/.aps-cutover` root,
+  `~/.aps-cutover/runs`, and each direct run directory to `0700` (dry run by default;
+  `--apply` to change). It never follows symlinks, deletes anything, descends into
+  `dist/` or `backup/`, reads or changes run contents, chmods the `latest` symlink, or
+  touches `~/.aps-cutover/upgrades`.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -477,7 +479,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1447 vitest cases (one environmental root-skip): 1077 server across 58 files and 370 web across 28 files,
+- 1457 vitest cases (one environmental root-skip): 1087 server across 58 files and 370 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

@@ -18,17 +18,19 @@ export function usage(): string {
   return [
     'Usage: npm run repair:runs -- [--apply] [--dry-run] [--root DIR]',
     '',
-    'Tightens cutover run directories left by an older deploy/cutover-vps.sh.',
+    'Tightens the cutover root and run directories left by an older deploy/cutover-vps.sh.',
     'Dry run by default; nothing changes without --apply.',
     '',
-    '  --apply      chmod the runs directory and each run directory to 0700',
+    '  --apply      chmod the cutover root, runs directory, and each run directory',
+    '               to 0700',
     '  --dry-run    preview only (the default; useful after --apply)',
     '  --root DIR   cutover root to scan (default: $HOME/.aps-cutover)',
     '  --help, -h   show this text',
     '',
-    'Only <root>/runs is scanned, one level deep: the runs/ directory and each',
-    'direct run directory. It never follows symlinks, deletes anything, descends',
-    'into dist/ or backup/, reads run contents, or touches upgrades/.',
+    'Only <root> and <root>/runs are scanned, one level deep: the cutover root,',
+    'the runs/ directory, and each direct run directory.',
+    'It never follows symlinks, deletes anything, descends into dist/ or backup/,',
+    'reads run contents, or touches upgrades/ or the latest symlink.',
   ].join('\n');
 }
 
@@ -58,6 +60,13 @@ export function parseArgs(argv: string[]): CliOptions {
   }
 
   return options;
+}
+
+function unsafeRoot(root: string): string | null {
+  const resolved = path.resolve(root);
+  if (resolved === path.resolve(os.homedir())) return 'refusing to chmod the home directory';
+  if (path.parse(resolved).root === resolved) return 'refusing to chmod the filesystem root';
+  return null;
 }
 
 function printResult(result: RunRepairResult, apply: boolean): void {
@@ -104,9 +113,16 @@ export function main(argv: string[] = process.argv.slice(2), deps: RunRepairDeps
     return 0;
   }
 
+  const unsafe = unsafeRoot(options.root);
+  if (unsafe !== null) {
+    console.error(`${unsafe}: ${options.root}`);
+    console.error(usage());
+    return 1;
+  }
+
   const result = repairRunPermissions(options.root, { apply: options.apply, ...deps });
   if (result.rootMissing) {
-    console.log(`nothing to tighten: ${path.join(options.root, 'runs')} does not exist`);
+    console.log(`nothing to tighten: ${options.root} does not exist`);
     return 0;
   }
 

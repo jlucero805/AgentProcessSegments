@@ -18,7 +18,7 @@ export interface RunRepairResult {
   private: number;
   skipped: number;
   failed: number;
-  /** True when the cutover root has no `runs/` directory at all. */
+  /** True when the cutover root itself is absent. */
   rootMissing: boolean;
 }
 
@@ -163,10 +163,10 @@ function result(ctx: Context, rootMissing: boolean): RunRepairResult {
 }
 
 /**
- * Tighten the cutover run directories left by an older
- * `deploy/cutover-vps.sh` (D94). Only `<cutoverRoot>/runs` and its direct
- * run directories are considered. This never follows symlinks, deletes
- * anything, reads run contents, or descends into `dist/` or `backup/`.
+ * Tighten the shared cutover root and run directories left by an older
+ * `deploy/cutover-vps.sh` (D94). Only `<cutoverRoot>` and its `runs/`
+ * subtree are considered. This never follows symlinks, deletes anything,
+ * reads run contents, or descends into `dist/` or `backup/`.
  */
 export function repairRunPermissions(
   cutoverRoot: string,
@@ -182,13 +182,36 @@ export function repairRunPermissions(
     chmod: options.chmod ?? chmodSync,
     seen: new Set<string>(),
   };
-  const runs = path.join(path.resolve(cutoverRoot), 'runs');
+  const root = path.resolve(cutoverRoot);
+  const runs = path.join(root, 'runs');
+
+  let sharedStat: Stats;
+  try {
+    sharedStat = lstatSync(root);
+  } catch (error) {
+    if (isMissing(error)) return result(ctx, true);
+    addError(ctx, root, error);
+    return result(ctx, false);
+  }
+
+  if (sharedStat.isSymbolicLink()) {
+    addError(ctx, root, new Error('is a symbolic link'));
+    return result(ctx, false);
+  }
+  if (!sharedStat.isDirectory()) {
+    addError(ctx, root, new Error('not a directory'));
+    return result(ctx, false);
+  }
+
+  // Tighten the shared container first; it hides the run/upgrade names and
+  // the `latest` target even while the child directories are still loose.
+  consider(ctx, root, sharedStat.mode);
 
   let rootStat: Stats;
   try {
     rootStat = lstatSync(runs);
   } catch (error) {
-    if (isMissing(error)) return result(ctx, true);
+    if (isMissing(error)) return result(ctx, false);
     addError(ctx, runs, error);
     return result(ctx, false);
   }

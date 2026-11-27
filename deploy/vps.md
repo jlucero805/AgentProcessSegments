@@ -449,11 +449,13 @@ npm run repair:upgrades              # preview
 npm run repair:upgrades -- --apply   # tighten old upgrade run dirs and snapshots
 ```
 
-The command scans only `~/.aps-cutover/upgrades`. It sets the `upgrades` directory and
-each direct run directory to `0700`, and each top-level `db-backup.sqlite` to `0600`. It
-never follows symlinks, deletes anything, opens the database, changes snapshot contents,
-or touches `~/.aps-cutover/runs` (cutover evidence is repaired separately with
-`npm run repair:runs`).
+The command scans the shared `~/.aps-cutover` root and `~/.aps-cutover/upgrades`. It sets
+the root, the `upgrades` directory, and each direct run directory to `0700`, and each
+top-level `db-backup.sqlite` to `0600`. It never follows symlinks, deletes anything, opens
+the database, changes snapshot contents, chmods the `latest` symlink, or touches
+`~/.aps-cutover/runs` (cutover evidence is repaired separately with `npm run repair:runs`).
+The root is tightened first, so its run/upgrade names and the `latest` target stop being
+listable by other local accounts.
 
 Notes:
 
@@ -621,7 +623,7 @@ that unit if it is still present.
 Each real cutover creates (or tightens) its run directory under `~/.aps-cutover/runs/` to
 `0700`, so the evidence, `cutover.log`, `state`, and the `backup/` rollback copy stay
 owner-only. A missing `~/.aps-cutover` or `~/.aps-cutover/runs` ancestor is created `0700`
-too; an existing ancestor is left alone.
+too; an existing shared root is not silently chmodded during the run.
 
 Run directories left by an older version have not been tightened. After updating to a
 build with the owner-only mode, repair them explicitly:
@@ -632,10 +634,12 @@ npm run repair:runs              # preview
 npm run repair:runs -- --apply   # tighten old cutover run dirs
 ```
 
-The command scans only `~/.aps-cutover/runs`. It sets the `runs` directory and each direct
-run directory to `0700`. It never follows symlinks, deletes anything, descends into
-`dist/` or `backup/`, reads or changes run contents, or touches `~/.aps-cutover` itself,
-the `latest` symlink, or `~/.aps-cutover/upgrades`.
+The command scans the shared `~/.aps-cutover` root and `~/.aps-cutover/runs`. It sets the
+root, the `runs` directory, and each direct run directory to `0700`. It never follows
+symlinks, deletes anything, descends into `dist/` or `backup/`, reads or changes run
+contents, chmods the `latest` symlink, or touches `~/.aps-cutover/upgrades`. The root is
+tightened first, so its run/upgrade names and the `latest` target stop being listable by
+other local accounts.
 
 After it finishes, verify the new unit and paths:
 

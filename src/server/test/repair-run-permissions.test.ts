@@ -132,11 +132,12 @@ describe('repair-run-permissions preview', () => {
     const result = repairRunPermissions(fixture.root, { apply: false });
 
     expect(result.rootMissing).toBe(false);
-    expect(result.tightened).toBe(4);
+    expect(result.tightened).toBe(5);
     expect(result.private).toBe(1);
     expect(result.skipped).toBe(2);
     expect(result.failed).toBe(0);
 
+    expect(modeOf(fixture.root)).toBe(0o755);
     expect(modeOf(fixture.runs)).toBe(0o755);
     expect(modeOf(fixture.loose)).toBe(0o755);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
@@ -168,6 +169,7 @@ describe('repair-run-permissions apply', () => {
 
     expect(main(['--root', fixture.root, '--apply'])).toBe(0);
 
+    expect(modeOf(fixture.root)).toBe(0o700);
     expect(modeOf(fixture.runs)).toBe(0o700);
     expect(modeOf(fixture.loose)).toBe(0o700);
     expect(modeOf(fixture.privateRun)).toBe(0o700);
@@ -186,8 +188,7 @@ describe('repair-run-permissions apply', () => {
     expect(modeOf(path.join(fixture.loose, 'backup', 'systemd', 'unit'))).toBe(0o644);
     expect(modeOf(fixture.notes)).toBe(0o644);
 
-    // The shared root, the latest symlink, and the upgrade tree are out of scope.
-    expect(modeOf(fixture.root)).toBe(0o755);
+    // The latest symlink, the upgrade tree, and the files above are out of scope.
     expect(modeOf(fixture.upgrades)).toBe(0o755);
     expect(modeOf(fixture.upgradeRun)).toBe(0o755);
     expect(modeOf(path.join(fixture.upgradeRun, 'db-backup.sqlite'))).toBe(0o644);
@@ -211,7 +212,7 @@ describe('repair-run-permissions apply', () => {
 
     expect(result.tightened).toBe(0);
     expect(result.failed).toBe(0);
-    expect(result.private).toBe(5);
+    expect(result.private).toBe(6);
     expect(result.skipped).toBe(2);
     expect(calls).toBe(0);
   });
@@ -262,7 +263,7 @@ describe('repair-run-permissions apply', () => {
     expect(result.failed).toBe(0);
     expect(result.tightened).toBe(0);
     expect(result.private).toBe(1);
-    expect(result.skipped).toBe(6);
+    expect(result.skipped).toBe(7);
     expect(modeOf(fixture.loose)).toBe(0o755);
 
     silenceConsole();
@@ -271,8 +272,8 @@ describe('repair-run-permissions apply', () => {
 });
 
 describe('repair-run-permissions edge cases', () => {
-  it('reports a missing runs tree as nothing to tighten', () => {
-    const root = tmpDir('repair-runs-missing');
+  it('reports a missing cutover root as nothing to tighten', () => {
+    const root = path.join(tmpDir('repair-runs-missing'), 'absent');
     const lines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
       lines.push(String(line));
@@ -284,7 +285,62 @@ describe('repair-run-permissions edge cases', () => {
     expect(result.entries).toEqual([]);
     expect(main(['--root', root])).toBe(0);
     expect(lines.some((line) => line.includes('nothing to tighten'))).toBe(true);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  posixIt('tightens the root when only the runs tree is missing', () => {
+    const root = tmpDir('repair-runs-no-tree');
+    chmodSync(root, 0o755);
+    silenceConsole();
+
+    const preview = repairRunPermissions(root, { apply: false });
+    expect(preview.rootMissing).toBe(false);
+    expect(preview.tightened).toBe(1);
+    expect(preview.entries.map((entry) => entry.path)).toEqual([root]);
+    expect(modeOf(root)).toBe(0o755);
+
+    expect(main(['--root', root, '--apply'])).toBe(0);
+    expect(modeOf(root)).toBe(0o700);
     expect(existsSync(path.join(root, 'runs'))).toBe(false);
+  });
+
+  posixIt('refuses a symlinked cutover root without following it', () => {
+    const parent = tmpDir('repair-runs-root-link');
+    const outside = path.join(parent, 'outside');
+    dir(outside, 0o755);
+    const root = path.join(parent, 'root');
+    symlinkSync(outside, root, 'dir');
+    silenceConsole();
+
+    const result = repairRunPermissions(root, { apply: true });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0]?.detail).toBe('is a symbolic link');
+    expect(modeOf(outside)).toBe(0o755);
+    expect(main(['--root', root, '--apply'])).toBe(1);
+  });
+
+  it('fails when the cutover root is not a directory', () => {
+    const root = path.join(tmpDir('repair-runs-root-file'), 'root');
+    file(root);
+    silenceConsole();
+
+    const result = repairRunPermissions(root, { apply: false });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries[0]?.detail).toBe('not a directory');
+    expect(main(['--root', root])).toBe(1);
+  });
+
+  it('refuses the home directory and the filesystem root as --root', () => {
+    silenceConsole();
+    const chmod = vi.fn();
+
+    expect(main(['--root', os.homedir(), '--apply'], { chmod })).toBe(1);
+    expect(main(['--root', path.parse(process.cwd()).root, '--apply'], { chmod })).toBe(1);
+    expect(chmod).not.toHaveBeenCalled();
   });
 
   it('fails when runs is not a directory', () => {
@@ -310,6 +366,7 @@ describe('repair-run-permissions edge cases', () => {
 
     expect(result.rootMissing).toBe(false);
     expect(result.failed).toBe(1);
+    expect(modeOf(root)).toBe(0o700);
     expect(modeOf(outside)).toBe(0o755);
     expect(main(['--root', root, '--apply'])).toBe(1);
   });

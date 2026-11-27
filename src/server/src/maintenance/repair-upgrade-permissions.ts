@@ -22,7 +22,7 @@ export interface UpgradeRepairResult {
   private: number;
   skipped: number;
   failed: number;
-  /** True when the cutover root has no `upgrades/` directory at all. */
+  /** True when the cutover root itself is absent. */
   rootMissing: boolean;
 }
 
@@ -173,10 +173,10 @@ function result(ctx: Context, rootMissing: boolean): UpgradeRepairResult {
 }
 
 /**
- * Tighten the upgrade run directories and snapshots left by an older
- * `deploy/upgrade-vps.sh` (D86). Only `<cutoverRoot>/upgrades`, its direct run
- * directories, and their top-level `db-backup.sqlite` are considered. This
- * never follows symlinks, deletes anything, or opens the database.
+ * Tighten the shared cutover root, upgrade run directories, and snapshots left
+ * by an older `deploy/upgrade-vps.sh` (D86). Only `<cutoverRoot>` and its
+ * `upgrades/` subtree are considered. This never follows symlinks, deletes
+ * anything, or opens the database.
  */
 export function repairUpgradePermissions(
   cutoverRoot: string,
@@ -192,13 +192,36 @@ export function repairUpgradePermissions(
     chmod: options.chmod ?? chmodSync,
     seen: new Set<string>(),
   };
-  const upgrades = path.join(path.resolve(cutoverRoot), 'upgrades');
+  const root = path.resolve(cutoverRoot);
+  const upgrades = path.join(root, 'upgrades');
+
+  let sharedStat: Stats;
+  try {
+    sharedStat = lstatSync(root);
+  } catch (error) {
+    if (isMissing(error)) return result(ctx, true);
+    addError(ctx, root, 'dir', error);
+    return result(ctx, false);
+  }
+
+  if (sharedStat.isSymbolicLink()) {
+    addError(ctx, root, 'dir', new Error('is a symbolic link'));
+    return result(ctx, false);
+  }
+  if (!sharedStat.isDirectory()) {
+    addError(ctx, root, 'dir', new Error('not a directory'));
+    return result(ctx, false);
+  }
+
+  // Tighten the shared container first; it hides the run/upgrade names and
+  // the `latest` target even while the child directories are still loose.
+  consider(ctx, root, 'dir', sharedStat.mode);
 
   let rootStat: Stats;
   try {
     rootStat = lstatSync(upgrades);
   } catch (error) {
-    if (isMissing(error)) return result(ctx, true);
+    if (isMissing(error)) return result(ctx, false);
     addError(ctx, upgrades, 'dir', error);
     return result(ctx, false);
   }

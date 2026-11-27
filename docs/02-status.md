@@ -606,7 +606,10 @@ built and vended by the brain; real-CLI verification is still pending.
   green light, 1 means a classic token is missing `workflow` or `repo`/`public_repo`, 2
   means it could not be classified) and follow invariant 47 instead of using a deploy key.
   If the scope is missing, run `npm run grant:github-scope` from an interactive terminal;
-  it wraps the refresh and, outside a TTY, prints the command instead of blocking.
+  it wraps the refresh and, outside a TTY, prints the command instead of blocking. A
+  non-interactive caller can add `--device-code-file <path>` to start the refresh as a
+  detached child: the helper writes the 0600 code/URL handoff, exits 3 while approval is
+  pending, and the result is verified later with `npm run check:github-scope`.
 
 ## Deviations from the spec
 

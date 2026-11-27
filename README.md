@@ -934,4 +934,7 @@ light, exit 1 means a classic token is missing `workflow` or `repo`/`public_repo
 remediation instead of working around the rejection with a deploy key. If the scope is
 missing, run `npm run grant:github-scope` from an interactive terminal; it wraps
 `gh auth refresh` and re-verifies, and outside a TTY it prints the operator command and
-exits 1 instead of blocking on the device-flow approval.
+exits 1 instead of blocking on the device-flow approval. From a non-interactive shell,
+add `--device-code-file <path>` to start the same flow as a detached child: the helper
+writes the one-time code and URL to a 0600 JSON file plus a log and exits 3 while
+approval is pending, then `npm run check:github-scope` verifies the credential.

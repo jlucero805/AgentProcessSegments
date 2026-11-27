@@ -2507,31 +2507,32 @@ unauthenticated deliveries until it is fixed. Code copied from the old example's
 helper must move to V2. There is no data or config migration. `X-APS-Timestamp` remains an
 unsigned informational header; removing it is separate.
 
-## D106. The all-cells scorecard view loads one grouped feed
+## D106. The all-cells scorecard view loads one latest-per-cell feed
 
 **Context.** D92 gave the Scorecards page generation-time filters and keyset paging, but
 the all-cells view still fetched one `GET /api/summaries` page per cell. With N cells a
 single load, Refresh, or period change made N summaries requests plus the cell list and
-status, and each request repeated the same filter and sort. The page only needs the
-newest reports per cell for its first page; older pages are already per-cell keyset
-requests.
+status. The page only needs each cell's newest report for its first render; older pages
+are already per-cell keyset requests. A grouped variant that returned 25 reports per cell
+would remove the request fan-out but keep the same multi-megabyte payload.
 
-**Decision.** Add an additive `GET /api/summaries/grouped[?limit=…&since=…]` returning
-`{ groups: [{ cellId, reports, hasMore }] }`. `limit` is per cell, validated 1..50 and
-defaulting to 10; `since` is the same inclusive generation-time bound as the existing
-list route. `SummaryRepository.grouped()` ranks in-range rows per cell with
-`ROW_NUMBER() OVER (PARTITION BY cell_id ORDER BY created_at DESC, id DESC)`, fetches
-`limit + 1` per cell, and trims the probe row to set `hasMore`. Groups follow their
-newest report (`created_at DESC, id DESC`), and cells with no in-range reports are
-omitted. The route returns `cellId` rather than a `CellDetail`; the page already loads
-the cell list and maps names there. The all-cells view now calls this endpoint once and
-keeps its existing sort defensively, while the focused-cell view and per-card **Load
-older** stay on `/api/summaries` with the D92 keyset. `GET /api/summaries` and its bare
-array contract are unchanged for `MasterDetail` and other callers.
+**Decision.** Add an additive `GET /api/summaries/latest-per-cell[?since=…]` returning
+`[{ cell: { id, name }, summary, hasOlder }]`. `since` is the same inclusive
+generation-time bound as the existing list route. `SummaryRepository.latestPerCell()`
+ranks in-range rows per cell with
+`ROW_NUMBER() OVER (PARTITION BY cell_id ORDER BY created_at DESC, id DESC)`, keeps the
+first two, and returns the first as `summary` with `hasOlder` set when the second exists.
+Groups follow their newest report, so the response is already newest-first. The route
+joins `cells.list()` to add the cell name and drops a summary whose cell no longer
+exists. The all-cells view makes this one feed request plus the status request, does not
+fetch `/api/cells`, and does not request per-cell summaries until the operator presses
+**Load older**. That button still pages the selected cell through `/api/summaries` with
+the D92 keyset. The focused-cell view and `GET /api/summaries` / `/api/summaries/latest`
+are unchanged for `MasterDetail` and other callers.
 
-**Cost.** The grouped query scans and ranks the in-range rows once instead of running N
-indexed queries, and one response can carry the same bytes the fan-out did, so a board
-with many cells and 25 reports each still returns a multi-megabyte payload. There is no
-migration or new index: `since` uses `idx_cell_summaries_created` and retention bounds
-the scanned rows. Grouped paging beyond the first page, caching the cell list, and
-reducing the focused view's requests remain separate work.
+**Cost.** The feed scans and ranks the in-range rows once, and its response carries one
+report per cell instead of 25, so the initial payload no longer grows with history depth.
+Older history is fetched only for the card an operator opens. There is no migration or new
+index: `since` uses `idx_cell_summaries_created` and retention bounds the scanned rows;
+equal-`created_at` ties may sort in memory. `SummaryScheduler.status()` still computes one
+`latest()` per cell internally; replacing that with the grouped query is separate work.

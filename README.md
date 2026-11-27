@@ -111,8 +111,8 @@ prompts, scorecard, activity, and chat. The **Usage** page totals tokens and cos
 model, cell, and request, and the **Scorecards** page collects each cell’s persisted
 reports with its earlier history. The page defaults to reports generated in the last 72
 hours and can widen to 24 hours, 7 days, 30 days, or all retained history; **All cells**
-loads the newest reports per cell in one grouped request, and **Load older** pages through
-each cell’s history within the selected period.
+loads each cell’s latest report in one latest-per-cell request, and **Load older** pages
+through each cell’s history within the selected period.
 
 These screenshots use a staged demo board in an isolated temp database, not live data.
 Regenerate them against the built SPA with the optional Puppeteer tool:
@@ -679,7 +679,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1327 vitest cases: 1019 server cases across 56 files (state machine,
+`npm test` runs 1326 vitest cases: 1019 server cases across 56 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -695,7 +695,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 308 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 307 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat queue claim, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links and
 Help anchors, the source link, board,

@@ -400,7 +400,9 @@ npm run repair:runs -- --apply          # tighten old cutover run dirs and root
 The command only tightens the known `requests/` artifacts (`requests/`, each session
 dir, `cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
 `opencode/opencode.json`). It never rewrites transcripts, never recurses into `cwd/`
-checkouts, and is safe while the brain runs.
+checkouts, and is safe while the brain runs. All three commands below share one
+implementation and the same dry-run/`--apply` contract; they differ only in the tree
+they scan.
 
 Upgrade run directories and snapshots from an older version are repaired the same way:
 `npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets
@@ -709,7 +711,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1456 vitest cases: 1084 server cases across 58 files (state machine,
+`npm test` runs 1457 vitest cases: 1085 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

@@ -2,18 +2,19 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readFileSync,
+  readdirSync,
   statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tmpDir } from './tmp.js';
-import {
-  formatMode,
-  repairPermissions,
-} from '../src/maintenance/repair-permissions.js';
+import { formatMode } from '../src/maintenance/permission-repair.js';
+import { repairPermissions } from '../src/maintenance/repair-permissions.js';
 import { main, parseArgs, usage } from '../src/maintenance/repair-permissions-cli.js';
 
 const posixIt = it.skipIf(process.platform === 'win32');
@@ -285,5 +286,39 @@ describe('repair-permissions edge cases', () => {
     expect(result.skipped).toBeGreaterThan(0);
     silenceConsole();
     expect(main(['--data-dir', fixture.data, '--apply'], { chmod })).toBe(0);
+  });
+});
+
+describe('repair-permissions shared engine', () => {
+  const maintenanceDir = path.resolve(
+    fileURLToPath(new URL('../src/maintenance/', import.meta.url)),
+  );
+
+  function source(file: string): string {
+    return readFileSync(path.join(maintenanceDir, file), 'utf8');
+  }
+
+  it('keeps chmod and the repair CLI core in the shared modules', () => {
+    const files = readdirSync(maintenanceDir).filter((file) => file.endsWith('.ts'));
+    const chmodOwners = files.filter(
+      (file) => file !== 'permission-repair.ts' && source(file).includes('chmodSync'),
+    );
+    expect(chmodOwners).toEqual([]);
+
+    for (const engine of [
+      'repair-permissions.ts',
+      'repair-upgrade-permissions.ts',
+      'repair-run-permissions.ts',
+    ]) {
+      expect(source(engine)).toContain('new PermissionRepair(');
+    }
+
+    for (const cli of [
+      'repair-permissions-cli.ts',
+      'repair-upgrade-permissions-cli.ts',
+      'repair-run-permissions-cli.ts',
+    ]) {
+      expect(source(cli)).toContain("from './repair-cli.js'");
+    }
   });
 });

@@ -168,7 +168,9 @@ tightened with `npm run repair:upgrades` (dry run first), which scans only
 `~/.aps-cutover/upgrades` and never follows symlinks. Cutover evidence is repaired
 separately with `npm run repair:runs` (dry run first), which tightens the shared
 `~/.aps-cutover` root plus `~/.aps-cutover/runs`, one level deep, and never descends into
-`dist/` or `backup/`.
+`dist/` or `backup/`. All three repairs are thin entry points over one engine and CLI
+core, so the owner-only modes, `ENOENT`-as-skip rule, dry-run accounting, and exit codes
+cannot drift; each keeps its own tree and root rule.
 Maintenance paths that must not
 migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair by default without schema or
@@ -953,7 +955,8 @@ defaults.
   artifacts and never recurses into `cwd/` checkouts. Upgrade run directories and
   snapshots are repaired separately with `npm run repair:upgrades` (dry run first), and
   cutover run directories and the shared `~/.aps-cutover` root with
-  `npm run repair:runs` (dry run first).
+  `npm run repair:runs` (dry run first). All three share one engine and CLI core; only
+  the tree and the root-symlink rule differ.
   Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
   below. An existing legacy

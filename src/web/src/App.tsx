@@ -13,7 +13,7 @@ import { ScorecardsPage } from './ScorecardsPage';
 import { SkillsPage } from './SkillsPage';
 import { UsagePage } from './UsagePage';
 import { api, describeError } from './api';
-import { REPO_URL } from './links';
+import { GETTING_STARTED_HELP, REPO_URL } from './links';
 import { mergeSlashCommands } from './slash';
 import type { CellDetail, CommandInfo } from './types';
 import { Button, cn } from './ui';
@@ -252,7 +252,7 @@ export function App() {
   };
 
   const openHelp = () => {
-    setHelpSlug((current) => current ?? 'getting-started');
+    setHelpSlug((current) => current ?? GETTING_STARTED_HELP.slug);
     setHelpAnchor(null);
     setNavOpen(false);
   };

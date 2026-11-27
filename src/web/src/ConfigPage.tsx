@@ -2016,10 +2016,7 @@ export function ConfigPage({
           <code className="text-zinc-500">X-APS-Signature-V2</code> header. Slack and Discord
           incoming webhooks accept the text-only format and ignore the signature header. See{' '}
           <a
-            href={helpHref(
-              VERIFY_WEBHOOK_SIGNATURES_HELP.slug,
-              VERIFY_WEBHOOK_SIGNATURES_HELP.anchor,
-            )}
+            href={helpHref(VERIFY_WEBHOOK_SIGNATURES_HELP)}
             className="font-medium text-blue-400 underline decoration-blue-900 underline-offset-2 hover:text-blue-300"
             onClick={(event) => {
               if (!onOpenHelp) return;

@@ -11,6 +11,7 @@ import {
   textFromChildren,
 } from './docs';
 import type { DocContent, DocPage } from './types';
+import { GETTING_STARTED_HELP, helpHref } from './links';
 import { MermaidDiagram } from './MermaidDiagram';
 import { mermaidSource } from './mermaid';
 import { Button, Spinner, cn } from './ui';
@@ -411,11 +412,11 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
               <h2 className="text-lg font-semibold text-zinc-100">Could not load this page</h2>
               <p className="mt-2 text-sm text-zinc-400">The docs API did not return this article.</p>
               <a
-                href="?help=getting-started"
+                href={helpHref(GETTING_STARTED_HELP)}
                 className="mt-4 inline-flex rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
                 onClick={(event) => {
                   event.preventDefault();
-                  select('getting-started');
+                  select(GETTING_STARTED_HELP.slug);
                 }}
               >
                 Back to Getting started
@@ -429,11 +430,11 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
                 No documentation page matches <code>{slug}</code>.
               </p>
               <a
-                href="?help=getting-started"
+                href={helpHref(GETTING_STARTED_HELP)}
                 className="mt-4 inline-flex rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
                 onClick={(event) => {
                   event.preventDefault();
-                  select('getting-started');
+                  select(GETTING_STARTED_HELP.slug);
                 }}
               >
                 Back to Getting started

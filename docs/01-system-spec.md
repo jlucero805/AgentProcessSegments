@@ -1161,7 +1161,7 @@ npm ci --include=dev        # workspaces; survives inherited NODE_ENV=production
 npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for server src + tests + vitest config and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
-npm run check:docs          # local Markdown links, images, Help anchors, and manifest pages
+npm run check:docs          # local Markdown links, images, Help anchors, manifest pages, and SPA Help targets
 npm run lint                # eslint; bash -n + shellcheck; actionlint; unit verify + sandbox + security; markdownlint
 npm run probe:sandbox       # manual live sandbox probe; needs systemd, a user manager, and an agent CLI
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js

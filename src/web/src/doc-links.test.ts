@@ -100,6 +100,57 @@ function makeHelpFixture(): string {
   );
   return root;
 }
+
+const ASSET_FIXTURE_MANIFEST = [
+  { slug: 'served-assets', source: 'docs/served-assets.md' },
+] as const;
+
+function makeAssetFixture(): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-help-assets-'));
+  tempRoots.push(root);
+  mkdirSync(path.join(root, 'docs', 'screenshots', 'sub'), { recursive: true });
+  mkdirSync(path.join(root, 'docs', 'screenshots', 'other', 'screenshots'), { recursive: true });
+  mkdirSync(path.join(root, 'docs', 'other', 'screenshots'), { recursive: true });
+  writeFileSync(path.join(root, 'docs', 'shot.png'), '');
+  writeFileSync(path.join(root, 'docs', 'data.json'), '{}\n');
+  writeFileSync(path.join(root, 'docs', 'screenshots', 'board.png'), '');
+  writeFileSync(path.join(root, 'docs', 'screenshots', 'sub', 'deep.svg'), '<svg/>\n');
+  writeFileSync(path.join(root, 'docs', 'screenshots', 'notes.txt'), 'notes\n');
+  writeFileSync(path.join(root, 'docs', 'screenshots', 'other', 'screenshots', 'board.png'), '');
+  writeFileSync(path.join(root, 'docs', 'other', 'screenshots', 'board.png'), '');
+  writeFileSync(
+    path.join(root, 'docs', 'served-assets.md'),
+    [
+      '# Asset page',
+      '',
+      '![ok](screenshots/board.png)',
+      '<img src="screenshots/board.png" alt="html shot">',
+      '[asset link](screenshots/board.png)',
+      '![nested](screenshots/sub/deep.svg)',
+      '![external](https://example.com/x.png)',
+      '![protocol](//cdn.example.com/x.png)',
+      '![data](data:image/png;base64,AAAA)',
+      '![outside](shot.png)',
+      '[data file](data.json)',
+      '![text](screenshots/notes.txt)',
+      '![directory](screenshots/sub)',
+      '![other](other/screenshots/board.png)',
+      '![missing](screenshots/missing.png)',
+      '![fragment](screenshots/board.png#top)',
+      '![nested marker](screenshots/other/screenshots/board.png)',
+      '![help image](?help=served-assets)',
+      '[help link](?help=served-assets)',
+      '',
+      '## Heading',
+    ].join('\n'),
+  );
+  writeFileSync(
+    path.join(root, 'docs', 'internal-assets.md'),
+    ['![bad text](screenshots/notes.txt)', '[bad data](data.json)'].join('\n'),
+  );
+  return root;
+}
+
 describe('documents links and anchors', () => {
   it('extracts inline links, images, references, HTML, and skips code', () => {
     const markdown = [
@@ -120,8 +171,8 @@ describe('documents links and anchors', () => {
       { line: 2, target: 'docs/screenshots/board.png', kind: 'image' },
       { line: 3, target: 'docs/with space.md', kind: 'link' },
       { line: 5, target: 'docs/ref.md', kind: 'reference' },
-      { line: 6, target: 'docs/html.md', kind: 'html' },
-      { line: 6, target: 'docs/html.png', kind: 'html' },
+      { line: 6, target: 'docs/html.md', kind: 'html', tag: 'a' },
+      { line: 6, target: 'docs/html.png', kind: 'html', tag: 'img' },
     ]);
     expect(undefinedReferenceLabels(markdown)).toEqual([]);
   });
@@ -265,6 +316,77 @@ describe('Help-served links and the manifest', () => {
         reason: 'no heading with id "missing"',
       },
     ]);
+  });
+
+  it('checks served images and non-Markdown targets against Help assets', () => {
+    const root = makeAssetFixture();
+    const problems = checkHelpLinks(root, ASSET_FIXTURE_MANIFEST);
+
+    expect(problems).toEqual([
+      {
+        file: 'docs/served-assets.md',
+        line: 10,
+        target: 'shot.png',
+        reason: 'Help does not serve local file "docs/shot.png"; use an absolute URL or inline code',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 11,
+        target: 'data.json',
+        reason:
+          'Help does not serve local file "docs/data.json"; use an absolute URL or inline code',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 12,
+        target: 'screenshots/notes.txt',
+        reason: 'Help does not serve ".txt" screenshot files',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 13,
+        target: 'screenshots/sub',
+        reason: 'Help asset "docs/screenshots/sub" is not a file',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 14,
+        target: 'other/screenshots/board.png',
+        reason:
+          'Help does not serve local file "docs/other/screenshots/board.png"; use an absolute URL or inline code',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 17,
+        target: 'screenshots/other/screenshots/board.png',
+        reason:
+          'Help maps this target to "/api/docs/assets/board.png", not "/api/docs/assets/other/screenshots/board.png"',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 18,
+        target: '?help=served-assets',
+        reason: 'Help does not serve the image target "?help=served-assets"',
+      },
+    ]);
+
+    // Missing files and fragments on non-Markdown targets stay checkDocLinks' findings.
+    expect(checkDocLinks(root)).toEqual([
+      {
+        file: 'docs/served-assets.md',
+        line: 15,
+        target: 'screenshots/missing.png',
+        reason: 'missing file',
+      },
+      {
+        file: 'docs/served-assets.md',
+        line: 16,
+        target: 'screenshots/board.png#top',
+        reason: 'fragment target is not Markdown',
+      },
+    ]);
+
+    expect(problems.some((entry) => entry.file === 'docs/internal-assets.md')).toBe(false);
   });
 
   it('ignores ?help targets on internal-only pages', () => {

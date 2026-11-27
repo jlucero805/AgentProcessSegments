@@ -2383,7 +2383,8 @@ runs that one file.
 rather than `npm run lint` because it reuses the app's TypeScript slugger: a standalone
 `.mjs` lint step would need either a duplicate slug implementation or native TypeScript
 imports, which the documented Node 22.13 floor does not guarantee. Manifest-aware checks
-landed later in D113; external-link checks remain separate work.
+landed later in D113, and image/non-Markdown target checks in D124; external-link checks
+remain separate work.
 
 ## D100. An opt-in heartbeat file covers a brain whose port is unreachable
 
@@ -2778,8 +2779,8 @@ code or absolute GitHub URLs. Runtime behavior is unchanged: the service still f
 missing sources and returns an empty list when `docs/` is absent.
 
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
-file. Images, non-Markdown local targets, and external URLs stay separate checks;
-SPA-authored Help links landed in D123.
+file. Images and non-Markdown local targets landed in D124, SPA-authored Help links in
+D123, and external URLs stay separate checks.
 
 ## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
 
@@ -3121,4 +3122,28 @@ validates.
 **Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
 runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
 parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
-of scope. External URLs and image/non-Markdown targets stay separate checks.
+of scope. External URLs stay separate checks; image/non-Markdown targets landed in D124.
+
+## D124. Help-served pages may only reference screenshots and Markdown
+
+**Context.** D99 checks that an image or local file target exists, and D113 checks Markdown
+targets against the manifest. Help only renders Markdown pages and files under
+`docs/screenshots/**` with a fixed MIME list; `resolveDocImage` returns every other local
+path unchanged, so a served page could link `docs/data.json` or `docs/shot.png` and pass
+the gate while 404ing inside Help.
+
+**Decision.** `src/server/src/docs/assets.ts` is the single screenshot MIME table
+(`SCREENSHOT_TYPES`), imported by `DocsService.asset` and the web docs gate.
+`checkHelpLinks` validates images and non-Markdown local targets on every manifest-served
+page. A target passes only when it resolves to a regular `docs/screenshots/**` file with a
+supported extension and `resolveDocImage` produces exactly the asset URL for that
+repo-relative path, so a `screenshots/` segment cannot silently substitute a same-named
+file elsewhere. Every other existing local non-Markdown target fails; served pages use an
+absolute URL or inline code instead. External URLs, bare SPA queries, and fragments keep
+their existing owners, and `checkDocLinks` remains the only reporter for empty, missing,
+escaping, unreadable, and non-Markdown fragment problems. Raw `<a>` and `<img>` tags are
+distinguished (`DocLink.tag`) so an image is held to the image rewrite. Runtime behavior
+and `/api/docs` are unchanged.
+
+**Cost.** One pure module, one metadata field, the extended checker, and cases in the
+existing docs-gate test file. No new dependency, network access, or Help UI change.

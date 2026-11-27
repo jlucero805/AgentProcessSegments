@@ -1,6 +1,13 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { extractHeadings, helpSlugFromHref, resolveDocHref, slugForDocPath } from './docs';
+import { SCREENSHOT_TYPES } from '../../server/src/docs/assets';
+import {
+  extractHeadings,
+  helpSlugFromHref,
+  resolveDocHref,
+  resolveDocImage,
+  slugForDocPath,
+} from './docs';
 
 export interface DocLink {
   /** 1-based line in the file that contains the link. */
@@ -8,6 +15,8 @@ export interface DocLink {
   /** Raw destination text between the parentheses (or after a reference label). */
   target: string;
   kind: 'link' | 'image' | 'html' | 'reference';
+  /** Raw HTML tag for `kind: 'html'`, so image rules can separate `<img>` from `<a>`. */
+  tag?: 'a' | 'img';
 }
 
 export interface DocLinkProblem {
@@ -116,6 +125,7 @@ export function extractDocLinks(markdown: string): DocLink[] {
       line: lineAt(markdown, match.index ?? 0),
       target: match[3] ?? match[4] ?? '',
       kind: 'html',
+      tag: tag === 'a' ? 'a' : 'img',
     });
   }
 
@@ -319,6 +329,17 @@ export function checkDocLinks(root: string): DocLinkProblem[] {
 /** The only manifest authority; manifest problems have no line in that file. */
 const MANIFEST_FILE = 'src/server/src/docs/manifest.ts';
 const HELP_SLUG = /^[a-z0-9-]+$/;
+const SCREENSHOT_ROOT = 'docs/screenshots/';
+const ASSET_PREFIX = '/api/docs/assets/';
+
+/** The asset URL Help builds for a repo-relative screenshot path. */
+function screenshotAssetUrl(relative: string): string {
+  return `${ASSET_PREFIX}${relative
+    .slice(SCREENSHOT_ROOT.length)
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/')}`;
+}
 
 /** The manifest fields the Help link gate needs. */
 export interface HelpManifestEntry {
@@ -407,7 +428,9 @@ function helpTarget(raw: string): { slug: string; fragment: string | null } | nu
  * Help, so they may link anywhere in the repo. A served page may only point at
  * a manifest page (or a `?help=` slug that resolves to one), because Help
  * rewrites every local `*.md` link to `?help=<basename>` and the server 404s
- * anything the manifest does not list.
+ * anything the manifest does not list. Images and other local files must be
+ * served screenshots under `docs/screenshots/`; Help returns every other local
+ * non-Markdown path unchanged, which renders as a 404 or SPA fallback.
  */
 export function checkHelpLinks(
   root: string,
@@ -451,7 +474,6 @@ export function checkHelpLinks(
       continue;
     }
     for (const link of extractDocLinks(markdown)) {
-      if (link.kind === 'image') continue;
       const raw = link.target.trim();
       if (raw === '') continue; // checkDocLinks owns the empty target.
       const problem = (reason: string): DocLinkProblem => ({
@@ -460,41 +482,95 @@ export function checkHelpLinks(
         target: raw,
         reason,
       });
+      const isImage = link.kind === 'image' || link.tag === 'img';
 
-      const help = helpTarget(raw);
-      if (help !== null) {
-        const entry = entries.get(help.slug);
-        if (!entry) {
-          problems.push(problem(`Help has no page for slug "${help.slug}"`));
+      if (!isImage) {
+        const help = helpTarget(raw);
+        if (help !== null) {
+          const entry = entries.get(help.slug);
+          if (!entry) {
+            problems.push(problem(`Help has no page for slug "${help.slug}"`));
+            continue;
+          }
+          if (help.fragment !== null) {
+            const ids = headingIds(entry.source);
+            if (ids !== null && !ids.includes(help.fragment)) {
+              problems.push(
+                problem(`no heading with id "${help.fragment}" in Help page "${help.slug}"`),
+              );
+            }
+          }
           continue;
         }
-        if (help.fragment !== null) {
-          const ids = headingIds(entry.source);
-          if (ids !== null && !ids.includes(help.fragment)) {
-            problems.push(
-              problem(`no heading with id "${help.fragment}" in Help page "${help.slug}"`),
-            );
-          }
-        }
+      }
+
+      if (EXTERNAL.test(raw) || raw.startsWith('//')) continue;
+      if (raw.startsWith('?')) {
+        // Other bare queries are SPA-authored deep links, but an <img> cannot
+        // render one: Help only rewrites a screenshot path to the asset route.
+        if (isImage) problems.push(problem(`Help does not serve the image target "${raw}"`));
         continue;
       }
+      if (raw.startsWith('#')) continue; // checkDocLinks owns fragments.
 
       const resolution = resolveLinkTarget(absoluteRoot, absoluteFile, raw);
       if (resolution === null || 'error' in resolution) continue;
+
       const relative = resolution.target.relative;
+      const markdownLink = !isImage && /\.md$/i.test(relative);
+      if (resolution.target.fragment !== null && !markdownLink) continue;
+
       // Missing and escaping targets are checkDocLinks' findings.
       if (!existsSync(resolution.target.absolute)) continue;
-      const slug = helpSlugFromHref(resolveDocHref(raw));
-      if (slug === null) continue;
 
-      const entry = entries.get(slug);
-      if (!entry) {
-        problems.push(problem(`Help has no page for "${relative}" (slug "${slug}")`));
-      } else if (entry.source !== relative) {
-        problems.push(problem(`Help slug "${slug}" serves "${entry.source}", not "${relative}"`));
+      if (markdownLink) {
+        const slug = helpSlugFromHref(resolveDocHref(raw));
+        if (slug === null) continue;
+
+        const entry = entries.get(slug);
+        if (!entry) {
+          problems.push(problem(`Help has no page for "${relative}" (slug "${slug}")`));
+        } else if (entry.source !== relative) {
+          problems.push(
+            problem(`Help slug "${slug}" serves "${entry.source}", not "${relative}"`),
+          );
+        }
+        // Fragments on direct Markdown links are checkDocLinks' job: it already
+        // matches them against the same extractHeadings ids.
+        continue;
       }
-      // Fragments on direct Markdown links are checkDocLinks' job: it already
-      // matches them against the same extractHeadings ids.
+
+      if (!relative.startsWith(SCREENSHOT_ROOT)) {
+        problems.push(
+          problem(
+            `Help does not serve local file "${relative}"; use an absolute URL or inline code`,
+          ),
+        );
+        continue;
+      }
+
+      const expected = screenshotAssetUrl(relative);
+      const mapped = resolveDocImage(raw);
+      if (mapped !== expected) {
+        problems.push(problem(`Help maps this target to "${mapped}", not "${expected}"`));
+        continue;
+      }
+
+      let isFile = false;
+      try {
+        isFile = statSync(resolution.target.absolute).isFile();
+      } catch {
+        // Reported as not a file below; checkDocLinks owns unreadable targets.
+      }
+      if (!isFile) {
+        problems.push(problem(`Help asset "${relative}" is not a file`));
+        continue;
+      }
+
+      const extension = path.extname(relative).toLowerCase();
+      if (!Object.hasOwn(SCREENSHOT_TYPES, extension)) {
+        problems.push(problem(`Help does not serve "${extension}" screenshot files`));
+      }
     }
   }
 

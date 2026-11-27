@@ -718,7 +718,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1469 vitest cases: 1097 server cases across 59 files (state machine,
+`npm test` runs 1473 vitest cases: 1097 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -734,10 +734,10 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 372 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 376 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
-Help anchors, and manifest-aware served-page links, the source link, board,
+Help anchors, manifest-aware served-page links, and SPA Help targets, the source link, board,
 create modal, composer, cell bar, cell creation, config/process and pricing editor,
 budget and alert-delivery cards including chat bot routing, delivery history, and
 spend-cap overrides, budget banner, master detail and scorecard, the usage page and
@@ -806,7 +806,9 @@ external URLs. It also imports the Help manifest: a served page may link only a 
 page or a `?help=<slug>` target whose slug and anchor exist in
 `src/server/src/docs/manifest.ts`, and a manifest entry must have a unique lowercase
 slug, an existing Markdown source, and the slug the SPA derives from that source. The
-unit gate runs `systemd-analyze verify`, treats a diagnostic
+SPA's own Help targets are declared in `src/web/src/links.ts`; the same test checks each
+slug and anchor against the manifest source and rejects a hard-coded `?help=<slug>`
+elsewhere in the SPA. The unit gate runs `systemd-analyze verify`, treats a diagnostic
 naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
 values, asserts the reviewed sandboxing directives, and fails when the offline
 `systemd-analyze security` exposure exceeds 4.8. The reviewed set includes

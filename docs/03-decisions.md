@@ -2778,8 +2778,8 @@ code or absolute GitHub URLs. Runtime behavior is unchanged: the service still f
 missing sources and returns an empty list when `docs/` is absent.
 
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
-file. Images, non-Markdown local targets, SPA-authored Help links, and external URLs stay
-separate checks.
+file. Images, non-Markdown local targets, and external URLs stay separate checks;
+SPA-authored Help links landed in D123.
 
 ## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
 
@@ -3083,3 +3083,25 @@ Vitest case or file changes, so the guarded totals stay unchanged. It is manual 
 not in `npm test`, not in either CI workflow. The suite registry only supplies the
 workspace, labels, and argv; the process-group spawn and supervisor behavior are shared
 with web.
+
+## D123. SPA Help targets are checked against the manifest
+
+**Context.** D99 and D113 prove that Markdown links and Help-served pages resolve, but the
+SPA's own Help affordances are TypeScript constants and literals. A manifest rename or a
+typo in `src/web/src/links.ts` or `HelpPanel.tsx` turned a Help link into Help's "Page not
+found" without failing any gate.
+
+**Decision.** `src/web/src/links.ts` declares `HelpTarget` plus `GETTING_STARTED_HELP`,
+`VERIFY_WEBHOOK_SIGNATURES_HELP`, and the `SPA_HELP_TARGETS` registry; `helpHref` accepts a
+target so a slug and anchor cannot be paired by accident. `HelpPanel`, `App`, and
+`ConfigPage` use those constants. `src/web/src/doc-links.test.ts` iterates the registry,
+requires each slug to be a `HELP_MANIFEST` entry and each non-null anchor to be an
+`extractHeadings` id of that entry's source, checks the built `?help=` href, and scans
+non-test `src/web/src` files for a quoted `?help=<slug>` or bare Help slug. `docs.ts`
+keeps the README-to-`getting-started` path alias, which `manifestProblems` already
+validates.
+
+**Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
+runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
+parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
+of scope. External URLs and image/non-Markdown targets stay separate checks.

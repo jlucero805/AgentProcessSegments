@@ -237,6 +237,32 @@ describe('ProcessStore', () => {
     }
   });
 
+  it('reports the copy path created by the preserving save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    const original = '{not json\n';
+    writeFileSync(file, original);
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.preservedPath()).toBeNull();
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.preservedPath()).toBeNull();
+
+    const next = defaultProcess(DEFAULT_SETTINGS.master);
+    store.patch({ segments: next.segments });
+
+    const names = backupNames(file);
+    expect(names).toHaveLength(1);
+    const preserved = backupFile(file, names[0]!);
+    expect(store.preservedPath()).toBe(preserved);
+    expect(readFileSync(store.preservedPath()!, 'utf8')).toBe(original);
+
+    store.patch({ segments: next.segments });
+    expect(store.preservedPath()).toBe(preserved);
+    expect(backupNames(file)).toHaveLength(1);
+    warn.mockRestore();
+  });
+
   it('preserves a schema-invalid file before the first save', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = tempFile();
@@ -275,6 +301,7 @@ describe('ProcessStore', () => {
     store.patch({ segments: next.segments });
     store.patch({ segments: next.segments });
     expect(backupNames(missing)).toEqual([]);
+    expect(store.preservedPath()).toBeNull();
 
     const valid = tempFile('valid.json');
     writeFileSync(valid, JSON.stringify(next));
@@ -282,6 +309,7 @@ describe('ProcessStore', () => {
     expect(validStore.get()).toEqual(next);
     validStore.patch({ segments: next.segments });
     expect(backupNames(valid)).toEqual([]);
+    expect(validStore.preservedPath()).toBeNull();
   });
 
   it('does not preserve a file corrected after an invalid load', () => {
@@ -320,6 +348,7 @@ describe('ProcessStore', () => {
     });
     expect(statSync(file).isDirectory()).toBe(true);
     expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.preservedPath()).toBeNull();
     expect(readdirSync(path.dirname(file)).sort()).toEqual(
       [path.basename(file), path.basename(preserved)].sort(),
     );
@@ -431,13 +460,16 @@ describe('ProcessStore', () => {
         writeFileSync(`${file}.invalid-2026-01-01T00-00-0${index}-000Z`, `future-${index}\n`);
       }
       writeFileSync(file, '{bad\n');
-      new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master)).patch({
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      store.patch({
         segments: defaultProcess(DEFAULT_SETTINGS.master).segments,
       });
 
       const names = backupNames(file);
       expect(names).toHaveLength(5);
-      expect(names).toContain(`${path.basename(file)}.invalid-2025-01-01T00-00-00-000Z`);
+      const preserved = `${path.basename(file)}.invalid-2025-01-01T00-00-00-000Z`;
+      expect(names).toContain(preserved);
+      expect(store.preservedPath()).toBe(backupFile(file, preserved));
       expect(names).not.toContain(`${path.basename(file)}.invalid-2026-01-01T00-00-00-000Z`);
     } finally {
       warn.mockRestore();

@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1314 vitest cases: 1013 server across 56 files (one environmental root-skip) and 301 web across 28 files, all green.
+- 1318 vitest cases: 1014 server across 56 files (one environmental root-skip) and 304 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -114,7 +114,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1013 server + 301 web, plus the e2e env guard
+npm test                       # 1014 server + 304 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -236,8 +236,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `process.json` follows the same preserve-before-overwrite rule,
   keeps at most the five newest `process.json.invalid-*` copies (pruning older ones after
   a successful save; a prune failure reports `process.pruneFailed` without refusing the
-  save), and reports `process.backupFailed` for a failed copy, but it does not yet expose
-  a `preservedPath` equivalent. Env still owns paths, ports, and the harness.
+  save), and reports `process.backupFailed` for a failed copy. `GET/PATCH /api/process`
+  return this process's copy as `preservedPath`, and the global process editor shows it
+  after the preserving save. Env still owns paths, ports, and the harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it

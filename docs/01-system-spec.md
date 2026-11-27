@@ -143,7 +143,9 @@ once and is ignored.
   earlier copy); a failed copy refuses the save and reports `process.backupFailed`. At
   most five preserved copies are kept per process file; after every successful save,
   older matching copies are pruned oldest first, and a failed prune reports
-  `process.pruneFailed` without refusing the save.
+  `process.pruneFailed` without refusing the save. `GET/PATCH /api/process` return this
+  process's copy as `preservedPath` (or `null`), and the global process editor shows it
+  after the preserving save; it is in memory, so a restart does not rediscover it.
 
 ---
 

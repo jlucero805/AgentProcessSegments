@@ -824,6 +824,29 @@ function stubConfigWarnings(
   );
 }
 
+/**
+ * Wrap the installed mock so `/api/process` reports a preserved copy path on load
+ * and after a save. `after` defaults to `before`; pass explicit nulls to omit it.
+ */
+function stubProcessPreservedPath(
+  before: string | null,
+  after: string | null = before,
+): void {
+  const base = globalThis.fetch as typeof fetch;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await base(input, init);
+      if (String(input) !== '/api/process') return response;
+      const body = (await response.json()) as Record<string, unknown>;
+      return jsonResponse({
+        ...body,
+        preservedPath: init?.method === 'PATCH' ? after : before,
+      });
+    }),
+  );
+}
+
 // The Config page fetches several resources before it renders its cards. Give the
 // slow async cases, including the Slack flow, room under full-suite load while
 // keeping them bounded.
@@ -1888,6 +1911,53 @@ describe('ConfigPage', () => {
     expect(
       captured.process?.segments?.find((segment) => segment.id === 'intake')?.enabled,
     ).toBe(true);
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
+
+  it('shows the preserved process path when the server reports one', async () => {
+    const preserved = '/tmp/agent-process-segments/process.json.invalid-2026-01-01T00-00-00-000Z';
+    installFetch();
+    stubProcessPreservedPath(preserved);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const status = await screen.findByRole('status', { name: 'Preserved process file' });
+    expect(status).toHaveTextContent(preserved);
+    expect(status).toHaveTextContent('may contain prompts or policy');
+    expect(status).toHaveTextContent('Delete it once you have reviewed it');
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
+
+  it('shows the preserved process path after the save that copies the file', async () => {
+    const preserved = '/tmp/agent-process-segments/process.json.invalid-2026-01-01T00-00-01-000Z';
+    installFetch();
+    stubProcessPreservedPath(null, preserved);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const save = await screen.findByRole('button', { name: 'Save process' });
+    expect(
+      screen.queryByRole('status', { name: 'Preserved process file' }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(save);
+
+    const status = await screen.findByRole(
+      'status',
+      { name: 'Preserved process file' },
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(status).toHaveTextContent(preserved);
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
+
+  it('renders no preserved process notice for an explicit null', async () => {
+    installFetch();
+    stubProcessPreservedPath(null);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    await screen.findByRole('button', { name: 'Save process' });
+    expect(
+      screen.queryByRole('status', { name: 'Preserved process file' }),
+    ).not.toBeInTheDocument();
   }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
   it('shows finalize as a manual-only segment', async () => {

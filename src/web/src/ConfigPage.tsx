@@ -238,6 +238,7 @@ export function ConfigPage({
   const [preservedPath, setPreservedPath] = useState<string | null>(null);
   const [preservedCopies, setPreservedCopies] = useState<string[]>([]);
   const [processPath, setProcessPath] = useState('');
+  const [processPreservedPath, setProcessPreservedPath] = useState<string | null>(null);
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [saving, setSaving] = useState(false);
@@ -372,6 +373,11 @@ export function ConfigPage({
       applyConfigMeta(config);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
       setProcessPath(processConfig.path);
+      setProcessPreservedPath(
+        typeof processConfig.preservedPath === 'string' && processConfig.preservedPath !== ''
+          ? processConfig.preservedPath
+          : null,
+      );
       setCells(cellList);
       setEvents(eventList);
       setBudget(loadedBudget);
@@ -1110,6 +1116,11 @@ export function ConfigPage({
       const savedProcess = await api.patchProcess(process.segments);
       setProcess({ version: savedProcess.version, segments: savedProcess.segments });
       setProcessPath(savedProcess.path);
+      setProcessPreservedPath(
+        typeof savedProcess.preservedPath === 'string' && savedProcess.preservedPath !== ''
+          ? savedProcess.preservedPath
+          : null,
+      );
       setProcessSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -2582,6 +2593,7 @@ export function ConfigPage({
       <ProcessEditor
         process={process}
         path={processPath}
+        preservedPath={processPreservedPath}
         saving={processSaving}
         saved={processSaved}
         title="Global process template"

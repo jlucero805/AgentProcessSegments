@@ -25,6 +25,8 @@ export class ProcessStore {
   private readonly listeners = new Set<(process: ProcessConfig) => void>();
   /** Set when the loaded file was unusable; the next save preserves its bytes. */
   private preserveSource = false;
+  /** Copy made by the last save of an unusable file, kept for the UI. */
+  private preservedFilePath: string | null = null;
 
   constructor(
     readonly path: string,
@@ -57,6 +59,14 @@ export class ProcessStore {
   onChange(listener: (process: ProcessConfig) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Path of the copy this process made when a save replaced an unusable file, or
+   * null when no save has needed one. In-memory only; it is not a process key.
+   */
+  preservedPath(): string | null {
+    return this.preservedFilePath;
   }
 
   private load(): ProcessConfig | null {
@@ -132,6 +142,7 @@ export class ProcessStore {
       throw error;
     }
 
+    this.preservedFilePath = backup;
     this.preserveSource = false;
     console.warn(`preserving unusable process config at ${this.path} as ${backup}`);
     return backup;

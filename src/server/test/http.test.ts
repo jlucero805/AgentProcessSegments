@@ -2417,6 +2417,40 @@ describe('http api', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('reports the preserved process path after a save replaces an unusable file', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { h } = await makeApp();
+      const original = '{"version":1,"segments":[{"prompt":"PROCESS-SENTINEL"';
+      writeFileSync(h.config.processPath, original);
+
+      const before = await call('GET', '/api/process');
+      expect(before.status).toBe(200);
+      expect(before.json().preservedPath).toBeNull();
+      expect(JSON.stringify(before.json())).not.toContain('PROCESS-SENTINEL');
+
+      const segments = before.json().segments;
+      const patched = await call('PATCH', '/api/process', { segments });
+      expect(patched.status).toBe(200);
+      const preservedPath = patched.json().preservedPath as string;
+      expect(typeof preservedPath).toBe('string');
+      expect(preservedPath).not.toBe(h.config.processPath);
+      expect(preservedPath.startsWith(`${h.config.processPath}.invalid-`)).toBe(true);
+      expect(readFileSync(preservedPath, 'utf8')).toBe(original);
+      expect(JSON.stringify(patched.json())).not.toContain('PROCESS-SENTINEL');
+
+      const after = await call('GET', '/api/process');
+      expect(after.json().preservedPath).toBe(preservedPath);
+      expect(JSON.stringify(after.json())).not.toContain('PROCESS-SENTINEL');
+
+      // Later saves in the same process reuse the same copy and keep naming it.
+      const again = await call('PATCH', '/api/process', { segments });
+      expect(again.json().preservedPath).toBe(preservedPath);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('reports master status, runs a cell cycle, and lists events', async () => {
     const { h } = await makeApp();
     const cell = h.cells.create('Alpha');

@@ -23,6 +23,7 @@ import {
 interface ProcessEditorProps {
   process: ProcessConfig;
   path?: string;
+  preservedPath?: string | null;
   saving?: boolean;
   saved?: boolean;
   hideSave?: boolean;
@@ -66,6 +67,7 @@ function SegmentDetails({ open, children }: { open: boolean; children: ReactNode
 export function ProcessEditor({
   process,
   path = '',
+  preservedPath = null,
   saving = false,
   saved = false,
   hideSave = false,
@@ -260,6 +262,23 @@ export function ProcessEditor({
           );
         })}
       </div>
+
+      {preservedPath ? (
+        <div
+          role="status"
+          aria-label="Preserved process file"
+          className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-4 text-sm text-zinc-300"
+        >
+          <p className="font-medium text-zinc-100">
+            The unusable process file was preserved
+          </p>
+          <p className="break-all font-mono text-[11px] text-zinc-400">{preservedPath}</p>
+          <p className="text-[11px] text-zinc-500">
+            It may contain prompts or policy and is readable only by the account running the
+            server. Delete it once you have reviewed it.
+          </p>
+        </div>
+      ) : null}
 
       {showPath && path ? (
         <p className="break-all font-mono text-[11px] text-zinc-600">{path}</p>

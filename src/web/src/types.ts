@@ -295,6 +295,8 @@ export interface ConfigResponse extends AppConfig {
 
 export interface ProcessResponse extends ProcessConfig {
   path: string;
+  /** Copy this server process made of an unusable file, or null if none. */
+  preservedPath: string | null;
 }
 
 export interface DocPage {

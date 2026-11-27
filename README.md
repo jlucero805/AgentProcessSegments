@@ -110,9 +110,9 @@ unchecked-work markers. The drawer is the selected cell’s master: status, cron
 prompts, scorecard, activity, and chat. The **Usage** page totals tokens and cost by
 model, cell, and request, and the **Scorecards** page collects each cell’s persisted
 reports with its earlier history. The page defaults to reports generated in the last 72
-hours and can widen to 24 hours, 7 days, 30 days, or all retained history; **All cells**
-loads the newest reports per cell in one grouped request, and **Load older** pages through
-each cell’s history within the selected period.
+hours, can widen to 24 hours, 7 days, 30 days, or all retained history, or use a custom
+local start/end date range; **All cells** loads the newest reports per cell in one grouped
+request, and **Load older** pages through each cell’s history within the selected period.
 
 These screenshots use a staged demo board in an isolated temp database, not live data.
 Regenerate them against the built SPA with the optional Puppeteer tool:
@@ -233,7 +233,8 @@ forever. The same startup/hourly job deletes old `cell_summaries` report rows in
 but always keeps the newest report per cell so the drawer keeps a last-known scorecard
 and the scheduler does not treat a dormant cell as never summarized. Scorecard history is
 not rolled up. The Scorecards page filters by generation time, defaults to the last 72
-hours, and bounds **All** by this retention window.
+hours, supports a custom local start/end date range, and bounds **All** and custom ranges
+by this retention window.
 
 Budget alert retention lives in `config.json` as `retention.budgetAlertsDays`, also
 editable from the Config page. The default is 400 days; `0` keeps alert and delivery

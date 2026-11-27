@@ -519,6 +519,7 @@ export const api = {
       cellId?: string;
       limit?: number;
       since?: number;
+      until?: number;
       before?: number;
       beforeId?: string;
     } = {},

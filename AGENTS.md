@@ -58,9 +58,8 @@ digests.
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
   polling scheduler with catch-up and backoff, and a dedicated page for browsing
-  reports per cell with a generation-time period filter, keyset paging, and one grouped
-  all-cells feed), a cell
-  creation flow that
+  reports per cell with a generation-time period filter — presets plus a custom date
+  range — keyset paging, and one grouped all-cells feed), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight

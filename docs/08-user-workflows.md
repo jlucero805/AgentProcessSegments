@@ -117,15 +117,17 @@ last five.
 - **Run scorecard now** generates one immediately. It is allowed even when automatic
   scorecards are disabled.
 - The sidebar's **Scorecards** page browses the same persisted reports. A period control
-  defaults to **72h** and can be widened to **24h**, **7d**, **30d**, or **All**. The
-  period filters by when a report was generated, not by the window the report covers;
-  each report still shows its own configured trailing window. With **All cells** selected
-  it lists every cell with a report in the period, newest cell first, loading the newest
-  25 per cell in one grouped request rather than one request per cell. With a cell
-  selected it shows only that cell's history. Each cell's latest in-range report is
-  expanded and the older ones are collapsed under **Earlier scorecards**. When a cell has
-  more than 25 in-range reports, **Load older** pages that cell back through the selected
-  period.
+  defaults to **72h** and can be widened to **24h**, **7d**, **30d**, or **All**, or set to
+  **Custom** with a start and end date. Custom dates use the browser's local time and cover
+  both whole days (local midnight through the end of the end date); a start after the end is
+  rejected before any request is sent. The period filters by when a report was generated,
+  not by the window the report covers; each report still shows its own configured trailing
+  window. With **All cells** selected it lists every cell with a report in the period,
+  newest cell first, loading the newest 25 per cell in one grouped request rather than one
+  request per cell. With a cell selected it shows only that cell's history. Each cell's
+  latest in-range report is expanded and the older ones are collapsed under **Earlier
+  scorecards**. When a cell has more than 25 in-range reports, **Load older** pages that
+  cell back through the selected period, staying inside the same applied start and end.
 - Old reports expire under the Config page's **Scorecard retention** window
   (`retention.cellSummariesDays`, default 90 days, `0` keeps history). **All** is bounded
   by that window. The newest report per cell is always kept, so **Earlier scorecards** and

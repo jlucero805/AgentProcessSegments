@@ -100,6 +100,45 @@ describe('summary repository history filters', () => {
     expect(repo.list({ since: 3_001 })).toEqual([]);
   });
 
+  it('filters on generation time with an inclusive until bound', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'oldest', 1_000);
+    recordAt(repo, 'c1', 'middle', 2_000);
+    recordAt(repo, 'c1', 'newest', 3_000);
+
+    expect(repo.list({ until: 2_000 }).map((row) => row.content)).toEqual([
+      'middle',
+      'oldest',
+    ]);
+    expect(repo.list({ until: 1_999 }).map((row) => row.content)).toEqual(['oldest']);
+    expect(
+      repo.list({ since: 2_000, until: 2_000 }).map((row) => row.content),
+    ).toEqual(['middle']);
+    expect(repo.list({ since: 3_000, until: 1_000 })).toEqual([]);
+  });
+
+  it('combines until with cell and cursor filters', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'alpha-old', 1_000);
+    const alphaNew = recordAt(repo, 'c1', 'alpha-new', 3_000);
+    recordAt(repo, 'c2', 'beta-new', 3_000);
+
+    expect(
+      repo.list({ cellId: 'c1', since: 0, until: 2_000 }).map((row) => row.content),
+    ).toEqual(['alpha-old']);
+    expect(
+      repo
+        .list({
+          cellId: 'c1',
+          since: 0,
+          until: alphaNew.createdAt,
+          before: alphaNew.createdAt,
+          beforeId: alphaNew.id,
+        })
+        .map((row) => row.content),
+    ).toEqual(['alpha-old']);
+  });
+
   it('pages with a tie-safe created_at and id cursor', () => {
     const repo = setup();
     const below = recordAt(repo, 'c1', 'below', 4_000);

@@ -247,12 +247,12 @@ built and vended by the brain; real-CLI verification is still pending.
   master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, history, and **Run scorecard now**, a dedicated **Scorecards** page
   groups every cell's persisted reports by generation time (default last 72 hours;
-  `24h`/`72h`/`7d`/`30d`/`All`, newest first, earlier history collapsible, **Load older**
-  in 25-report pages). All cells loads the newest reports per cell in one
-  `GET /api/summaries/grouped` request instead of one request per cell, and the page
-  follows the sidebar cell filter. The Config page edits the schedule/prompt.
-  `retention.cellSummariesDays` prunes old reports while always keeping
-  the newest per cell and bounds the page's **All** period. See
+  `24h`/`72h`/`7d`/`30d`/`All`, or a custom local start/end date range, newest first,
+  earlier history collapsible, **Load older** in 25-report pages). All cells loads the
+  newest reports per cell in one `GET /api/summaries/grouped` request instead of one
+  request per cell, and the page follows the sidebar cell filter. The Config page edits
+  the schedule/prompt. `retention.cellSummariesDays` prunes old reports while always
+  keeping the newest per cell and bounds the page's **All** period. See
   `docs/08-user-workflows.md`.
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
   scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
@@ -646,8 +646,8 @@ PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]
 POST   /api/master/run?cellId=…
 GET    /api/master/events?cellId=…&limit=…
-GET    /api/summaries[?cellId=…&limit=…&since=…&before=…&beforeId=…]
-GET    /api/summaries/grouped[?limit=…&since=…]   per-cell newest reports, limit per cell
+GET    /api/summaries[?cellId=…&limit=…&since=…&until=…&before=…&beforeId=…]
+GET    /api/summaries/grouped[?limit=…&since=…&until=…]   per-cell newest reports, limit per cell
 GET    /api/summaries/latest?cellId=…
 POST   /api/summaries/run?cellId=…
 GET    /api/summaries/status[?cellId=…]

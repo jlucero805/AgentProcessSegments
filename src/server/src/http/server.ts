@@ -356,6 +356,7 @@ const summariesQuerySchema = z
     cellId: z.string().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(50).optional(),
     since: z.coerce.number().int().min(0).optional(),
+    until: z.coerce.number().int().min(0).optional(),
     before: z.coerce.number().int().min(0).optional(),
     beforeId: z.string().min(1).optional(),
   })

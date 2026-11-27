@@ -182,6 +182,7 @@ describe('ScorecardsPage', () => {
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
     expect(await screen.findByText('Alpha report')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Custom' })).toBeInTheDocument();
     const [params] = groupedRequests(urls);
     const since = Number(params?.get('since'));
     const expected = Date.now() - 72 * 60 * 60_000;
@@ -226,6 +227,121 @@ describe('ScorecardsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     await waitFor(() => expect(groupedRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
     expect(groupedRequests(urls)[2]?.has('since')).toBe(false);
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('applies a custom local whole-day range and clears it for presets', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    const prefilled = summaryRequests(urls)[1];
+    expect(prefilled?.get('since')).not.toBeNull();
+    expect(prefilled?.get('until')).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2026-11-01' },
+    });
+    fireEvent.change(screen.getByLabelText('End date'), {
+      target: { value: '2026-11-15' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+    const applied = summaryRequests(urls)[2];
+    expect(applied?.get('limit')).toBe('26');
+    expect(applied?.get('since')).toBe(String(new Date(2026, 10, 1).getTime()));
+    expect(applied?.get('until')).toBe(
+      String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(4), { timeout: ASYNC_TIMEOUT_MS });
+    expect(summaryRequests(urls)[3]?.has('until')).toBe(false);
+    expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('rejects an inverted custom range without a request', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2030-05-10' },
+    });
+    fireEvent.change(screen.getByLabelText('End date'), {
+      target: { value: '2030-05-01' },
+    });
+
+    expect(
+      screen.getByText('Choose a start date on or before the end date.'),
+    ).toBeInTheDocument();
+    const apply = screen.getByRole('button', { name: 'Apply' });
+    expect(apply).toBeDisabled();
+    fireEvent.click(apply);
+    expect(summaryRequests(urls)).toHaveLength(2);
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('reuses the custom bounds when loading older pages', async () => {
+    const reports = Array.from({ length: 27 }, (_, index) =>
+      makeReport(`s${index}`, 'c1', `Report ${index}`, 100_000 - index),
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    const custom = summaryRequests(urls)[1];
+    const since = custom?.get('since');
+    const until = custom?.get('until');
+    expect(since).not.toBeNull();
+    expect(until).not.toBeNull();
+    expect(
+      await screen.findByRole('button', { name: 'Load older' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 24 * 60 * 60_000);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    const older = summaryRequests(urls)[2];
+    expect(older?.get('since')).toBe(since);
+    expect(older?.get('until')).toBe(until);
+    expect(older?.get('before')).toBe('99976');
+    expect(older?.get('beforeId')).toBe('s24');
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('keeps custom filtering scoped to the selected cell', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+      c2: [makeReport('s2', 'c2', 'Beta report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId="c1" onError={() => {}} />);
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    const custom = summaryRequests(urls)[1];
+    expect(custom?.get('cellId')).toBe('c1');
+    expect(custom?.get('until')).not.toBeNull();
+    expect(screen.queryByText('Beta report')).not.toBeInTheDocument();
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('loads older reports within the period and stops at the end', async () => {
@@ -326,6 +442,12 @@ describe('ScorecardsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
 
     expect(await screen.findByText('No scorecards yet')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+
+    expect(
+      await screen.findByText('No scorecards in the selected date range'),
+    ).toBeInTheDocument();
   });
 
   it('reports a grouped load failure and lets Refresh retry', async () => {

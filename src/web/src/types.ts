@@ -109,10 +109,10 @@ export type { CommandInfo, PluginInfo } from '../../server/src/plugins/types';
 export type { SkillInfo } from '../../server/src/skills/types';
 export { EVENT_NOTIFICATION_KINDS } from '../../server/src/domain/notifications';
 export type {
+  LatestSummaryGroup,
   Summary,
+  SummaryCellRef,
   SummaryConfig,
-  SummaryGroup,
-  SummaryGroupsResponse,
   SummaryStats,
   SummaryStatus,
 } from '../../server/src/summary/types';

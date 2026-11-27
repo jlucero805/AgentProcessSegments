@@ -8,12 +8,12 @@ import {
   sinceFor,
   type RangeKey,
 } from './ScorecardPeriod';
-import type { CellDetail, Summary, SummaryStatus } from './types';
+import type { Summary, SummaryCellRef, SummaryStatus } from './types';
 import { timeAgo } from './types';
 import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
 
 interface ScorecardGroup {
-  cell: CellDetail;
+  cell: SummaryCellRef;
   reports: Summary[];
   /** More reports exist in the selected period below the oldest one shown. */
   hasMore: boolean;
@@ -64,37 +64,35 @@ export function ScorecardsPage({
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     try {
-      const [cells, summaryStatus] = await Promise.all([
-        api.getCells(),
-        api.getSummaryStatus(cellId ?? undefined),
-      ]);
+      const statusPromise = api.getSummaryStatus(cellId ?? undefined);
       const since = sinceFor(range);
       let next: ScorecardGroup[];
+      let summaryStatus: SummaryStatus;
       if (cellId) {
-        const page = pageReports(
-          await api.getSummaries({ cellId, limit: PAGE_SIZE + 1, since }),
-        );
+        const [cells, status, rows] = await Promise.all([
+          api.getCells(),
+          statusPromise,
+          api.getSummaries({ cellId, limit: PAGE_SIZE + 1, since }),
+        ]);
+        const page = pageReports(rows);
         const cell = cells.find((item) => item.id === cellId);
+        summaryStatus = status;
         next =
           cell && page.reports.length > 0
             ? [{ cell, ...page, loadingMore: false }]
             : [];
       } else {
-        const page = await api.getSummaryGroups({ limit: PAGE_SIZE, since });
-        const cellsById = new Map(cells.map((cell) => [cell.id, cell]));
-        next = page.groups
-          .map((group): ScorecardGroup | null => {
-            const cell = cellsById.get(group.cellId);
-            if (!cell || group.reports.length === 0) return null;
-            return {
-              cell,
-              reports: group.reports,
-              hasMore: group.hasMore,
-              loadingMore: false,
-            };
-          })
-          .filter((group): group is ScorecardGroup => group !== null)
-          .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0));
+        const [feed, status] = await Promise.all([
+          api.getLatestSummariesPerCell({ since }),
+          statusPromise,
+        ]);
+        summaryStatus = status;
+        next = feed.map(({ cell, summary, hasOlder }) => ({
+          cell,
+          reports: [summary],
+          hasMore: hasOlder,
+          loadingMore: false,
+        }));
       }
       if (generation !== loadGeneration.current) return;
       setStatus(summaryStatus);

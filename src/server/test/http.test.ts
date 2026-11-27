@@ -2578,11 +2578,11 @@ describe('http api', () => {
     expect((await call('GET', '/api/summaries?beforeId=c')).status).toBe(400);
   });
 
-  it('returns the newest reports per cell in one grouped feed', async () => {
+  it('returns each cell\'s newest report in one latest-per-cell feed', async () => {
     const { h } = await makeApp();
-    const empty = await call('GET', '/api/summaries/grouped');
+    const empty = await call('GET', '/api/summaries/latest-per-cell');
     expect(empty.status).toBe(200);
-    expect(empty.json()).toEqual({ groups: [] });
+    expect(empty.json()).toEqual([]);
 
     const alpha = h.cells.create('Alpha');
     const beta = h.cells.create('Beta');
@@ -2601,47 +2601,55 @@ describe('http api', () => {
     insert('d', alpha.id, 3_000);
     insert('e', beta.id, 3_000);
     insert('f', beta.id, 1_000);
+    insert('orphan', 'gone', 4_000);
 
-    const grouped = await call('GET', '/api/summaries/grouped?limit=2&since=2000');
-    expect(grouped.status).toBe(200);
-    const groups = grouped.json().groups as Array<{
-      cellId: string;
-      reports: Array<{ id: string }>;
-      hasMore: boolean;
+    const inRange = await call('GET', '/api/summaries/latest-per-cell?since=2000');
+    expect(inRange.status).toBe(200);
+    const groups = inRange.json() as Array<{
+      cell: { id: string; name: string };
+      summary: { id: string; cellId: string };
+      hasOlder: boolean;
     }>;
     expect(
       groups.map((group) => ({
-        cellId: group.cellId,
-        ids: group.reports.map((report) => report.id),
-        hasMore: group.hasMore,
+        cell: group.cell,
+        id: group.summary.id,
+        cellId: group.summary.cellId,
+        hasOlder: group.hasOlder,
       })),
     ).toEqual([
-      { cellId: beta.id, ids: ['e'], hasMore: false },
-      { cellId: alpha.id, ids: ['d', 'c'], hasMore: true },
+      {
+        cell: { id: beta.id, name: 'Beta' },
+        id: 'e',
+        cellId: beta.id,
+        hasOlder: false,
+      },
+      {
+        cell: { id: alpha.id, name: 'Alpha' },
+        id: 'd',
+        cellId: alpha.id,
+        hasOlder: true,
+      },
     ]);
 
-    const byDefault = await call('GET', '/api/summaries/grouped');
+    const byDefault = await call('GET', '/api/summaries/latest-per-cell');
     expect(byDefault.status).toBe(200);
     expect(
-      byDefault
-        .json()
-        .groups.map((group: { cellId: string; reports: Array<{ id: string }> }) => ({
-          cellId: group.cellId,
-          ids: group.reports.map((report) => report.id),
-        })),
+      (byDefault.json() as Array<{ cell: { id: string }; summary: { id: string }; hasOlder: boolean }>).map(
+        (group) => ({ cellId: group.cell.id, id: group.summary.id, hasOlder: group.hasOlder }),
+      ),
     ).toEqual([
-      { cellId: beta.id, ids: ['e', 'f'] },
-      { cellId: alpha.id, ids: ['d', 'c', 'b', 'a'] },
+      { cellId: beta.id, id: 'e', hasOlder: true },
+      { cellId: alpha.id, id: 'd', hasOlder: true },
     ]);
 
     const legacy = await call('GET', '/api/summaries');
     expect(Array.isArray(legacy.json())).toBe(true);
-    expect(legacy.json()).toHaveLength(6);
+    expect(legacy.json()).toHaveLength(7);
 
-    expect((await call('GET', '/api/summaries/grouped?limit=0')).status).toBe(400);
-    expect((await call('GET', '/api/summaries/grouped?limit=51')).status).toBe(400);
-    expect((await call('GET', '/api/summaries/grouped?since=-1')).status).toBe(400);
-    expect((await call('GET', '/api/summaries/grouped?since=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest-per-cell?since=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest-per-cell?since=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest-per-cell?since=abc')).status).toBe(400);
   });
 
   it('returns usage totals, filters, buckets, and validation errors', async () => {

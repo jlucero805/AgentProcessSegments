@@ -323,8 +323,8 @@ function installFetch(
         lastError: null,
       });
     }
+    if (url.startsWith('/api/summaries/latest-per-cell')) return jsonResponse([]);
     if (url.startsWith('/api/summaries/latest')) return jsonResponse(null);
-    if (url.startsWith('/api/summaries/grouped')) return jsonResponse({ groups: [] });
     if (url.startsWith('/api/summaries')) return jsonResponse([]);
     if (url.startsWith('/api/usage')) return jsonResponse(makeUsageResponse());
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);

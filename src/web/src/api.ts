@@ -38,9 +38,9 @@ import type {
   SpendCapOverrideHistoryQuery,
   SpendCapOverrideHistoryResponse,
   State,
+  LatestSummaryGroup,
   Summary,
   SummaryConfig,
-  SummaryGroupsResponse,
   SummaryStatus,
   TerminalSessionInfo,
   TerminalStatus,
@@ -525,10 +525,10 @@ export const api = {
   ): Promise<Summary[]> {
     return request(withQuery('/api/summaries', options));
   },
-  getSummaryGroups(
-    options: { limit?: number; since?: number } = {},
-  ): Promise<SummaryGroupsResponse> {
-    return request(withQuery('/api/summaries/grouped', options));
+  getLatestSummariesPerCell(
+    options: { since?: number } = {},
+  ): Promise<LatestSummaryGroup[]> {
+    return request(withQuery('/api/summaries/latest-per-cell', options));
   },
   getLatestSummary(cellId: string): Promise<Summary | null> {
     return request(withQuery('/api/summaries/latest', { cellId }));

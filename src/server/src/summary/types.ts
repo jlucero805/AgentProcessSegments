@@ -87,21 +87,21 @@ export interface SummaryStatus {
   lastError: string | null;
 }
 
-/** The newest reports for one cell in a grouped all-cells feed. */
-export interface SummaryGroup {
-  cellId: string;
-  reports: Summary[];
-  /** More in-range reports exist below the oldest one returned for this cell. */
-  hasMore: boolean;
+/** The cell identity carried by the all-cells latest-scorecard feed. */
+export interface SummaryCellRef {
+  id: string;
+  name: string;
 }
 
-export interface SummaryGroupsResponse {
-  groups: SummaryGroup[];
+/** One cell's newest in-range report for the all-cells feed. */
+export interface LatestSummaryGroup {
+  cell: SummaryCellRef;
+  summary: Summary;
+  /** Another in-range report exists below `summary`. */
+  hasOlder: boolean;
 }
 
-export interface SummaryGroupOptions {
-  /** Maximum reports per cell, clamped 1..50. */
-  limit?: number | undefined;
+export interface LatestSummaryOptions {
   /** Inclusive lower bound on `created_at` (epoch ms). */
   since?: number | undefined;
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
-import type { Summary, SummaryGroup, SummaryGroupOptions, SummaryStats } from './types.js';
+import type { LatestSummaryOptions, Summary, SummaryStats } from './types.js';
 
 interface SummaryRow {
   id: string;
@@ -97,12 +97,14 @@ export class SummaryRepository {
   }
 
   /**
-   * The newest reports per cell, for the Scorecards page's all-cells view.
-   * One probe row beyond `limit` tells each group whether older reports exist;
-   * the probe is trimmed before returning. Groups follow their newest report.
+   * Each cell's newest in-range report for the Scorecards all-cells feed. A second
+   * ranked row per cell is used only to answer whether older in-range reports exist;
+   * groups follow their newest report.
    */
-  grouped(options: SummaryGroupOptions = {}): SummaryGroup[] {
-    const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
+  latestPerCell(options: LatestSummaryOptions = {}): Array<{
+    summary: Summary;
+    hasOlder: boolean;
+  }> {
     const where = options.since === undefined ? '' : ' WHERE created_at >= ?';
     const params: Array<string | number> =
       options.since === undefined ? [] : [options.since];
@@ -114,10 +116,10 @@ export class SummaryRepository {
            ) AS row_number
            FROM cell_summaries${where}
          )
-         WHERE row_number <= ?
+         WHERE row_number <= 2
          ORDER BY created_at DESC, id DESC`,
       )
-      .all(...params, limit + 1) as Array<SummaryRow & { row_number: number }>;
+      .all(...params) as Array<SummaryRow & { row_number: number }>;
 
     const byCell = new Map<string, Summary[]>();
     for (const row of rows) {
@@ -126,10 +128,9 @@ export class SummaryRepository {
       if (reports) reports.push(summary);
       else byCell.set(row.cell_id, [summary]);
     }
-    return Array.from(byCell, ([cellId, reports]) => ({
-      cellId,
-      reports: reports.slice(0, limit),
-      hasMore: reports.length > limit,
+    return Array.from(byCell.values(), (reports) => ({
+      summary: reports[0]!,
+      hasOlder: reports.length > 1,
     }));
   }
 

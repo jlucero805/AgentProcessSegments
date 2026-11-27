@@ -4,8 +4,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  effectiveDirectiveValue,
   HARDENING_REQUIRED,
   hardeningProblems,
+  serviceAssignments,
   systemdVersion,
   unitDiagnostics,
 } from './verify-systemd-unit.mjs';
@@ -72,11 +74,11 @@ test('reports a missing hardening directive', () => {
 
 test('reports a changed hardening value', () => {
   const unit = hardenedLines.map((line) =>
-    line === 'ProtectSystem=full' ? 'ProtectSystem=strict' : line,
+    line === 'ProtectSystem=full' ? 'ProtectSystem=no' : line,
   );
 
   assert.deepEqual(hardeningProblems(serviceUnit(unit)), [
-    'ProtectSystem=strict (expected full)',
+    'ProtectSystem=no (expected full)',
   ]);
 });
 
@@ -91,6 +93,77 @@ test('reports directives that must stay off', () => {
     'MemoryDenyWriteExecute=yes is not allowed',
     'ProtectHome=read-only is not allowed',
   ]);
+});
+
+test('reports a forbidden stricter filesystem or proc setting', () => {
+  const unit = serviceUnit([
+    ...hardenedLines,
+    'ProtectSystem=strict',
+    'ProcSubset=pid',
+  ]);
+
+  assert.deepEqual(hardeningProblems(unit), [
+    'ProtectSystem=strict (expected full)',
+    'ProtectSystem=strict is not allowed',
+    'ProcSubset=pid is not allowed',
+  ]);
+});
+
+test('reports forbidden directives in an alternate boolean spelling', () => {
+  const unit = serviceUnit([...hardenedLines, 'MemoryDenyWriteExecute=1']);
+
+  assert.deepEqual(hardeningProblems(unit), [
+    'MemoryDenyWriteExecute=1 is not allowed',
+  ]);
+});
+
+test('reports an extra list assignment that would widen the sandbox', () => {
+  const required = { ReadWritePaths: '/reviewed/a /reviewed/b' };
+  const split = serviceUnit([
+    'ReadWritePaths=/reviewed/a',
+    'ReadWritePaths=/reviewed/b',
+  ]);
+
+  assert.deepEqual(hardeningProblems(split, required, {}), [
+    'ReadWritePaths is set 2 times (expected one reviewed line)',
+  ]);
+
+  const widened = serviceUnit([
+    'ReadWritePaths=/tmp/extra',
+    'ReadWritePaths=/reviewed/a /reviewed/b',
+  ]);
+
+  assert.deepEqual(hardeningProblems(widened, required, {}), [
+    'ReadWritePaths is set 2 times (expected one reviewed line)',
+  ]);
+
+  assert.deepEqual(
+    hardeningProblems(serviceUnit([required.ReadWritePaths].map((value) => `ReadWritePaths=${value}`)), required, {}),
+    [],
+  );
+});
+
+test('reports duplicate list directives even when they are not reviewed yet', () => {
+  const unit = serviceUnit([
+    ...hardenedLines,
+    'ReadOnlyPaths=/reviewed/a',
+    'ReadOnlyPaths=/reviewed/b',
+  ]);
+
+  assert.deepEqual(hardeningProblems(unit), [
+    'ReadOnlyPaths is set 2 times (list directives must be one line)',
+  ]);
+});
+
+test('list directives accumulate in file order', () => {
+  const assignments = serviceAssignments(
+    serviceUnit(['ReadWritePaths=/a', 'ReadWritePaths=/b', 'ProtectSystem=full']),
+  );
+
+  assert.deepEqual(assignments.get('ReadWritePaths'), ['/a', '/b']);
+  assert.equal(effectiveDirectiveValue(assignments, 'ReadWritePaths'), '/a /b');
+  assert.equal(effectiveDirectiveValue(assignments, 'ProtectSystem'), 'full');
+  assert.equal(effectiveDirectiveValue(assignments, 'ProtectHome'), undefined);
 });
 
 test('ignores directives outside [Service] and in comments', () => {

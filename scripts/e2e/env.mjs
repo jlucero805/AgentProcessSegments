@@ -357,3 +357,186 @@ export function buildScreenshotPins({
     XDG_STATE_HOME: xdgState,
   };
 }
+
+/** Directories that hide a probe root from the unit or from the host. */
+export const PROBE_FORBIDDEN_ROOT_PREFIXES = Object.freeze([
+  '/tmp',
+  '/var/tmp',
+  '/run',
+  '/dev/shm',
+]);
+
+/**
+ * Pins that must live inside the probe root. A live install path here would
+ * point the sandbox test at the real database, data dir, or agent state.
+ */
+export const PROBE_WRITABLE_PINS = Object.freeze([
+  'HOME',
+  'APS_DB',
+  'APS_DATA_DIR',
+  'APS_CONFIG',
+  'APS_PROCESS',
+  'APS_ERROR_LOG',
+  'APS_PLUGINS_DIR',
+  'APS_TERMINAL_CWD',
+  'XDG_CONFIG_HOME',
+  'XDG_STATE_HOME',
+  'XDG_DATA_HOME',
+  'XDG_CACHE_HOME',
+  'OPENCODE_CONFIG_DIR',
+]);
+
+/** Live paths a probe run must never pin, relative to the service user's home. */
+const LIVE_HOME_PATHS = Object.freeze([
+  '.agent-process-segments',
+  '.sandbox-harness',
+  'agent-process-segments',
+  '.config/agent-process-segments',
+  '.config/sandbox-harness',
+  '.local/state/agent-process-segments',
+  '.local/state/sandbox-harness',
+]);
+
+/** True when `child` is strictly inside `parent` (both absolute, no symlink resolution). */
+function isStrictlyInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+/** Resolved directory layout for one sandbox-probe run under `root`. */
+export function probeLayout(root) {
+  requireAbsolutePath('root', root, 'probeLayout');
+  const home = path.join(root, 'home');
+  const workdir = path.join(home, 'agent-process-segments');
+
+  return {
+    root,
+    home,
+    workdir,
+    dataDir: path.join(home, '.agent-process-segments'),
+    pluginsDir: path.join(home, '.local', 'share', 'agent-process-segments', 'plugins'),
+    dbPath: path.join(workdir, 'agent-process-segments.sqlite'),
+    configPath: path.join(home, '.config', 'agent-process-segments', 'config.json'),
+    processPath: path.join(home, '.config', 'agent-process-segments', 'process.json'),
+    errorLogPath: path.join(home, '.local', 'state', 'agent-process-segments', 'errors.log'),
+    xdgConfig: path.join(home, '.config'),
+    xdgState: path.join(home, '.local', 'state'),
+    xdgData: path.join(home, '.local', 'share'),
+    xdgCache: path.join(home, '.cache'),
+    opencodeConfig: path.join(home, '.config', 'opencode'),
+    homeRepo: path.join(home, 'repo'),
+  };
+}
+
+/**
+ * Hermetic env for the sandbox probe's brain. Every writable path is derived
+ * from `root`, so a run cannot touch the live database, data dir, or agent
+ * state even when the host exports APS_/SBOX_ values (buildPinnedEnv scrubs
+ * those) or OPENCODE_/XDG_ values (pinned here explicitly).
+ */
+export function buildProbePins({
+  root,
+  repo,
+  port,
+  base,
+  harness = 'opencode',
+  claudeBin = null,
+  opencodeBin = null,
+  turnTimeoutMs = 180_000,
+  pathValue = process.env.PATH,
+}) {
+  const builder = 'buildProbePins';
+  const layout = probeLayout(root);
+  requireAbsolutePath('repo', repo, builder);
+  requirePort(port, builder);
+  requireString('base', base, builder);
+  requireString('harness', harness, builder);
+  if (harness !== 'claude' && harness !== 'opencode') {
+    throw new TypeError(`${builder}: harness must be "claude" or "opencode"`);
+  }
+  if (!Number.isInteger(turnTimeoutMs) || turnTimeoutMs < 1_000) {
+    throw new TypeError(`${builder}: turnTimeoutMs must be an integer >= 1000`);
+  }
+  requireString('pathValue', pathValue, builder);
+  if (claudeBin !== null) requireAbsolutePath('claudeBin', claudeBin, builder);
+  if (opencodeBin !== null) requireAbsolutePath('opencodeBin', opencodeBin, builder);
+
+  const pins = {
+    HOME: layout.home,
+    NODE_ENV: 'production',
+    PATH: pathValue,
+    APS_HOST: '127.0.0.1',
+    APS_PORT: String(port),
+    APS_BRAIN_URL: base,
+    APS_DB: layout.dbPath,
+    APS_DATA_DIR: layout.dataDir,
+    APS_CONFIG: layout.configPath,
+    APS_PROCESS: layout.processPath,
+    APS_ERROR_LOG: layout.errorLogPath,
+    APS_PLUGINS_DIR: layout.pluginsDir,
+    APS_WEB_DIR: path.join(repo, 'src', 'web', 'dist'),
+    APS_DOCS_DIR: path.join(repo, 'docs'),
+    APS_TERMINAL: '1',
+    APS_TERMINAL_CWD: layout.homeRepo,
+    APS_HARNESS: harness,
+    APS_TURN_TIMEOUT_MS: String(turnTimeoutMs),
+    XDG_CONFIG_HOME: layout.xdgConfig,
+    XDG_STATE_HOME: layout.xdgState,
+    XDG_DATA_HOME: layout.xdgData,
+    XDG_CACHE_HOME: layout.xdgCache,
+    OPENCODE_CONFIG_DIR: layout.opencodeConfig,
+    OPENCODE_CONFIG: '',
+    OPENCODE_CONFIG_CONTENT: '',
+  };
+  if (claudeBin !== null) pins.APS_CLAUDE_BIN = claudeBin;
+  if (opencodeBin !== null) pins.APS_OPENCODE_BIN = opencodeBin;
+  return pins;
+}
+
+/**
+ * Problems with a probe root or pin set, or [] when it is safe to run.
+ * Pure: the caller supplies the real home and the candidate pins.
+ */
+export function probePinProblems({ root, realHome, pins }) {
+  const problems = [];
+  requireAbsolutePath('root', root, 'probeLayout');
+  requireAbsolutePath('realHome', realHome, 'probePinProblems');
+
+  const resolvedRoot = path.resolve(root);
+  const resolvedHome = path.resolve(realHome);
+
+  if (resolvedRoot === path.parse(resolvedRoot).root) {
+    problems.push('root must not be the filesystem root');
+  }
+  if (resolvedRoot === resolvedHome) {
+    problems.push('root must not be the real home');
+  }
+  if (!isStrictlyInside(resolvedHome, resolvedRoot)) {
+    problems.push(`root must be inside the real home (${resolvedHome})`);
+  }
+  for (const prefix of PROBE_FORBIDDEN_ROOT_PREFIXES) {
+    if (resolvedRoot === prefix || isStrictlyInside(prefix, resolvedRoot)) {
+      problems.push(`root must not be under ${prefix}`);
+    }
+  }
+
+  for (const name of PROBE_WRITABLE_PINS) {
+    const value = pins[name];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !path.isAbsolute(value)) {
+      problems.push(`${name} must be an absolute path`);
+      continue;
+    }
+    const resolved = path.resolve(value);
+    if (!isStrictlyInside(resolvedRoot, resolved)) {
+      problems.push(`${name} must live inside the probe root`);
+    }
+    for (const liveRelative of LIVE_HOME_PATHS) {
+      if (resolved === path.join(resolvedHome, liveRelative)) {
+        problems.push(`${name} must not be a live install path`);
+      }
+    }
+  }
+
+  return problems;
+}

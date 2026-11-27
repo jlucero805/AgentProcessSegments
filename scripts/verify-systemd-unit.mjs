@@ -15,9 +15,9 @@ const repoRoot = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const DEFAULT_UNIT = 'deploy/agent-process-segments.service';
 
 // systemd-analyze --threshold is an integer percentage of the overall exposure
-// level, so 55 means "must stay below 5.5". The reviewed unit scores 4.3 on
-// systemd 259; the headroom absorbs systemd version differences.
-const SECURITY_THRESHOLD = 55;
+// level, so 48 means "must stay below 4.8". The reviewed unit scores 3.8 on
+// systemd 259 (D113); the 1.0 headroom absorbs systemd version differences.
+const SECURITY_THRESHOLD = 48;
 const MIN_SECURITY_SYSTEMD = 250;
 
 const USAGE = `Usage: node scripts/verify-systemd-unit.mjs [--unit <path>]
@@ -30,6 +30,8 @@ from ${repoRoot}; the default is ${DEFAULT_UNIT}.`;
 export const HARDENING_REQUIRED = {
   NoNewPrivileges: 'yes',
   PrivateTmp: 'yes',
+  PrivateDevices: 'yes',
+  ProtectProc: 'invisible',
   ProtectSystem: 'full',
   ProtectKernelTunables: 'yes',
   ProtectKernelModules: 'yes',
@@ -50,10 +52,12 @@ export const HARDENING_REQUIRED = {
 
 /** Directives that must stay off: the brain needs the capability they remove. */
 export const HARDENING_FORBIDDEN = {
-  MemoryDenyWriteExecute: ['yes'],
-  PrivateNetwork: ['yes'],
-  PrivateUsers: ['yes'],
-  ProtectHome: ['yes', 'read-only', 'tmpfs'],
+  MemoryDenyWriteExecute: ['yes', 'true', 'on', '1', 'y'],
+  PrivateNetwork: ['yes', 'true', 'on', '1', 'y'],
+  PrivateUsers: ['yes', 'true', 'on', '1', 'y'],
+  ProtectHome: ['yes', 'true', 'on', '1', 'y', 'read-only', 'tmpfs'],
+  ProtectSystem: ['strict'],
+  ProcSubset: ['pid'],
 };
 
 function fail(message) {
@@ -92,9 +96,18 @@ export function unitDiagnostics(output, unitPath) {
   return output.split('\n').filter((line) => line.startsWith(`${unitPath}:`));
 }
 
-/** [Service] directives from unit text; the last assignment wins. */
-export function serviceDirectives(unitText) {
-  const directives = new Map();
+/** Directives systemd accumulates across repeated assignments instead of replacing. */
+export const LIST_DIRECTIVES = new Set([
+  'ReadWritePaths',
+  'ReadOnlyPaths',
+  'InaccessiblePaths',
+  'BindPaths',
+  'BindReadOnlyPaths',
+]);
+
+/** All [Service] assignments per key, in file order; comments and other sections are ignored. */
+export function serviceAssignments(unitText) {
+  const assignments = new Map();
   let section = null;
 
   for (const rawLine of unitText.split('\n')) {
@@ -107,29 +120,70 @@ export function serviceDirectives(unitText) {
     if (section !== 'Service') continue;
     const equals = line.indexOf('=');
     if (equals === -1) continue;
-    directives.set(line.slice(0, equals).trim(), line.slice(equals + 1).trim());
+    const key = line.slice(0, equals).trim();
+    const value = line.slice(equals + 1).trim();
+    const values = assignments.get(key);
+    if (values === undefined) assignments.set(key, [value]);
+    else values.push(value);
+  }
+
+  return assignments;
+}
+
+/** [Service] directives from unit text; the last assignment wins. */
+export function serviceDirectives(unitText) {
+  const directives = new Map();
+
+  for (const [key, values] of serviceAssignments(unitText)) {
+    directives.set(key, values[values.length - 1]);
   }
 
   return directives;
 }
 
+/** One directive's effective value: repeated list directives accumulate with spaces. */
+export function effectiveDirectiveValue(assignments, key) {
+  const values = assignments.get(key);
+  if (values === undefined) return undefined;
+  return LIST_DIRECTIVES.has(key) ? values.join(' ') : values[values.length - 1];
+}
+
 /** Problems with the reviewed sandboxing set, or [] when it matches. */
-export function hardeningProblems(unitText) {
-  const directives = serviceDirectives(unitText);
+export function hardeningProblems(
+  unitText,
+  required = HARDENING_REQUIRED,
+  forbidden = HARDENING_FORBIDDEN,
+) {
+  const assignments = serviceAssignments(unitText);
   const problems = [];
 
-  for (const [key, expected] of Object.entries(HARDENING_REQUIRED)) {
-    if (!directives.has(key)) {
+  for (const [key, expected] of Object.entries(required)) {
+    const values = assignments.get(key);
+    if (values === undefined) {
       problems.push(`missing ${key}=${expected}`);
-    } else if (directives.get(key) !== expected) {
-      problems.push(`${key}=${directives.get(key)} (expected ${expected})`);
+      continue;
+    }
+    if (LIST_DIRECTIVES.has(key) && values.length > 1) {
+      problems.push(`${key} is set ${values.length} times (expected one reviewed line)`);
+      continue;
+    }
+    const value = effectiveDirectiveValue(assignments, key);
+    if (value !== expected) {
+      problems.push(`${key}=${value} (expected ${expected})`);
     }
   }
-  for (const [key, forbidden] of Object.entries(HARDENING_FORBIDDEN)) {
-    if (!directives.has(key)) continue;
-    const value = directives.get(key);
-    if (forbidden.includes(value)) {
+  for (const [key, values] of Object.entries(forbidden)) {
+    const value = effectiveDirectiveValue(assignments, key);
+    if (value === undefined) continue;
+    if (values.includes(value)) {
       problems.push(`${key}=${value} is not allowed`);
+    }
+  }
+  for (const key of LIST_DIRECTIVES) {
+    if (key in required) continue;
+    const values = assignments.get(key);
+    if (values !== undefined && values.length > 1) {
+      problems.push(`${key} is set ${values.length} times (list directives must be one line)`);
     }
   }
 

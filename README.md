@@ -783,7 +783,9 @@ finding fails it too. Link and anchor correctness is a test rather than a lint s
 external URLs. The unit gate runs `systemd-analyze verify`, treats a diagnostic
 naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
 values, asserts the reviewed sandboxing directives, and fails when the offline
-`systemd-analyze security` exposure exceeds 5.5. The security review needs systemd 250 or
+`systemd-analyze security` exposure exceeds 4.8. The reviewed set includes
+`PrivateDevices=yes` and `ProtectProc=invisible`; deeper candidates are evaluated by
+the manual `npm run probe:sandbox` and recorded in D113. The security review needs systemd 250 or
 newer; below that the Linux gate fails rather than skipping. The shell checks need
 `bash`, which the deploy runbooks already require, plus `shellcheck`
 (`apt-get install shellcheck` or `brew install shellcheck`). actionlint is a system tool

@@ -100,8 +100,9 @@ first). The CI template includes it.
 The SPA's sidebar **Help** surface serves the operator docs and screenshots from the same
 brain, so keep the clone's `docs/` directory in place. `APS_DOCS_DIR` overrides the docs
 root (default `<cwd>/docs`, and the unit sets it explicitly to
-`%h/agent-process-segments/docs`). The manifest is an explicit code list; add a page there to
-expose it in the nav. The viewer never copies Markdown into the SPA, so a `git pull`
+`%h/agent-process-segments/docs`). The manifest is an explicit list in
+`src/server/src/docs/manifest.ts`; add a page there to expose it in the nav. The viewer
+never copies Markdown into the SPA, so a `git pull`
 updates the in-app docs after a restart. `GET /api/docs` lists pages,
 `GET /api/docs/:slug` returns one article, and `GET /api/docs/assets/*` serves only
 `docs/screenshots/**`.

@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1372 vitest cases: 1046 server across 57 files (one environmental root-skip) and 326 web across 28 files, all green.
+- 1376 vitest cases: 1046 server across 57 files (one environmental root-skip) and 330 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,8 +117,8 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1046 server + 326 web, plus the e2e env guard
-npm run check:docs             # local Markdown links, images, and Help #anchors
+npm test                       # 1046 server + 330 web, plus the e2e env guard
+npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
                                # interrupt cleanup, and the GitHub scope preflight
@@ -456,9 +456,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     OpenCode/Claude directories (`docs/11-skills.md`). The composer may show `/name`, but
     sending it must translate to `Use the <name> skill now…`; only plugin commands may be
     sent as raw slash commands.
-25. **Help docs are manifest-only.** Add pages to `src/server/src/docs/service.ts`; never
-    join a user slug onto a filesystem path. Assets are limited to `docs/screenshots/**`,
-    and an empty docs directory must render the unavailable state, not an error.
+25. **Help docs are manifest-only.** Add pages to `src/server/src/docs/manifest.ts`; the
+    server reads that list through `docs/service.ts`. Never join a user slug onto a
+    filesystem path. Assets are limited to `docs/screenshots/**`, and an empty docs
+    directory must render the unavailable state, not an error.
 26. **Brain agent runs are non-interactive.** Never allow a harness to wait for a UI
     question. OpenCode's `question` tool is denied in every scope; prompts must ask in
     plain text. The setup chat answers simple messages directly instead of touring tools.
@@ -719,8 +720,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     label, or a fragment that is not an `extractHeadings` id for the target. Anchors are
     the in-app Help ids (h2/h3 only), not GitHub slugs, because Help renders these pages
     and assigns ids only to those headings. External schemes and bare `?query` targets are
-    never fetched. Run it alone with `npm run check:docs`; it is part of `npm test`, not
-    `npm run lint`.
+    never fetched. The same test imports `HELP_MANIFEST` and checks links on pages that
+    Help serves: a served page may only link another manifest page or a `?help=<slug>`
+    target whose slug and `#fragment` exist in `src/server/src/docs/manifest.ts`, and the
+    manifest itself must keep unique lowercase slugs, existing Markdown sources, and
+    `slugForDocPath(source) === slug`. Internal-only docs (`05-plan`, `06-refactor-audit`,
+    `09-backlog`, `AGENTS.md`, skills) never render in Help, so a served page refers to
+    them as inline code or an absolute GitHub URL. Run it alone with `npm run check:docs`;
+    it is part of `npm test`, not `npm run lint`.
 47. **Workflow-file pushes need a `workflow`-scoped credential.** GitHub rejects a push
     that adds or edits a file under `.github/workflows/` from a token without the
     `workflow` scope (`refusing to allow an OAuth App to create or update workflow ...`).

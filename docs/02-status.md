@@ -96,9 +96,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `GET /api/docs/assets/*`. Mermaid fences render as lazy-loaded, dark-theme SVG diagrams;
   the original fenced source still powers Copy as Markdown and appears as the fallback
   when Mermaid fails. `?help=<slug>` deep-links a page and back/forward move between
-  pages. The manifest is an explicit code list; docs are read from `APS_DOCS_DIR`
-  (default `<cwd>/docs`) and traversal is rejected. A GitHub icon beside the Help row
-  opens the public source repository in a new tab.
+  pages. The manifest is an explicit list in `src/server/src/docs/manifest.ts`; docs are
+  read from `APS_DOCS_DIR` (default `<cwd>/docs`) and traversal is rejected. A GitHub icon
+  beside the Help row opens the public source repository in a new tab.
 - Engine: one persistent child per request, buffered live turns with reattach,
   transcript and session persistence, `--resume` on later spawns, agent status
   transitions, `done`/`error` events, KB session with read-only tools, dispose on
@@ -462,7 +462,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1372 vitest cases (one environmental root-skip): 1046 server across 57 files and 326 web across 28 files,
+- 1376 vitest cases (one environmental root-skip): 1046 server across 57 files and 330 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -473,7 +473,9 @@ built and vended by the brain; real-CLI verification is still pending.
   it fails closed on a failed iteration, a dead hog, or a missing report, leaves no hog
   processes behind, and is manual (not part of `npm test` or CI).
   The web suite also resolves every local documentation link, image, and Help `#anchor`
-  (external URLs are never fetched); run it alone with `npm run check:docs`.
+  and checks links on Help-served pages against the manifest in
+  `src/server/src/docs/manifest.ts` (external URLs are never fetched); run it alone with
+  `npm run check:docs`.
   Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`
   override in `eslint.config.mjs`; the three bounded fail-fast guards carry reviewed
   exemptions, checked by `test/lint-gate.test.ts`.

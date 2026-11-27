@@ -559,11 +559,12 @@ to the cell cap, not a replacement.
 read a guide. Hand-copying the Markdown into the bundle would drift immediately.
 
 **Decision.** Serve the repo files through an explicit manifest in
-`src/server/src/docs/service.ts`. `GET /api/docs` returns the ordered manifest,
-`GET /api/docs/:slug` reads one entry, and `GET /api/docs/assets/*` serves only
-`docs/screenshots/**`. Slugs never become filesystem paths; unknown or traversal-shaped
-slugs are 404s. The SPA renders Markdown with the existing `react-markdown` dependency and
-rewrites in-repo links to `?help=<slug>` deep links.
+`src/server/src/docs/manifest.ts`, read by `src/server/src/docs/service.ts`. The
+`GET /api/docs` route returns the ordered manifest, `GET /api/docs/:slug` reads one entry,
+and `GET /api/docs/assets/*` serves only `docs/screenshots/**`. Slugs never become
+filesystem paths; unknown or traversal-shaped slugs are 404s. The SPA renders Markdown
+with the existing `react-markdown` dependency and rewrites in-repo links to `?help=<slug>`
+deep links.
 
 **Cost.** Adding a page takes a manifest line and a restart. The overlay reads files at
 request time, so a missing `docs/` directory yields an empty manifest and a graceful
@@ -2358,8 +2359,8 @@ runs that one file.
 **Cost.** One module, one test file, and a package script. The check runs with `npm test`
 rather than `npm run lint` because it reuses the app's TypeScript slugger: a standalone
 `.mjs` lint step would need either a duplicate slug implementation or native TypeScript
-imports, which the documented Node 22.13 floor does not guarantee. External-link and
-manifest-aware checks are separate work.
+imports, which the documented Node 22.13 floor does not guarantee. Manifest-aware checks
+landed later in D113; external-link checks remain separate work.
 
 ## D100. An opt-in heartbeat file covers a brain whose port is unreachable
 
@@ -2729,3 +2730,25 @@ oversubscribed, so it is manual only: not in `npm test`, not in either CI workfl
 adds no Vitest cases or files (totals stay `1371 = 1046 server + 325 web`); its guard is
 a `node:test` file in `test:e2e-env`. Windows is not a goal (process groups are POSIX),
 and a filtered `--only` run is not a full-suite proof.
+
+## D113. Served Help links are checked against the manifest
+
+**Context.** The D99 link gate proves a target exists in the repo, but not that Help can
+render it. Help rewrites every local `*.md` link to `?help=<basename>` and the server 404s
+any slug the manifest does not list, so a served page could link `docs/05-plan.md` or
+`AGENTS.md` and pass the gate while dead-ending the reader inside Help.
+
+**Decision.** `src/server/src/docs/manifest.ts` is the single manifest authority:
+`DocsService` serves it and `src/web/src/doc-links.test.ts` imports it. `checkHelpLinks`
+validates every link on a manifest-served page with the SPA's own `resolveDocHref` and
+`slugForDocPath` rewrite, requires a direct `.md` link to resolve to the same source its
+slug serves (so a same-named file elsewhere cannot masquerade), and validates literal
+`?help=<slug>#fragment` targets. `manifestProblems` enforces unique lowercase slugs,
+existing Markdown sources, and `slugForDocPath(source) === slug`. Internal-only notes
+never render in Help, so they stay unconstrained; served pages refer to them as inline
+code or absolute GitHub URLs. Runtime behavior is unchanged: the service still filters
+missing sources and returns an empty list when `docs/` is absent.
+
+**Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
+file. Images, non-Markdown local targets, SPA-authored Help links, and external URLs stay
+separate checks.

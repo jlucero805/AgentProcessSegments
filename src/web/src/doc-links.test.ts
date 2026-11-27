@@ -2,24 +2,28 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { HELP_MANIFEST } from '../../server/src/docs/manifest';
 import {
   checkDocLinks,
+  checkHelpLinks,
   collectDocLinks,
   extractDocLinks,
+  manifestProblems,
   markdownFiles,
   undefinedReferenceLabels,
 } from './doc-links';
 
 const repoRoot = path.resolve(process.cwd(), '../..');
 
-let tempRoot: string | null = null;
+const tempRoots: string[] = [];
 
 afterAll(() => {
-  if (tempRoot !== null) rmSync(tempRoot, { recursive: true, force: true });
+  for (const root of tempRoots) rmSync(root, { recursive: true, force: true });
 });
 
 function makeFixture(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'aps-doc-links-'));
+  tempRoots.push(root);
   const docs = path.join(root, 'docs');
   mkdirSync(docs, { recursive: true });
   writeFileSync(path.join(docs, 'target.md'), '# Target\n\n## Real heading\n');
@@ -46,6 +50,48 @@ function makeFixture(): string {
   return root;
 }
 
+const HELP_FIXTURE_MANIFEST = [
+  { slug: 'getting-started', source: 'README.md' },
+  { slug: 'served', source: 'docs/served.md' },
+  { slug: 'target', source: 'docs/target.md' },
+  { slug: 'deploy-vps', source: 'deploy/vps.md' },
+] as const;
+
+function makeHelpFixture(): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-help-links-'));
+  tempRoots.push(root);
+  for (const directory of ['docs', 'notes', 'deploy']) {
+    mkdirSync(path.join(root, directory), { recursive: true });
+  }
+  writeFileSync(path.join(root, 'README.md'), '# Getting started\n\n## Install\n');
+  writeFileSync(path.join(root, 'docs', 'target.md'), '# Target\n\n## Real heading\n');
+  writeFileSync(path.join(root, 'docs', 'internal.md'), '[bad](?help=nope)\n');
+  writeFileSync(path.join(root, 'docs', 'new-page.md'), '# New page\n');
+  writeFileSync(path.join(root, 'notes', 'target.md'), '# Other target\n');
+  writeFileSync(path.join(root, 'deploy', 'vps.md'), '# VPS\n\n## Tailscale\n');
+  writeFileSync(
+    path.join(root, 'docs', 'served.md'),
+    [
+      '[internal](internal.md)',
+      '[unmanifested](new-page.md)',
+      '[served anchor](target.md#real-heading)',
+      '[bad anchor](target.md#missing)',
+      '[readme](../README.md)',
+      '[deploy](../deploy/vps.md#tailscale)',
+      '[collision](../notes/target.md)',
+      '[unknown help](?help=nope)',
+      '[bad help anchor](?help=target#nope)',
+      '[ok help](?help=target#real-heading)',
+      '[external](https://example.com/x)',
+      '`[code](internal.md)` and `?help=nope`',
+      '```md',
+      '[fenced](internal.md)',
+      '?help=nope',
+      '```',
+    ].join('\n'),
+  );
+  return root;
+}
 describe('documents links and anchors', () => {
   it('extracts inline links, images, references, HTML, and skips code', () => {
     const markdown = [
@@ -80,9 +126,9 @@ describe('documents links and anchors', () => {
   });
 
   it('reports missing files, bad anchors, image fragments, escapes, and undefined references', () => {
-    tempRoot = makeFixture();
+    const root = makeFixture();
 
-    expect(checkDocLinks(tempRoot)).toEqual([
+    expect(checkDocLinks(root)).toEqual([
       { file: 'docs/guide.md', line: 1, target: 'nope.md', reason: 'missing file' },
       {
         file: 'docs/guide.md',
@@ -119,6 +165,16 @@ describe('documents links and anchors', () => {
 
   it('checks every local link, image, and anchor in the repository', () => {
     expect(checkDocLinks(repoRoot)).toEqual([]);
+    expect(checkHelpLinks(repoRoot, HELP_MANIFEST)).toEqual([]);
+  });
+
+  it('keeps the real Help manifest honest', () => {
+    expect(HELP_MANIFEST).toHaveLength(13);
+    expect(HELP_MANIFEST.map((entry) => entry.source)).toEqual(
+      expect.arrayContaining(['README.md', 'deploy/vps.md', 'docs/08-user-workflows.md']),
+    );
+    expect(HELP_MANIFEST.some((entry) => entry.slug === '05-plan')).toBe(false);
+    expect(manifestProblems(repoRoot, HELP_MANIFEST)).toEqual([]);
   });
 
   it('walks the whole docs corpus and still sees its known links', () => {
@@ -154,3 +210,102 @@ describe('documents links and anchors', () => {
     );
   });
 });
+
+describe('Help-served links and the manifest', () => {
+  it('reports only served-page links Help cannot resolve, without duplicating anchors', () => {
+    const root = makeHelpFixture();
+
+    expect(checkHelpLinks(root, HELP_FIXTURE_MANIFEST)).toEqual([
+      {
+        file: 'docs/served.md',
+        line: 1,
+        target: 'internal.md',
+        reason: 'Help has no page for "docs/internal.md" (slug "internal")',
+      },
+      {
+        file: 'docs/served.md',
+        line: 2,
+        target: 'new-page.md',
+        reason: 'Help has no page for "docs/new-page.md" (slug "new-page")',
+      },
+      {
+        file: 'docs/served.md',
+        line: 7,
+        target: '../notes/target.md',
+        reason: 'Help slug "target" serves "docs/target.md", not "notes/target.md"',
+      },
+      {
+        file: 'docs/served.md',
+        line: 8,
+        target: '?help=nope',
+        reason: 'Help has no page for slug "nope"',
+      },
+      {
+        file: 'docs/served.md',
+        line: 9,
+        target: '?help=target#nope',
+        reason: 'no heading with id "nope" in Help page "target"',
+      },
+    ]);
+
+    // The bad cross-page fragment on line 4 stays checkDocLinks' finding.
+    expect(checkDocLinks(root)).toEqual([
+      {
+        file: 'docs/served.md',
+        line: 4,
+        target: 'target.md#missing',
+        reason: 'no heading with id "missing"',
+      },
+    ]);
+  });
+
+  it('ignores ?help targets on internal-only pages', () => {
+    const root = makeHelpFixture();
+    expect(checkHelpLinks(root, HELP_FIXTURE_MANIFEST).some((entry) => entry.file === 'docs/internal.md')).toBe(
+      false,
+    );
+  });
+
+  it('validates manifest sources, slugs, duplicates, and app routing', () => {
+    const root = makeHelpFixture();
+    writeFileSync(path.join(root, 'docs', 'not-a-doc.txt'), '');
+    writeFileSync(path.join(root, 'docs', 'ok.md'), '# OK\n');
+
+    const reasons = (manifest: Array<{ slug: string; source: string }>) =>
+      manifestProblems(root, manifest).map((problem) => `${problem.target}: ${problem.reason}`);
+
+    expect(reasons([{ slug: 'ghost', source: 'docs/ghost.md' }])).toEqual([
+      'docs/ghost.md: missing source file',
+    ]);
+    expect(reasons([{ slug: 'escape', source: '../outside.md' }])).toEqual([
+      '../outside.md: source is not a repo-relative path',
+    ]);
+    expect(reasons([{ slug: 'renamed', source: 'docs/ok.md' }])).toEqual([
+      'renamed: source "docs/ok.md" maps to slug "ok", not "renamed"',
+    ]);
+    expect(reasons([{ slug: 'Bad Slug', source: 'docs/ok.md' }])).toEqual([
+      'Bad Slug: slug is not lowercase letters, digits, or hyphens',
+      'Bad Slug: source "docs/ok.md" maps to slug "ok", not "Bad Slug"',
+    ]);
+    expect(reasons([{ slug: 'shot', source: 'docs/not-a-doc.txt' }])).toEqual([
+      'docs/not-a-doc.txt: source is not a Markdown file',
+      'shot: source "docs/not-a-doc.txt" maps to slug "(none)", not "shot"',
+    ]);
+    expect(
+      reasons([
+        { slug: 'target', source: 'docs/target.md' },
+        { slug: 'target', source: 'notes/target.md' },
+      ]),
+    ).toEqual(['target: duplicate Help slug']);
+    expect(
+      reasons([
+        { slug: 'target', source: 'docs/target.md' },
+        { slug: 'target-copy', source: 'docs/target.md' },
+      ]),
+    ).toEqual([
+      'docs/target.md: duplicate manifest source',
+      'target-copy: source "docs/target.md" maps to slug "target", not "target-copy"',
+    ]);
+  });
+});
+

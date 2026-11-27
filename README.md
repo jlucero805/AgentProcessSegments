@@ -733,6 +733,12 @@ than the suite runs. The totals are quoted identically in this file, `AGENTS.md`
 `docs/02-status.md`, and `src/server/test/doc-counts.test.ts` fails when they drift
 apart.
 
+Server tests are also guarded against wall-clock sleeps: the `no-restricted-syntax`
+override in `eslint.config.mjs` rejects `setTimeout`, `setInterval`, and
+`node:timers/promises` in `src/server/test`. The three bounded fail-fast guards carry
+reviewed `eslint-disable-next-line no-restricted-syntax -- <reason>` exemptions, and
+`src/server/test/lint-gate.test.ts` checks that no other exception appears.
+
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
 environments they hand to their children, the missing-Puppeteer policy, and the interrupt
 cleanup coordinator; it is not counted in the vitest totals.

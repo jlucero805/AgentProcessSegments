@@ -3094,6 +3094,14 @@ missing-subtree name, and skip detail. `repair:permissions` stays on the shared
 primitives because its post-parse `loadConfig()` resolution has a distinct error path.
 Commands, flags, output, exit codes, and traversal are unchanged.
 
+**Amendment 2 (permissions bootstrap).** `runRepairCli` now owns that sequence for all
+three repairs; `runCutoverRepairCli` is a preset over it. `repair:permissions` passes a
+`target` resolver that returns the explicit `--data-dir` or `loadConfig().dataDir` and
+prints the config error itself, so that failure still emits one message with no usage
+dump. It deliberately has no home/root guard: it chmods `<dataDir>/requests`, never the
+`--data-dir` path itself, so `--data-dir ~` remains valid. Commands, flags, output, exit
+codes, and traversal are unchanged.
+
 **Cost.** Two new modules, one structural guard test, and one focused policy-seam test
 file. A future repair must use the shared scanner; the guard fails if it imports
 `chmodSync` directly. Changing either root rule is a separate decision; the symlinked

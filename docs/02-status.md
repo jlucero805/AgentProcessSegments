@@ -167,9 +167,9 @@ built and vended by the brain; real-CLI verification is still pending.
   change the mode themselves.
   All three repairs share the `maintenance/permission-repair.ts` engine and the
   `maintenance/repair-cli.ts` core; `repair:permissions` refuses a symlinked `requests/`
-  root, and they otherwise differ only in the tree they scan. The `repair:runs` and
-  `repair:upgrades` CLIs also share the cutover root parser and command runner; only
-  `repair:permissions` keeps its own data-directory resolution.
+  root, and they otherwise differ only in the tree they scan. All three CLIs are usage
+  text plus one command spec on the shared `runRepairCli`; only `repair:permissions`
+  supplies its own `loadConfig()` data-directory resolver and missing-root wording.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -509,7 +509,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1600 vitest cases (one environmental root-skip): 1152 server across 59 files and 448 web across 31 files,
+- 1601 vitest cases (one environmental root-skip): 1153 server across 59 files and 448 web across 31 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

@@ -327,6 +327,25 @@ describe('repair-permissions edge cases', () => {
     expect(existsSync(path.join(data, 'requests'))).toBe(false);
   });
 
+  it('prints only the config error when the data directory cannot be resolved', () => {
+    const previous = process.env.APS_HARNESS;
+    process.env.APS_HARNESS = 'not-a-harness';
+    const errors: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+
+    try {
+      expect(main([])).toBe(1);
+    } finally {
+      if (previous === undefined) delete process.env.APS_HARNESS;
+      else process.env.APS_HARNESS = previous;
+    }
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('unknown APS_HARNESS');
+  });
+
   it('fails when requests is not a directory', () => {
     const data = tmpDir('repair-file');
     file(path.join(data, 'requests'));
@@ -457,7 +476,11 @@ describe('repair-permissions shared engine', () => {
       'repair-run-permissions-cli.ts',
     ]) {
       expect(source(cli)).toContain("from './repair-cli.js'");
+      expect(source(cli)).not.toContain('printRepairReport(');
+      expect(source(cli)).not.toContain('repairExitCode(');
     }
+
+    expect(source('repair-permissions-cli.ts')).toContain('runRepairCli');
 
     for (const cli of ['repair-upgrade-permissions-cli.ts', 'repair-run-permissions-cli.ts']) {
       expect(source(cli)).toContain('parseCutoverRepairArgs');

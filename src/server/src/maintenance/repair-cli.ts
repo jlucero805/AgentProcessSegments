@@ -110,34 +110,43 @@ export function repairExitCode(result: RepairResult): number {
   return result.failed > 0 ? 1 : 0;
 }
 
-export interface CutoverRepairResult extends RepairResult {
+export interface RepairCliResult extends RepairResult {
   /** Set by `repairRunPermissions` when `<root>/runs` is absent. */
   runsMissing?: boolean;
   /** Set by `repairUpgradePermissions` when `<root>/upgrades` is absent. */
   upgradesMissing?: boolean;
 }
 
-/** One cutover repair: its usage text, engine, and missing-subtree notice. */
-export interface CutoverRepairCommand {
+/** One repair command: its usage text, engine, and missing-path wording. */
+export interface RepairCliCommand {
   usage: string;
-  run: (root: string, options: { apply: boolean } & RepairDeps) => CutoverRepairResult;
-  missingSubtree: { key: 'runsMissing' | 'upgradesMissing'; dir: 'runs' | 'upgrades' };
+  parse: (argv: string[]) => RepairArgs;
+  /** Resolve the engine target; return an exit code after printing to stop. */
+  target: (value: string | null) => { target: string } | { exitCode: number };
+  /** Refuse the home directory and the filesystem root before scanning. */
+  guardRoot?: boolean;
+  /** Full line printed when the engine reports `rootMissing`. */
+  missingRoot: (target: string) => string;
+  /** Optional one-level subtree whose absence gets a notice. */
+  missingSubtree?: { key: 'runsMissing' | 'upgradesMissing'; dir: 'runs' | 'upgrades' };
   /** Detail for a skipped entry that carries none of its own. */
   skipFallback: string;
+  run: (target: string, options: { apply: boolean } & RepairDeps) => RepairCliResult;
 }
 
 /**
- * Run one `repair:runs` or `repair:upgrades` command. The cutover repairs share
- * every step except their usage text, engine, subtree notice, and skip detail.
+ * Run one permission repair. Every maintenance repair shares this sequence;
+ * commands differ only in their usage text, target resolution, guards, engine,
+ * and messages.
  */
-export function runCutoverRepairCli(
+export function runRepairCli(
   argv: string[],
   deps: RepairDeps,
-  command: CutoverRepairCommand,
+  command: RepairCliCommand,
 ): number {
-  let options: CutoverRepairOptions;
+  let options: RepairArgs;
   try {
-    options = parseCutoverRepairArgs(argv);
+    options = command.parse(argv);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     console.error(command.usage);
@@ -149,26 +158,67 @@ export function runCutoverRepairCli(
     return 0;
   }
 
-  const unsafe = unsafeRoot(options.root);
-  if (unsafe !== null) {
-    console.error(`${unsafe}: ${options.root}`);
-    console.error(command.usage);
-    return 1;
+  const resolved = command.target(options.value);
+  if ('exitCode' in resolved) return resolved.exitCode;
+  const target = resolved.target;
+
+  if (command.guardRoot === true) {
+    const unsafe = unsafeRoot(target);
+    if (unsafe !== null) {
+      console.error(`${unsafe}: ${target}`);
+      console.error(command.usage);
+      return 1;
+    }
   }
 
-  const result = command.run(options.root, { apply: options.apply, ...deps });
+  const result = command.run(target, { apply: options.apply, ...deps });
   if (result.rootMissing) {
-    console.log(`nothing to tighten: ${options.root} does not exist`);
+    console.log(command.missingRoot(target));
     return 0;
   }
 
-  const { key, dir } = command.missingSubtree;
-  if (result[key]) {
-    console.log(`${dir} directory not found: ${path.join(options.root, dir)}`);
+  if (command.missingSubtree !== undefined) {
+    const { key, dir } = command.missingSubtree;
+    if (result[key]) {
+      console.log(`${dir} directory not found: ${path.join(target, dir)}`);
+    }
   }
 
   printRepairReport(result, options.apply, command.skipFallback);
   return repairExitCode(result);
+}
+
+/** One cutover repair: its usage text, engine, and missing-subtree notice. */
+export interface CutoverRepairCommand {
+  usage: string;
+  run: (root: string, options: { apply: boolean } & RepairDeps) => RepairCliResult;
+  missingSubtree: { key: 'runsMissing' | 'upgradesMissing'; dir: 'runs' | 'upgrades' };
+  /** Detail for a skipped entry that carries none of its own. */
+  skipFallback: string;
+}
+
+/**
+ * Run one `repair:runs` or `repair:upgrades` command as a preset over
+ * `runRepairCli`: the shared default root, home/root guard, and messages.
+ */
+export function runCutoverRepairCli(
+  argv: string[],
+  deps: RepairDeps,
+  command: CutoverRepairCommand,
+): number {
+  return runRepairCli(argv, deps, {
+    usage: command.usage,
+    parse: (args) => {
+      const options = parseCutoverRepairArgs(args);
+      return { apply: options.apply, help: options.help, value: options.root };
+    },
+    target: (value) => ({ target: value ?? defaultCutoverRoot() }),
+    guardRoot: true,
+    missingRoot: (root) => `nothing to tighten: ${root} does not exist`,
+    missingSubtree: command.missingSubtree,
+    skipFallback: command.skipFallback,
+    run: command.run,
+  });
 }
 
 /** Run `main` only when this module is the process entry point. */

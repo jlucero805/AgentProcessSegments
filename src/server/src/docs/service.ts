@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { SCREENSHOT_TYPES } from './assets.js';
 import { HELP_MANIFEST } from './manifest.js';
 import type { DocManifestEntry, DocPage } from './manifest.js';
 
@@ -9,15 +10,6 @@ export interface DocContent extends DocPage {
   markdown: string;
   updatedAt: number;
 }
-
-const ASSET_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-};
 
 const SLUG = /^[a-z0-9-]+$/;
 
@@ -78,7 +70,7 @@ export class DocsService {
       return null;
     }
     if (!inside(realRoot, real)) return null;
-    const type = ASSET_TYPES[path.extname(real).toLowerCase()];
+    const type = SCREENSHOT_TYPES[path.extname(real).toLowerCase()];
     if (!type) return null;
     return { file: real, type };
   }

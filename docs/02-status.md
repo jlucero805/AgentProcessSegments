@@ -486,7 +486,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1473 vitest cases (one environmental root-skip): 1097 server across 59 files and 376 web across 28 files,
+- 1474 vitest cases (one environmental root-skip): 1097 server across 59 files and 377 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -499,7 +499,8 @@ built and vended by the brain; real-CLI verification is still pending.
   (not part of `npm test` or CI).
   The web suite also resolves every local documentation link, image, and Help `#anchor`,
   checks links on Help-served pages against the manifest in
-  `src/server/src/docs/manifest.ts`, and checks the SPA's own Help targets in
+  `src/server/src/docs/manifest.ts`, checks served images and non-Markdown targets against
+  the supported `docs/screenshots/**` assets, and checks the SPA's own Help targets in
   `src/web/src/links.ts` against that manifest (external URLs are never fetched); run it
   alone with `npm run check:docs`.
   Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`

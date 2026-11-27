@@ -769,7 +769,9 @@ per-run `results.json`/`output.log`. The default log directory is a fresh
 when `/tmp` is small; an explicit `--log-dir` is never deleted (an all-pass run removes
 only its own `run-*` children). The runner exits 0 only when every iteration passed and
 every hog stayed alive (1 on a failed run, 2 on a usage error, 130/143 on interrupt),
-reaps its hogs on every path including `SIGKILL`, and is not part of `npm test` or CI.
+reaps its hogs and the npm/Vitest process group on every path including `SIGKILL` (a
+group-leader supervisor kills its own group when the runner disappears), and is not part
+of `npm test` or CI.
 
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing

@@ -2731,18 +2731,22 @@ an absolute `--outputFile.json` path because npm runs the workspace script with 
 timeout (600 s). The run also fails when a hog exits early. Exit codes are 0 pass, 1
 failure, 2 usage, and 130/143 on SIGINT/SIGTERM.
 
-The suite child is spawned `detached` so the whole npm-to-Vitest group is signalled on a
-timeout or interrupt. Hogs are stopped with SIGTERM then SIGKILL on every exit path, and
-each hog also polls `process.ppid` and exits when the runner disappears, which covers
-`SIGKILL` where no handler can run. The `aps-web-stress-hog` marker keeps a leaked hog
-findable, and the default log directory is an `aps-web-stress-*` mkdtemp under `TMPDIR`,
-so `clean-test-tmp.mjs` reclaims one left by a crash.
+Each iteration runs under `scripts/web-stress/suite-supervisor.mjs`, spawned `detached`
+so it is the session and process-group leader and npm, its shell, and the Vitest workers
+share that group. The runner signals the recorded group on a timeout or interrupt. The
+supervisor also polls `process.ppid` against the runner pid passed at spawn and SIGKILLs
+its own group when the runner disappears, so a `SIGKILL` of the runner cannot leave the
+suite running; hogs have their own `process.ppid` watchdog for the same reason. The
+`aps-web-stress-hog` marker keeps a leaked hog findable, and the default log directory is
+an `aps-web-stress-*` mkdtemp under `TMPDIR`, so `clean-test-tmp.mjs` reclaims one left by
+a crash.
 
 **Cost.** The default run is several minutes of full-suite work with four cores
 oversubscribed, so it is manual only: not in `npm test`, not in either CI workflow. It
-adds no Vitest cases or files (totals stay `1371 = 1046 server + 325 web`); its guard is
-a `node:test` file in `test:e2e-env`. Windows is not a goal (process groups are POSIX),
-and a filtered `--only` run is not a full-suite proof.
+adds no Vitest cases or files (the guarded totals in `AGENTS.md`, `README.md`, and
+`docs/02-status.md` stay unchanged); its guard is a `node:test` file in `test:e2e-env`.
+Windows is not a goal (process groups are POSIX), and a filtered `--only` run is not a
+full-suite proof.
 
 ## D113. Served Help links are checked against the manifest
 

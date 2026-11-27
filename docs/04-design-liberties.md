@@ -29,11 +29,13 @@ deny rules.
 **Alternatives.** A persistent `opencode serve` per request (faster, more state), or
 leaving sessions visible in the user's list.
 
-**Why.** The CLI is one-shot per message, `--standalone` makes `OPENCODE_CONFIG_DIR`
-reliable, and archived sessions do not clutter the user's list. The child environment
-also strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT`, which OpenCode layers above the
-generated file; a set variable warns once and is ignored. Cost: about a second of server
-start per turn, and effort is inert for this harness.
+**Why.** The CLI is one-shot per message, `--standalone` gives the generated
+`OPENCODE_CONFIG_DIR` config a private server, and `OPENCODE_CONFIG_PROJECT_DISABLE=1`
+stops project/ancestor config from layering above it. Archived sessions do not clutter
+the user's list. The child environment also strips
+`OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT`, which OpenCode layers above the generated
+file; a set variable warns once and is ignored. Cost: about a second of server start per
+turn, and effort is inert for this harness.
 
 **Review note.** If turn latency matters more than simplicity, a per-request server is
 the upgrade path.
@@ -44,9 +46,10 @@ the upgrade path.
 `<cwd>/.mcp.json`, merges them into the generated config in the CLI's precedence order
 (local > project > user, each winning entry used whole), and adds `mcp__<server>__*`
 allow rules. The reserved-key `aps` warning names the winning file and scope. OpenCode
-merges `mcp` entries from `opencode.json` or `opencode.jsonc`, both read as JSONC
-(comments and trailing commas are accepted; JSON5 is not). KB sessions exclude user
-servers entirely. A missing file is silent; a file that exists but cannot be read or
+merges `mcp` entries from the global `opencode.json` or `opencode.jsonc`, both read as
+JSONC (comments and trailing commas are accepted; JSON5 is not). Project and ancestor
+files are disabled (`OPENCODE_CONFIG_PROJECT_DISABLE=1`), so they are not a merge source.
+KB sessions exclude user servers entirely. A missing file is silent; a file that exists but cannot be read or
 interpreted is skipped with a one-time stderr warning and a `harness.mcpConfig`
 error-log record naming the path and a short reason. Configuration-level env overrides
 (`OPENCODE_CONFIG`, `OPENCODE_CONFIG_CONTENT`) are not a merge source; §2 strips them

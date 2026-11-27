@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1352 vitest cases: 1027 server across 56 files (one environmental root-skip) and 325 web across 28 files, all green.
+- 1355 vitest cases: 1030 server across 56 files (one environmental root-skip) and 325 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,7 +117,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1027 server + 325 web, plus the e2e env guard
+npm test                       # 1030 server + 325 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -207,14 +207,20 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   id, and maps `text`, `tool_use`, `step_finish`, and `error` events. MCP tools surface
   as `execute` code calling `tools.<server>.<tool>()`. Do not add a persistent-child
   assumption to this harness.
-- **OpenCode user config is JSONC.** `opencode.json` and `opencode.jsonc` are both read
-  with `parseJsonc` (comments, trailing commas, and a leading BOM); the generated config
-  stays strict JSON. Only those relaxations are accepted, not JSON5 syntax.
+- **OpenCode user config is JSONC.** The global `opencode.json` and `opencode.jsonc` are
+  both read with `parseJsonc` (comments, trailing commas, and a leading BOM); the
+  generated config stays strict JSON. Only those relaxations are accepted, not JSON5
+  syntax; project/ancestor files are ignored (see the next bullet).
 - **The generated OpenCode config is harness-owned.** `OPENCODE_CONFIG` and
   `OPENCODE_CONFIG_CONTENT` are stripped from the child environment and the
   `opencode models` probe. OpenCode layers both above the generated config, so either
   could replace the reserved `aps` server or a read-only deny rule. A set variable warns
   once by name; never log its value.
+- **Project OpenCode config is ignored.** Every OpenCode child and the `opencode models`
+  probe set `OPENCODE_CONFIG_PROJECT_DISABLE=1`; project and ancestor
+  `opencode.json(c)`/`.opencode` config cannot add MCP servers, plugins, skills, agents,
+  or permissions. User settings come from the global config directory the harness
+  merges. Never describe `OPENCODE_CONFIG_DIR` as outranking project config.
 - **Claude allow rules support MCP wildcards.** User servers merged from
   `~/.claude.json` and `<cwd>/.mcp.json` are allowed with `mcp__<server>__*`, alongside
   the explicit harness tools. Merge order follows Claude's local > project > user

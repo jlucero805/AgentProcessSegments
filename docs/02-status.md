@@ -167,16 +167,18 @@ built and vended by the brain; real-CLI verification is still pending.
   setup, KB, and unassigned sessions use the default. Claude runs one
   long-lived `claude -p` stream-json child; OpenCode runs
   `opencode run --format json --auto --standalone` per turn, injects config through
-  `OPENCODE_CONFIG_DIR`, strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from the
+  `OPENCODE_CONFIG_DIR`, sets `OPENCODE_CONFIG_PROJECT_DISABLE=1` so project/ancestor
+  config cannot override it, strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from the
   child env, resumes with `--session`, and probes `opencode models`. Session ids are
   pinned to their adapter in `session.json`; model catalogs are per harness.
 - User MCP servers are merged into request sessions: Claude reads user/local/project
   definitions from `~/.claude.json` and `<cwd>/.mcp.json` and adds
   `mcp__<server>__*` allow rules, merging in the CLI's local > project > user precedence
-  with the winning entry used whole; OpenCode merges `mcp` entries from
+  with the winning entry used whole; OpenCode merges `mcp` entries from the global
   `opencode.json`/`opencode.jsonc`, both read as JSONC (comments and trailing commas
-  accepted, JSON5 not), and runs with `--auto`. Process-level config env overrides are
-  stripped, not merged. Read-only KB sessions exclude user servers and plugins. The
+  accepted, JSON5 not), and runs with `--auto`. Project/ancestor config is disabled with
+  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; process-level config env overrides are stripped,
+  not merged. Read-only KB sessions exclude user servers and plugins. The
   bundled `aps` key is reserved: a user entry with that name is
   replaced by the bundled server, with a one-time warning naming its config file and
   scope. A missing config file stays silent; one that exists but is unreadable or
@@ -454,7 +456,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1352 vitest cases (one environmental root-skip): 1027 server across 56 files and 325 web across 28 files,
+- 1355 vitest cases (one environmental root-skip): 1030 server across 56 files and 325 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

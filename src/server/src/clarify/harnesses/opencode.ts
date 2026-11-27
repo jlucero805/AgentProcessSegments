@@ -29,16 +29,29 @@ const exec = promisify(execFile);
 /** OpenCode config overrides that must not reach a harness child. */
 const CONFIG_ENV_KEYS = ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'] as const;
 
+/** OpenCode switch that stops project and ancestor config discovery. */
+const PROJECT_DISABLE_ENV = 'OPENCODE_CONFIG_PROJECT_DISABLE';
+
 /**
  * Remove process-level OpenCode config overrides so only the config the harness
  * generates under OPENCODE_CONFIG_DIR can apply. OpenCode layers these above
  * the generated file, where they could replace the bundled `aps` server or a
- * read-only permission.
+ * read-only permission. Project and ancestor config is disabled separately by
+ * `opencodeHarnessEnv`.
  */
 export function scrubOpencodeConfigEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const clean = { ...env };
   for (const key of CONFIG_ENV_KEYS) delete clean[key];
   return clean;
+}
+
+/**
+ * Build a harness child environment: scrub process-level config overrides and
+ * disable project/ancestor config discovery. The canonical switch is written
+ * last, so a host `0`/empty value cannot turn project discovery back on.
+ */
+export function opencodeHarnessEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...scrubOpencodeConfigEnv(env), [PROJECT_DISABLE_ENV]: '1' };
 }
 
 /** Warn once per set override without naming its value; inline config may hold secrets. */
@@ -246,7 +259,8 @@ export class OpencodeHarness implements AgentHarness {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(path.join(configDir, 'opencode.json'), `${JSON.stringify(config, null, 2)}\n`);
 
-    // --standalone keeps each turn's server private so OPENCODE_CONFIG_DIR applies.
+    // --standalone keeps each turn's server private so the generated
+    // OPENCODE_CONFIG_DIR config is the only file source.
     // --archived keeps scripted brain sessions out of the user's session list.
     const args = ['run', '--format', 'json', '--auto', '--standalone', '--archived'];
     if (session.model) args.push('--model', session.model);
@@ -254,7 +268,10 @@ export class OpencodeHarness implements AgentHarness {
     return {
       cmd: this.bin,
       args,
-      env: { OPENCODE_CONFIG_DIR: configDir },
+      env: {
+        OPENCODE_CONFIG_DIR: configDir,
+        [PROJECT_DISABLE_ENV]: '1',
+      },
       cwd: session.cwd,
       sessionId: session.sessionId,
     };
@@ -301,7 +318,7 @@ export class OpencodeProcess extends LineProcess {
       // OpenCode resolves its project root from PWD; inheriting the brain's PWD
       // would make it ignore the per-request config/cwd.
       env: {
-        ...scrubOpencodeConfigEnv({ ...process.env, ...this.command.env }),
+        ...opencodeHarnessEnv({ ...process.env, ...this.command.env }),
         PWD: this.command.cwd,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -506,7 +523,7 @@ export async function probeOpencodeModels(
     const { stdout } = await exec(bin, ['models'], {
       timeout: 20_000,
       maxBuffer: 4 * 1024 * 1024,
-      env: scrubOpencodeConfigEnv(env),
+      env: opencodeHarnessEnv(env),
     });
     const models: ModelOption[] = [];
     for (const line of stdout.split('\n')) {

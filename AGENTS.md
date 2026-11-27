@@ -43,11 +43,12 @@ digests.
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
 - 1392 vitest cases: 1046 server across 57 files (one environmental root-skip) and 346 web across 28 files, all green.
-- Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
+- Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
-  `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
+  `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
   `scripts/e2e.mjs` (built brain + deterministic mock Claude, isolated DB, dedicated E2E
-  cell, no KB indexing).
+  cell, no KB indexing), and `scripts/systemd-sandbox-probe.mjs` (manual transient-unit
+  sandbox exercise; never in lint or CI).
 - Built: db and migrations, domain, request/cells/KB repositories, HTTP surface with
   NDJSON streams, engine with reattach and resume, stream parsers, worktrees, MCP server,
   plugin manager, models with fallback, the SPA (board, drawer, chat, cells, skills,
@@ -117,6 +118,9 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
+npm run probe:sandbox           # manual: boot the brain under one candidate systemd
+                               # directive and exercise PTY/turns/worktrees; needs a
+                               # user manager and agent CLI, never part of lint or CI
 npm test                       # 1046 server + 346 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
@@ -637,8 +641,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     exposure ceiling), and
     `markdownlint-cli2 "**/*.md"`, so an ESLint or ShellCheck warning, a shell syntax
     error, a workflow error, a non-zero verify exit, any verify diagnostic naming the
-    unit, a missing, changed, or forbidden hardening directive, an exposure level above
-    5.5, or a Markdown finding fails the gate just like an error. The unit gate
+    unit, a missing, changed, or forbidden hardening directive, a duplicate
+    list-directive assignment, an exposure level above 4.8, or a Markdown finding fails
+    the gate just like an error. The unit gate
     treats diagnostics as fatal because `systemd-analyze` exits 0 for unknown keys and
     invalid values, needs systemd 250 or newer for the security review (failing closed
     below that), is skipped with a visible line on non-Linux hosts, and fails on Linux
@@ -647,9 +652,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `dist`/`node_modules` ignored, unused suppressions fatal), the Markdown config
     (`.markdownlint-cli2.jsonc`: a 120-column prose cap with tables, fences, and headings
     exempt from MD013), the pinned actionlint CI install (v1.7.12 release with a SHA-256
-    check; a missing local binary fails closed), the unit wrapper and parser test, and the
+    check; a missing local binary fails closed), the unit wrapper and parser test, the
+    manual sandbox probe and its pure-helper test (never in lint or CI), and the
     CI lint step are guarded by `src/server/test/lint-gate.test.ts`,
-    `src/server/test/dev-preflight.test.ts`, and `scripts/verify-systemd-unit.test.mjs`.
+    `src/server/test/dev-preflight.test.ts`, `scripts/verify-systemd-unit.test.mjs`, and
+    `scripts/systemd-sandbox-probe.test.mjs`.
     The published `.github/workflows/ci.yml` copy is guarded against template drift by
     `src/server/test/ci-workflow.test.ts`.
     Do not weaken any of them without updating the guards and this invariant.

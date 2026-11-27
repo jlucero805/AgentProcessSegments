@@ -2277,15 +2277,17 @@ syscall filtering) would break the product.
 `KeyringMode=private`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`,
 `RestrictRealtime`, `RestrictSUIDSGID`, `LockPersonality`,
 `SystemCallArchitectures=native`, empty `CapabilityBoundingSet` and `AmbientCapabilities`,
-and `UMask=0077`. The unit scores 4.3 OK on systemd 259.
+and `UMask=0077`. D114 later added `PrivateDevices=yes` and `ProtectProc=invisible`; the
+unit now scores 3.8 OK on systemd 259.
 `scripts/verify-systemd-unit.mjs` (already the `lint:unit` step) asserts the exact
-`[Service]` values, rejects four known-breaking directives, and runs
-`systemd-analyze security --offline=yes --user --threshold=55`, so an exposure above 5.5
+`[Service]` values, rejects the known-breaking values, and runs
+`systemd-analyze security --offline=yes --user --threshold=48`, so an exposure above 4.8
 fails `npm run lint`. The directive map is the primary guard; the ceiling also
-catches new checks in later systemd versions. `ProtectHome`, `ProtectSystem=strict`,
-`PrivateNetwork`, `PrivateUsers`, `MemoryDenyWriteExecute`, `RestrictNamespaces`,
-`SystemCallFilter`, `PrivateDevices`, and `ProtectProc`/`ProcSubset` stay off for the
-reasons commented in the unit; evaluating them needs a live VPS run.
+catches new checks in later systemd versions. D114 rejected `ProtectHome=read-only`,
+`ProtectSystem=strict`, and `ProcSubset=pid` with live evidence and deferred
+`RestrictNamespaces` and `SystemCallFilter` until the real Claude Code sandbox is
+exercised. `PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute` stay off for the
+reasons commented in the unit.
 
 **Cost.** In brain terminals, `sudo`/setuid escalation fails, `/etc`, `/usr`, and `/boot`
 are read-only, `/tmp` is private, new files are `0600`, and 32-bit binaries do not run.
@@ -2758,3 +2760,57 @@ missing sources and returns an empty list when `docs/` is absent.
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
 file. Images, non-Markdown local targets, SPA-authored Help links, and external URLs stay
 separate checks.
+
+## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
+
+**Context.** D96 deliberately excluded seven directives that could break PTYs, `/proc`
+readers, agent-CLI sandboxes, syscalls, or writable repos, and noted that evaluating them
+needs a live run. The exclusion list had no repeatable test, so a later "raise the score"
+edit could either break the brain or silently stay conservative forever.
+
+**Decision.** Add `scripts/systemd-sandbox-probe.mjs` (`npm run probe:sandbox`), a manual
+proof script that boots the built brain in a transient `systemd-run --user` unit with the
+shipped `[Service]` sandbox block plus one candidate directive and drives the real
+surfaces: `/health` and the SPA, a `node-pty` terminal (`git status`, `ps`, `free`, `top`,
+`/proc` reads, `$HOME`/`/tmp`/data/outside-repo touches, `systemctl --user`, a nested
+`systemd-run --user`, and `npm run repair:permissions -- --dry-run`), a clarify turn with
+each available harness, and git worktrees for a repo inside and outside the fake home.
+Every writable path lives under one run root derived from `--root`, `%h` is substituted
+with `<root>/home`, inherited `APS_*`/`SBOX_*` are scrubbed by `buildProbePins`, and the
+unit is stopped and collected on every path. The probe copies the invoking user's local
+OpenCode/Claude state into the fake home so a real turn can authenticate; that copy stays
+under the run root and is deleted unless `--keep` is set.
+
+On systemd 259 (kernel 7.0.0-38-generic, Node 24.22.3, OpenCode available, Claude Code
+absent), the control run passed every check except the skipped Claude turn, and the seven
+candidates resolved as:
+
+| Candidate | Result | Evidence |
+| --- | --- | --- |
+| `PrivateDevices=yes` | **ADOPT** | PTY create/echo/close, the OpenCode turn, and all terminal commands pass |
+| `ProtectProc=invisible` | **ADOPT** | `ps aux`, `ps -ef`, `top -b -n 1`, `/proc/self/status` pass |
+| `ProcSubset=pid` | **REJECT** | `ps=1` and `free=1`; `/proc/meminfo` is missing inside the unit |
+| `RestrictNamespaces=~user` | **DEFER** | `unshare -U` is blocked (the expected signature), but `turn:claude` skipped because no Claude binary was available |
+| `SystemCallFilter=@system-service` | **DEFER** | Node, npm, git, the PTY, and the OpenCode turn pass; `turn:claude` skipped |
+| `ProtectHome=read-only` + `ReadWritePaths=` | **REJECT** | `touch $HOME/...` fails with `Read-only file system`; home target repos lose worktrees |
+| `ProtectSystem=strict` + `ReadWritePaths=` | **REJECT** | `touch` in the outside repo (`/srv`) fails; target repos outside the allow-list break |
+
+Adopt `PrivateDevices=yes` and `ProtectProc=invisible` in the unit and in
+`HARDENING_REQUIRED`; reject `ProcSubset=pid`, `ProtectSystem=strict`, and
+`ProtectHome=read-only` in `HARDENING_FORBIDDEN` with every accepted spelling; leave
+`RestrictNamespaces` and `SystemCallFilter` out of both maps until the Claude follow-up.
+The measured exposure is **3.8**, so `SECURITY_THRESHOLD` drops from 55 to **48** (the
+smallest tenth at least 1.0 above the score), and the unit gate now rejects more than one
+assignment of a list directive such as `ReadWritePaths=` so a duplicate line cannot widen
+a reviewed list. The probe stays manual: it needs a user manager, the built tree, literal
+agent CLIs, and network auth, so it is not in `npm run lint`, `npm test`, or CI; only its
+pure helpers and `buildProbePins` are guarded by `node:test` (`test:e2e-env`).
+
+**Cost.** `PrivateDevices=yes` removes sound, input, and raw block/character devices from
+the service's `/dev`; PTYs and standard tty devices remain. `ProtectProc=invisible` hides
+other users' processes, so a brain terminal can no longer inspect another login. The probe
+is slow (a real turn per candidate), copies local agent state into the run root, and
+depends on the host's CLI auth; a missing Claude binary defers the namespace and syscall
+verdicts. The four rejected/deferred directives keep their previous behavior, and a
+changed unit still installs by hand because `upgrade-vps.sh` refuses target commits that
+edit it.

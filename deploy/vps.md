@@ -179,10 +179,11 @@ systemctl --user restart agent-process-segments
 ## Sandboxing
 
 The unit ships a reviewed `[Service]` sandbox: `NoNewPrivileges`, `PrivateTmp`,
-`ProtectSystem=full`, the kernel protections, `RestrictAddressFamilies`, a private
-keyring, and `UMask=0077`. `systemd-analyze security --offline=yes --user
-deploy/agent-process-segments.service` reports about 4.3; `npm run lint` pins the
-directives and fails above a 5.5 exposure ceiling.
+`PrivateDevices=yes`, `ProtectProc=invisible`, `ProtectSystem=full`, the kernel
+protections, `RestrictAddressFamilies`, a private keyring, and `UMask=0077`.
+`systemd-analyze security --offline=yes --user deploy/agent-process-segments.service`
+reports about 3.8; `npm run lint` pins the directives and fails above a 4.8 exposure
+ceiling.
 
 What changes at runtime:
 
@@ -190,13 +191,53 @@ What changes at runtime:
   binaries) and cannot write under `/etc`, `/usr`, or `/boot`.
 - `/tmp` and `/var/tmp` are private to the service, so files there are not visible to your
   other sessions; files the service creates start at `0600` and directories at `0700`.
+- The service sees a minimal `/dev`: sound, input, and raw block/character devices are
+  gone, while `/dev/ptmx`, `/dev/pts`, `/dev/null`, and the standard tty devices remain.
+  Browser terminals and `node-pty` keep working.
+- Processes owned by other users are hidden from `/proc` inside the service. The service
+  user's own `ps`, `top`, and `free` still work; a terminal cannot inspect another
+  login's processes.
 - 32-bit binaries do not run (`SystemCallArchitectures=native`).
 
-The excluded directives (`ProtectHome`, `ProtectSystem=strict`, `PrivateNetwork`,
-`PrivateUsers`, `MemoryDenyWriteExecute`, `RestrictNamespaces`, `SystemCallFilter`,
-`PrivateDevices`, and `ProtectProc`/`ProcSubset`) would break writable repos, the
-loopback listener, V8's JIT, PTYs, or the agent CLIs' own tooling. Read D96 in
+Three candidates were rejected by the live probe (`npm run probe:sandbox`, D114):
+
+- `ProtectHome=read-only` makes `$HOME` read-only outside an explicit allow-list, so a
+  target repo under the home (not just the clone) cannot receive a worktree.
+- `ProtectSystem=strict` does the same to every path outside the allow-list, including
+  `/srv` repos.
+- `ProcSubset=pid` removes `/proc/meminfo`, so `ps`, `free`, and `uptime` fail inside a
+  browser terminal.
+
+`RestrictNamespaces=~user` and `SystemCallFilter=@system-service` are deferred until the
+real Claude Code sandbox is exercised. `PrivateNetwork`, `PrivateUsers`, and
+`MemoryDenyWriteExecute` stay off for the reasons in the unit. Read D96 and D114 in
 `docs/03-decisions.md` before adding any of them.
+
+### Rerun the sandbox probe
+
+The probe boots the built brain under the shipped block plus one candidate directive in
+a transient user unit, then drives `/health`, a PTY, each available agent harness, git
+worktrees, and the repair dry-run. It never touches the installed unit or the live
+database.
+
+```bash
+npm ci --include=dev
+npm run build
+npm run probe:sandbox -- --report /tmp/aps-sandbox-probe.md
+```
+
+Options: `--root DIR` (default `~/.cache/aps-sandbox-probe`; must stay inside the real
+home), `--srv-root DIR` (a writable non-temp path for the outside-repo check; `/srv` is
+used when writable), `--harness claude|opencode|both`, `--candidate ID` (repeatable),
+`--directive Key=Value` for an ad-hoc run, `--claude-bin`/`--opencode-bin`, `--timeout
+SECONDS`, and `--keep` to inspect the run directories. Exit 0 means every check passed or
+skipped, 1 means a check failed, and 3 means the host or build could not run the probe.
+
+A candidate's suggested verdict is **ADOPT** only when every check passed, **REJECT** when
+one failed, and **DEFER** when a required check skipped (for example no Claude binary).
+The probe copies the invoking user's local OpenCode/Claude state into the isolated fake
+home so a real turn can authenticate; that copy lives under the run root and is deleted
+unless `--keep` is set.
 
 Prove the host's user manager can apply the sandbox before restarting a live brain:
 
@@ -207,7 +248,8 @@ systemd-run --user --unit=aps-sandbox-probe --wait --collect \
 
 If the unit refuses to start after an update, remove the sandboxing block from the
 installed copy, run `systemctl --user daemon-reload`, and restart. Inspect the applied
-values with `systemd-analyze security --user agent-process-segments`.
+values with `systemd-analyze security --user agent-process-segments`. A changed unit is
+still installed by hand: `deploy/upgrade-vps.sh` refuses a target commit that edits it.
 
 ## Tailscale
 
@@ -425,8 +467,9 @@ Notes:
   can usually read the upgraded database; restore the snapshot by hand only if it cannot.
 - The script refuses a dirty clone, a non-fast-forward target, a branch mismatch, or a
   target commit that changes `deploy/agent-process-segments.service`; install a changed
-  unit deliberately instead of letting an upgrade replace it. The sandboxing block from
-  D96 is one such change: copy the new unit, run `daemon-reload`, and restart by hand.
+  unit deliberately instead of letting an upgrade replace it. The sandboxing blocks from
+  D96 and D114 are such changes: copy the new unit, run `daemon-reload`, and restart by
+  hand.
 - Re-running when the clone is already at the target prints `already up to date` and
   changes nothing.
 
@@ -695,9 +738,11 @@ Environment=APS_DOCS_DIR=/srv/agent-process-segments/docs
 Environment=APS_DATA_DIR=/home/sandbox/.agent-process-segments
 Environment=PATH=/home/sandbox/.local/bin:/home/sandbox/.opencode/bin:/usr/local/bin:/usr/bin:/bin
 # Optional: Environment=APS_HARNESS=opencode
-# Same reviewed sandboxing set as the user unit; see D96 in docs/03-decisions.md.
+# Same reviewed sandboxing set as the user unit; see D96 and D114 in docs/03-decisions.md.
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
 ProtectSystem=full
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

@@ -511,10 +511,12 @@ built and vended by the brain; real-CLI verification is still pending.
   over the SPA fallback, and unknown routes return `{ "error": "not_found" }`. The
   legacy `sandbox-harness.service` is disabled and its unit/drop-ins are backed up under
   `~/.aps-cutover`. `loginctl enable-linger` is set so the user manager starts at boot.
-  The unit runs sandboxed (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, the
-  kernel protections, `RestrictAddressFamilies`, `UMask=0077`) at about 4.3 offline
-  `systemd-analyze security` exposure; `npm run lint` pins the directives and a 5.5
-  ceiling.
+  The unit runs sandboxed (`NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`,
+  `ProtectProc=invisible`, `ProtectSystem=full`, the kernel protections,
+  `RestrictAddressFamilies`, `UMask=0077`) at about 3.8 offline `systemd-analyze
+  security` exposure; `npm run lint` pins the directives and a 4.8 ceiling. The rejected
+  and deferred directives, and the manual `npm run probe:sandbox` that produced the
+  evidence, are in D114.
 - E2E API workflow: `npm run e2e` boots the built brain with a temp DB and deterministic
   mock Claude CLI, creates a dedicated `E2E` cell, and covers clarify, dispatch,
   master prod/review, follow-up creation, per-cell master chat, finalize, and the

@@ -10,7 +10,10 @@ import {
   buildMcpSmokeClientPins,
   buildMcpSmokePins,
   buildPinnedEnv,
+  buildProbePins,
   buildScreenshotPins,
+  probeLayout,
+  probePinProblems,
   resolveClaudeBin,
   SCREENSHOT_BROWSER_PINS,
   SCRUB_PREFIXES,
@@ -728,4 +731,88 @@ test('the screenshot browser launch pins its env and leaves signals to the scrip
   // cleanup; the script's coordinator must own SIGINT/SIGTERM.
   assert.match(source, /handleSIGINT:\s*false/, 'Puppeteer must not handle SIGINT');
   assert.match(source, /handleSIGTERM:\s*false/, 'Puppeteer must not handle SIGTERM');
+});
+
+const probeRoot = '/home/probe/.cache/aps-sandbox-probe/run-1';
+
+function probePins(overrides = {}) {
+  return buildProbePins({
+    root: probeRoot,
+    repo: '/srv/agent-process-segments',
+    port: 7399,
+    base: 'http://127.0.0.1:7399',
+    ...overrides,
+  });
+}
+
+test('the probe layout keeps the database, data, and XDG state under one root', () => {
+  const layout = probeLayout(probeRoot);
+
+  assert.equal(layout.home, `${probeRoot}/home`);
+  assert.equal(layout.workdir, `${probeRoot}/home/agent-process-segments`);
+  assert.equal(layout.dbPath, `${probeRoot}/home/agent-process-segments/agent-process-segments.sqlite`);
+  assert.equal(layout.dataDir, `${probeRoot}/home/.agent-process-segments`);
+  assert.equal(layout.xdgConfig, `${probeRoot}/home/.config`);
+  assert.equal(layout.opencodeConfig, `${probeRoot}/home/.config/opencode`);
+});
+
+test('the probe pins its writable paths, harness bins, and XDG dirs', () => {
+  const pinned = probePins({ claudeBin: '/opt/claude/bin/claude', opencodeBin: '/opt/opencode/bin/opencode' });
+
+  assert.equal(pinned.HOME, `${probeRoot}/home`);
+  assert.equal(pinned.APS_DB, `${probeRoot}/home/agent-process-segments/agent-process-segments.sqlite`);
+  assert.equal(pinned.APS_TERMINAL, '1');
+  assert.equal(pinned.APS_TERMINAL_CWD, `${probeRoot}/home/repo`);
+  assert.equal(pinned.APS_HARNESS, 'opencode');
+  assert.equal(pinned.APS_CLAUDE_BIN, '/opt/claude/bin/claude');
+  assert.equal(pinned.APS_OPENCODE_BIN, '/opt/opencode/bin/opencode');
+  assert.equal(pinned.OPENCODE_CONFIG_DIR, `${probeRoot}/home/.config/opencode`);
+  assert.equal(pinned.OPENCODE_CONFIG, '');
+  assert.equal(pinned.XDG_CONFIG_HOME, `${probeRoot}/home/.config`);
+  assert.equal(pinned.XDG_STATE_HOME, `${probeRoot}/home/.local/state`);
+  assert.equal(pinned.XDG_DATA_HOME, `${probeRoot}/home/.local/share`);
+  assert.equal(pinned.XDG_CACHE_HOME, `${probeRoot}/home/.cache`);
+});
+
+test('the probe pin guard accepts a contained root and reject the aliases', () => {
+  assert.deepEqual(
+    probePinProblems({ root: probeRoot, realHome: '/home/probe', pins: probePins() }),
+    [],
+  );
+
+  const outside = probePins();
+  outside.APS_DB = '/home/probe/agent-process-segments/agent-process-segments.sqlite';
+  assert.deepEqual(
+    probePinProblems({ root: probeRoot, realHome: '/home/probe', pins: outside }),
+    ['APS_DB must live inside the probe root'],
+  );
+
+  const live = probePins();
+  live.APS_DATA_DIR = '/home/probe/.agent-process-segments';
+  assert.deepEqual(
+    probePinProblems({ root: probeRoot, realHome: '/home/probe', pins: live }),
+    ['APS_DATA_DIR must live inside the probe root', 'APS_DATA_DIR must not be a live install path'],
+  );
+});
+
+test('the probe pin guard rejects roots the sandbox would hide or misattribute', () => {
+  for (const root of ['/', '/home/probe', '/tmp/probe', '/var/tmp/probe', '/run/user/1000/probe', '/dev/shm/probe']) {
+    const problems = probePinProblems({
+      root,
+      realHome: '/home/probe',
+      pins: probePins({ root }),
+    });
+    assert.notDeepEqual(problems, [], `${root} must be rejected`);
+  }
+});
+
+test('the probe rejects a root outside the real home', () => {
+  assert.deepEqual(
+    probePinProblems({
+      root: '/srv/probe',
+      realHome: '/home/probe',
+      pins: probePins({ root: '/srv/probe' }),
+    }),
+    ['root must be inside the real home (/home/probe)'],
+  );
 });

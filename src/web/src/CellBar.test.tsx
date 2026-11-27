@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { api } from './api';
 import { CellBar } from './CellBar';
 import type { Cell } from './types';
 
@@ -64,5 +65,28 @@ describe('CellBar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Alpha' }));
     expect(onEdit).toHaveBeenCalledWith(cells[0]);
+  });
+
+  it('does not reload when the delete fails', async () => {
+    vi.spyOn(api, 'deleteCell').mockRejectedValue(new Error('delete failed'));
+    const reload = vi.fn();
+    const onError = vi.fn();
+
+    render(
+      <CellBar
+        cells={cells}
+        value={null}
+        onChange={() => {}}
+        onCreate={() => {}}
+        onEdit={() => {}}
+        reload={reload}
+        onError={onError}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Alpha' }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('delete failed'));
+    expect(reload).not.toHaveBeenCalled();
   });
 });

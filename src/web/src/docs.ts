@@ -1,3 +1,4 @@
+import { GETTING_STARTED_HELP } from './links';
 import type { DocPage } from './types';
 
 export interface DocHeading {
@@ -44,7 +45,7 @@ export function slugForDocPath(href: string): string | null {
   const segments = pathPart.replace(/\\/g, '/').split('/');
   const base = (segments.at(-1) ?? '').replace(/\.md$/i, '').toLowerCase();
   if (!base) return null;
-  if (base === 'readme') return 'getting-started';
+  if (base === 'readme') return GETTING_STARTED_HELP.slug;
   if (segments.includes('deploy')) return `deploy-${base}`;
   return base;
 }

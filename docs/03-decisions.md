@@ -3111,14 +3111,16 @@ found" without failing any gate.
 **Decision.** `src/web/src/links.ts` declares `HelpTarget` plus `GETTING_STARTED_HELP`,
 `VERIFY_WEBHOOK_SIGNATURES_HELP`, and the `SPA_HELP_TARGETS` registry; `helpHref` accepts a
 target so a slug and anchor cannot be paired by accident. `HelpPanel`, `App`, and
-`ConfigPage` use those constants. `src/web/src/doc-links.test.ts` iterates the registry,
-requires each slug to be a `HELP_MANIFEST` entry and each non-null anchor to be an
-`extractHeadings` id of that entry's source, checks the built `?help=` href, and scans
-non-test `src/web/src` files for a quoted `?help=<slug>` or bare Help slug. `docs.ts`
-keeps the README-to-`getting-started` path alias, which `manifestProblems` already
-validates.
+`ConfigPage` use those constants, and `docs.ts` derives its README-to-`getting-started`
+alias from `GETTING_STARTED_HELP`. `checkSpaHelpLinks` in `src/web/src/doc-links.ts` is the
+gate, driven from the docs-gate test: it requires each declared slug to be a
+`HELP_MANIFEST` entry and each non-null anchor to be an `extractHeadings` id of that
+entry's source, then scans non-test `src/web/src` sources for a quoted manifest slug or a
+literal `?help=<slug>` URL. The scan takes its slug set from the manifest, so a new
+hard-coded target fails without editing the gate, and a missing manifest source stays
+`manifestProblems`' finding rather than an anchor error.
 
-**Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
-runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
-parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
-of scope. External URLs and image/non-Markdown targets stay separate checks.
+**Cost.** One registry, one checker, and fixture cases in the existing docs-gate test
+file; no runtime behavior, dependency, or manifest change. The SPA scan is a text guard,
+not a parser: it catches quoted slug literals (comments included) but not a slug assembled
+at runtime. External URLs and image/non-Markdown targets stay separate checks.

@@ -502,3 +502,143 @@ export function checkHelpLinks(
     (left, right) => left.file.localeCompare(right.file) || left.line - right.line,
   );
 }
+
+/** The SPA's own Help target: a manifest slug and an optional rendered heading id. */
+export interface SpaHelpTarget {
+  slug: string;
+  anchor?: string | null;
+}
+
+/** The SPA file that declares every in-app Help target. */
+const SPA_LINKS_FILE = 'src/web/src/links.ts';
+const SPA_SOURCE_ROOT = 'src/web/src';
+const SPA_SOURCE = /\.tsx?$/;
+const TEST_SOURCE = /\.test\.tsx?$/;
+/** A literal slug in a `?help=` URL; templates (`?help=${...}`) never match. */
+const LITERAL_HELP_URL = /\?help=([a-z0-9][a-z0-9-]*)/g;
+
+function walkSources(directory: string, root: string, files: string[]): void {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue;
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRECTORIES.has(entry.name)) walkSources(absolute, root, files);
+    } else if (entry.isFile() && SPA_SOURCE.test(entry.name)) {
+      files.push(path.relative(root, absolute).split(path.sep).join('/'));
+    }
+  }
+}
+
+/** Repo-relative SPA source files, sorted. */
+function spaSourceFiles(root: string): string[] {
+  const directory = path.join(root, SPA_SOURCE_ROOT);
+  if (!existsSync(directory)) return [];
+  const files: string[] = [];
+  walkSources(directory, root, files);
+  return files.sort();
+}
+
+/**
+ * Validate the SPA's own Help targets and keep them centralized.
+ *
+ * `src/web/src/links.ts` declares every target; components import those
+ * constants instead of spelling a slug. The scan is a text guard, not a parser:
+ * it catches a quoted manifest slug or a literal `?help=<slug>` URL anywhere in
+ * the SPA's non-test source (comments included) but not a slug assembled at
+ * runtime.
+ */
+export function checkSpaHelpLinks(
+  root: string,
+  manifest: readonly HelpManifestEntry[],
+  targets: readonly SpaHelpTarget[],
+): DocLinkProblem[] {
+  const absoluteRoot = path.resolve(root);
+  const problems: DocLinkProblem[] = [];
+
+  const entries = new Map<string, string>();
+  for (const entry of manifest) {
+    const source = normalizeManifestSource(entry.source);
+    if (source === null) continue;
+    if (!entries.has(entry.slug)) entries.set(entry.slug, source);
+  }
+
+  const headingCache = new Map<string, string[] | null>();
+  const headingIds = (source: string): string[] | null => {
+    const cached = headingCache.get(source);
+    if (cached !== undefined) return cached;
+    let ids: string[] | null = null;
+    try {
+      ids = extractHeadings(readFileSync(path.join(absoluteRoot, source), 'utf8')).map(
+        (heading) => heading.id,
+      );
+    } catch {
+      // A missing source is a manifest problem; do not add anchor noise.
+    }
+    headingCache.set(source, ids);
+    return ids;
+  };
+
+  const reportTarget = (target: string, reason: string): void => {
+    problems.push({ file: SPA_LINKS_FILE, line: 0, target, reason });
+  };
+
+  for (const target of targets) {
+    const source = entries.get(target.slug);
+    if (source === undefined) {
+      reportTarget(target.slug, `Help has no page for slug "${target.slug}" (SPA Help target)`);
+      continue;
+    }
+    const anchor = target.anchor ?? null;
+    if (anchor === null) continue;
+    const ids = headingIds(source);
+    if (ids !== null && !ids.includes(anchor)) {
+      reportTarget(
+        `${target.slug}#${anchor}`,
+        `no heading with id "${anchor}" in Help page "${target.slug}" (SPA Help target)`,
+      );
+    }
+  }
+
+  // A quoted manifest slug is a second copy of a target, in any of the three
+  // quote styles. Slugs are `[a-z0-9-]`, so they need no regex escaping.
+  const slugs = [...new Set(manifest.map((entry) => entry.slug))].filter((slug) =>
+    HELP_SLUG.test(slug),
+  );
+  const quotedSlug =
+    slugs.length === 0 ? null : new RegExp(`(['"\`])(${slugs.join('|')})\\1`, 'g');
+
+  for (const file of spaSourceFiles(absoluteRoot)) {
+    if (file === SPA_LINKS_FILE || TEST_SOURCE.test(file)) continue;
+    if (file.split('/').includes('test')) continue;
+    const lines = readFileSync(path.join(absoluteRoot, file), 'utf8').split('\n');
+    lines.forEach((line, index) => {
+      const lineNumber = index + 1;
+      const inUrl = new Set<string>();
+      for (const match of line.matchAll(LITERAL_HELP_URL)) {
+        const slug = match[1]!;
+        inUrl.add(slug);
+        problems.push({
+          file,
+          line: lineNumber,
+          target: `?help=${slug}`,
+          reason: `literal Help URL "?help=${slug}"; declare it in SPA_HELP_TARGETS`,
+        });
+      }
+      if (quotedSlug === null) return;
+      for (const match of line.matchAll(quotedSlug)) {
+        const slug = match[2]!;
+        if (inUrl.has(slug)) continue;
+        problems.push({
+          file,
+          line: lineNumber,
+          target: slug,
+          reason: `literal Help slug "${slug}"; use a target from ${SPA_LINKS_FILE}`,
+        });
+      }
+    });
+  }
+
+  return problems.sort(
+    (left, right) => left.file.localeCompare(right.file) || left.line - right.line,
+  );
+}

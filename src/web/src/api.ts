@@ -40,6 +40,7 @@ import type {
   State,
   Summary,
   SummaryConfig,
+  SummaryFeedPage,
   SummaryGroupsResponse,
   SummaryStatus,
   TerminalSessionInfo,
@@ -529,6 +530,11 @@ export const api = {
     options: { limit?: number; since?: number } = {},
   ): Promise<SummaryGroupsResponse> {
     return request(withQuery('/api/summaries/grouped', options));
+  },
+  getSummaryFeed(
+    options: { limit?: number; since?: number; before?: number; beforeId?: string } = {},
+  ): Promise<SummaryFeedPage> {
+    return request(withQuery('/api/summaries/feed', options));
   },
   getLatestSummary(cellId: string): Promise<Summary | null> {
     return request(withQuery('/api/summaries/latest', { cellId }));

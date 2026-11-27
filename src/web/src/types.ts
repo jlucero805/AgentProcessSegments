@@ -113,6 +113,8 @@ export type {
   SummaryConfig,
   SummaryGroup,
   SummaryGroupsResponse,
+  SummaryFeedCursor,
+  SummaryFeedPage,
   SummaryStats,
   SummaryStatus,
 } from '../../server/src/summary/types';

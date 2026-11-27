@@ -429,8 +429,9 @@ scorecard; the scheduler and the drawer read only the newest row per cell, and t
 drawer requests the latest five. The Scorecards page reads history with an inclusive
 generation-time lower bound (`since`) and a tie-safe `(created_at, id)` keyset cursor
 (`before`/`beforeId`), ordered `created_at DESC, id DESC`. It defaults to the last 72
-hours and requests 25 reports per cell plus one probe row. No schema change is needed for
-that read path.
+hours. Grouped mode loads one grouped page of up to 25 reports per cell with server-side
+`hasMore`; the flat cross-cell feed loads 25 reports per page and the server returns the
+page, `hasMore`, and the next cursor. No schema change is needed for either read path.
 
 `retention.cellSummariesDays` in `config.json` (editable from the Config page) bounds the
 table: default 90 days, `0` keeps scorecard history forever. The `master_events`

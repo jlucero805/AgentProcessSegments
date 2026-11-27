@@ -2535,3 +2535,27 @@ with many cells and 25 reports each still returns a multi-megabyte payload. Ther
 migration or new index: `since` uses `idx_cell_summaries_created` and retention bounds
 the scanned rows. Grouped paging beyond the first page, caching the cell list, and
 reducing the focused view's requests remain separate work.
+
+## D107. The flat scorecard feed returns a server-owned page envelope
+
+**Context.** The Scorecards page's **All cells** view renders one card per cell, so its
+height grows with the number of cells even after the grouped feed collapsed the requests
+into one. A single chronological stream is an alternative when the grouped page gets long.
+
+**Decision.** Add `GET /api/summaries/feed?limit=&since=&before=&beforeId=` for an opt-in
+**Flat** layout in the All cells view. It returns `{ reports, hasMore, nextCursor }`,
+ranked `created_at DESC, id DESC` across cells, with the same inclusive `since` and paired
+`(created_at, id)` keyset cursor as `/api/summaries`. The server clamps the page to 1–50
+(default 25), fetches one probe row, trims it, and returns the last row's cursor.
+**Grouped** stays the default and `/api/summaries` keeps its bare-array contract used by
+the drawer and focused-cell history. The feed reuses the list WHERE/ORDER query through a
+non-clamping helper so a 50-row page still gets a probe row. A report whose cell no longer
+exists is kept and labelled with its raw id rather than dropped, so the rendered count
+matches `hasMore`. The page captures the first page's `since` and reuses it for **Load
+more**, so a boundary report cannot age out between pages. No schema or index change is
+needed; `idx_cell_summaries_created` bounds the in-range scan.
+
+**Cost.** The response carries 25 full reports in one payload, so it can be several hundred
+KB; the flat layout asks for one request per page and keeps the previous rows in memory.
+The flat view is All cells only; a focused cell stays grouped. The grouped all-cells feed,
+per-cell **Load older**, and any paging beyond the flat page are unchanged.

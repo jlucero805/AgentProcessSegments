@@ -222,6 +222,26 @@ describe('api client', () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/summaries/grouped');
   });
 
+  it('calls the flat scorecard feed with and without a cursor', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ reports: [], hasMore: false, nextCursor: null }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.getSummaryFeed({
+      limit: 25,
+      since: 1_000,
+      before: 2_000,
+      beforeId: 's1',
+    });
+    await api.getSummaryFeed();
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      '/api/summaries/feed?limit=25&since=1000&before=2000&beforeId=s1',
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/summaries/feed');
+  });
+
   it('surfaces the first validation issue when there is no message', async () => {
     vi.stubGlobal(
       'fetch',

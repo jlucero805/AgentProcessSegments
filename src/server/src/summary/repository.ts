@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
-import type { Summary, SummaryGroup, SummaryGroupOptions, SummaryStats } from './types.js';
+import type {
+  Summary,
+  SummaryFeedPage,
+  SummaryGroup,
+  SummaryGroupOptions,
+  SummaryStats,
+} from './types.js';
 
 interface SummaryRow {
   id: string;
@@ -32,6 +38,9 @@ export interface SummaryListOptions {
   /** Tie-breaker for `before`; both cursor fields must be supplied together. */
   beforeId?: string | undefined;
 }
+
+/** The flat cross-cell feed has no cell filter. */
+export type SummaryFeedOptions = Omit<SummaryListOptions, 'cellId'>;
 
 function toSummary(row: SummaryRow): Summary {
   return {
@@ -71,8 +80,11 @@ export class SummaryRepository {
     return { id, ...input, createdAt };
   }
 
-  list(options: SummaryListOptions = {}): Summary[] {
-    const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
+  /**
+   * Run the shared list query with an explicit limit. The limit is not clamped
+   * here so `feed()` can fetch one probe row even at the public 50-row cap.
+   */
+  private query(options: SummaryListOptions, limit: number): SummaryRow[] {
     const clauses: string[] = [];
     const params: Array<string | number> = [];
     if (options.cellId !== undefined) {
@@ -88,12 +100,33 @@ export class SummaryRepository {
       params.push(options.before, options.before, options.beforeId);
     }
     const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
-    const rows = this.db
+    return this.db
       .prepare(
         `SELECT * FROM cell_summaries${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
       )
       .all(...params, limit) as SummaryRow[];
-    return rows.map(toSummary);
+  }
+
+  list(options: SummaryListOptions = {}): Summary[] {
+    const limit = Math.min(Math.max(options.limit ?? 10, 1), 50);
+    return this.query(options, limit).map(toSummary);
+  }
+
+  /**
+   * One page of the flat cross-cell feed, newest first, with the cursor for the
+   * next page. Fetches one probe row to compute `hasMore` without returning it.
+   */
+  feed(options: SummaryFeedOptions = {}): SummaryFeedPage {
+    const limit = Math.min(Math.max(options.limit ?? 25, 1), 50);
+    const rows = this.query(options, limit + 1);
+    const reports = rows.slice(0, limit).map(toSummary);
+    const last = reports[reports.length - 1];
+    const hasMore = rows.length > limit;
+    return {
+      reports,
+      hasMore,
+      nextCursor: hasMore && last ? { before: last.createdAt, beforeId: last.id } : null,
+    };
   }
 
   /**

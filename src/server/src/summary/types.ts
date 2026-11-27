@@ -86,3 +86,22 @@ export interface SummaryStatus {
   lastRunAt: number | null;
   lastError: string | null;
 }
+
+/** The newest reports for one cell in a grouped all-cells feed. */
+export interface SummaryGroup {
+  cellId: string;
+  reports: Summary[];
+  /** More in-range reports exist below the oldest one returned for this cell. */
+  hasMore: boolean;
+}
+
+export interface SummaryGroupsResponse {
+  groups: SummaryGroup[];
+}
+
+export interface SummaryGroupOptions {
+  /** Maximum reports per cell, clamped 1..50. */
+  limit?: number | undefined;
+  /** Inclusive lower bound on `created_at` (epoch ms). */
+  since?: number | undefined;
+}

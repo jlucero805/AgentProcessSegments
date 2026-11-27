@@ -253,9 +253,11 @@ built and vended by the brain; real-CLI verification is still pending.
 - Cell scorecards: a configurable summary cron writes a persisted markdown report per
   cell over a trailing window (default every 6 hours over 6 hours). The scheduler scans
   every 30 seconds, catches up a missing/overdue report once, serializes generations, and
-  backs off a failed cell for `min(interval, 30 min)`. Facts are gathered before the
-  model call: request counts by state/status, created/updated/completed/dropped, stalled
-  work, `master_events` activity, follow-up titles, skip reasons, and the prior window.
+  backs off a failed cell for `min(interval, 30 min)`. The unfiltered status poll
+  aggregates the newest report per cell from one grouped query instead of one lookup per
+  cell. Facts are gathered before the model call: request counts by state/status,
+  created/updated/completed/dropped, stalled work, `master_events` activity, follow-up
+  titles, skip reasons, and the prior window.
   Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
   master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, up to five reports in a selectable generation-time period (default
@@ -471,7 +473,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1430 vitest cases (one environmental root-skip): 1063 server across 58 files and 367 web across 28 files,
+- 1437 vitest cases (one environmental root-skip): 1070 server across 58 files and 367 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

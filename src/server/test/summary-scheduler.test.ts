@@ -105,7 +105,20 @@ async function flush(): Promise<void> {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
 
+function recordAt(fixture: Fixture, cellId: string, at: number): Summary {
+  vi.setSystemTime(at);
+  return fixture.summaries.record({
+    cellId,
+    windowStart: at - INTERVAL,
+    windowEnd: at,
+    windowMinutes: 360,
+    content: 'report',
+    stats: stats(cellId, at),
+  });
+}
+
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -251,6 +264,7 @@ describe('SummaryScheduler', () => {
     await flush();
     expect(fixture.generate).toHaveBeenCalledTimes(1);
     expect(fixture.generate).toHaveBeenCalledWith(first.id);
+    expect(fixture.scheduler.status().running).toBe(true);
 
     const manual = fixture.scheduler.runNow(first.id);
     expect(fixture.generate).toHaveBeenCalledTimes(1);
@@ -327,6 +341,165 @@ describe('SummaryScheduler', () => {
     expect(fixture.generate).toHaveBeenCalledTimes(1);
 
     fixture.scheduler.stop();
+    fixture.db.close();
+  });
+
+  it('aggregates all-cells status with one grouped latest query', () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(now);
+    const fixture = setup();
+    const alpha = fixture.cells.create('Alpha');
+    const beta = fixture.cells.create('Beta');
+    recordAt(fixture, alpha.id, now - 3 * HOUR);
+    recordAt(fixture, beta.id, now - HOUR);
+    vi.setSystemTime(now);
+
+    const latestPerCell = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+    const listCells = vi.spyOn(fixture.cells, 'list');
+    const requireCell = vi.spyOn(fixture.cells, 'require');
+    const getSettings = vi.spyOn(fixture.settings, 'get');
+
+    expect(fixture.scheduler.status()).toEqual({
+      enabled: true,
+      intervalMinutes: 360,
+      windowMinutes: 360,
+      running: false,
+      nextRunAt: now + 3 * HOUR,
+      lastRunAt: now - HOUR,
+      lastError: null,
+    });
+    expect(latestPerCell).toHaveBeenCalledTimes(1);
+    expect(latestPerCell).toHaveBeenCalledWith();
+    expect(latest).not.toHaveBeenCalled();
+    expect(listCells).toHaveBeenCalledTimes(1);
+    expect(requireCell).not.toHaveBeenCalled();
+    expect(getSettings).toHaveBeenCalledTimes(1);
+
+    fixture.db.close();
+  });
+
+  it('returns an empty aggregate without querying summaries when there are no cells', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 0, 1));
+    const fixture = setup();
+    const latestPerCell = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+
+    expect(fixture.scheduler.status()).toEqual({
+      enabled: true,
+      intervalMinutes: 360,
+      windowMinutes: 360,
+      running: false,
+      nextRunAt: null,
+      lastRunAt: null,
+      lastError: null,
+    });
+    expect(latestPerCell).not.toHaveBeenCalled();
+    expect(latest).not.toHaveBeenCalled();
+
+    fixture.db.close();
+  });
+
+  it('counts a cell with no report as due now without a last run', () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(now);
+    const fixture = setup();
+    const alpha = fixture.cells.create('Alpha');
+    fixture.cells.create('Beta');
+    recordAt(fixture, alpha.id, now - HOUR);
+    vi.setSystemTime(now);
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      nextRunAt: now,
+      lastRunAt: now - HOUR,
+    });
+
+    fixture.db.close();
+  });
+
+  it('keeps the grouped last run when scheduling is disabled', () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(now);
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    recordAt(fixture, cell.id, now - HOUR);
+    vi.setSystemTime(now);
+    fixture.settings.patch({ summary: { enabled: false } });
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      enabled: false,
+      nextRunAt: null,
+      lastRunAt: now - HOUR,
+    });
+
+    fixture.db.close();
+  });
+
+  it('keeps failure backoff in the aggregate status', async () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(now);
+    const fixture = setup(async () => {
+      throw new Error('model down');
+    });
+    const cell = fixture.cells.create('Alpha');
+
+    await expect(fixture.scheduler.runNow(cell.id)).rejects.toThrow('model down');
+
+    const status = fixture.scheduler.status();
+    expect(status).toMatchObject({
+      nextRunAt: now + 30 * 60_000,
+      lastRunAt: null,
+      lastError: null,
+    });
+    expect(status.nextRunAt).toBe(fixture.scheduler.statusFor(cell.id).nextRunAt);
+
+    fixture.db.close();
+  });
+
+  it('ignores latest summaries whose cell no longer exists', () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(now);
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    recordAt(fixture, cell.id, now - 2 * HOUR);
+    recordAt(fixture, 'deleted-cell', now - HOUR);
+    vi.setSystemTime(now);
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      nextRunAt: now + 4 * HOUR,
+      lastRunAt: now - 2 * HOUR,
+    });
+
+    fixture.db.close();
+  });
+
+  it('keeps the single-cell status on its own require and latest lookup', () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(now);
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    recordAt(fixture, cell.id, now - HOUR);
+    vi.setSystemTime(now);
+
+    const latestPerCell = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+
+    expect(() => fixture.scheduler.statusFor('missing')).toThrow();
+    expect(fixture.scheduler.statusFor(cell.id)).toMatchObject({
+      nextRunAt: now + 5 * HOUR,
+      lastRunAt: now - HOUR,
+    });
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(latest).toHaveBeenCalledWith(cell.id);
+    expect(latestPerCell).not.toHaveBeenCalled();
+
     fixture.db.close();
   });
 });

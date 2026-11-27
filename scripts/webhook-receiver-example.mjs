@@ -171,7 +171,7 @@ function idField(value, key) {
 
 function eventSummary(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return 'event';
-  const event = stringField(body, 'event') ?? 'event';
+  const event = idField(body, 'event') ?? 'event';
   const id =
     idField(body.alert, 'id') ??
     idField(body.turn, 'turnId') ??

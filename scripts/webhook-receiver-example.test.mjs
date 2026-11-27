@@ -347,6 +347,9 @@ test('accepted log falls back to the event kind without a recognized id', async 
       master: { source: 'master.cycle' },
     }),
     JSON.stringify({ version: 1, event: 'custom.event', alert: { id: '' } }),
+    JSON.stringify({ version: 1, event: 'summary.failed', summary: { cellId: '' } }),
+    JSON.stringify({ version: 1, event: 'spend.override', override: { overrideId: 42 } }),
+    JSON.stringify({ version: 1, event: '' }),
     'null',
   ];
 
@@ -359,7 +362,28 @@ test('accepted log falls back to the event kind without a recognized id', async 
   const text = logs.join('\n');
   assert.match(text, /^accepted master\.error$/m);
   assert.match(text, /^accepted custom\.event$/m);
+  assert.match(text, /^accepted summary\.failed$/m);
+  assert.match(text, /^accepted spend\.override$/m);
   assert.match(text, /^accepted event$/m);
+  for (const line of logs) {
+    assert.equal(line, line.trimEnd(), `trailing whitespace in "${line}"`);
+  }
+});
+
+test('accepted log keeps the existing turn and master ids', async (t) => {
+  const { receiver, logs } = await start(t);
+  const bodies = [
+    JSON.stringify({ version: 1, event: 'turn.failed', turn: { turnId: 'turn-3' } }),
+    JSON.stringify({ version: 1, event: 'master.error', master: { cellId: 'cell-7' } }),
+  ];
+
+  for (const body of bodies) {
+    const response = await post(receiver.url, body);
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+
+  assert.deepEqual(logs, ['accepted turn.failed turn-3', 'accepted master.error cell-7']);
 });
 
 test('receiver accepts uppercase V2 hex signatures', async (t) => {

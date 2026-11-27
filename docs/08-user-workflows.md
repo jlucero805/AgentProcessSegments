@@ -301,8 +301,10 @@ APS_WEBHOOK_SECRET='the exact 16-256 character secret' \
 Point the webhook at `http://127.0.0.1:8787` (loopback may use HTTP). For a remote
 receiver, terminate HTTPS in front and keep the example on loopback. It prints the
 bound URL and, after a verified request, `accepted <event> <id>`, where the id is
-`alert.id`, `turn.turnId`, `master.cellId`, `summary.cellId`, or `override.overrideId`.
-It never logs signatures, the secret, raw bodies, or raw error text. Replace its
+`alert.id`, `turn.turnId`, `master.cellId`, `summary.cellId`, or `override.overrideId`;
+with no usable id it prints just the event kind. It never logs signatures, the secret,
+raw bodies, or raw error text, and the id is not a dedupe key: `summary.failed` and
+`master.error` have no dedicated event id and can repeat for the same cell. Replace its
 `onVerified` handler with your durable work. The example verifies V2 only, so an APS older
 than the release that introduced V2 will not work with it.
 

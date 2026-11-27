@@ -106,7 +106,9 @@ root (default `<cwd>/docs`, and the unit sets it explicitly to
 never copies Markdown into the SPA, so a `git pull`
 updates the in-app docs after a restart. `GET /api/docs` lists pages,
 `GET /api/docs/:slug` returns one article, and `GET /api/docs/assets/*` serves only
-`docs/screenshots/**`.
+`docs/screenshots/**`. External-link liveness is not part of serving docs: the manual
+`npm run check:docs:external` probes the repo's external `http(s)` links from a checkout
+and never runs at startup or in CI.
 
 ## Skills in chat
 

@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1473 vitest cases: 1097 server across 59 files (one environmental root-skip) and 376 web across 28 files, all green.
+- 1486 vitest cases: 1097 server across 59 files (one environmental root-skip) and 389 web across 29 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,8 +121,9 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1097 server + 376 web, plus the e2e env guard
+npm test                       # 1097 server + 389 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages, SPA Help targets
+npm run check:docs:external    # manual: probe external http(s) doc links; opt-in, never in CI
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
                                # interrupt cleanup, the native-module preflight, and the
@@ -765,7 +766,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     duplicating a target. Internal-only docs (`05-plan`, `06-refactor-audit`,
     `09-backlog`, `AGENTS.md`, skills) never render in Help, so a served page refers to
     them as inline code or an absolute GitHub URL. Run it alone with `npm run check:docs`;
-    it is part of `npm test`, not `npm run lint`.
+    it is part of `npm test`, not `npm run lint`. The gate itself never fetches an
+    external URL. `npm run check:docs:external` is the opt-in liveness probe
+    (`APS_CHECK_DOCS_EXTERNAL=1`, D124) over the same corpus: `2xx`/`3xx` are live,
+    `404`/`410`/other `4xx`/`5xx` and network failures are dead,
+    `401`/`403`/`405`/`429` are unverified warnings, and loopback or reserved example
+    hosts are skipped. It is manual and network-dependent, and never part of `npm test`
+    or CI.
 47. **Workflow-file pushes need a `workflow`-scoped credential.** GitHub rejects a push
     that adds or edits a file under `.github/workflows/` from a token without the
     `workflow` scope (`refusing to allow an OAuth App to create or update workflow ...`).

@@ -2383,7 +2383,7 @@ runs that one file.
 rather than `npm run lint` because it reuses the app's TypeScript slugger: a standalone
 `.mjs` lint step would need either a duplicate slug implementation or native TypeScript
 imports, which the documented Node 22.13 floor does not guarantee. Manifest-aware checks
-landed later in D113; external-link checks remain separate work.
+landed later in D113; SPA Help targets in D123, and external-link liveness in D124.
 
 ## D100. An opt-in heartbeat file covers a brain whose port is unreachable
 
@@ -2778,8 +2778,8 @@ code or absolute GitHub URLs. Runtime behavior is unchanged: the service still f
 missing sources and returns an empty list when `docs/` is absent.
 
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
-file. Images, non-Markdown local targets, and external URLs stay separate checks;
-SPA-authored Help links landed in D123.
+file. Images and non-Markdown local targets stay separate checks;
+SPA-authored Help links landed in D123, and external-link liveness in D124.
 
 ## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
 
@@ -3121,4 +3121,27 @@ validates.
 **Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
 runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
 parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
-of scope. External URLs and image/non-Markdown targets stay separate checks.
+of scope. External URLs are the opt-in probe in D124; image and non-Markdown targets stay
+separate checks.
+
+## D124. External documentation links are probed by an opt-in check
+
+**Context.** The D99/D113/D123 gates are deterministic and filesystem-only:
+`resolveLinkTarget` skips every `scheme:` target, so an external URL can rot without
+failing anything. Fetching it inside `npm test` would make CI depend on the network and on
+other sites' uptime.
+
+**Decision.** `src/web/src/doc-links-external.ts` collects every `http(s)` destination
+from `collectDocLinks` (inline links, images, raw HTML, and reference definitions),
+deduplicates by normalized URL, and probes each once with `HEAD` (`GET` fallback on
+`403`/`405`/`501` or a thrown request). `2xx`/`3xx` are live; `404`, `410`, other `4xx`,
+`5xx`, and network/timeout failures are dead; `401`/`403`/`405`/`429` are unverified
+warnings; loopback and RFC 2606 example hosts are skipped without a request. Defaults are
+10 s per attempt, concurrency 4, and one retry. `npm run check:docs:external`
+(`APS_CHECK_DOCS_EXTERNAL=1`) runs one env-gated Vitest case that prints the report and
+fails only on dead links. The corpus has no external destinations yet, so the run reports
+zero checked; injected-fetch cases prove the classification offline.
+
+**Cost.** One pure module, one test file, and a package script; no new dependency and no
+runtime change. The check is manual only: not in `npm test`, `npm run check:docs`, or
+either CI workflow, so link rot is caught when an operator runs it, not on every push.

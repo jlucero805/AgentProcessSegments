@@ -486,7 +486,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1473 vitest cases (one environmental root-skip): 1097 server across 59 files and 376 web across 28 files,
+- 1486 vitest cases (one environmental root-skip): 1097 server across 59 files and 389 web across 29 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -501,7 +501,8 @@ built and vended by the brain; real-CLI verification is still pending.
   checks links on Help-served pages against the manifest in
   `src/server/src/docs/manifest.ts`, and checks the SPA's own Help targets in
   `src/web/src/links.ts` against that manifest (external URLs are never fetched); run it
-  alone with `npm run check:docs`.
+  alone with `npm run check:docs`. The manual `npm run check:docs:external` probes those
+  external `http(s)` destinations for liveness; it is never part of `npm test` or CI.
   Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`
   override in `eslint.config.mjs`; the three bounded fail-fast guards carry reviewed
   exemptions, checked by `test/lint-gate.test.ts`.

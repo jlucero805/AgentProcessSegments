@@ -25,6 +25,7 @@
     "test:web-stress": "node scripts/web-stress.mjs",
     "test:server-stress": "node scripts/web-stress.mjs --suite server",
     "check:docs": "npm test --workspace src/web -- doc-links",
+    "check:docs:external": "APS_CHECK_DOCS_EXTERNAL=1 npm test --workspace src/web -- doc-links-external --reporter=verbose",
     "check:github-scope": "node scripts/check-github-scope.mjs",
     "grant:github-scope": "node scripts/grant-github-scope.mjs",
     "check:native": "node scripts/check-native.mjs",

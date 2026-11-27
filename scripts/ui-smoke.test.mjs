@@ -3,7 +3,8 @@
 // no-browser behavior is spawned through a module-resolution hook, and every
 // selector the smoke uses must exist in production code. The smoke may locate
 // through data-testid hooks, aria-labels, and Help data-slugs; it must never
-// assert visible body copy.
+// assert visible body copy. Cleanup must drop the ids returned by the create
+// responses, never the first request/cell that happens to match its title.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -123,9 +124,33 @@ test('ui smoke removes its artifacts through the shared cleanup path', () => {
   assert.match(source, /baselineCellIds/);
   assert.match(source, /if \(cleanupFailed\)/);
 
+  // The ids come from the create responses, never from a later list lookup.
+  assert.match(source, /typeof createdRequest\.id !== 'string'/);
+  assert.match(source, /requestId = createdRequest\.id;/);
+  assert.match(source, /typeof createdCell\.id !== 'string'/);
+  assert.match(source, /cellId = createdCell\.id;/);
+
+  // Cleanup must receive those captured ids, so a same-titled row left by an
+  // earlier crash cannot be dropped in place of the one this run created.
+  const cleanupCall = /cleanupUiSmokeArtifacts\(\{([\s\S]*?)\n\s*\}\);/.exec(source);
+  assert.ok(cleanupCall, 'expected a cleanupUiSmokeArtifacts({ ... }); call');
+  assert.match(cleanupCall[1], /request:\s*\{\s*id:\s*requestId\b/);
+  assert.match(cleanupCall[1], /cell:\s*\{\s*id:\s*cellId\b/);
+  assert.match(
+    source,
+    /if\s*\(\s*!requestId\s*&&\s*!cellId\s*&&\s*!baselineReady\s*\)\s*return;/,
+    'cleanup must not fall through to a name lookup before anything was created',
+  );
+
   assert.doesNotMatch(source, /list\.find\(\(request\) => request\.title === 'Browser smoke'\)/);
   assert.doesNotMatch(source, /cells\.find\(\(cell\) => cell\.name === 'Smoke cell'\)/);
   assert.doesNotMatch(source, /\/drop`, \{ method: 'POST' \}/);
+  // Reject any reworded title/name lookup in a `.find(...)`; the baseline's
+  // `.filter(...)` by the same names is deliberate and must keep passing.
+  assert.doesNotMatch(
+    source,
+    /\.find\([^;]*?\b(title|name)\s*===\s*(REQUEST_TITLE|CELL_NAME|'Browser smoke'|'Smoke cell')/,
+  );
 });
 
 test('ui smoke finds the created card by request id, not title copy', () => {

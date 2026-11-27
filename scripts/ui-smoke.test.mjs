@@ -107,6 +107,25 @@ test('scripts/ui-smoke.mjs routes the decision through the guard', () => {
   assert.doesNotMatch(source, /process\.exit\(0\)/);
 });
 
+test('ui smoke removes its artifacts through the shared cleanup path', () => {
+  const source = readFileSync(script, 'utf8');
+
+  assert.match(source, /from '\.\/e2e\/ui-smoke-cleanup\.mjs'/);
+  assert.match(source, /cleanupUiSmokeArtifacts\(/);
+  assert.match(source, /from '\.\/e2e\/signal-cleanup\.mjs'/);
+  assert.match(source, /createSignalCleanup\(/);
+  assert.match(source, /handleSIGINT: false/);
+  assert.match(source, /handleSIGTERM: false/);
+  assert.match(source, /signalCleanup\.run\(\)/);
+  assert.match(source, /baselineRequestIds/);
+  assert.match(source, /baselineCellIds/);
+  assert.match(source, /if \(cleanupFailed\)/);
+
+  assert.doesNotMatch(source, /list\.find\(\(request\) => request\.title === 'Browser smoke'\)/);
+  assert.doesNotMatch(source, /cells\.find\(\(cell\) => cell\.name === 'Smoke cell'\)/);
+  assert.doesNotMatch(source, /\/drop`, \{ method: 'POST' \}/);
+});
+
 function productionWebSource() {
   const webRoot = path.join(repoRoot, 'src', 'web', 'src');
   const files = readdirSync(webRoot, { recursive: true }).filter(

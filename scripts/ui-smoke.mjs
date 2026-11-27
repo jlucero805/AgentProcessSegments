@@ -8,14 +8,17 @@
 //
 // Set UI_MOBILE=1 for a 390x844 viewport (off-canvas menu, horizontal board,
 // full-width drawer). Set UI_BASE for a different running brain.
-// The script creates a request through the UI, checks the drawer/chat, the Config
-// schedule card, drops the request through the API, and fails on page or console errors.
-// A missing Puppeteer fails the run; --allow-missing-puppeteer skips it
-// deliberately and prints SKIPPED (a skip is not a pass).
+// The script creates a request and a cell through the UI, checks the drawer/chat and
+// the Config schedule card, removes both through the API on every exit path, and
+// fails on page or console errors. A missing Puppeteer fails the run;
+// --allow-missing-puppeteer skips it deliberately and prints SKIPPED (a skip is not
+// a pass).
 //
 // Locate elements through the data-testid hooks below, never through visible copy.
 // scripts/ui-smoke.test.mjs fails when a hook used here is missing from the SPA.
 import { resolveUiSmokePuppeteer } from './e2e/puppeteer.mjs';
+import { createSignalCleanup } from './e2e/signal-cleanup.mjs';
+import { cleanupUiSmokeArtifacts } from './e2e/ui-smoke-cleanup.mjs';
 
 const guard = await resolveUiSmokePuppeteer({ argv: process.argv.slice(2) });
 if (!guard.ok) {
@@ -24,13 +27,98 @@ if (!guard.ok) {
 }
 const puppeteer = guard.puppeteer;
 
-const base = process.env.UI_BASE ?? 'http://127.0.0.1:7391';
+const base = (process.env.UI_BASE ?? 'http://127.0.0.1:7391').replace(/\/+$/, '');
 const mobile = process.env.UI_MOBILE === '1';
+const REQUEST_TITLE = 'Browser smoke';
+const CELL_NAME = 'Smoke cell';
 const BOARD_COLUMNS = ['intake', 'clarify', 'dispatch', 'review', 'merge', 'finalize'];
 let browser;
 let page;
+let requestId;
+let cellId;
+let baselineRequestIds = null;
+let baselineCellIds = null;
+let baselineReady = false;
+let artifactsRemoved = false;
+let cleanupFailed = false;
+
+async function fetchJson(route) {
+  const response = await fetch(`${base}${route}`);
+  if (!response.ok) throw new Error(`GET ${route} -> ${response.status}`);
+  return response.json();
+}
+
+async function removeArtifacts() {
+  if (!requestId && !cellId && !baselineReady) return;
+  if (artifactsRemoved) return;
+  artifactsRemoved = true;
+  try {
+    const { failures } = await cleanupUiSmokeArtifacts({
+      base,
+      request: { id: requestId, title: REQUEST_TITLE },
+      cell: { id: cellId, name: CELL_NAME },
+      baselineRequestIds: baselineReady ? baselineRequestIds : null,
+      baselineCellIds: baselineReady ? baselineCellIds : null,
+      log: (message) => console.error(message),
+    });
+    if (failures.length > 0) {
+      cleanupFailed = true;
+      console.error(
+        `ui smoke cleanup failed for ${failures.length} artifact(s); the board may need manual cleanup`,
+      );
+    }
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`ui smoke cleanup failed: ${error.message}`);
+  }
+}
+
+async function closeBrowser() {
+  const current = browser;
+  if (!current) return;
+  try {
+    await current.close();
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`ui smoke cleanup: browser close failed: ${error.message}`);
+    try {
+      current.process()?.kill('SIGKILL');
+    } catch {
+      // The browser already exited.
+    }
+  } finally {
+    browser = null;
+  }
+}
+
+async function cleanup() {
+  try {
+    await removeArtifacts();
+  } catch (error) {
+    cleanupFailed = true;
+    console.error(`ui smoke cleanup failed: ${error.message}`);
+  }
+  await closeBrowser();
+}
+
+function forceCleanup() {
+  try {
+    browser?.process()?.kill('SIGKILL');
+  } catch {
+    // The browser already exited.
+  }
+}
+
+const signalCleanup = createSignalCleanup({ cleanup, force: forceCleanup });
+
 try {
-  browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+  browser = await puppeteer.launch({
+    headless: true,
+    // Puppeteer's default signal handlers exit immediately and would skip cleanup.
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    args: ['--no-sandbox'],
+  });
   page = await browser.newPage();
   if (mobile) await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 } catch (error) {
@@ -147,20 +235,54 @@ try {
     }
   }
 
+  // Cleanup must never remove an artifact that existed before this run. Capture the
+  // ids first, then use the create-response ids; the baseline is only the fallback
+  // for a response that was lost after the server created the artifact.
+  const [baselineRequests, baselineCells] = await Promise.all([
+    fetchJson('/api/requests'),
+    fetchJson('/api/cells'),
+  ]);
+  baselineRequestIds = new Set(
+    baselineRequests
+      .filter((request) => request.title === REQUEST_TITLE)
+      .map((request) => request.id),
+  );
+  baselineCellIds = new Set(
+    baselineCells.filter((cell) => cell.name === CELL_NAME).map((cell) => cell.id),
+  );
+  baselineReady = true;
+
   await openMenu('create');
   await page.click('[data-testid="new-request"]');
   await page.waitForSelector('[data-testid="create-title"]', { visible: true, timeout: 10_000 });
-  await page.type('[data-testid="create-title"]', 'Browser smoke');
+  await page.type('[data-testid="create-title"]', REQUEST_TITLE);
   await page.type(
     '[data-testid="create-body"]',
     'Created by a real Chromium against the running brain.',
   );
-  await page.click('[data-testid="create-submit"]');
+  const [requestResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${base}/api/requests` &&
+        response.request().method() === 'POST',
+    ),
+    page.click('[data-testid="create-submit"]'),
+  ]);
+  if (requestResponse.status() !== 201) {
+    throw new Error(`create request failed: ${requestResponse.status()}`);
+  }
+  const createdRequest = await requestResponse.json();
+  if (typeof createdRequest.id !== 'string') {
+    throw new Error('create request response did not contain an id');
+  }
+  requestId = createdRequest.id;
 
   await page.waitForSelector('[data-testid="request-detail"]', { timeout: 15_000 });
   await page.waitForFunction(
-    () => document.querySelector('[data-testid="request-title"]')?.textContent?.trim() === 'Browser smoke',
+    (title) =>
+      document.querySelector('[data-testid="request-title"]')?.textContent?.trim() === title,
     { timeout: 15_000 },
+    REQUEST_TITLE,
   );
   // These mount only after the drawer's form and chat have loaded.
   await page.waitForSelector('[data-testid="finalize-digest"]', { visible: true, timeout: 15_000 });
@@ -187,17 +309,18 @@ try {
   });
   await page.waitForSelector('[data-testid="request-detail"]', { hidden: true, timeout: 10_000 });
   await page.waitForFunction(
-    () =>
+    (title) =>
       [...document.querySelectorAll('[data-testid="request-card"]')].some((card) =>
-        card.textContent?.includes('Browser smoke'),
+        card.textContent?.includes(title),
       ),
     { timeout: 10_000 },
+    REQUEST_TITLE,
   );
 
   await openMenu('cell');
   await page.click('[data-testid="new-cell"]');
   await page.waitForSelector('[data-testid="cell-name"]', { visible: true, timeout: 15_000 });
-  await page.type('[data-testid="cell-name"]', 'Smoke cell');
+  await page.type('[data-testid="cell-name"]', CELL_NAME);
   // The submit button only enables after the cell draft's process has loaded.
   await page.waitForFunction(
     () => {
@@ -206,27 +329,41 @@ try {
     },
     { timeout: 15_000 },
   );
-  await page.click('[data-testid="cell-submit"]');
+  const [cellResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === `${base}/api/cells` && response.request().method() === 'POST',
+    ),
+    page.click('[data-testid="cell-submit"]'),
+  ]);
+  if (cellResponse.status() !== 201) {
+    throw new Error(`create cell failed: ${cellResponse.status()}`);
+  }
+  const createdCell = await cellResponse.json();
+  if (typeof createdCell.id !== 'string') {
+    throw new Error('create cell response did not contain an id');
+  }
+  cellId = createdCell.id;
   await page.waitForFunction(
-    () =>
+    (name) =>
       [...document.querySelectorAll('[data-testid="cell-option"]')].some(
-        (option) => option.textContent?.trim() === 'Smoke cell',
+        (option) => option.textContent?.trim() === name,
       ),
     { timeout: 15_000 },
+    CELL_NAME,
   );
-  const cells = await (await fetch(`${base}/api/cells`)).json();
-  const smokeCell = cells.find((cell) => cell.name === 'Smoke cell');
 
   await openMenu('master');
   await page.click('[data-testid="nav-master"]');
   await page.waitForSelector('[data-testid="master-detail"]', { timeout: 15_000 });
   await page.waitForSelector('[data-testid="master-cron-loop"]', { visible: true, timeout: 15_000 });
   await page.waitForSelector('[data-testid="master-title"]', { visible: true, timeout: 10_000 });
-  if (smokeCell) {
+  if (cellId) {
     await page.waitForFunction(
-      () =>
-        document.querySelector('[data-testid="master-title"]')?.textContent?.includes('Smoke cell'),
+      (name) =>
+        document.querySelector('[data-testid="master-title"]')?.textContent?.includes(name),
       { timeout: 10_000 },
+      CELL_NAME,
     );
     await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
   }
@@ -322,28 +459,38 @@ try {
     { timeout: 10_000 },
   );
 
-  const list = await (await fetch(`${base}/api/requests?view=intake`)).json();
-  const created = list.find((request) => request.title === 'Browser smoke');
-  if (created) {
-    await fetch(`${base}/api/requests/${created.id}/drop`, { method: 'POST' });
-  }
-  if (smokeCell) {
-    await fetch(`${base}/api/cells/${smokeCell.id}`, { method: 'DELETE' });
-  }
+  await removeArtifacts();
 
   const shot = process.env.UI_SHOT ?? (mobile ? '/tmp/sbox-ui-mobile.png' : '/tmp/sbox-ui-smoke.png');
   await page.screenshot({ path: shot, fullPage: true });
 
   if (errors.length > 0) throw new Error(`browser errors:\n${errors.join('\n')}`);
+  await closeBrowser();
+  if (cleanupFailed) {
+    throw new Error('artifact cleanup failed; the smoke request or cell may still be on the board');
+  }
   console.log(`ui smoke ok (${mobile ? 'mobile' : 'desktop'})`);
   console.log('root background:', background);
-  console.log('request:', created?.id ?? 'not found');
+  console.log('request:', requestId);
   console.log('screenshot:', shot);
 } catch (error) {
-  console.error('ui smoke FAILED:', error.message);
-  console.error('page text:', (await page.evaluate(() => document.body.innerText)).slice(0, 800));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('ui smoke FAILED:', message);
+  try {
+    if (page && !page.isClosed()) {
+      const text = await page.evaluate(() => document.body.innerText);
+      console.error('page text:', text.slice(0, 800));
+    }
+  } catch {
+    // A closed or crashed page must not hide the original failure.
+  }
   if (errors.length > 0) console.error(errors.join('\n'));
   process.exitCode = 1;
 } finally {
-  await browser.close();
+  try {
+    await signalCleanup.run();
+  } finally {
+    signalCleanup.dispose();
+    if (cleanupFailed && process.exitCode === undefined) process.exitCode = 1;
+  }
 }

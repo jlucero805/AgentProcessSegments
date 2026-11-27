@@ -3261,3 +3261,29 @@ the tradeoff is a file read per call instead of a `statSync`. An external edit t
 the file invalid falls back to the derived policy instead of serving the last-known-good
 config, matching the existing unusable-file contract, and only cells without their own
 `cells.process_json` snapshot are affected.
+
+## D129. Preserved-copy creation shares the same helper as the listing
+
+**Context.** D117 moved preserved-copy listing into `util/preserved-copies.ts` but left the
+producer half duplicated in `SettingsStore.preserveUnusableSource()` and
+`ProcessStore.preserveUnusableSource()`: both built the same UTC stamp, probed the same
+`-N` suffix with `existsSync`, and then wrote through `writePrivateFile`. Two writers were
+free to drift from the ordering rule the reader owns, and the probe-then-rename sequence
+could overwrite a copy that another process created after the probe, contradicting the
+"never overwrites an earlier copy" promise.
+
+**Decision.** `createPreservedCopy(file, contents, options?)` lives in
+`util/preserved-copies.ts` and owns the stamp, the suffix loop, the exclusive create, and
+the owner-only mode. It writes `<file>.invalid-<UTC>` and then `-1`, `-2`, ... with
+`writeFileSync(..., { flag: 'wx', mode: 0o600 })`, retrying on `EEXIST`, and chmods the
+result to `0600` so the umask cannot widen it. A non-`EEXIST` failure removes any partial
+candidate and rethrows, so a failed preserve aborts the save and reports
+`settings.backupFailed` or `process.backupFailed` instead of leaving a truncated copy.
+The helper takes an injectable `now` so tests are deterministic without fake timers. Both
+stores keep their own error routing, console message, `preservedFilePath`, and the process
+five-copy prune; the live-file write still uses `writePrivateFile`.
+
+**Cost.** One shared module owns the whole name/creation rule; a change to the stamp or
+suffix now updates the producer and the reader together. The suffix loop stays unbounded,
+matching the previous probe, and the helper adds one `chmod` per preserved copy. No API,
+UI, database, or file-format change.

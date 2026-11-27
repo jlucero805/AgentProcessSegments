@@ -2,7 +2,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -21,125 +20,10 @@ function fixture(): { dir: string; file: string } {
   return { dir, file: path.join(dir, 'config.json') };
 }
 
-function readdirNames(dir: string): string[] {
-  return readdirSync(dir).sort();
-}
-
 describe('preservedCopyPrefix', () => {
   it('uses the basename and the invalid suffix', () => {
     expect(preservedCopyPrefix('/tmp/settings/config.json')).toBe('config.json.invalid-');
     expect(preservedCopyPrefix('process.json')).toBe('process.json.invalid-');
-  });
-});
-
-describe('createPreservedCopy', () => {
-  const STAMP = '2026-01-01T00-00-00-000Z';
-
-  function frozen(): void {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-  }
-
-  it('copies the exact bytes to a stamped owner-only sibling', () => {
-    frozen();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const { file } = fixture();
-      const original = `{"secret":"value"}\n`;
-      writeFileSync(file, original);
-
-      const copy = createPreservedCopy(file, { label: 'settings' });
-
-      expect(copy).toBe(`${file}.invalid-${STAMP}`);
-      expect(readFileSync(copy!, 'utf8')).toBe(original);
-      expect(readFileSync(file, 'utf8')).toBe(original);
-      if (process.platform !== 'win32') {
-        expect(statSync(copy!).mode & 0o777).toBe(0o600);
-      }
-      expect(warn).toHaveBeenCalledTimes(1);
-      const line = String(warn.mock.calls[0]![0]);
-      expect(line).toContain('preserving unusable settings');
-      expect(line).toContain(file);
-      expect(line).toContain(copy);
-    } finally {
-      warn.mockRestore();
-      vi.useRealTimers();
-    }
-  });
-
-  it('adds the first free numeric suffix without overwriting a copy', () => {
-    frozen();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const { file } = fixture();
-      const base = `${file}.invalid-${STAMP}`;
-      writeFileSync(file, 'current');
-      writeFileSync(base, 'first');
-      expect(createPreservedCopy(file, { label: 'settings' })).toBe(`${base}-1`);
-      writeFileSync(`${base}-1`, 'second');
-      expect(createPreservedCopy(file, { label: 'settings' })).toBe(`${base}-2`);
-      expect(readFileSync(base, 'utf8')).toBe('first');
-      expect(readFileSync(`${base}-1`, 'utf8')).toBe('second');
-      expect(readFileSync(`${base}-2`, 'utf8')).toBe('current');
-    } finally {
-      warn.mockRestore();
-      vi.useRealTimers();
-    }
-  });
-
-  it('returns null and stays silent when the source is gone', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const onError = vi.fn();
-    try {
-      const { dir, file } = fixture();
-
-      expect(createPreservedCopy(file, { label: 'settings', onError })).toBeNull();
-      expect(onError).not.toHaveBeenCalled();
-      expect(warn).not.toHaveBeenCalled();
-      expect(existsSync(`${file}.invalid-${STAMP}`)).toBe(false);
-      expect(readdirNames(dir)).toEqual([]);
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it('reports a read failure once and rethrows without a copy', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const { file } = fixture();
-      mkdirSync(file);
-      const onError = vi.fn();
-
-      expect(() => createPreservedCopy(file, { label: 'settings', onError })).toThrow();
-      expect(onError).toHaveBeenCalledTimes(1);
-      expect(onError.mock.calls[0]![0]).toBeInstanceOf(Error);
-      expect(warn).not.toHaveBeenCalled();
-
-      expect(() => createPreservedCopy(file, { label: 'settings' })).toThrow();
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it('reports a write failure once and rethrows without a warning', () => {
-    frozen();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const dir = tmpDir('preserved-copies');
-      // The source name is legal, but every candidate copy name (and the write
-      // helper's temp name) exceeds the 255-byte component limit.
-      const file = path.join(dir, `${'a'.repeat(240)}.json`);
-      writeFileSync(file, 'original');
-      const onError = vi.fn();
-
-      expect(() => createPreservedCopy(file, { label: 'settings', onError })).toThrow();
-      expect(onError).toHaveBeenCalledTimes(1);
-      expect(warn).not.toHaveBeenCalled();
-      expect(readdirNames(dir)).toEqual([path.basename(file)]);
-    } finally {
-      warn.mockRestore();
-      vi.useRealTimers();
-    }
   });
 });
 
@@ -203,5 +87,56 @@ describe('listPreservedCopies', () => {
     expect(listPreservedCopies(path.join(parent, 'config.json'), { onError })).toEqual([]);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(existsSync(parent)).toBe(true);
+  });
+});
+
+describe('createPreservedCopy', () => {
+  const NOW = new Date('2026-02-03T04:05:06.789Z');
+  const STAMP = '2026-02-03T04-05-06-789Z';
+
+  it('writes the exact bytes owner-only under the frozen stamp', () => {
+    const { file } = fixture();
+    const copy = createPreservedCopy(file, '{original\n', { now: NOW });
+
+    expect(copy).toBe(`${file}.invalid-${STAMP}`);
+    expect(readFileSync(copy, 'utf8')).toBe('{original\n');
+    if (process.platform !== 'win32') {
+      expect(statSync(copy).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it('skips every occupied suffix instead of overwriting', () => {
+    const { file } = fixture();
+    const base = `${file}.invalid-${STAMP}`;
+    writeFileSync(base, 'base\n');
+    writeFileSync(`${base}-1`, 'one\n');
+
+    const copy = createPreservedCopy(file, 'new\n', { now: NOW });
+
+    expect(copy).toBe(`${base}-2`);
+    expect(readFileSync(base, 'utf8')).toBe('base\n');
+    expect(readFileSync(`${base}-1`, 'utf8')).toBe('one\n');
+    expect(readFileSync(copy, 'utf8')).toBe('new\n');
+  });
+
+  it('lists the new copy first when pinned as newest', () => {
+    const { file } = fixture();
+    const older = `${file}.invalid-2025-12-31T23-59-59-999Z`;
+    writeFileSync(older, 'older\n');
+
+    const copy = createPreservedCopy(file, 'newer\n', { now: NOW });
+
+    expect(listPreservedCopies(file, { newest: copy })).toEqual([copy, older]);
+  });
+
+  it('propagates a create failure without leaving a copy', () => {
+    const { dir } = fixture();
+    const parent = path.join(dir, 'not-a-directory');
+    writeFileSync(parent, 'x');
+    const file = path.join(parent, 'config.json');
+
+    expect(() => createPreservedCopy(file, 'x', { now: NOW })).toThrow();
+    expect(existsSync(parent)).toBe(true);
+    expect(existsSync(`${file}.invalid-${STAMP}`)).toBe(false);
   });
 });

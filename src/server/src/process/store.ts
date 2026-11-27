@@ -161,14 +161,29 @@ export class ProcessStore {
   private preserveUnusableSource(): string | null {
     if (!this.preserveSource) return null;
 
-    const copy = createPreservedCopy(this.path, {
-      label: 'process config',
-      onError: (error) =>
-        this.errors?.error('process.backupFailed', error, { path: this.path }),
-    });
+    let raw: string;
+    try {
+      raw = readFileSync(this.path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.preserveSource = false;
+        return null;
+      }
+      this.errors?.error('process.backupFailed', error, { path: this.path });
+      throw error;
+    }
+
+    let backup: string;
+    try {
+      backup = createPreservedCopy(this.path, raw);
+    } catch (error) {
+      this.errors?.error('process.backupFailed', error, { path: this.path });
+      throw error;
+    }
+
+    this.preservedFilePath = backup;
     this.preserveSource = false;
-    if (copy !== null) this.preservedFilePath = copy;
-    return copy;
+    return backup;
   }
 
   /**

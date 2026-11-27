@@ -125,9 +125,9 @@ and error-event shape.
   web `TRANSITIONS`/`STATES` constants, and the unused `AGENT_BADGE.dot`.
 - `App` parses the URL once; `KbEntries` no longer issues duplicate initial searches.
 - `util/preserved-copies.ts` owns the `*.invalid-<UTC>` prefix, stamp/suffix ordering,
-  preserve-before-save copy creation (owner-only write, collision suffix, success warning,
-  error callback), and preserved-copy listing for both `SettingsStore` and `ProcessStore`;
-  each store keeps its own flag, label, error key, pinning, and pruning.
+  exclusive creation, and preserved-copy listing for both `SettingsStore` and
+  `ProcessStore`; each store keeps its own flag, error key, in-memory pinning, and (for
+  process) pruning.
 - `maintenance/permission-repair.ts` owns the owner-only mode decision, the symlink/kind/
   `ENOENT` policy, the counters, and the only repair `chmod`; `maintenance/repair-cli.ts`
   owns argument parsing, reporting, exit codes, and the direct-run bootstrap for

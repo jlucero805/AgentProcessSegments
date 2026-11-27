@@ -940,13 +940,28 @@ export class SettingsStore {
   private preserveUnusableSource(): void {
     if (!this.preserveSource) return;
 
-    const copy = createPreservedCopy(this.path, {
-      label: 'settings',
-      onError: (error) =>
-        this.errors?.error('settings.backupFailed', error, { path: this.path }),
-    });
+    let raw: string;
+    try {
+      raw = readFileSync(this.path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.preserveSource = false;
+        return;
+      }
+      this.errors?.error('settings.backupFailed', error, { path: this.path });
+      throw error;
+    }
+
+    let backup: string;
+    try {
+      backup = createPreservedCopy(this.path, raw);
+    } catch (error) {
+      this.errors?.error('settings.backupFailed', error, { path: this.path });
+      throw error;
+    }
+
+    this.preservedFilePath = backup;
     this.preserveSource = false;
-    if (copy !== null) this.preservedFilePath = copy;
   }
 
   private write(settings: AppSettings): void {

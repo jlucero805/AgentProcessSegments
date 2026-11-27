@@ -156,6 +156,44 @@ function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
   return urls;
 }
 
+/** Serves the first latest-per-cell page; the refresh and older pages are deferred. */
+function stubOlderRefreshFetch(first: Report, refreshed: Report) {
+  const cell = { id: 'c1', name: 'Alpha' };
+  let latestCalls = 0;
+  let resolveRefresh: ((response: Response) => void) | undefined;
+  let resolveOlder: ((rows: Report[]) => void) | undefined;
+  const urls: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+      if (url.startsWith('/api/summaries/latest-per-cell')) {
+        latestCalls += 1;
+        if (latestCalls === 1) {
+          return jsonResponse([{ cell, summary: first, hasOlder: true }]);
+        }
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      if (url.startsWith('/api/summaries?')) {
+        return new Promise<Response>((resolve) => {
+          resolveOlder = (rows) => resolve(jsonResponse(rows));
+        });
+      }
+      return jsonResponse([]);
+    }),
+  );
+  return {
+    urls,
+    resolveRefresh: () =>
+      resolveRefresh!(jsonResponse([{ cell, summary: refreshed, hasOlder: true }])),
+    resolveOlder: (rows: Report[]) => resolveOlder!(rows),
+  };
+}
+
 function summaryRequests(urls: string[]): URLSearchParams[] {
   return urls
     .filter((url) => url.startsWith('/api/summaries?'))
@@ -1433,5 +1471,228 @@ describe('ScorecardsPage', () => {
     });
     expect(screen.queryByText('Stale flat report')).not.toBeInTheDocument();
     expect(screen.getByText('Grouped report')).toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('discards a grouped older page that outlives a Refresh', async () => {
+    const first = makeReport('s0', 'c1', 'Old latest', 2_000_000);
+    const refreshed = makeReport('s9', 'c1', 'Refreshed latest', 2_100_000);
+    const stale = makeReport('s8', 'c1', 'Stale older', 1_900_000);
+    const { urls, resolveRefresh, resolveOlder } = stubOlderRefreshFetch(
+      first,
+      refreshed,
+    );
+
+    renderPage();
+    expect(
+      await screen.findByText('Old latest', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole('button', { name: 'Loading…' }),
+        ).toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    await act(async () => {
+      resolveRefresh();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      await screen.findByText('Refreshed latest', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Old latest')).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveOlder([stale]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.queryByText('Stale older')).not.toBeInTheDocument();
+    expect(screen.getByText('Refreshed latest')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load older' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Loading…' }),
+    ).not.toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('discards a flat page that outlives a Refresh and keeps the refreshed cursor', async () => {
+    const reports = Array.from({ length: 30 }, (_, index) =>
+      makeReport(`s${index}`, 'c1', `Feed report ${index}`, 1_000 - index),
+    );
+    const refreshed = Array.from({ length: 30 }, (_, index) =>
+      makeReport(`n${index}`, 'c1', `Refreshed feed ${index}`, 3_000_000 - index),
+    );
+    const stale = makeReport('stale', 'c1', 'Stale feed report', 900);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    const urls: string[] = [];
+    let feedCalls = 0;
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    let resolveStale: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        urls.push(url);
+        if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url.startsWith('/api/summaries/latest-per-cell')) {
+          return jsonResponse([
+            {
+              cell: { id: 'c1', name: 'Alpha' },
+              summary: reports[0]!,
+              hasOlder: true,
+            },
+          ]);
+        }
+        if (url === '/api/summaries/feed' || url.startsWith('/api/summaries/feed?')) {
+          feedCalls += 1;
+          const params = new URL(url, 'http://localhost').searchParams;
+          if (feedCalls === 1) return jsonResponse(feedPage({ c1: reports }, params));
+          if (feedCalls === 2) {
+            return new Promise<Response>((resolve) => {
+              resolveRefresh = resolve;
+            });
+          }
+          if (feedCalls === 3) {
+            return new Promise<Response>((resolve) => {
+              resolveStale = resolve;
+            });
+          }
+          return jsonResponse(feedPage({ c1: refreshed }, params));
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    try {
+      renderPage();
+      expect(
+        await screen.findByText('Feed report 0', undefined, {
+          timeout: ASYNC_TIMEOUT_MS,
+        }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+      await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      await waitFor(
+        () =>
+          expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(25),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+
+      const firstSince = feedRequests(urls)[0]?.get('since');
+      clock.mockReturnValue(2_060_000);
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+      await waitFor(() => expect(feedRequests(urls)).toHaveLength(2), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('button', { name: 'Loading…' }),
+          ).toBeInTheDocument(),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+
+      await act(async () => {
+        resolveRefresh!(
+          jsonResponse(feedPage({ c1: refreshed }, new URLSearchParams())),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        await screen.findByText('Refreshed feed 0', undefined, {
+          timeout: ASYNC_TIMEOUT_MS,
+        }),
+      ).toBeInTheDocument();
+      await waitFor(
+        () => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled(),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+      const refreshedSince = feedRequests(urls)[1]?.get('since');
+      expect(refreshedSince).not.toBe(firstSince);
+
+      await act(async () => {
+        resolveStale!(
+          jsonResponse({ reports: [stale], hasMore: false, nextCursor: null }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(screen.queryByText('Stale feed report')).not.toBeInTheDocument();
+      expect(screen.getByText('Refreshed feed 0')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(feedRequests(urls)).toHaveLength(4), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      const next = feedRequests(urls)[3];
+      expect(next?.get('since')).toBe(refreshedSince);
+      expect(next?.get('before')).toBe('2999976');
+      expect(next?.get('beforeId')).toBe('n24');
+    } finally {
+      clock.mockRestore();
+    }
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('discards a grouped older page that started before a Refresh', async () => {
+    const first = makeReport('s0', 'c1', 'Old latest', 2_000_000);
+    const refreshed = makeReport('s9', 'c1', 'Refreshed latest', 2_100_000);
+    const stale = makeReport('s8', 'c1', 'Stale older', 1_900_000);
+    const { urls, resolveRefresh, resolveOlder } = stubOlderRefreshFetch(
+      first,
+      refreshed,
+    );
+
+    renderPage();
+    expect(
+      await screen.findByText('Old latest', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole('button', { name: 'Loading…' }),
+        ).toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    await act(async () => {
+      resolveRefresh();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      await screen.findByText('Refreshed latest', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOlder([stale]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.queryByText('Stale older')).not.toBeInTheDocument();
+    expect(screen.getByText('Refreshed latest')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load older' })).toBeEnabled();
+    expect(
+      screen.queryByRole('button', { name: 'Loading…' }),
+    ).not.toBeInTheDocument();
   }, SCORECARDS_TEST_TIMEOUT_MS);
 });

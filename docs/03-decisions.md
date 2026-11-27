@@ -2383,7 +2383,8 @@ runs that one file.
 rather than `npm run lint` because it reuses the app's TypeScript slugger: a standalone
 `.mjs` lint step would need either a duplicate slug implementation or native TypeScript
 imports, which the documented Node 22.13 floor does not guarantee. Manifest-aware checks
-landed later in D113; external-link checks remain separate work.
+landed later in D113; external-link checks are the opt-in `npm run check:docs:external`
+from D124.
 
 ## D100. An opt-in heartbeat file covers a brain whose port is unreachable
 
@@ -3124,3 +3125,37 @@ hard-coded target fails without editing the gate, and a missing manifest source 
 file; no runtime behavior, dependency, or manifest change. The SPA scan is a text guard,
 not a parser: it catches quoted slug literals (comments included) but not a slug assembled
 at runtime. External URLs and image/non-Markdown targets stay separate checks.
+
+**Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
+runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
+parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
+of scope. External URLs and image/non-Markdown targets stay separate checks.
+
+## D124. External documentation links are checked on demand
+
+**Context.** D99's gate resolves local links but deliberately skips external schemes, so
+link rot in GitHub or vendor URLs is invisible. CI must stay deterministic and offline,
+and third-party hosts rate-limit or reject `HEAD`.
+
+**Decision.** `scripts/check-external-links.mjs` (`npm run check:docs:external`) reuses
+the shared extraction in `src/web/src/doc-links-core.mjs` (D99's parser, now with
+`isExternalHref`), checks `http:`/`https:` and protocol-relative destinations, strips
+fragments, and probes each unique canonical URL with `HEAD` and a descriptive user agent.
+It falls back to `GET` only for a non-rate-limit `403`, `405`, or `501`. Defaults are
+10 s per request and 4 in flight; `--root`, `--timeout-ms`, and `--concurrency` override
+them. `404`/`410`, DNS failures, timeouts, TLS/connection failures, and unparseable URLs
+are dead and exit 1. `403`/`429` with `x-ratelimit-remaining: 0` are GitHub-rate-limit
+skips; other 4xx/5xx responses are skips because they do not prove a page is gone.
+Findings are `file:line: URL — reason`, skips are prefixed `skip`, output is sorted, and
+a clean run exits 0 with unique-URL, reference, and file counts. No authorization header
+is sent. The offline classification tests live in `scripts/check-external-links.test.mjs`
+under `test:e2e-env`; the network checker is not in `npm test`, `npm run lint`,
+`npm run check:docs`, or either CI workflow.
+
+**Cost.** One CLI, one test file, and a shared `.mjs` core extracted from `doc-links.ts`.
+Results depend on the network and are advisory: a 200 soft-404 passes, redirects are
+followed, and bare URLs or autolinks are not extracted because D99's parser only sees
+Markdown destinations. At the time of writing the corpus has no extracted external
+destinations, so the command is a no-op until a doc adds one. A GitHub token is
+intentionally unsupported because the checker must not send credentials to arbitrary
+hosts.

@@ -502,6 +502,11 @@ built and vended by the brain; real-CLI verification is still pending.
   `src/server/src/docs/manifest.ts`, and validates the SPA's own Help targets from
   `src/web/src/links.ts` (slug and anchor) while rejecting any literal copy in other SPA
   sources (external URLs are never fetched); run it alone with `npm run check:docs`.
+  External HTTP(S) destinations are checked only by the manual
+  `npm run check:docs:external` (D124), which fetches unique targets with a bounded
+  `HEAD`/`GET`, reports dead links as `file:line: URL — reason`, and is never part of
+  `npm test`, `npm run lint`, `npm run check:docs`, or CI. The corpus currently has no
+  extracted external destinations.
   Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`
   override in `eslint.config.mjs`; the three bounded fail-fast guards carry reviewed
   exemptions, checked by `test/lint-gate.test.ts`.
@@ -554,7 +559,8 @@ built and vended by the brain; real-CLI verification is still pending.
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `OPENCODE_CONFIG_DIR` under its temp dir, so
   its skill catalog cannot read host config. `npm run test:e2e-env` guards the
   builders, their call sites, the screenshot script's missing-Puppeteer policy, its
-  interrupt cleanup, and the GitHub credential-scope preflight. CI
+  interrupt cleanup, the GitHub credential-scope preflight, and the offline external-link
+  classifier. CI
   runs the E2E and MCP stdio smoke steps with the same hostile `SBOX_*`/`APS_*`
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
   that leaks the host env into either proof fails the build;

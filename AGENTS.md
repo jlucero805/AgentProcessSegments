@@ -123,10 +123,12 @@ npm run probe:sandbox           # manual: boot the brain under one candidate sys
                                # user manager and agent CLI, never part of lint or CI
 npm test                       # 1097 server + 379 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages, SPA Help targets
+npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
-                               # interrupt cleanup, the native-module preflight, and the
-                               # GitHub scope preflight/grant
+                               # interrupt cleanup, the native-module preflight, the
+                               # GitHub scope preflight/grant, and the external-link
+                               # classifier
 npm run check:native           # native modules load; Linux toolchain + npm/python floor
 npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
 npm run grant:github-scope     # interactive: add the workflow scope to the host gh credential
@@ -767,7 +769,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `GETTING_STARTED_HELP`. Internal-only docs (`05-plan`, `06-refactor-audit`,
     `09-backlog`, `AGENTS.md`, skills) never render in Help, so a served page refers to
     them as inline code or an absolute GitHub URL. Run it alone with `npm run check:docs`;
-    it is part of `npm test`, not `npm run lint`.
+    it is part of `npm test`, not `npm run lint`. External HTTP(S) destinations are
+    checked only by the manual `npm run check:docs:external` (D124), which is never part
+    of `npm test`, `npm run lint`, `npm run check:docs`, or CI.
 47. **Workflow-file pushes need a `workflow`-scoped credential.** GitHub rejects a push
     that adds or edits a file under `.github/workflows/` from a token without the
     `workflow` scope (`refusing to allow an OAuth App to create or update workflow ...`).

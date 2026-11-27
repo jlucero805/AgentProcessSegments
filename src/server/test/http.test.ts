@@ -2559,6 +2559,27 @@ describe('http api', () => {
     expect(older.status).toBe(200);
     expect(older.json().map((row: { id: string }) => row.id)).toEqual(['b']);
 
+    const bounded = await call(
+      'GET',
+      `/api/summaries?cellId=${alpha.id}&since=1000&until=2000`,
+    );
+    expect(bounded.status).toBe(200);
+    expect(bounded.json().map((row: { id: string }) => row.id)).toEqual(['c', 'b', 'a']);
+
+    const boundedOlder = await call(
+      'GET',
+      `/api/summaries?cellId=${alpha.id}&until=2000&before=2000&beforeId=c`,
+    );
+    expect(boundedOlder.status).toBe(200);
+    expect(boundedOlder.json().map((row: { id: string }) => row.id)).toEqual(['b', 'a']);
+
+    const inverted = await call(
+      'GET',
+      `/api/summaries?cellId=${alpha.id}&since=3000&until=1000`,
+    );
+    expect(inverted.status).toBe(200);
+    expect(inverted.json()).toEqual([]);
+
     const allForCell = await call('GET', `/api/summaries?cellId=${alpha.id}`);
     expect(allForCell.json().map((row: { id: string }) => row.id)).toEqual([
       'd',
@@ -2573,6 +2594,9 @@ describe('http api', () => {
 
     expect((await call('GET', '/api/summaries?since=-1')).status).toBe(400);
     expect((await call('GET', '/api/summaries?since=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?until=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?until=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries?until=abc')).status).toBe(400);
     expect((await call('GET', '/api/summaries?before=abc')).status).toBe(400);
     expect((await call('GET', '/api/summaries?before=2000')).status).toBe(400);
     expect((await call('GET', '/api/summaries?beforeId=c')).status).toBe(400);
@@ -2632,6 +2656,34 @@ describe('http api', () => {
       },
     ]);
 
+    const bounded = await call(
+      'GET',
+      `/api/summaries/latest-per-cell?since=1000&until=2000`,
+    );
+    expect(bounded.status).toBe(200);
+    const boundedGroups = bounded.json() as Array<{
+      cell: { id: string; name: string };
+      summary: { id: string };
+      hasOlder: boolean;
+    }>;
+    expect(
+      boundedGroups.map((group) => ({
+        cellId: group.cell.id,
+        id: group.summary.id,
+        hasOlder: group.hasOlder,
+      })),
+    ).toEqual([
+      { cellId: alpha.id, id: 'c', hasOlder: true },
+      { cellId: beta.id, id: 'f', hasOlder: false },
+    ]);
+
+    const inverted = await call(
+      'GET',
+      '/api/summaries/latest-per-cell?since=3000&until=1000',
+    );
+    expect(inverted.status).toBe(200);
+    expect(inverted.json()).toEqual([]);
+
     const byDefault = await call('GET', '/api/summaries/latest-per-cell');
     expect(byDefault.status).toBe(200);
     expect(
@@ -2650,6 +2702,9 @@ describe('http api', () => {
     expect((await call('GET', '/api/summaries/latest-per-cell?since=-1')).status).toBe(400);
     expect((await call('GET', '/api/summaries/latest-per-cell?since=1.5')).status).toBe(400);
     expect((await call('GET', '/api/summaries/latest-per-cell?since=abc')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest-per-cell?until=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest-per-cell?until=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/latest-per-cell?until=abc')).status).toBe(400);
   });
 
   it('returns usage totals, filters, buckets, and validation errors', async () => {

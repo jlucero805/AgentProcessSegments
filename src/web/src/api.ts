@@ -519,6 +519,7 @@ export const api = {
       cellId?: string;
       limit?: number;
       since?: number;
+      until?: number;
       before?: number;
       beforeId?: string;
     } = {},
@@ -526,7 +527,7 @@ export const api = {
     return request(withQuery('/api/summaries', options));
   },
   getLatestSummariesPerCell(
-    options: { since?: number } = {},
+    options: { since?: number; until?: number } = {},
   ): Promise<LatestSummaryGroup[]> {
     return request(withQuery('/api/summaries/latest-per-cell', options));
   },

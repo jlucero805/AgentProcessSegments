@@ -27,6 +27,8 @@ export interface SummaryListOptions {
   limit?: number | undefined;
   /** Inclusive lower bound on `created_at` (epoch ms). */
   since?: number | undefined;
+  /** Inclusive upper bound on `created_at` (epoch ms). */
+  until?: number | undefined;
   /** Exclusive upper bound on the `(created_at, id)` keyset cursor. */
   before?: number | undefined;
   /** Tie-breaker for `before`; both cursor fields must be supplied together. */
@@ -83,6 +85,10 @@ export class SummaryRepository {
       clauses.push('created_at >= ?');
       params.push(options.since);
     }
+    if (options.until !== undefined) {
+      clauses.push('created_at <= ?');
+      params.push(options.until);
+    }
     if (options.before !== undefined && options.beforeId !== undefined) {
       clauses.push('(created_at < ? OR (created_at = ? AND id < ?))');
       params.push(options.before, options.before, options.beforeId);
@@ -105,9 +111,17 @@ export class SummaryRepository {
     summary: Summary;
     hasOlder: boolean;
   }> {
-    const where = options.since === undefined ? '' : ' WHERE created_at >= ?';
-    const params: Array<string | number> =
-      options.since === undefined ? [] : [options.since];
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (options.since !== undefined) {
+      clauses.push('created_at >= ?');
+      params.push(options.since);
+    }
+    if (options.until !== undefined) {
+      clauses.push('created_at <= ?');
+      params.push(options.until);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db
       .prepare(
         `SELECT * FROM (

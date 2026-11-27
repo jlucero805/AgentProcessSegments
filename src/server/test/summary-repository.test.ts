@@ -100,6 +100,23 @@ describe('summary repository history filters', () => {
     expect(repo.list({ since: 3_001 })).toEqual([]);
   });
 
+  it('filters on generation time with an inclusive until bound', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'oldest', 1_000);
+    recordAt(repo, 'c1', 'middle', 2_000);
+    recordAt(repo, 'c1', 'newest', 3_000);
+
+    expect(repo.list({ until: 2_000 }).map((row) => row.content)).toEqual([
+      'middle',
+      'oldest',
+    ]);
+    expect(repo.list({ until: 1_999 }).map((row) => row.content)).toEqual(['oldest']);
+    expect(
+      repo.list({ since: 2_000, until: 2_000 }).map((row) => row.content),
+    ).toEqual(['middle']);
+    expect(repo.list({ since: 3_000, until: 1_000 })).toEqual([]);
+  });
+
   it('pages with a tie-safe created_at and id cursor', () => {
     const repo = setup();
     const below = recordAt(repo, 'c1', 'below', 4_000);
@@ -202,6 +219,27 @@ describe('summary repository latest-per-cell feed', () => {
     ]);
     expect(groups.map((group) => group.hasOlder)).toEqual([false, false]);
     expect(repo.latestPerCell({ since: 6_000 })).toEqual([]);
+  });
+
+  it('applies an inclusive until filter before ranking', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'alpha-old', 1_000);
+    recordAt(repo, 'c1', 'alpha-new', 5_000);
+    recordAt(repo, 'c2', 'beta-new', 4_000);
+    recordAt(repo, 'c3', 'gamma-old', 2_000);
+
+    const groups = repo.latestPerCell({ until: 2_000 });
+
+    expect(groups.map((group) => group.summary.content)).toEqual([
+      'gamma-old',
+      'alpha-old',
+    ]);
+    expect(groups.map((group) => group.hasOlder)).toEqual([false, false]);
+
+    const closed = repo.latestPerCell({ since: 1_500, until: 4_000 });
+    expect(closed.map((group) => group.summary.content)).toEqual(['beta-new', 'gamma-old']);
+    expect(repo.latestPerCell({ until: 0 })).toEqual([]);
+    expect(repo.latestPerCell({ since: 5_000, until: 1_000 })).toEqual([]);
   });
 
   it('orders groups by their newest report with the id tie-break', () => {

@@ -1,4 +1,11 @@
 export type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
+export type PageRangeKey = RangeKey | 'custom';
+
+/** Inclusive generation-time window; an empty object means all time. */
+export interface DateWindow {
+  since?: number;
+  until?: number;
+}
 
 export const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms: number | null }> = [
   { key: '24h', label: '24h', spellout: 'the last 24 hours', ms: 24 * 60 * 60_000 },
@@ -9,24 +16,82 @@ export const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms:
 ];
 
 export const DEFAULT_RANGE: RangeKey = '72h';
+/** Fallback span when Custom is opened from All, which has no lower bound. */
+export const CUSTOM_FALLBACK_MS = 72 * 60 * 60_000;
 
 export function rangeOption(range: RangeKey) {
   return RANGES.find((option) => option.key === range) ?? RANGES[1]!;
 }
 
+/** Inclusive window for a preset, evaluated at `now`; an empty window means all time. */
+export function presetWindow(range: RangeKey, now = Date.now()): DateWindow {
+  const option = rangeOption(range);
+  return option.ms === null ? {} : { since: now - option.ms };
+}
+
 /** Inclusive lower bound for the selected period; undefined means all time. */
 export function sinceFor(range: RangeKey): number | undefined {
-  const option = rangeOption(range);
-  return option.ms === null ? undefined : Date.now() - option.ms;
+  return presetWindow(range).since;
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Local `YYYY-MM-DD` value for an `<input type="date">`. */
+export function dateInputValue(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * Local whole-day window for two date inputs. The start date includes local
+ * midnight and the end date includes the last millisecond of the local day.
+ * Returns a validation message when either date is missing or inverted.
+ */
+export function customWindow(start: string, end: string): DateWindow | string {
+  const startMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  const endMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
+  if (!startMatch || !endMatch) return 'Choose both a start and end date.';
+  const bounded = (match: RegExpExecArray, edge: 'start' | 'end'): number | null => {
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const date =
+      edge === 'start'
+        ? new Date(year, month, day, 0, 0, 0, 0)
+        : new Date(year, month, day, 23, 59, 59, 999);
+    return date.getFullYear() === year &&
+      date.getMonth() === month &&
+      date.getDate() === day
+      ? date.getTime()
+      : null;
+  };
+  const since = bounded(startMatch, 'start');
+  const until = bounded(endMatch, 'end');
+  if (since === null || until === null) return 'Choose a valid start and end date.';
+  if (until < since) return 'Choose a start date on or before the end date.';
+  return { since, until };
+}
+
+function segmentClass(active: boolean): string {
+  return active
+    ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
+    : 'rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200';
 }
 
 /** Generation-time period control shared by the Scorecards page and master drawer. */
 export function ScorecardPeriod({
   value,
   onChange,
+  onSelectCustom,
+  customSelected = false,
 }: {
-  value: RangeKey;
+  value: RangeKey | null;
   onChange: (range: RangeKey) => void;
+  /** Renders a trailing Custom segment when provided. */
+  onSelectCustom?: () => void;
+  customSelected?: boolean;
 }) {
   return (
     <div
@@ -34,24 +99,33 @@ export function ScorecardPeriod({
       role="group"
       aria-label="Scorecard period"
     >
-      {RANGES.map((item) => (
+      {RANGES.map((item) => {
+        const active = !customSelected && value === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            aria-pressed={active}
+            onClick={() => {
+              if (item.key === value) return;
+              onChange(item.key);
+            }}
+            className={segmentClass(active)}
+          >
+            {item.label}
+          </button>
+        );
+      })}
+      {onSelectCustom ? (
         <button
-          key={item.key}
           type="button"
-          aria-pressed={value === item.key}
-          onClick={() => {
-            if (item.key === value) return;
-            onChange(item.key);
-          }}
-          className={
-            value === item.key
-              ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
-              : 'rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200'
-          }
+          aria-pressed={customSelected}
+          onClick={onSelectCustom}
+          className={segmentClass(customSelected)}
         >
-          {item.label}
+          Custom
         </button>
-      ))}
+      ) : null}
     </div>
   );
 }

@@ -104,4 +104,6 @@ export interface LatestSummaryGroup {
 export interface LatestSummaryOptions {
   /** Inclusive lower bound on `created_at` (epoch ms). */
   since?: number | undefined;
+  /** Inclusive upper bound on `created_at` (epoch ms). */
+  until?: number | undefined;
 }

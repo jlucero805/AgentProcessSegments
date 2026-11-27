@@ -356,6 +356,7 @@ const summariesQuerySchema = z
     cellId: z.string().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(50).optional(),
     since: z.coerce.number().int().min(0).optional(),
+    until: z.coerce.number().int().min(0).optional(),
     before: z.coerce.number().int().min(0).optional(),
     beforeId: z.string().min(1).optional(),
   })
@@ -366,6 +367,7 @@ const summaryCellQuerySchema = z.object({ cellId: z.string().min(1) });
 const summaryStatusQuerySchema = z.object({ cellId: z.string().min(1).optional() });
 const latestSummariesQuerySchema = z.object({
   since: z.coerce.number().int().min(0).optional(),
+  until: z.coerce.number().int().min(0).optional(),
 });
 const chatTestSchema = z.object({ channelId: z.string().min(1).optional() });
 const skillsQuerySchema = z.object({ requestId: z.string().optional() });
@@ -1285,7 +1287,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get('/api/summaries/latest-per-cell', async (request) => {
     const query = latestSummariesQuerySchema.parse(request.query);
     const byId = new Map(cells.list().map((cell) => [cell.id, cell.name]));
-    return summaries.latestPerCell({ since: query.since }).flatMap(({ summary, hasOlder }) => {
+    return summaries.latestPerCell(query).flatMap(({ summary, hasOlder }) => {
       const name = byId.get(summary.cellId);
       return name === undefined
         ? []

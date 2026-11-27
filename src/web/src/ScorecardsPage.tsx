@@ -2,15 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import {
+  CUSTOM_FALLBACK_MS,
   DEFAULT_RANGE,
   ScorecardPeriod,
+  customWindow,
+  dateInputValue,
+  presetWindow,
   rangeOption,
-  sinceFor,
+  type DateWindow,
+  type PageRangeKey,
   type RangeKey,
 } from './ScorecardPeriod';
 import type { Summary, SummaryCellRef, SummaryStatus } from './types';
 import { timeAgo } from './types';
-import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
+import { Button, Card, EmptyState, Field, Input, SectionTitle, Spinner } from './ui';
 
 interface ScorecardGroup {
   cell: SummaryCellRef;
@@ -45,8 +50,8 @@ function windowLabel(summary: Summary): string {
 
 /**
  * Browse the persisted scorecard reports, grouped by cell. The sidebar's cell
- * selection scopes the page to one cell; "All cells" shows every cell with at
- * least one report in the selected period, newest first.
+ * selection scopes the page to one cell; "All cells" shows each cell's newest
+ * report in the selected period, newest cell first.
  */
 export function ScorecardsPage({
   cellId,
@@ -58,21 +63,31 @@ export function ScorecardsPage({
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  const [range, setRange] = useState<PageRangeKey>(DEFAULT_RANGE);
+  const [customStart, setCustomStart] = useState(() =>
+    dateInputValue(Date.now() - CUSTOM_FALLBACK_MS),
+  );
+  const [customEnd, setCustomEnd] = useState(() => dateInputValue(Date.now()));
+  const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
   const loadGeneration = useRef(0);
+  /** Bounds used by the load that produced the visible page; paging reuses them. */
+  const pageWindow = useRef<DateWindow>({});
+
+  const draftWindow = customWindow(customStart, customEnd);
+  const draftError = typeof draftWindow === 'string' ? draftWindow : null;
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
+    const bounds = range === 'custom' ? appliedCustom : presetWindow(range);
     try {
       const statusPromise = api.getSummaryStatus(cellId ?? undefined);
-      const since = sinceFor(range);
       let next: ScorecardGroup[];
       let summaryStatus: SummaryStatus;
       if (cellId) {
         const [cells, status, rows] = await Promise.all([
           api.getCells(),
           statusPromise,
-          api.getSummaries({ cellId, limit: PAGE_SIZE + 1, since }),
+          api.getSummaries({ cellId, limit: PAGE_SIZE + 1, ...bounds }),
         ]);
         const page = pageReports(rows);
         const cell = cells.find((item) => item.id === cellId);
@@ -83,7 +98,7 @@ export function ScorecardsPage({
             : [];
       } else {
         const [feed, status] = await Promise.all([
-          api.getLatestSummariesPerCell({ since }),
+          api.getLatestSummariesPerCell(bounds),
           statusPromise,
         ]);
         summaryStatus = status;
@@ -95,6 +110,7 @@ export function ScorecardsPage({
         }));
       }
       if (generation !== loadGeneration.current) return;
+      pageWindow.current = bounds;
       setStatus(summaryStatus);
       setGroups(next);
     } catch (error) {
@@ -108,13 +124,47 @@ export function ScorecardsPage({
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [cellId, onError, range]);
+  }, [appliedCustom, cellId, onError, range]);
 
   useEffect(() => {
     void (async () => {
       await load();
     })();
   }, [load]);
+
+  const selectCustom = () => {
+    if (range === 'custom') return;
+    const now = Date.now();
+    const startTime =
+      range === 'all'
+        ? now - CUSTOM_FALLBACK_MS
+        : presetWindow(range, now).since ?? now - CUSTOM_FALLBACK_MS;
+    const start = dateInputValue(startTime);
+    const end = dateInputValue(now);
+    const bounds = customWindow(start, end);
+    if (typeof bounds === 'string') return;
+    setCustomStart(start);
+    setCustomEnd(end);
+    setRange('custom');
+    setAppliedCustom(bounds);
+    setGroups(null);
+    setLoading(true);
+  };
+
+  const applyCustom = () => {
+    if (typeof draftWindow === 'string') return;
+    if (
+      range === 'custom' &&
+      draftWindow.since === appliedCustom.since &&
+      draftWindow.until === appliedCustom.until
+    ) {
+      return;
+    }
+    setRange('custom');
+    setAppliedCustom(draftWindow);
+    setGroups(null);
+    setLoading(true);
+  };
 
   const loadOlder = useCallback(
     async (targetCellId: string) => {
@@ -132,7 +182,7 @@ export function ScorecardsPage({
         const older = await api.getSummaries({
           cellId: targetCellId,
           limit: PAGE_SIZE + 1,
-          since: sinceFor(range),
+          ...pageWindow.current,
           before: oldest.createdAt,
           beforeId: oldest.id,
         });
@@ -165,18 +215,26 @@ export function ScorecardsPage({
         }
       }
     },
-    [groups, onError, range],
+    [groups, onError],
   );
 
-  const option = rangeOption(range);
-  const emptyTitle =
-    range === 'all'
-      ? 'No scorecards yet'
-      : `No scorecards in ${option.spellout}`;
-  const emptyHint =
-    range === 'all'
-      ? 'The scheduler writes one per cell on its cadence. Run one from a cell master, or enable the schedule in Config.'
-      : 'Choose a longer period, run one from a cell master, or enable the schedule in Config.';
+  let emptyTitle: string;
+  let emptyHint: string;
+  if (range === 'all') {
+    emptyTitle = 'No scorecards yet';
+    emptyHint =
+      'The scheduler writes one per cell on its cadence. Run one from a cell master, or enable the schedule in Config.';
+  } else if (range === 'custom') {
+    emptyTitle = 'No scorecards in the selected date range';
+    emptyHint =
+      'Widen the start or end date, run one from a cell master, or enable the schedule in Config.';
+  } else {
+    emptyTitle = `No scorecards in ${rangeOption(range).spellout}`;
+    emptyHint =
+      'Choose a longer period, run one from a cell master, or enable the schedule in Config.';
+  }
+
+  const presetRange: RangeKey | null = range === 'custom' ? null : range;
 
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -186,17 +244,20 @@ export function ScorecardsPage({
           <p className="mt-1 text-sm text-zinc-500">
             Persisted reports written per cell over a trailing window. The period filters
             by when a report was generated; each report still covers its own configured
-            window. Pick a cell in the sidebar to focus its history.
+            window. Custom dates use local time and include whole days. Pick a cell in the
+            sidebar to focus its history.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ScorecardPeriod
-            value={range}
+            value={presetRange}
             onChange={(next) => {
               setGroups(null);
               setLoading(true);
               setRange(next);
             }}
+            onSelectCustom={selectCustom}
+            customSelected={range === 'custom'}
           />
           <Button
             variant="secondary"
@@ -211,6 +272,44 @@ export function ScorecardsPage({
           </Button>
         </div>
       </div>
+
+      {range === 'custom' ? (
+        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+          <Field label="Start date">
+            <Input
+              type="date"
+              aria-label="Start date"
+              className="w-40"
+              value={customStart}
+              onChange={(event) => setCustomStart(event.target.value)}
+            />
+          </Field>
+          <Field label="End date">
+            <Input
+              type="date"
+              aria-label="End date"
+              className="w-40"
+              value={customEnd}
+              onChange={(event) => setCustomEnd(event.target.value)}
+            />
+          </Field>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={draftError !== null}
+            onClick={applyCustom}
+          >
+            Apply
+          </Button>
+          <p
+            className={
+              draftError ? 'text-[11px] text-amber-300' : 'text-[11px] text-zinc-600'
+            }
+          >
+            {draftError ?? 'Local time; whole days.'}
+          </p>
+        </div>
+      ) : null}
 
       {status ? (
         <p className="text-[11px] text-zinc-600">

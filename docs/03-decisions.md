@@ -2516,16 +2516,17 @@ status. The page only needs each cell's newest report for its first render; olde
 are already per-cell keyset requests. A grouped variant that returned 25 reports per cell
 would remove the request fan-out but keep the same multi-megabyte payload.
 
-**Decision.** Add an additive `GET /api/summaries/latest-per-cell[?since=…]` returning
-`[{ cell: { id, name }, summary, hasOlder }]`. `since` is the same inclusive
-generation-time bound as the existing list route. `SummaryRepository.latestPerCell()`
+**Decision.** Add an additive `GET /api/summaries/latest-per-cell[?since=…&until=…]` returning
+`[{ cell: { id, name }, summary, hasOlder }]`. `since` and `until` are the same inclusive
+generation-time bounds as the existing list route. `SummaryRepository.latestPerCell()`
 ranks in-range rows per cell with
 `ROW_NUMBER() OVER (PARTITION BY cell_id ORDER BY created_at DESC, id DESC)`, keeps the
 first two, and returns the first as `summary` with `hasOlder` set when the second exists.
 Groups follow their newest report, so the response is already newest-first. The route
 joins `cells.list()` to add the cell name and drops a summary whose cell no longer
-exists. The all-cells view makes this one feed request plus the status request, does not
-fetch `/api/cells`, and does not request per-cell summaries until the operator presses
+exists. The all-cells view makes this one feed request plus the status request with the
+selected bounds, does not fetch `/api/cells`, and does not request per-cell summaries
+until the operator presses
 **Load older**. That button still pages the selected cell through `/api/summaries` with
 the D92 keyset. The focused-cell view stays unchanged; `GET /api/summaries` and
 `/api/summaries/latest` keep their shapes for other callers.
@@ -2533,9 +2534,10 @@ the D92 keyset. The focused-cell view stays unchanged; `GET /api/summaries` and
 **Cost.** The feed scans and ranks the in-range rows once, and its response carries one
 report per cell instead of 25, so the initial payload no longer grows with history depth.
 Older history is fetched only for the card an operator opens. There is no migration or new
-index: `since` uses `idx_cell_summaries_created` and retention bounds the scanned rows;
-equal-`created_at` ties may sort in memory. `SummaryScheduler.status()` still computes one
-`latest()` per cell internally; replacing that with the grouped query is separate work.
+index: `since` and `until` use `idx_cell_summaries_created` and retention bounds the
+scanned rows; equal-`created_at` ties may sort in memory. `SummaryScheduler.status()` still computes one
+`latest()` per cell internally; replacing that with the latest-per-cell query is separate
+work.
 
 ## D107. The Cell master drawer scopes its latest five reports by period
 
@@ -2566,5 +2568,40 @@ state ambiguous. The filtered list already contains the newest row, so the separ
 
 **Cost.** The drawer makes one summaries request per load with the existing index-backed
 `since` predicate; there is no schema, API, scheduler, retention, or report-content
-change. The drawer cannot show more than five reports, by design. The shared control
-touches the Scorecards page only to move its existing markup and range data.
+change. The drawer cannot show more than five reports, by design. The drawer renders only
+the preset options; the Scorecards page adds its optional Custom segment to the same
+control.
+
+## D108. Scorecards custom ranges use inclusive local whole-day bounds
+
+**Context.** D92 gave the Scorecards page five rolling presets. D106 routes the all-cells
+first page through one latest-per-cell request, and D107 shares the preset control with
+the drawer. Operators still could not ask for an arbitrary calendar window, such as a
+specific week or a range that ends in the past, because the read paths had no upper bound
+and the page had no date inputs.
+
+**Decision.** Add a sixth **Custom** segment with native start and end date inputs. The
+browser's local dates become inclusive bounds: start at local `00:00:00.000` and end at
+local `23:59:59.999`, converted to epoch ms. `GET /api/summaries`,
+`GET /api/summaries/latest-per-cell`, and their repository methods accept an optional
+inclusive `until`, and it ANDs with `since`, `cellId`, the limit, and the
+`(created_at, id)` cursor. `until` is not a cursor: `before` remains the exclusive keyset
+bound, so paging inside a custom range keeps both the applied `since`/`until` and the
+cursor. Selecting Custom prefills the start from the current finite preset (or the last
+72 hours from All) and the end from today, then applies at once; subsequent edits need
+**Apply**. Draft dates never affect Refresh or **Load older**, and the page reuses the
+window that produced the visible page when paging. The all-cells feed and the focused-cell
+list both receive the same applied window. Presets still compute a fresh rolling lower
+bound on each load. The API places no ordering rule on `since` and `until`; an inverted
+pair returns an empty list, while the UI rejects it before sending. The range is not
+persisted across reloads, and the drawer keeps its preset-only control.
+
+**Why local whole days.** The control is a date picker, not a datetime picker, and
+operators read report history in local time. Parsing `YYYY-MM-DD` with `new Date(value)`
+would use UTC midnight and shift the boundary by a day in negative-offset zones; building
+the date from its local components avoids that. No new index is needed because the
+existing `created_at` indexes cover both bounds.
+
+**Cost.** Custom ranges are bounded by `retention.cellSummariesDays`, not by an artificial
+cap, and a future end date simply includes everything up to now. Time-of-day precision,
+timezone selection, URL persistence, and a custom range in the drawer are separate work.

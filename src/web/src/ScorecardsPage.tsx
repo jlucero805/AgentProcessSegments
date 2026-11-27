@@ -79,15 +79,18 @@ function appliedRangeLabel(window: DateWindow): string {
 }
 
 /**
- * Browse the persisted scorecard reports. The sidebar's cell selection scopes the
- * page to one cell; "All cells" shows each cell's newest report in the selected
- * period, newest cell first, or one flat chronological cross-cell feed.
+ * Browse the persisted scorecard reports. The sidebar's cell selection, or a flat
+ * item's cell name, scopes the page to one cell; "All cells" shows each cell's newest
+ * report in the selected period, newest cell first, or one flat chronological
+ * cross-cell feed.
  */
 export function ScorecardsPage({
   cellId,
+  onSelectCell,
   onError,
 }: {
   cellId: string | null;
+  onSelectCell: (cellId: string) => void;
   onError: (message: string) => void;
 }) {
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
@@ -342,8 +345,8 @@ export function ScorecardsPage({
             by when a report was generated; each report still covers its own configured
             window. Custom start and end use browser-local date and time; the end minute
             is included. Grouped shows each cell's newest report first; Flat is one
-            chronological cross-cell stream. Pick a cell in the sidebar to focus its
-            history.
+            chronological cross-cell stream. Pick a cell in the sidebar, or click its name
+            in Flat, to focus its history.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -496,21 +499,35 @@ export function ScorecardsPage({
           <EmptyState title={emptyTitle} hint={emptyHint} />
         ) : (
           <div className="space-y-4">
-            {feed.reports.map((report) => (
-              <Card key={report.id} className="space-y-3 p-4">
-                <div>
-                  <SectionTitle>
-                    {cellNames.get(report.cellId) ?? report.cellId}
-                  </SectionTitle>
-                  <p className="mt-1 text-[11px] text-zinc-600">
-                    Generated {timeAgo(report.createdAt)} ago · window{' '}
-                    {duration(report.windowMinutes)} · {windowLabel(report)}
-                  </p>
-                </div>
+            {feed.reports.map((report) => {
+              const name = cellNames.get(report.cellId);
+              return (
+                <Card key={report.id} className="space-y-3 p-4">
+                  <div>
+                    <SectionTitle>
+                      {name ? (
+                        <button
+                          type="button"
+                          aria-label={`Focus ${name}`}
+                          onClick={() => onSelectCell(report.cellId)}
+                          className="rounded-sm hover:text-zinc-200 hover:underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500"
+                        >
+                          {name}
+                        </button>
+                      ) : (
+                        report.cellId
+                      )}
+                    </SectionTitle>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      Generated {timeAgo(report.createdAt)} ago · window{' '}
+                      {duration(report.windowMinutes)} · {windowLabel(report)}
+                    </p>
+                  </div>
 
-                <Scorecard summary={report} />
-              </Card>
-            ))}
+                  <Scorecard summary={report} />
+                </Card>
+              );
+            })}
 
             {feed.hasMore && feed.nextCursor ? (
               <Button

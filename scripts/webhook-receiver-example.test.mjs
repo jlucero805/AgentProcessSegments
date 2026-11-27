@@ -295,6 +295,94 @@ test('receiver verifies before parsing and calls onVerified once', async (t) => 
   assert.ok(!text.includes('"text":"hi"'));
 });
 
+test('accepted log names summary.failed and spend.override ids only', async (t) => {
+  const { receiver, logs } = await start(t);
+  const summaryBody = JSON.stringify({
+    version: 1,
+    event: 'summary.failed',
+    severity: 'error',
+    title: 'Scorecard failed: Acme',
+    occurredAt: FIXED_NOW,
+    text: 'summary body text must stay out of the log',
+    summary: {
+      cellId: 'cell-1',
+      source: 'summary.exit',
+      reason: 'summary reason must stay out of the log',
+      occurredAt: FIXED_NOW,
+    },
+  });
+  const overrideBody = JSON.stringify({
+    version: 1,
+    event: 'spend.override',
+    severity: 'warning',
+    title: 'Spend cap override granted: Overall',
+    occurredAt: FIXED_NOW,
+    text: 'override body text must stay out of the log',
+    override: {
+      overrideId: 'override-1',
+      change: 'granted',
+      scope: 'overall',
+      cellId: null,
+      reason: 'cap_reached',
+      note: 'override note must stay out of the log',
+      budgetUsd: 100,
+      spendUsd: 120,
+      occurredAt: FIXED_NOW,
+    },
+  });
+
+  for (const body of [summaryBody, overrideBody]) {
+    const response = await post(receiver.url, body);
+    assert.equal(response.status, 200);
+    await response.json();
+  }
+
+  const text = logs.join('\n');
+  assert.match(text, /accepted summary\.failed cell-1/);
+  assert.match(text, /accepted spend\.override override-1/);
+
+  const leaked = [
+    'Scorecard failed',
+    'summary body text',
+    'summary reason',
+    'Spend cap override granted',
+    'override body text',
+    'override note',
+    '"summary":',
+    '"override":',
+    SECRET,
+    v2Hex(summaryBody),
+    v2Hex(overrideBody),
+  ];
+  for (const value of leaked) {
+    assert.ok(!text.includes(value), `log leaked ${value}`);
+  }
+});
+
+test('accepted log falls back to the event kind without a recognized id', async (t) => {
+  const { receiver, logs } = await start(t);
+  const bodies = [
+    JSON.stringify({
+      version: 1,
+      event: 'master.error',
+      master: { source: 'master.cycle' },
+    }),
+    JSON.stringify({ version: 1, event: 'custom.event', alert: { id: '' } }),
+    'null',
+  ];
+
+  for (const body of bodies) {
+    const response = await post(receiver.url, body);
+    assert.equal(response.status, 200);
+    await response.text();
+  }
+
+  const text = logs.join('\n');
+  assert.match(text, /^accepted master\.error$/m);
+  assert.match(text, /^accepted custom\.event$/m);
+  assert.match(text, /^accepted event$/m);
+});
+
 test('receiver accepts uppercase V2 hex signatures', async (t) => {
   const { receiver, verified } = await start(t);
   const response = await post(receiver.url, BODY, { v2: uppercaseV2(signV2()) });
@@ -461,6 +549,7 @@ test('operator docs keep the V2 receiver contract visible', () => {
   );
   assert.match(doc, /### Verify webhook signatures/);
   assert.match(doc, /scripts\/webhook-receiver-example\.mjs/);
+  assert.match(doc, /accepted <event> <id>/);
   assert.match(doc, /X-APS-Signature-V2: t=<ms>,v2=<64 hex>/);
   assert.match(doc, /5 minutes/);
   assert.match(doc, /retry/i);

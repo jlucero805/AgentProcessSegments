@@ -187,13 +187,20 @@ function stringField(value, key) {
   return typeof field === 'string' ? field : null;
 }
 
+function idField(value, key) {
+  const field = stringField(value, key);
+  return field === null || field === '' ? null : field;
+}
+
 function eventSummary(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return 'event';
   const event = stringField(body, 'event') ?? 'event';
   const id =
-    stringField(body.alert, 'id') ??
-    stringField(body.turn, 'turnId') ??
-    stringField(body.master, 'cellId');
+    idField(body.alert, 'id') ??
+    idField(body.turn, 'turnId') ??
+    idField(body.master, 'cellId') ??
+    idField(body.summary, 'cellId') ??
+    idField(body.override, 'overrideId');
   return id === null ? event : `${event} ${id}`;
 }
 
@@ -242,7 +249,7 @@ export async function startReceiver(options = {}) {
     onVerified ??
     ((_body) => {
       // Replace this with durable work (enqueue, store) and dedupe on the
-      // authenticated alert/turn/master ids before acknowledging. The
+      // authenticated body ids before acknowledging. The
       // Idempotency-Key header is not signed, so do not trust it as identity.
     });
 

@@ -2,38 +2,21 @@ import {
   chmodSync,
   existsSync,
   lstatSync,
-  mkdirSync,
   readFileSync,
   readdirSync,
-  statSync,
   symlinkSync,
   unlinkSync,
-  writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { dir, file, modeOf, silenceConsole } from './repair-fixtures.js';
 import { tmpDir } from './tmp.js';
 import { formatMode } from '../src/maintenance/permission-repair.js';
 import { repairPermissions } from '../src/maintenance/repair-permissions.js';
 import { main, parseArgs, usage } from '../src/maintenance/repair-permissions-cli.js';
 
 const posixIt = it.skipIf(process.platform === 'win32');
-
-function modeOf(target: string): number {
-  return statSync(target).mode & 0o777;
-}
-
-function dir(target: string, mode = 0o755): void {
-  mkdirSync(target, { recursive: true });
-  chmodSync(target, mode);
-}
-
-function file(target: string, mode = 0o644, body = '{}'): void {
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, body);
-  chmodSync(target, mode);
-}
 
 interface Fixture {
   data: string;
@@ -62,11 +45,6 @@ function session(requests: string, id: string): string {
   file(path.join(target, 'transcript.json'), 0o644, '[]');
   file(path.join(target, 'mcp-config.json'), 0o644, '{}');
   return target;
-}
-
-function silenceConsole(): void {
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
 }
 
 afterEach(() => {

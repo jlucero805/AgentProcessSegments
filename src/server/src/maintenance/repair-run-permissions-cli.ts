@@ -18,17 +18,19 @@ export function usage(): string {
   return [
     'Usage: npm run repair:runs -- [--apply] [--dry-run] [--root DIR]',
     '',
-    'Tightens cutover run directories left by an older deploy/cutover-vps.sh.',
+    'Tightens the shared cutover root and the run directories left by an older',
+    'deploy/cutover-vps.sh.',
     'Dry run by default; nothing changes without --apply.',
     '',
-    '  --apply      chmod the runs directory and each run directory to 0700',
+    '  --apply      chmod the root, the runs directory, and each run directory to 0700',
     '  --dry-run    preview only (the default; useful after --apply)',
     '  --root DIR   cutover root to scan (default: $HOME/.aps-cutover)',
     '  --help, -h   show this text',
     '',
-    'Only <root>/runs is scanned, one level deep: the runs/ directory and each',
-    'direct run directory. It never follows symlinks, deletes anything, descends',
-    'into dist/ or backup/, reads run contents, or touches upgrades/.',
+    '<root>, <root>/runs, and each direct run directory are scanned. The runs',
+    'directory is examined one level deep. It never follows symlinks, deletes',
+    'anything, descends into dist/ or backup/, reads or changes run contents, or',
+    'touches upgrades/ or the latest symlink.',
   ].join('\n');
 }
 
@@ -106,8 +108,12 @@ export function main(argv: string[] = process.argv.slice(2), deps: RunRepairDeps
 
   const result = repairRunPermissions(options.root, { apply: options.apply, ...deps });
   if (result.rootMissing) {
-    console.log(`nothing to tighten: ${path.join(options.root, 'runs')} does not exist`);
+    console.log(`nothing to tighten: ${options.root} does not exist`);
     return 0;
+  }
+
+  if (result.runsMissing) {
+    console.log(`runs directory not found: ${path.join(options.root, 'runs')}`);
   }
 
   printResult(result, options.apply);

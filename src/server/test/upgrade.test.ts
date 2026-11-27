@@ -894,4 +894,24 @@ describe('deploy/upgrade-vps.sh', () => {
     },
     30_000,
   );
+
+  it.skipIf(process.platform === 'win32')(
+    'leaves a pre-existing cutover root at its mode',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      const upgrades = path.join(cutoverRoot, 'upgrades');
+      mkdirSync(upgrades, { recursive: true });
+      chmodSync(cutoverRoot, 0o755);
+      chmodSync(upgrades, 0o755);
+
+      const result = runScript(fixture, ['--detach', '--health-timeout', '10'], 30_000);
+
+      expect(result.status).toBe(0);
+      expect(stateOf(fixture)).toBe('success');
+      expect(modeOf(cutoverRoot)).toBe(0o755);
+      expect(modeOf(upgrades)).toBe(0o755);
+    },
+    30_000,
+  );
 });

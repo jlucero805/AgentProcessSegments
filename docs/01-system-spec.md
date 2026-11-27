@@ -165,9 +165,10 @@ The deploy `upgrade-vps.sh` writes its `db-backup.sqlite` snapshot `0600` inside
 run directory, and `cutover-vps.sh` creates its `~/.aps-cutover/runs/<UTC>` evidence
 directories `0700`. Upgrade snapshots and run directories left by an older version are
 tightened with `npm run repair:upgrades` (dry run first), which scans only
-`~/.aps-cutover/upgrades` and never follows symlinks. Cutover run directories are repaired
-separately with `npm run repair:runs` (dry run first), which scans only
-`~/.aps-cutover/runs`, one level deep, and never descends into `dist/` or `backup/`.
+`~/.aps-cutover/upgrades` and never follows symlinks. Cutover evidence is repaired
+separately with `npm run repair:runs` (dry run first), which tightens the shared
+`~/.aps-cutover` root plus `~/.aps-cutover/runs`, one level deep, and never descends into
+`dist/` or `backup/`.
 Maintenance paths that must not
 migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair by default without schema or
@@ -951,7 +952,8 @@ defaults.
   `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
   artifacts and never recurses into `cwd/` checkouts. Upgrade run directories and
   snapshots are repaired separately with `npm run repair:upgrades` (dry run first), and
-  cutover run directories with `npm run repair:runs` (dry run first).
+  cutover run directories and the shared `~/.aps-cutover` root with
+  `npm run repair:runs` (dry run first).
   Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
   below. An existing legacy

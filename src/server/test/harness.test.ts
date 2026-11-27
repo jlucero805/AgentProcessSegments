@@ -4,6 +4,7 @@ import { tmpDir, tmpRoot } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import type { HarnessSession } from '../src/clarify/harness.js';
+import { isStaleSessionLocationFailure } from '../src/clarify/harness.js';
 import { ClaudeHarness, claudeUserMcpServers } from '../src/clarify/harnesses/claude.js';
 import {
   findIgnoredProjectOpencodeConfig,
@@ -1787,5 +1788,38 @@ describe('ModelCatalog', () => {
     expect(fallbackResult.source).toBe('fallback');
     expect(fallbackResult.models).toEqual(HARDCODED_MODELS);
     expect(EFFORT_LEVELS).toContain('high');
+  });
+});
+
+describe('isStaleSessionLocationFailure', () => {
+  it('recognizes the OpenCode location error, including stderr text', () => {
+    expect(
+      isStaleSessionLocationFailure(
+        'opencode',
+        'Location not found: /root/.sandbox-harness/requests/__summary__:abc/cwd',
+      ),
+    ).toBe(true);
+    expect(
+      isStaleSessionLocationFailure(
+        'opencode',
+        'process exited with code 1\nstderr:\nLocation not found: /old/data/requests/abc/cwd',
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores other harnesses and other not-found errors', () => {
+    expect(
+      isStaleSessionLocationFailure('opencode', 'File not found: /tmp/x'),
+    ).toBe(false);
+    expect(
+      isStaleSessionLocationFailure('opencode', 'Session not found: abc'),
+    ).toBe(false);
+    expect(
+      isStaleSessionLocationFailure(
+        'claude',
+        'Location not found: /root/.sandbox-harness/requests/__summary__:abc/cwd',
+      ),
+    ).toBe(false);
+    expect(isStaleSessionLocationFailure('opencode', 'provider secret error')).toBe(false);
   });
 });

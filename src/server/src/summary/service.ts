@@ -1,5 +1,6 @@
 import type { CellRepository } from '../cells/repository.js';
 import type { Engine, LiveTurn } from '../clarify/engine.js';
+import { isStaleSessionLocationFailure } from '../clarify/harness.js';
 import {
   type SummaryFailureNotification,
   type SummaryFailureSource,
@@ -212,7 +213,6 @@ export class SummaryService {
     }
 
     const stats = this.statsFor(cellId);
-    const before = this.deps.engine.transcript(sessionId).length;
     const context = [
       `Cell: ${cell.name} (${cell.id}).`,
       `Window: ${new Date(stats.windowStart).toISOString()} to ` +
@@ -229,63 +229,78 @@ export class SummaryService {
       settings.summary.prompt.trim(),
     ].join('\n');
 
-    let turn: LiveTurn;
-    try {
-      turn = await this.deps.engine.startSummary(prompt, sessionId, context);
-      await turn.promise;
-    } catch (error) {
-      if (error instanceof SpendCapError) throw error;
-      this.notifyFailure(cellId, 'summary.turn', 'engine error');
-      throw error;
-    }
-    // finishTurn persists the transcript one tick after the promise settles.
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    // At most two attempts. A stale OpenCode session location is cleared and
+    // retried once as a fresh session; the recorded directory can be gone after
+    // a data-directory move. Every other failure keeps the normal path.
+    for (let attempt = 0; ; attempt += 1) {
+      // Take the boundary per attempt: the failed first turn leaves its warning
+      // in the transcript and it must not become part of the scorecard.
+      const before = this.deps.engine.transcript(sessionId).length;
+      let turn: LiveTurn;
+      try {
+        turn = await this.deps.engine.startSummary(prompt, sessionId, context);
+        await turn.promise;
+      } catch (error) {
+        if (error instanceof SpendCapError) throw error;
+        this.notifyFailure(cellId, 'summary.turn', 'engine error');
+        throw error;
+      }
+      // finishTurn persists the transcript one tick after the promise settles.
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
-    // A cap stop is a pause, not a failed scorecard: no row and no error log.
-    if (turn.stoppedBy) throw new SpendCapError(turn.stoppedBy);
-    if (turn.failure) {
-      const failure = turn.failureEvent;
-      this.notifyFailure(
-        cellId,
-        failure ? summaryFailureSource(failure.source) : 'summary.turn',
-        failure?.reason ?? 'engine error',
-      );
-      return this.fail(cellId, new Error(turn.failure));
-    }
-    const body = this.deps.engine
-      .transcript(sessionId)
-      .slice(before)
-      .filter((message) => message.role === 'agent' && message.kind === 'text')
-      .map((message) => message.text.trim())
-      .filter((text) => text !== '')
-      .join('\n\n')
-      .trim();
-    if (body === '') {
-      this.notifyFailure(cellId, 'summary.empty', 'scorecard returned no text');
-      return this.fail(cellId, new Error('the scorecard model returned no text'));
-    }
-    // The cell can be deleted while the model is running. Do not leave an
-    // orphan report behind after CellRepository has already cleaned up.
-    if (!this.deps.cells.get(cellId)) {
-      throw new Error(`cell ${cellId} no longer exists`);
-    }
-    // Accuracy note is not optional; add it if the model omitted it.
-    const content = body.includes(SUMMARY_DERIVED_NOTE)
-      ? body
-      : `${body}\n\n_${SUMMARY_DERIVED_NOTE}_`;
+      // A cap stop is a pause, not a failed scorecard: no row and no error log.
+      if (turn.stoppedBy) throw new SpendCapError(turn.stoppedBy);
+      if (turn.failure) {
+        if (
+          attempt === 0 &&
+          isStaleSessionLocationFailure(turn.harnessId, turn.failure) &&
+          this.deps.engine.clearSavedSession(sessionId)
+        ) {
+          continue;
+        }
+        const failure = turn.failureEvent;
+        this.notifyFailure(
+          cellId,
+          failure ? summaryFailureSource(failure.source) : 'summary.turn',
+          failure?.reason ?? 'engine error',
+        );
+        return this.fail(cellId, new Error(turn.failure));
+      }
+      const body = this.deps.engine
+        .transcript(sessionId)
+        .slice(before)
+        .filter((message) => message.role === 'agent' && message.kind === 'text')
+        .map((message) => message.text.trim())
+        .filter((text) => text !== '')
+        .join('\n\n')
+        .trim();
+      if (body === '') {
+        this.notifyFailure(cellId, 'summary.empty', 'scorecard returned no text');
+        return this.fail(cellId, new Error('the scorecard model returned no text'));
+      }
+      // The cell can be deleted while the model is running. Do not leave an
+      // orphan report behind after CellRepository has already cleaned up.
+      if (!this.deps.cells.get(cellId)) {
+        throw new Error(`cell ${cellId} no longer exists`);
+      }
+      // Accuracy note is not optional; add it if the model omitted it.
+      const content = body.includes(SUMMARY_DERIVED_NOTE)
+        ? body
+        : `${body}\n\n_${SUMMARY_DERIVED_NOTE}_`;
 
-    try {
-      return this.deps.summaries.record({
-        cellId,
-        windowStart: stats.windowStart,
-        windowEnd: stats.windowEnd,
-        windowMinutes: stats.windowMinutes,
-        content,
-        stats,
-      });
-    } catch (error) {
-      this.notifyFailure(cellId, 'summary.store', 'could not save scorecard');
-      throw error;
+      try {
+        return this.deps.summaries.record({
+          cellId,
+          windowStart: stats.windowStart,
+          windowEnd: stats.windowEnd,
+          windowMinutes: stats.windowMinutes,
+          content,
+          stats,
+        });
+      } catch (error) {
+        this.notifyFailure(cellId, 'summary.store', 'could not save scorecard');
+        throw error;
+      }
     }
   }
 

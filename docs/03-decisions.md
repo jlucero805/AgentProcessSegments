@@ -3384,3 +3384,36 @@ before the per-cell gates. It hydrates full report rows and ranks a second row p
 `hasOlder`, which the scan ignores; a timestamp-only projection remains separate follow-up
 work. The read is bounded by `retention.cellSummariesDays`. No schema, index, route, response,
 or web-client change.
+
+## D133. A stale scorecard session location is reset once
+
+**Context.** OpenCode records each session's absolute working directory in its own store.
+APS persists only the adapter session id in `session.json`, and the internal scorecard
+session runs in `<dataDir>/requests/__summary__:<cellId>/cwd`. Moving the data directory
+(D46, the live cutover) leaves the saved id pointing at the old path, so
+`opencode run --session <id>` fails with `Location not found: <old cwd>` before the turn
+starts. APS kept the stale id and retried the same failure every interval, and the
+Scorecards page and Cell master drawer showed the error as `lastError` indefinitely.
+
+**Decision.** `isStaleSessionLocationFailure` classifies only OpenCode's
+`Location not found: <absolute path>` text, including when it arrives inside the engine's
+`stderr:` wrapper. `SummaryService.generate` makes at most two attempts: when the first
+attempt fails that way and a saved session id existed, it calls
+`Engine.clearSavedSession`, which removes only `sessionId` (keeping the harness pin,
+usage, and transcript) and drops any child that still holds the old session, then retries
+once as a fresh session. The retry's transcript boundary is taken per attempt, so the
+failed attempt's warning never enters the report. A recovered retry stores a normal
+`cell_summaries` row, sends no failure notification, and clears the scheduler's backoff;
+a second failure, a missing saved id, another harness, or any other error follows the
+existing notification and backoff path.
+
+**Why not rewrite OpenCode's store or migrate harness state.** APS does not own OpenCode's
+database format, and the scorecard narrative is fully regenerable from the deterministic
+facts prompt. Retrying locally repairs existing cells without an operator migration or a
+startup-wide reset that would discard recall for unrelated sessions.
+
+**Cost.** The retried scorecard loses the summary session's accumulated narrative
+continuity for that run, and the orphaned OpenCode session remains in OpenCode's own store.
+The repair is scoped to scorecards; a master or request chat with the same stale location
+still fails until that surface gets its own reset (tracked separately). No API, schema,
+scheduler, retention, dependency, or web change.

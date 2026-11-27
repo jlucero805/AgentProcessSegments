@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1562 vitest cases: 1122 server across 59 files (one environmental root-skip) and 440 web across 30 files, all green.
+- 1569 vitest cases: 1129 server across 59 files (one environmental root-skip) and 440 web across 30 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1122 server + 440 web, plus the e2e env guard
+npm test                       # 1129 server + 440 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -520,6 +520,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     writes to `__master__:<cellId>`. Generation uses `__summary__:<cellId>` with the
     read-only master tool scope. Keep the schedule in `summary` settings, throttle
     generations to one at a time, and back off failures instead of scanning every 30 s.
+    If OpenCode reports that a resumed summary session's recorded directory is gone,
+    forget the saved session id and retry once as a fresh session; other failures keep
+    the normal backoff.
     `retention.cellSummariesDays` (default 90, `0` = forever) prunes older report rows
     but always keeps the newest row per cell, so `latest()` and the scheduler's due-ness
     never flip to "never summarized".

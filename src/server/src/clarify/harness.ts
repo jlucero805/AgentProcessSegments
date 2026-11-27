@@ -103,3 +103,15 @@ export interface HarnessRegistry {
   readonly defaultId: HarnessId;
   get(id: HarnessId): AgentHarness;
 }
+
+/**
+ * True when OpenCode refused to resume a session whose recorded directory is
+ * gone, for example after the data directory moved. The failure can arrive as a
+ * harness error event or wrapped in the engine's `stderr:` text.
+ */
+export function isStaleSessionLocationFailure(
+  harnessId: HarnessId,
+  message: string,
+): boolean {
+  return harnessId === 'opencode' && /(?:^|\n)Location not found: \//.test(message);
+}

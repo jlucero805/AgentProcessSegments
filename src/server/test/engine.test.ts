@@ -1242,6 +1242,47 @@ describe('turn engine', () => {
     expect(h.harness.sessions[1]?.sessionId).toBe('sess-persist');
   });
 
+  it('forgets only a saved session id, keeping the transcript and usage', async () => {
+    const h = fresh(() => [
+      initLine('sess-persist'),
+      textLine('kept'),
+      resultLine('done', { input_tokens: 10, output_tokens: 5 }, 0.001),
+    ]);
+    const request = h.repo.create({ title: 'Forget me' });
+
+    const first = await h.engine.start(request.id);
+    await first.promise;
+    await settle();
+    h.engine.dispose(request.id);
+
+    const transcript = h.engine.transcript(request.id);
+    const sessionFile = path.join(requestDir(h.config, request.id), 'session.json');
+    const before = JSON.parse(readFileSync(sessionFile, 'utf8')) as Record<string, unknown>;
+    expect(before).toMatchObject({ harness: 'claude', sessionId: 'sess-persist' });
+
+    expect(h.engine.clearSavedSession(request.id)).toBe(true);
+    const after = JSON.parse(readFileSync(sessionFile, 'utf8')) as Record<string, unknown>;
+    expect(after).toMatchObject({ harness: 'claude' });
+    expect(after['sessionId']).toBeUndefined();
+    expect(after['usage']).toEqual(before['usage']);
+    expect(h.engine.transcript(request.id)).toEqual(transcript);
+
+    expect(h.engine.clearSavedSession(request.id)).toBe(false);
+
+    const second = await h.engine.send(request.id, 'start over');
+    await second.promise;
+    await settle();
+    expect(h.harness.sessions).toHaveLength(2);
+    expect(h.harness.sessions[1]?.sessionId).toBeNull();
+  });
+
+  it('clears no session when none was saved', () => {
+    const h = fresh(() => []);
+    const request = h.repo.create({ title: 'Never started' });
+
+    expect(h.engine.clearSavedSession(request.id)).toBe(false);
+  });
+
   it('uses the configured default model when no request or cell model is set', async () => {
     const h = fresh(() => defaultScript());
     h.config.defaultModels = {

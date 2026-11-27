@@ -468,6 +468,12 @@ immediate regeneration. Each table prunes independently; a failure reports one
 `retention.prune` record with the table, cutoff, and deleted count. History is not rolled
 up and the job never runs `VACUUM`.
 
+If OpenCode refuses to resume the internal `__summary__:<cellId>` session because its
+recorded directory no longer exists (for example after the data directory moved),
+`SummaryService` forgets the saved harness session id and retries the generation once as
+a fresh session. The transcript and usage are kept, and the recovered attempt is neither
+recorded as a failure nor notified; other failures keep the normal backoff.
+
 ### Budget alert retention
 
 `retention.budgetAlertsDays` in `config.json` (editable from the Config page) bounds

@@ -283,6 +283,44 @@ export class Engine {
     return this.loadTranscript(id);
   }
 
+  /**
+   * Forget the saved harness session id and drop the process that held it,
+   * keeping the transcript, usage, and adapter pin. The next turn starts a
+   * fresh harness session. Used when a harness refuses to resume a session
+   * whose recorded location no longer exists; returns false when there was
+   * nothing to clear.
+   */
+  clearSavedSession(id: string): boolean {
+    const state = this.sessionState(id);
+    if (state.status !== 'ok') {
+      if (state.status === 'unreadable') {
+        this.reportState(id, 'session', this.stateFile(id, 'session.json'), state.reason);
+      }
+      return false;
+    }
+    if (typeof state.value.sessionId !== 'string') return false;
+
+    // A finished turn can leave its child alive for a moment. Dropping only the
+    // saved id would reuse that child, which still holds the stale session id,
+    // so forget the process too. Never touch a live turn.
+    if (!this.turns.has(id)) {
+      const active = this.procs.get(id);
+      if (active) {
+        this.procs.delete(id);
+        active.proc.kill('SIGTERM');
+        const force = setTimeout(() => active.proc.kill('SIGKILL'), 2_000);
+        force.unref();
+      }
+    }
+
+    const file = this.stateFile(id, 'session.json');
+    if (!this.preserveState(id, 'session', file, state)) return false;
+    const rest = { ...state.value };
+    delete rest.sessionId;
+    writePrivateFile(file, JSON.stringify(rest, null, 2));
+    return true;
+  }
+
   async start(
     id: string,
     extraPrompt = '',

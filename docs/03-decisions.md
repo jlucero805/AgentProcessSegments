@@ -2841,3 +2841,34 @@ still-broken file once. Operators editing an unusable file get a fresh report be
 byte identity changes. A corrected file is read on the next `get()` and then cached as
 before, so later edits to an already-valid file still need a restart (unchanged). The
 digest is computed only on a failed load and only on the small operator file.
+
+## D116. Scorecards custom ranges accept a local time of day
+
+**Context.** D108 gave the Scorecards page an inclusive custom start/end date range and
+deliberately left sub-day windows out: the control was a date picker, so every window
+started at local midnight and ended at the last millisecond of the end date. Operators
+asking for a shift-sized window had no way to express it.
+
+**Decision.** The Custom panel keeps its two native date inputs and adds two native
+`<input type="time">` inputs with `step=60`, prefilled to `00:00` and `23:59`. The start
+instant is exact at the selected local minute (`:00.000`); the end instant includes the
+whole selected minute through `:59.999`, so the untouched defaults reproduce D108's
+whole-day bounds exactly. Blank or cleared times fall back to those defaults.
+`customWindow` builds both instants from local date/time components, rejects values that
+do not round-trip through the local constructor (invalid dates and DST gaps), and rejects
+only an end minute earlier than the start minute; equal minutes are valid. The panel still
+applies only on **Apply**, shows the applied local range in its helper copy, and keeps the
+existing `since`/`until` request, paging capture, cell scoping, and grouped/flat behavior.
+The Cell master drawer keeps its preset-only control; timezone selection and URL
+persistence remain separate work.
+
+**Why minute precision.** `datetime-local` would have replaced the date inputs and their
+labels; two time inputs preserve the existing control. An inclusive end minute is what
+makes 00:00/23:59 identical to D108's bounds, including reports generated during the
+final minute. Building from components avoids the UTC shift of `new Date('YYYY-MM-DD')`.
+
+**Cost.** No API, schema, scheduler, or retention change: the three summary reads already
+take inclusive epoch-ms bounds. Two inputs and a stricter pure helper are the only UI
+surface; a custom range can now be as narrow as one minute. D108 remains the record of the
+date-only version; this decision supersedes its note that time-of-day precision is
+separate work.

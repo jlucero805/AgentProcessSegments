@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import {
+  CUSTOM_DEFAULT_END_TIME,
+  CUSTOM_DEFAULT_START_TIME,
   CUSTOM_FALLBACK_MS,
   DEFAULT_RANGE,
   ScorecardPeriod,
@@ -65,6 +67,17 @@ function windowLabel(summary: Summary): string {
   ).toLocaleTimeString()}`;
 }
 
+/** Applied Custom window in the operator's local time, to minute precision. */
+function appliedRangeLabel(window: DateWindow): string {
+  if (window.since === undefined || window.until === undefined) return '';
+  const format = (value: number) =>
+    new Date(value).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  return `Applied: ${format(window.since)} – ${format(window.until)} (local; the end minute is included)`;
+}
+
 /**
  * Browse the persisted scorecard reports. The sidebar's cell selection scopes the
  * page to one cell; "All cells" shows each cell's newest report in the selected
@@ -89,12 +102,14 @@ export function ScorecardsPage({
     dateInputValue(Date.now() - CUSTOM_FALLBACK_MS),
   );
   const [customEnd, setCustomEnd] = useState(() => dateInputValue(Date.now()));
+  const [customStartTime, setCustomStartTime] = useState(CUSTOM_DEFAULT_START_TIME);
+  const [customEndTime, setCustomEndTime] = useState(CUSTOM_DEFAULT_END_TIME);
   const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
   const loadGeneration = useRef(0);
   /** Bounds used by the load that produced the visible page; paging reuses them. */
   const pageWindow = useRef<DateWindow>({});
 
-  const draftWindow = customWindow(customStart, customEnd);
+  const draftWindow = customWindow(customStart, customEnd, customStartTime, customEndTime);
   const draftError = typeof draftWindow === 'string' ? draftWindow : null;
 
   const load = useCallback(async () => {
@@ -189,6 +204,8 @@ export function ScorecardsPage({
     if (typeof bounds === 'string') return;
     setCustomStart(start);
     setCustomEnd(end);
+    setCustomStartTime(CUSTOM_DEFAULT_START_TIME);
+    setCustomEndTime(CUSTOM_DEFAULT_END_TIME);
     setRange('custom');
     setAppliedCustom(bounds);
     setGroups(null);
@@ -303,9 +320,9 @@ export function ScorecardsPage({
     emptyHint =
       'The scheduler writes one per cell on its cadence. Run one from a cell master, or enable the schedule in Config.';
   } else if (range === 'custom') {
-    emptyTitle = 'No scorecards in the selected date range';
+    emptyTitle = 'No scorecards in the selected range';
     emptyHint =
-      'Widen the start or end date, run one from a cell master, or enable the schedule in Config.';
+      'Widen the start or end date or time, run one from a cell master, or enable the schedule in Config.';
   } else {
     emptyTitle = `No scorecards in ${rangeOption(range).spellout}`;
     emptyHint =
@@ -323,9 +340,10 @@ export function ScorecardsPage({
           <p className="mt-1 text-sm text-zinc-500">
             Persisted reports written per cell over a trailing window. The period filters
             by when a report was generated; each report still covers its own configured
-            window. Custom dates use local time and include whole days. Grouped shows each
-            cell's newest report first; Flat is one chronological cross-cell stream. Pick
-            a cell in the sidebar to focus its history.
+            window. Custom start and end use browser-local date and time; the end minute
+            is included. Grouped shows each cell's newest report first; Flat is one
+            chronological cross-cell stream. Pick a cell in the sidebar to focus its
+            history.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -396,6 +414,16 @@ export function ScorecardsPage({
               onChange={(event) => setCustomStart(event.target.value)}
             />
           </Field>
+          <Field label="Start time">
+            <Input
+              type="time"
+              step={60}
+              aria-label="Start time"
+              className="w-28"
+              value={customStartTime}
+              onChange={(event) => setCustomStartTime(event.target.value)}
+            />
+          </Field>
           <Field label="End date">
             <Input
               type="date"
@@ -403,6 +431,16 @@ export function ScorecardsPage({
               className="w-40"
               value={customEnd}
               onChange={(event) => setCustomEnd(event.target.value)}
+            />
+          </Field>
+          <Field label="End time">
+            <Input
+              type="time"
+              step={60}
+              aria-label="End time"
+              className="w-28"
+              value={customEndTime}
+              onChange={(event) => setCustomEndTime(event.target.value)}
             />
           </Field>
           <Button
@@ -418,7 +456,7 @@ export function ScorecardsPage({
               draftError ? 'text-[11px] text-amber-300' : 'text-[11px] text-zinc-600'
             }
           >
-            {draftError ?? 'Local time; whole days.'}
+            {draftError ?? appliedRangeLabel(appliedCustom)}
           </p>
         </div>
       ) : null}

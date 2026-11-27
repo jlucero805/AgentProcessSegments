@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
+import { customWindow } from './ScorecardPeriod';
 import { jsonResponse } from './test/fixtures';
 
 // The page loads the latest-per-cell feed and report pages before rendering. Give the slow
@@ -143,6 +144,46 @@ function feedRequests(urls: string[]): URLSearchParams[] {
     .filter((url) => url.startsWith('/api/summaries/feed'))
     .map((url) => new URL(url, 'http://localhost').searchParams);
 }
+
+function appliedRangeLabel(since: number, until: number): string {
+  const format = (value: number) =>
+    new Date(value).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  return `Applied: ${format(since)} – ${format(until)} (local; the end minute is included)`;
+}
+
+describe('customWindow', () => {
+  it('defaults blank times to whole local days', () => {
+    expect(customWindow('2026-11-01', '2026-11-15', '', '')).toEqual({
+      since: new Date(2026, 10, 1, 0, 0, 0, 0).getTime(),
+      until: new Date(2026, 10, 15, 23, 59, 59, 999).getTime(),
+    });
+  });
+
+  it('keeps the end minute inclusive and accepts equal minutes', () => {
+    expect(customWindow('2026-11-01', '2026-11-01', '10:00', '10:00')).toEqual({
+      since: new Date(2026, 10, 1, 10, 0, 0, 0).getTime(),
+      until: new Date(2026, 10, 1, 10, 0, 59, 999).getTime(),
+    });
+  });
+
+  it.each(['8:00', '24:00', '12:60', '12:00:30'])(
+    'rejects malformed time %s',
+    (value) => {
+      expect(customWindow('2026-11-01', '2026-11-15', value, '23:59')).toBe(
+        'Choose a valid start and end time.',
+      );
+    },
+  );
+
+  it('rejects an end minute before the start minute', () => {
+    expect(customWindow('2026-11-01', '2026-11-01', '12:00', '08:00')).toBe(
+      'Choose a start on or before the end.',
+    );
+  });
+});
 
 describe('ScorecardsPage', () => {
   it('loads one latest report per cell from one latest-per-cell feed', async () => {
@@ -380,6 +421,8 @@ describe('ScorecardsPage', () => {
     const prefilled = latestRequests(urls)[1];
     expect(prefilled?.get('since')).not.toBeNull();
     expect(prefilled?.get('until')).not.toBeNull();
+    expect(screen.getByLabelText('Start time')).toHaveValue('00:00');
+    expect(screen.getByLabelText('End time')).toHaveValue('23:59');
 
     fireEvent.change(screen.getByLabelText('Start date'), {
       target: { value: '2026-11-01' },
@@ -403,6 +446,199 @@ describe('ScorecardsPage', () => {
     expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
+  it('applies a custom time-of-day window', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2026-11-01' },
+    });
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '08:00' },
+    });
+    fireEvent.change(screen.getByLabelText('End date'), {
+      target: { value: '2026-11-01' },
+    });
+    fireEvent.change(screen.getByLabelText('End time'), {
+      target: { value: '12:00' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+    const applied = latestRequests(urls)[2];
+    expect(applied?.get('since')).toBe(
+      String(new Date(2026, 10, 1, 8, 0, 0, 0).getTime()),
+    );
+    expect(applied?.get('until')).toBe(
+      String(new Date(2026, 10, 1, 12, 0, 59, 999).getTime()),
+    );
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('rejects an end time before the start time without a request', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2030-05-10' },
+    });
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '12:00' },
+    });
+    fireEvent.change(screen.getByLabelText('End date'), {
+      target: { value: '2030-05-10' },
+    });
+    fireEvent.change(screen.getByLabelText('End time'), {
+      target: { value: '08:00' },
+    });
+
+    expect(screen.getByText('Choose a start on or before the end.')).toBeInTheDocument();
+    const apply = screen.getByRole('button', { name: 'Apply' });
+    expect(apply).toBeDisabled();
+    fireEvent.click(apply);
+    expect(latestRequests(urls)).toHaveLength(2);
+    expect(screen.getByText('Alpha report')).toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('prefills and resets Custom to whole local days', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const urls = stubFetch([makeCell('c1', 'Alpha')], {
+        c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+      });
+
+      render(<ScorecardsPage cellId={null} onError={() => {}} />);
+      expect(
+        await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      const prefilled = latestRequests(urls)[1];
+      expect(prefilled?.get('since')).toBe(
+        String(new Date(2026, 10, 12, 0, 0, 0, 0).getTime()),
+      );
+      expect(prefilled?.get('until')).toBe(
+        String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
+      );
+      expect(screen.getByLabelText('Start time')).toHaveValue('00:00');
+      expect(screen.getByLabelText('End time')).toHaveValue('23:59');
+
+      fireEvent.change(screen.getByLabelText('Start date'), {
+        target: { value: '2026-11-01' },
+      });
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: '08:00' },
+      });
+      fireEvent.change(screen.getByLabelText('End date'), {
+        target: { value: '2026-11-02' },
+      });
+      fireEvent.change(screen.getByLabelText('End time'), {
+        target: { value: '12:00' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(3), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: '7d' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(4), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(5), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+
+      const reapplied = latestRequests(urls)[4];
+      expect(reapplied?.get('since')).toBe(
+        String(new Date(2026, 10, 8, 0, 0, 0, 0).getTime()),
+      );
+      expect(reapplied?.get('until')).toBe(
+        String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
+      );
+      expect(screen.getByLabelText('Start time')).toHaveValue('00:00');
+      expect(screen.getByLabelText('End time')).toHaveValue('23:59');
+    } finally {
+      nowSpy.mockRestore();
+    }
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('shows the applied range until the draft is invalid', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const urls = stubFetch([makeCell('c1', 'Alpha')], {
+        c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+      });
+
+      render(<ScorecardsPage cellId={null} onError={() => {}} />);
+      expect(
+        await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      expect(
+        screen.getByText(
+          appliedRangeLabel(
+            new Date(2026, 10, 12, 0, 0, 0, 0).getTime(),
+            new Date(2026, 10, 15, 23, 59, 59, 999).getTime(),
+          ),
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Start date'), {
+        target: { value: '2026-11-01' },
+      });
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: '08:00' },
+      });
+      fireEvent.change(screen.getByLabelText('End date'), {
+        target: { value: '2026-11-01' },
+      });
+      fireEvent.change(screen.getByLabelText('End time'), {
+        target: { value: '12:00' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(3), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+
+      const applied = appliedRangeLabel(
+        new Date(2026, 10, 1, 8, 0, 0, 0).getTime(),
+        new Date(2026, 10, 1, 12, 0, 59, 999).getTime(),
+      );
+      expect(screen.getByText(applied)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('End time'), {
+        target: { value: '07:00' },
+      });
+      expect(screen.getByText('Choose a start on or before the end.')).toBeInTheDocument();
+      expect(screen.queryByText(applied)).not.toBeInTheDocument();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
   it('rejects an inverted custom range without a request', async () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
@@ -422,7 +658,7 @@ describe('ScorecardsPage', () => {
     });
 
     expect(
-      screen.getByText('Choose a start date on or before the end date.'),
+      screen.getByText('Choose a start on or before the end.'),
     ).toBeInTheDocument();
     const apply = screen.getByRole('button', { name: 'Apply' });
     expect(apply).toBeDisabled();
@@ -441,11 +677,30 @@ describe('ScorecardsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
-    const custom = latestRequests(urls)[1];
+
+    fireEvent.change(screen.getByLabelText('Start date'), {
+      target: { value: '2026-11-01' },
+    });
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '08:00' },
+    });
+    fireEvent.change(screen.getByLabelText('End date'), {
+      target: { value: '2026-11-05' },
+    });
+    fireEvent.change(screen.getByLabelText('End time'), {
+      target: { value: '12:00' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+    const custom = latestRequests(urls)[2];
+    expect(custom?.get('since')).toBe(
+      String(new Date(2026, 10, 1, 8, 0, 0, 0).getTime()),
+    );
+    expect(custom?.get('until')).toBe(
+      String(new Date(2026, 10, 5, 12, 0, 59, 999).getTime()),
+    );
     const since = custom?.get('since');
     const until = custom?.get('until');
-    expect(since).not.toBeNull();
-    expect(until).not.toBeNull();
     expect(
       await screen.findByRole('button', { name: 'Load older' }, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
@@ -497,7 +752,7 @@ describe('ScorecardsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
 
     expect(
-      await screen.findByText('No scorecards in the selected date range'),
+      await screen.findByText('No scorecards in the selected range'),
     ).toBeInTheDocument();
   });
 
@@ -856,8 +1111,14 @@ describe('ScorecardsPage', () => {
     fireEvent.change(screen.getByLabelText('Start date'), {
       target: { value: '2026-11-01' },
     });
+    fireEvent.change(screen.getByLabelText('Start time'), {
+      target: { value: '08:00' },
+    });
     fireEvent.change(screen.getByLabelText('End date'), {
       target: { value: '2026-11-15' },
+    });
+    fireEvent.change(screen.getByLabelText('End time'), {
+      target: { value: '12:00' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
@@ -865,9 +1126,11 @@ describe('ScorecardsPage', () => {
       timeout: ASYNC_TIMEOUT_MS,
     });
     const applied = feedRequests(urls)[2];
-    expect(applied?.get('since')).toBe(String(new Date(2026, 10, 1).getTime()));
+    expect(applied?.get('since')).toBe(
+      String(new Date(2026, 10, 1, 8, 0, 0, 0).getTime()),
+    );
     expect(applied?.get('until')).toBe(
-      String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
+      String(new Date(2026, 10, 15, 12, 0, 59, 999).getTime()),
     );
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));

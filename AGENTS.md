@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1410 vitest cases: 1059 server across 58 files (one environmental root-skip) and 351 web across 28 files, all green.
+- 1421 vitest cases: 1059 server across 58 files (one environmental root-skip) and 362 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -59,7 +59,7 @@ digests.
   a first-class Cell master detail with prompts/activity/chat, configurable per-cell
   scorecards over a trailing window (persisted reports, read-only summary session,
   polling scheduler with catch-up and backoff, a dedicated page for browsing reports
-  per cell with a generation-time period filter — presets plus a custom date range —
+  per cell with a generation-time period filter — presets plus a custom date-and-time range —
   keyset paging, one latest-per-cell all-cells feed or one flat cross-cell feed with
   server-side paging, and the Cell master drawer's latest-five view scoped by the same
   selectable generation-time period), a cell creation flow that
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1059 server + 351 web, plus the e2e env guard
+npm test                       # 1059 server + 362 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,

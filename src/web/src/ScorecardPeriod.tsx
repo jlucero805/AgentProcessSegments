@@ -18,6 +18,10 @@ export const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms:
 export const DEFAULT_RANGE: RangeKey = '72h';
 /** Fallback span when Custom is opened from All, which has no lower bound. */
 export const CUSTOM_FALLBACK_MS = 72 * 60 * 60_000;
+/** Default Custom start time; the start instant is exact at this minute. */
+export const CUSTOM_DEFAULT_START_TIME = '00:00';
+/** Default Custom end time; the end instant includes this whole minute. */
+export const CUSTOM_DEFAULT_END_TIME = '23:59';
 
 export function rangeOption(range: RangeKey) {
   return RANGES.find((option) => option.key === range) ?? RANGES[1]!;
@@ -44,33 +48,56 @@ export function dateInputValue(timestamp: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+interface ClockTime {
+  hours: number;
+  minutes: number;
+}
+
+function parseClockTime(value: string, fallback: string): ClockTime | null {
+  const candidate = value.trim() === '' ? fallback : value;
+  const match = /^(\d{2}):(\d{2})$/.exec(candidate);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours <= 23 && minutes <= 59 ? { hours, minutes } : null;
+}
+
 /**
- * Local whole-day window for two date inputs. The start date includes local
- * midnight and the end date includes the last millisecond of the local day.
- * Returns a validation message when either date is missing or inverted.
+ * Local window for two date inputs and optional minute-level times. The start
+ * is exact at the selected minute; the end includes the whole selected minute.
+ * Blank times fall back to the whole-day defaults. Returns a validation message
+ * when a value is missing, malformed, not a real local time, or inverted.
  */
-export function customWindow(start: string, end: string): DateWindow | string {
+export function customWindow(
+  start: string,
+  end: string,
+  startTime = CUSTOM_DEFAULT_START_TIME,
+  endTime = CUSTOM_DEFAULT_END_TIME,
+): DateWindow | string {
   const startMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
   const endMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
   if (!startMatch || !endMatch) return 'Choose both a start and end date.';
-  const bounded = (match: RegExpExecArray, edge: 'start' | 'end'): number | null => {
+  const startClock = parseClockTime(startTime, CUSTOM_DEFAULT_START_TIME);
+  const endClock = parseClockTime(endTime, CUSTOM_DEFAULT_END_TIME);
+  if (!startClock || !endClock) return 'Choose a valid start and end time.';
+  const bounded = (match: RegExpExecArray, clock: ClockTime): number | null => {
     const year = Number(match[1]);
     const month = Number(match[2]) - 1;
     const day = Number(match[3]);
-    const date =
-      edge === 'start'
-        ? new Date(year, month, day, 0, 0, 0, 0)
-        : new Date(year, month, day, 23, 59, 59, 999);
+    const date = new Date(year, month, day, clock.hours, clock.minutes, 0, 0);
     return date.getFullYear() === year &&
       date.getMonth() === month &&
-      date.getDate() === day
+      date.getDate() === day &&
+      date.getHours() === clock.hours &&
+      date.getMinutes() === clock.minutes
       ? date.getTime()
       : null;
   };
-  const since = bounded(startMatch, 'start');
-  const until = bounded(endMatch, 'end');
-  if (since === null || until === null) return 'Choose a valid start and end date.';
-  if (until < since) return 'Choose a start date on or before the end date.';
+  const since = bounded(startMatch, startClock);
+  const endMinute = bounded(endMatch, endClock);
+  if (since === null || endMinute === null) return 'Choose a valid start and end date.';
+  const until = endMinute + 59_999;
+  if (until < since) return 'Choose a start on or before the end.';
   return { since, until };
 }
 

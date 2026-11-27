@@ -493,7 +493,7 @@ built and vended by the brain; real-CLI verification is still pending.
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
   `npm run test:web-stress` runs the web suite three times under four CPU hogs on demand;
   it fails closed on a failed iteration, a dead hog, or a missing report, leaves no hog
-  processes behind, and is manual (not part of `npm test` or CI).
+  or suite processes behind, and is manual (not part of `npm test` or CI).
   The web suite also resolves every local documentation link, image, and Help `#anchor`
   and checks links on Help-served pages against the manifest in
   `src/server/src/docs/manifest.ts` (external URLs are never fetched); run it alone with

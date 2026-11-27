@@ -767,15 +767,19 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     report instead. The check lives in `scripts/check-github-scope.mjs` (tests in
     `scripts/check-github-scope.test.mjs`); the grant helper lives in
     `scripts/grant-github-scope.mjs` (tests in `scripts/grant-github-scope.test.mjs`).
-48. **The web stress run is fail-closed and leaves no hog behind.** `npm run
-    test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite `--runs` times
-    (default 3) while `--hogs` busy-loop processes (default 4) compete. An iteration
-    fails on a non-zero suite exit, a missing, empty, unparsable, or zero-test Vitest
-    JSON report, or the per-iteration `--timeout` (default 600 s); the run also fails
-    when a hog exits early. Do not turn any of those into a warning or a pass. Hogs are
-    stopped on every exit path and each hog exits by itself when the runner dies, so a
-    killed run cannot leave a core burning; keep both layers. It is manual only: do not
-    add it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
+48. **The web stress run is fail-closed and leaves no suite or hog process behind.**
+    `npm run test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite
+    `--runs` times (default 3) while `--hogs` busy-loop processes (default 4) compete.
+    An iteration fails on a non-zero suite exit, a missing, empty, unparsable, or
+    zero-test Vitest JSON report, or the per-iteration `--timeout` (default 600 s); the
+    run also fails when a hog exits early. Do not turn any of those into a warning or a
+    pass. Each iteration runs under `scripts/web-stress/suite-supervisor.mjs`, a detached
+    group leader: the runner signals the recorded group on timeout or interrupt, and the
+    supervisor SIGKILLs its own group when its parent disappears, so a `SIGKILL` of the
+    runner cannot leave npm, its shell, or the Vitest workers running. Hogs are stopped
+    on every exit path and each hog exits by itself when the runner dies. Keep all three
+    layers. It is manual only: do not add it to `npm test` or CI, and keep its
+    `node:test` guard in `test:e2e-env`.
 49. **The three maintenance permission repairs share one engine.** `PermissionRepair` in
     `src/server/src/maintenance/permission-repair.ts` owns `PRIVATE_DIR_MODE`/
     `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the

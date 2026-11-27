@@ -7,7 +7,15 @@
 // dependencies or a real Vitest run.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -23,9 +31,11 @@ import {
   SLOWEST_LIMIT,
   summarize,
 } from './web-stress/results.mjs';
+import { parseSupervisorArgs, SupervisorUsageError } from './web-stress/suite-supervisor.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const entry = path.join(repoRoot, 'scripts', 'web-stress.mjs');
+const supervisor = path.join(repoRoot, 'scripts', 'web-stress', 'suite-supervisor.mjs');
 
 function temp(t, prefix) {
   const dir = mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -178,6 +188,31 @@ test('parseArgs rejects invalid values with one-line usage errors', () => {
 test('parseArgs lets --help win over a bad argument', () => {
   assert.equal(parseArgs(['--help', '--runs', 'abc']).help, true);
   assert.equal(parseArgs(['-h']).help, true);
+});
+
+test('parseSupervisorArgs accepts the runner contract and rejects malformed input', () => {
+  assert.deepEqual(parseSupervisorArgs(['--parent-pid', '42', '--', 'npm', 'test']), {
+    parentPid: 42,
+    command: 'npm',
+    args: ['test'],
+  });
+
+  const cases = [
+    [],
+    ['--parent-pid', '42', 'npm'],
+    ['--parent-pid', 'nope', '--', 'npm'],
+    ['--parent-pid', '0', '--', 'npm'],
+    ['--parent-pid', '-1', '--', 'npm'],
+    ['--parent-pid', '42', '--'],
+    ['--parent-pid', '42', '--', ''],
+  ];
+  for (const argv of cases) {
+    assert.throws(
+      () => parseSupervisorArgs(argv),
+      (error) => error instanceof SupervisorUsageError,
+      `argv: ${argv.join(' ')}`,
+    );
+  }
 });
 
 test('summarize orders slow cases and collects failure messages', () => {
@@ -366,7 +401,7 @@ test('stopHogs escalates to SIGKILL when SIGTERM does not land', async () => {
   ]);
 });
 
-function writeNpmShim(dir, { report = null, exitCode = 0, delayMs = 0 }) {
+function writeNpmShim(dir, { report = null, exitCode = 0, delayMs = 0, stdout = '' }) {
   const shim = path.join(dir, 'npm');
   const payload = JSON.stringify(report);
   writeFileSync(
@@ -376,6 +411,7 @@ const { writeFileSync } = require('node:fs');
 const prefix = '--outputFile.json=';
 const arg = process.argv.slice(2).find((candidate) => candidate.startsWith(prefix));
 if (${payload} !== 'null' && arg) writeFileSync(arg.slice(prefix.length), ${JSON.stringify(payload)});
+process.stdout.write(${JSON.stringify(stdout)});
 const finish = () => process.exit(${exitCode});
 if (${delayMs} > 0) setTimeout(finish, ${delayMs});
 else finish();
@@ -402,6 +438,35 @@ function runEntry(args, env) {
     env,
     timeout: 60_000,
   });
+}
+
+function readPid(file) {
+  try {
+    return Number(readFileSync(file, 'utf8').trim()) || null;
+  } catch {
+    return null;
+  }
+}
+
+// A fake npm that holds its event loop open and spawns a grandchild in the
+// same process group, so a SIGKILL test proves the whole tree dies, not just
+// the process named `npm`.
+function writeHangingNpmShim(dir, { pidFile, grandchildPidFile, ignoreSigterm = false }) {
+  const shim = path.join(dir, 'npm');
+  writeFileSync(
+    shim,
+    `#!/usr/bin/env node
+const { spawn } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+writeFileSync(${JSON.stringify(grandchildPidFile)}, String(child.pid));
+${ignoreSigterm ? "process.on('SIGTERM', () => {});" : ''}
+setInterval(() => {}, 1000);
+`,
+  );
+  chmodSync(shim, 0o755);
+  return shim;
 }
 
 function hogPids(stdout) {
@@ -442,6 +507,152 @@ async function waitFor(get, check, timeoutMs = 10_000) {
   }
   throw new Error('timed out waiting for the entry output');
 }
+
+test(
+  'the suite supervisor mirrors npm output and exit status',
+  { skip: process.platform === 'win32' },
+  (t) => {
+    const dir = temp(t, 'aps-web-stress-supervisor-');
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeNpmShim(bin, { report: null, exitCode: 7, stdout: 'shim output\n' });
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+
+    const result = spawnSync(
+      process.execPath,
+      [supervisor, '--parent-pid', String(process.pid), '--', 'npm', 'test'],
+      { cwd: repoRoot, encoding: 'utf8', env, timeout: 10_000 },
+    );
+
+    assert.equal(result.status, 7, result.stderr);
+    assert.match(result.stdout, /shim output/);
+    assert.equal(result.stderr, '');
+  },
+);
+
+test('the suite supervisor rejects a bad parent pid', () => {
+  const result = spawnSync(
+    process.execPath,
+    [supervisor, '--parent-pid', 'nope', '--', 'npm'],
+    { encoding: 'utf8', timeout: 10_000 },
+  );
+
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /--parent-pid needs a positive integer/);
+  assert.doesNotMatch(result.stderr, /\n\s+at /);
+});
+
+test(
+  'SIGKILL of the runner reaps the whole suite process group',
+  { skip: process.platform === 'win32' },
+  async (t) => {
+    const dir = temp(t, 'aps-web-stress-sigkill-');
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const npmPidFile = path.join(dir, 'npm.pid');
+    const grandchildPidFile = path.join(dir, 'grandchild.pid');
+    writeHangingNpmShim(bin, { pidFile: npmPidFile, grandchildPidFile });
+    const logDir = path.join(dir, 'logs');
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+
+    const child = spawn(
+      process.execPath,
+      [entry, '--runs', '1', '--hogs', '1', '--log-dir', logDir],
+      { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    const closed = new Promise((resolve) => {
+      child.on('close', (code, signal) => resolve({ code, signal }));
+    });
+
+    const tracked = [];
+    t.after(() => {
+      for (const pid of tracked) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Already gone.
+      }
+    });
+
+    const started = await waitFor(
+      () => ({
+        npm: readPid(npmPidFile),
+        grandchild: readPid(grandchildPidFile),
+        hogs: hogPids(stdout),
+      }),
+      (value) =>
+        value.npm && value.grandchild && value.hogs.length === 1 ? value : undefined,
+    );
+    tracked.push(started.npm, started.grandchild, ...started.hogs);
+
+    child.kill('SIGKILL');
+    const exited = await closed;
+    assert.equal(exited.signal, 'SIGKILL');
+
+    const survivors = await waitForPidsGone(tracked, 5000);
+    assert.deepEqual(
+      survivors,
+      [],
+      `processes survived the runner SIGKILL: ${survivors.join(' ')}\nstderr: ${stderr}`,
+    );
+  },
+);
+
+test(
+  'a timed-out iteration escalates to SIGKILL and leaves no suite process',
+  { skip: process.platform === 'win32' },
+  async (t) => {
+    const dir = temp(t, 'aps-web-stress-timeout-');
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const npmPidFile = path.join(dir, 'npm.pid');
+    const grandchildPidFile = path.join(dir, 'grandchild.pid');
+    writeHangingNpmShim(bin, {
+      pidFile: npmPidFile,
+      grandchildPidFile,
+      ignoreSigterm: true,
+    });
+    const logDir = path.join(dir, 'logs');
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+
+    const result = runEntry(
+      ['--runs', '1', '--hogs', '0', '--timeout', '1', '--log-dir', logDir],
+      env,
+    );
+
+    const pids = [readPid(npmPidFile), readPid(grandchildPidFile)].filter(Boolean);
+    t.after(() => {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+      }
+    });
+
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stdout, /run 1\/1 FAIL .* timed out after 1s/);
+    assert.doesNotMatch(result.stdout, /web-stress: PASS/);
+    assert.equal(pids.length, 2, 'the fake npm and its grandchild should have started');
+    assert.deepEqual(await waitForPidsGone(pids, 3000), []);
+  },
+);
 
 test('--help prints usage and exits 0', () => {
   const result = runEntry(['--help'], process.env);

@@ -564,7 +564,7 @@ always kept and pending or in-flight rows are never pruned); event rows follow
 or in-flight rows are never pruned). A budget row remains after its alert is deleted (clearing a
 budget, changing its threshold, deleting a cell, or retention expiring an acknowledged
 alert); it becomes history-only and cannot be resent. `GET /api/notifications/deliveries`
-filters by `source` (`budget|event`) or `kind` (`turn.failed|master.error|summary.failed`) and
+filters by `source` (`budget|event`) or `kind` (`turn.failed|master.error|summary.failed|spend.override`) and
 `POST /api/notifications/deliveries/:id/resend` backs the card for both outboxes.
 Fan-out to several destinations per scope and interactive acknowledgement remain separate
 backlog items.

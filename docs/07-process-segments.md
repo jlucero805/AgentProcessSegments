@@ -51,7 +51,7 @@ Each cell also has its own **ticker** and **master chat**:
   a restart. The `process.unreadable`/`process.invalid` row and the stderr warning are
   reported once per distinct state (failure kind, detail, and file bytes) per server
   process; editing the file reports again.
-- A valid file is re-read when its on-disk identity changes, so a manual edit takes effect
+- A valid file is re-read on every load, so a manual edit takes effect
   on the next master tick or `GET /api/process` without a restart; deleting it reverts to
   the derived fallback. An external edit does not emit `onChange`, and a cell with its own
   process policy keeps that snapshot.

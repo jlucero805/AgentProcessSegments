@@ -3245,21 +3245,19 @@ forever, so only an unusable file was re-read. A valid file edited on disk staye
 until a restart even though the file is the authoritative global template. That made a
 manual edit surprising and left the "no restart" promise true only for broken files.
 
-**Decision.** `ProcessStore` keeps the identity of the file that produced the cached
-config (`statSync` device, inode, size, modification time, and change time) and
-revalidates it on every `get()`. An unchanged identity returns the cache without reading
-the file; a changed or missing identity clears the cache and runs the existing `load()`.
-A successful load caches the result with the identity captured before the read, so a
-concurrent replacement is re-detected on the next call. A failure still returns the
-derived fallback, sets `preserveSource`, and reports through D115. `patch()` keeps
-`cached = next` but clears the identity after the write so the next `get()` revalidates
-what was actually written. External reloads are reads and do not emit `onChange`; only
-`patch()` notifies.
+**Decision.** `ProcessStore` keeps the exact bytes that produced the cached config and
+compares them with the current file on every `get()`. Unchanged bytes return the cache
+without re-parsing; changed bytes clear the cache and run the existing `load()` on the
+same already-read string. A missing or unreadable file clears the cache and takes the
+existing fallback/report path. A successful load caches the config with the bytes that
+produced it. A failure still returns the derived fallback, sets `preserveSource`, and
+reports through D115. `patch()` serializes once, writes that string, and records it as the
+cached bytes so the store's own write is not mistaken for an external edit. External
+reloads are reads and do not emit `onChange`; only `patch()` notifies.
 
-**Cost.** One extra `statSync` per `get()` and no extra read while the metadata is
-unchanged. Detection is metadata-based: an in-place rewrite that keeps inode, size,
-modification time, and change time identical is not noticed; editors and atomic writers
-change one of those. An external edit that makes the file invalid falls back to the
-derived policy instead of serving the last-known-good config, matching the existing
-unusable-file contract, and only cells without their own `cells.process_json` snapshot
-are affected.
+**Cost.** One small read per `get()` and no re-parse while the bytes are unchanged.
+Detection is byte-based, so a same-size rewrite with unchanged timestamps is still seen;
+the tradeoff is a file read per call instead of a `statSync`. An external edit that makes
+the file invalid falls back to the derived policy instead of serving the last-known-good
+config, matching the existing unusable-file contract, and only cells without their own
+`cells.process_json` snapshot are affected.

@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1504 vitest cases: 1111 server across 59 files (one environmental root-skip) and 393 web across 28 files, all green.
+- 1506 vitest cases: 1113 server across 59 files (one environmental root-skip) and 393 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1111 server + 393 web, plus the e2e env guard
+npm test                       # 1113 server + 393 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -271,7 +271,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `process.json` follows the same preserve-before-overwrite rule,
   keeps at most the five newest `process.json.invalid-*` copies (pruning older ones after
   a successful save; a prune failure reports `process.pruneFailed` without refusing the
-  save), and reports `process.backupFailed` for a failed copy. `GET/PATCH /api/process`
+  save), and reports `process.backupFailed` for a failed copy. `process.json` is re-read on
+  every `get()`, so a valid on-disk edit takes effect without a restart; an unusable file
+  still reports once per distinct state. `GET/PATCH /api/process`
   return this process's copy as `preservedPath` and every existing
   `process.json.invalid-*` copy as `preservedCopies` (newest first), and the global
   process editor lists them, including copies left by earlier runs; `preservedPath`

@@ -2417,6 +2417,30 @@ describe('http api', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('re-reads an externally edited process file through GET /api/process', async () => {
+    const { h } = await makeApp();
+
+    const before = await call('GET', '/api/process');
+    expect(before.status).toBe(200);
+    const segments = before.json().segments as Array<{
+      id: string;
+      enabled: boolean;
+    }>;
+    const plan = segments.find((segment) => segment.id === 'plan');
+    expect(plan).toBeDefined();
+    plan!.enabled = true;
+    writeFileSync(h.config.processPath, JSON.stringify({ version: 1, segments }));
+
+    const after = await call('GET', '/api/process');
+    expect(after.status).toBe(200);
+    expect(
+      after.json().segments.find((segment: { id: string }) => segment.id === 'plan').enabled,
+    ).toBe(true);
+    expect(after.json().path).toBe(h.config.processPath);
+    expect(after.json().preservedPath).toBeNull();
+    expect(after.json().preservedCopies).toEqual([]);
+  });
+
   it('reports the preserved process path after a save replaces an unusable file', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

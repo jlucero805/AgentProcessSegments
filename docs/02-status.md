@@ -281,7 +281,9 @@ built and vended by the brain; real-CLI verification is still pending.
   last 72 hours; no paging), and **Run scorecard now**. A dedicated **Scorecards** page
   groups every cell's persisted reports by generation time (default last 72 hours;
   `24h`/`72h`/`7d`/`30d`/`All`, or a custom local start/end date and time range, newest first,
-  earlier history collapsible, **Load older** in 25-report pages). All cells loads each
+  earlier history collapsible, **Load older** in 25-report pages). The applied period is
+  kept in the URL (`72h` omitted) and restored on reload; invalid params fall back to 72h.
+  All cells loads each
   cell's newest report in one `GET /api/summaries/latest-per-cell` request with a
   `hasOlder` flag, or shows them as one chronological cross-cell **Flat** feed with
   server-side **Load more** paging, without fetching one summaries request per cell, and
@@ -495,7 +497,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1515 vitest cases (one environmental root-skip): 1117 server across 59 files and 398 web across 29 files,
+- 1550 vitest cases (one environmental root-skip): 1117 server across 59 files and 433 web across 30 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

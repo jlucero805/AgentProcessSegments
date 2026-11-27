@@ -101,6 +101,101 @@ export function customWindow(
   return { since, until };
 }
 
+/** Local date and time inputs for the Custom period. */
+export interface CustomRangeSeed {
+  /** Local `YYYY-MM-DD` value for an `<input type="date">`. */
+  start: string;
+  /** Local `YYYY-MM-DD` value for an `<input type="date">`. */
+  end: string;
+  /** Local `HH:mm` value for an `<input type="time">`. */
+  startTime: string;
+  /** Local `HH:mm` value for an `<input type="time">`. */
+  endTime: string;
+}
+
+/** Applied scorecard period as captured by the URL route. */
+export interface ScorecardPeriodSelection {
+  range: PageRangeKey;
+  /** Present only when `range` is `custom`. */
+  custom?: CustomRangeSeed;
+}
+
+/** Local `HH:mm` value for an `<input type="time">`. */
+function timeInputValue(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Convert an applied Custom window back to its four local input values. */
+export function customRangeSeedFromWindow(window: DateWindow): CustomRangeSeed | null {
+  if (window.since === undefined || window.until === undefined) return null;
+  return {
+    start: dateInputValue(window.since),
+    end: dateInputValue(window.until),
+    startTime: timeInputValue(window.since),
+    endTime: timeInputValue(window.until),
+  };
+}
+
+function normalizeCustomSeed(seed: CustomRangeSeed): CustomRangeSeed {
+  return {
+    ...seed,
+    startTime: seed.startTime.trim() || CUSTOM_DEFAULT_START_TIME,
+    endTime: seed.endTime.trim() || CUSTOM_DEFAULT_END_TIME,
+  };
+}
+
+/**
+ * Read the Scorecards period from route params. Unknown or incomplete values
+ * fall back to the default preset so a tampered URL cannot query a partial
+ * custom window.
+ */
+export function parseScorecardPeriod(params: URLSearchParams): ScorecardPeriodSelection {
+  const raw = params.get('period');
+  if (raw === null) return { range: DEFAULT_RANGE };
+  if (raw === 'custom') {
+    const custom = normalizeCustomSeed({
+      start: params.get('startDate') ?? '',
+      end: params.get('endDate') ?? '',
+      startTime: params.get('startTime') ?? '',
+      endTime: params.get('endTime') ?? '',
+    });
+    const window = customWindow(custom.start, custom.end, custom.startTime, custom.endTime);
+    return typeof window === 'string' ? { range: DEFAULT_RANGE } : { range: 'custom', custom };
+  }
+  const preset = RANGES.find((option) => option.key === raw);
+  return preset ? { range: preset.key } : { range: DEFAULT_RANGE };
+}
+
+/**
+ * Write the applied scorecard period to route params. The default 72h preset
+ * is omitted; a Custom selection is only written when it is a valid window.
+ */
+export function writeScorecardPeriod(
+  params: URLSearchParams,
+  selection: ScorecardPeriodSelection,
+): void {
+  params.delete('period');
+  params.delete('startDate');
+  params.delete('startTime');
+  params.delete('endDate');
+  params.delete('endTime');
+  if (selection.range === DEFAULT_RANGE) return;
+  if (selection.range !== 'custom') {
+    params.set('period', selection.range);
+    return;
+  }
+  if (!selection.custom) return;
+  const custom = normalizeCustomSeed(selection.custom);
+  const window = customWindow(custom.start, custom.end, custom.startTime, custom.endTime);
+  if (typeof window === 'string') return;
+  params.set('period', 'custom');
+  params.set('startDate', custom.start);
+  params.set('startTime', custom.startTime);
+  params.set('endDate', custom.end);
+  params.set('endTime', custom.endTime);
+}
+
 function segmentClass(active: boolean): string {
   return active
     ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'

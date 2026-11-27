@@ -7,13 +7,16 @@ import {
   CUSTOM_FALLBACK_MS,
   DEFAULT_RANGE,
   ScorecardPeriod,
+  customRangeSeedFromWindow,
   customWindow,
   dateInputValue,
   presetWindow,
   rangeOption,
+  type CustomRangeSeed,
   type DateWindow,
   type PageRangeKey,
   type RangeKey,
+  type ScorecardPeriodSelection,
 } from './ScorecardPeriod';
 import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
@@ -68,6 +71,42 @@ function windowLabel(summary: Summary): string {
   ).toLocaleTimeString()}`;
 }
 
+/** Custom inputs used when the route does not carry an applied Custom range. */
+function fallbackCustomSeed(): CustomRangeSeed {
+  const now = Date.now();
+  return {
+    start: dateInputValue(now - CUSTOM_FALLBACK_MS),
+    end: dateInputValue(now),
+    startTime: CUSTOM_DEFAULT_START_TIME,
+    endTime: CUSTOM_DEFAULT_END_TIME,
+  };
+}
+
+/** Initial applied period and Custom draft for the page's first render. */
+function initialPeriodState(selection?: ScorecardPeriodSelection): {
+  range: PageRangeKey;
+  seed: CustomRangeSeed;
+  window: DateWindow;
+} {
+  const seed = fallbackCustomSeed();
+  if (!selection || selection.range !== 'custom' || !selection.custom) {
+    return {
+      range: selection && selection.range !== 'custom' ? selection.range : DEFAULT_RANGE,
+      seed,
+      window: {},
+    };
+  }
+  const window = customWindow(
+    selection.custom.start,
+    selection.custom.end,
+    selection.custom.startTime,
+    selection.custom.endTime,
+  );
+  return typeof window === 'string'
+    ? { range: DEFAULT_RANGE, seed, window: {} }
+    : { range: 'custom', seed: selection.custom, window };
+}
+
 /** Applied Custom window in the operator's local time, to minute precision. */
 function appliedRangeLabel(window: DateWindow): string {
   if (window.since === undefined || window.until === undefined) return '';
@@ -90,26 +129,31 @@ export function ScorecardsPage({
   onSelectCell,
   onError,
   cellsFeed,
+  initialPeriod,
+  onPeriodChange,
 }: {
   cellId: string | null;
   onSelectCell: (cellId: string | null) => void;
   onError: (message: string) => void;
   cellsFeed: CellsFeed;
+  /** Applied period restored from the URL route, if any. */
+  initialPeriod?: ScorecardPeriodSelection;
+  /** Called whenever the applied period changes, so the route can persist it. */
+  onPeriodChange?: (selection: ScorecardPeriodSelection) => void;
 }) {
+  const [initial] = useState(() => initialPeriodState(initialPeriod));
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [feed, setFeed] = useState<ScorecardFeed | null>(null);
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
   const [view, setView] = useState<ScorecardsView>('grouped');
-  const [range, setRange] = useState<PageRangeKey>(DEFAULT_RANGE);
-  const [customStart, setCustomStart] = useState(() =>
-    dateInputValue(Date.now() - CUSTOM_FALLBACK_MS),
-  );
-  const [customEnd, setCustomEnd] = useState(() => dateInputValue(Date.now()));
-  const [customStartTime, setCustomStartTime] = useState(CUSTOM_DEFAULT_START_TIME);
-  const [customEndTime, setCustomEndTime] = useState(CUSTOM_DEFAULT_END_TIME);
-  const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
+  const [range, setRange] = useState<PageRangeKey>(initial.range);
+  const [customStart, setCustomStart] = useState(initial.seed.start);
+  const [customEnd, setCustomEnd] = useState(initial.seed.end);
+  const [customStartTime, setCustomStartTime] = useState(initial.seed.startTime);
+  const [customEndTime, setCustomEndTime] = useState(initial.seed.endTime);
+  const [appliedCustom, setAppliedCustom] = useState<DateWindow>(initial.window);
   const loadGeneration = useRef(0);
   /** Bounds used by the load that produced the visible page; paging reuses them. */
   const pageWindow = useRef<DateWindow>({});
@@ -209,16 +253,23 @@ export function ScorecardsPage({
     const end = dateInputValue(now);
     const bounds = customWindow(start, end);
     if (typeof bounds === 'string') return;
-    setCustomStart(start);
-    setCustomEnd(end);
-    setCustomStartTime(CUSTOM_DEFAULT_START_TIME);
-    setCustomEndTime(CUSTOM_DEFAULT_END_TIME);
+    const seed: CustomRangeSeed = {
+      start,
+      end,
+      startTime: CUSTOM_DEFAULT_START_TIME,
+      endTime: CUSTOM_DEFAULT_END_TIME,
+    };
+    setCustomStart(seed.start);
+    setCustomEnd(seed.end);
+    setCustomStartTime(seed.startTime);
+    setCustomEndTime(seed.endTime);
     setRange('custom');
     setAppliedCustom(bounds);
     setGroups(null);
     setFeed(null);
     setLoadingMoreFeed(false);
     setLoading(true);
+    onPeriodChange?.({ range: 'custom', custom: seed });
   };
 
   const applyCustom = () => {
@@ -230,12 +281,15 @@ export function ScorecardsPage({
     ) {
       return;
     }
+    const seed = customRangeSeedFromWindow(draftWindow);
+    if (!seed) return;
     setRange('custom');
     setAppliedCustom(draftWindow);
     setGroups(null);
     setFeed(null);
     setLoadingMoreFeed(false);
     setLoading(true);
+    onPeriodChange?.({ range: 'custom', custom: seed });
   };
 
   const loadOlder = useCallback(
@@ -392,6 +446,7 @@ export function ScorecardsPage({
               setLoadingMoreFeed(false);
               setLoading(true);
               setRange(next);
+              onPeriodChange?.({ range: next });
             }}
             onSelectCustom={selectCustom}
             customSelected={range === 'custom'}

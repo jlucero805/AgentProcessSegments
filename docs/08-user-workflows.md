@@ -130,7 +130,12 @@ beyond five.
   **00:00** and **23:59**). Custom values use the browser's local time; the start is
   exact at the selected minute and the end includes the whole end minute. A start after
   the end at minute granularity is rejected before any request is sent, and equal start
-  and end minutes are valid. Clearing a time falls back to its default. The period
+  and end minutes are valid. Clearing a time falls back to its default. The applied period
+  is kept in the URL: the default **72h** is omitted, other presets use their key, and
+  **Custom** adds the local start/end date and time. Reloading or sharing that URL reopens
+  the same preset or Custom range; draft edits are written only when **Apply** commits
+  them, and missing or invalid period parameters fall back to **72h**. The drawer's own
+  period is not persisted. The period
   filters by when a report was generated, not by the window the report covers;
   each report still shows its own configured trailing window. With **All cells** selected
   it lists every cell with a report in the period, newest cell first, loading each cell's

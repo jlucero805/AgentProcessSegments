@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
-import { customWindow } from './ScorecardPeriod';
+import { customWindow, type ScorecardPeriodSelection } from './ScorecardPeriod';
 import { jsonResponse, makeCellsFeed } from './test/fixtures';
 
 // The page loads the latest-per-cell feed and report pages before rendering. Give the slow
@@ -54,15 +54,25 @@ interface PageProps {
   cellId?: string | null;
   onSelectCell?: (cellId: string | null) => void;
   onError?: (message: string) => void;
+  initialPeriod?: ScorecardPeriodSelection;
+  onPeriodChange?: (selection: ScorecardPeriodSelection) => void;
 }
 
-function page({ cellId = null, onSelectCell = () => {}, onError = () => {} }: PageProps = {}) {
+function page({
+  cellId = null,
+  onSelectCell = () => {},
+  onError = () => {},
+  initialPeriod,
+  onPeriodChange,
+}: PageProps = {}) {
   return (
     <ScorecardsPage
       cellId={cellId}
       onSelectCell={onSelectCell}
       onError={onError}
       cellsFeed={makeCellsFeed({ cells: ALL_CELLS })}
+      initialPeriod={initialPeriod}
+      onPeriodChange={onPeriodChange}
     />
   );
 }
@@ -538,6 +548,96 @@ describe('ScorecardsPage', () => {
     expect(applied?.get('until')).toBe(
       String(new Date(2026, 10, 1, 12, 0, 59, 999).getTime()),
     );
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('starts from the applied custom period passed by the route', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage({
+      initialPeriod: {
+        range: 'custom',
+        custom: {
+          start: '2026-11-01',
+          end: '2026-11-01',
+          startTime: '08:00',
+          endTime: '12:00',
+        },
+      },
+    });
+
+    expect(
+      await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('Start time')).toHaveValue('08:00');
+    expect(screen.getByLabelText('End date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('End time')).toHaveValue('12:00');
+
+    const since = new Date(2026, 10, 1, 8, 0, 0, 0).getTime();
+    const until = new Date(2026, 10, 1, 12, 0, 59, 999).getTime();
+    expect(screen.getByText(appliedRangeLabel(since, until))).toBeInTheDocument();
+    const [request] = latestRequests(urls);
+    expect(request?.get('since')).toBe(String(since));
+    expect(request?.get('until')).toBe(String(until));
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('reports only committed period changes', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      stubFetch([makeCell('c1', 'Alpha')], {
+        c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+      });
+      const onPeriodChange = vi.fn();
+      renderPage({ onPeriodChange });
+
+      expect(
+        await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '7d' }));
+      expect(onPeriodChange).toHaveBeenLastCalledWith({ range: '7d' });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      expect(onPeriodChange).toHaveBeenLastCalledWith({
+        range: 'custom',
+        custom: {
+          start: '2026-11-08',
+          end: '2026-11-15',
+          startTime: '00:00',
+          endTime: '23:59',
+        },
+      });
+
+      const calls = onPeriodChange.mock.calls.length;
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: '08:00' },
+      });
+      expect(onPeriodChange).toHaveBeenCalledTimes(calls);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      expect(onPeriodChange).toHaveBeenLastCalledWith({
+        range: 'custom',
+        custom: {
+          start: '2026-11-08',
+          end: '2026-11-15',
+          startTime: '08:00',
+          endTime: '23:59',
+        },
+      });
+
+      const afterApply = onPeriodChange.mock.calls.length;
+      await waitFor(
+        () => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled(),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+      expect(onPeriodChange).toHaveBeenCalledTimes(afterApply);
+    } finally {
+      nowSpy.mockRestore();
+    }
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('rejects an end time before the start time without a request', async () => {

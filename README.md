@@ -761,8 +761,8 @@ reviewed `eslint-disable-next-line no-restricted-syntax -- <reason>` exemptions,
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
 environments they hand to their children, the missing-Puppeteer policy, the interrupt
-cleanup coordinator, and the GitHub credential-scope preflight; it is not counted in the
-vitest totals.
+cleanup coordinator, the GitHub credential-scope preflight, and the offline external-link
+classifier; it is not counted in the vitest totals.
 
 `npm run test:web-stress` and `npm run test:server-stress` are the manual parallel-load
 proofs for the web and server suites. They share one runner
@@ -805,8 +805,15 @@ finding fails it too. Link and anchor correctness is a test rather than a lint s
 external URLs. It also imports the Help manifest: a served page may link only a manifest
 page or a `?help=<slug>` target whose slug and anchor exist in
 `src/server/src/docs/manifest.ts`, and a manifest entry must have a unique lowercase
-slug, an existing Markdown source, and the slug the SPA derives from that source. The
-unit gate runs `systemd-analyze verify`, treats a diagnostic
+slug, an existing Markdown source, and the slug the SPA derives from that source.
+External destinations are a separate opt-in check: `npm run check:docs:external` probes
+every unique external HTTP(S) destination with a bounded `HEAD`/`GET`, reports dead links
+as `file:line: URL — reason`, and a completed scan exits non-zero only for 404/410, DNS,
+timeout, TLS/connection, or invalid-URL failures. GitHub rate limits and other unverified 4xx/5xx
+responses print as `skip` lines and do not fail. It needs network access and is
+manual/periodic: it is never part of `npm test`, `npm run lint`, `npm run check:docs`, or
+CI. The corpus currently has no extracted external destinations, so a run is a no-op
+until a doc adds one. The unit gate runs `systemd-analyze verify`, treats a diagnostic
 naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
 values, asserts the reviewed sandboxing directives, and fails when the offline
 `systemd-analyze security` exposure exceeds 4.8. The reviewed set includes

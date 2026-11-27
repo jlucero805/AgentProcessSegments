@@ -77,7 +77,8 @@ contains merged global user settings) applies.
   plus a hand-rolled shadcn-style kit (`ui.tsx`).
 - **Monorepo:** npm workspaces (`src/server`, `src/web`). Root scripts: `build` (web
   then server), `typecheck`, `test` (server + web + the e2e env guard), `check:docs`
-  (documentation links, images, Help anchors, and manifest pages), `lint` (eslint
+  (documentation links, images, Help anchors, and manifest pages),
+  `check:docs:external` (manual external-link fetch; never a gate), `lint` (eslint
   over `src`, the JS tooling, and `.opencode` plugin sources, plus `bash -n` and
   `shellcheck --severity=warning` over the deploy and `scripts/` shell scripts,
   `actionlint` over `deploy/ci-workflow.yml` and `.github/workflows/ci.yml`,
@@ -1162,6 +1163,7 @@ npm run build               # web (vite) then server (tsc) into src/*/dist
 npm run typecheck           # tsc --noEmit for server src + tests + vitest config and both web projects
 npm test                    # vitest: server + web, plus the e2e env guard
 npm run check:docs          # local Markdown links, images, Help anchors, and manifest pages
+npm run check:docs:external # manual: fetch external Markdown links (never a gate)
 npm run lint                # eslint; bash -n + shellcheck; actionlint; unit verify + sandbox + security; markdownlint
 npm run probe:sandbox       # manual live sandbox probe; needs systemd, a user manager, and an agent CLI
 APS_DB=/abs/agent-process-segments.sqlite node src/server/dist/app.js

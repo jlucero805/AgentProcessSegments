@@ -2063,8 +2063,8 @@ non-dismissible `role="status"` notice below the recovery banner: the absolute p
 warning that it may contain credentials, and a reminder to delete it after review. Only
 paths cross the API; the store never reads the copy back, and no contents, secrets, or
 metadata are added. The value is not a `config.json` key, and the single path is not
-reconstructed across restarts; D103 lists the existing copies instead. D104 mirrors the
-single-path notice for the global process editor.
+reconstructed across restarts; D103 lists the existing copies instead. D104 mirrors both
+the current path and the cross-restart listing for the global process editor.
 
 **Cost.** The notice can outlive a manual deletion of the copy and keeps naming it until
 the page or server reloads. The Config page gains one small state field, one response
@@ -2342,7 +2342,7 @@ nothing, and the same pass cleans a backlog left by an earlier version. A failed
 or unlink is best-effort: it reports `process.pruneFailed` with the process path (and
 failed copy path) and the save still succeeds. Loading still never writes; no startup
 prune or pruning setting is added. D104 reports the path of the copy just written, which
-this pass always retains.
+this pass always retains, and lists the remaining copies.
 
 **Cost.** Only the five newest forensic copies are kept; older originals are deleted
 without review on the next successful save. An undeletable copy can leave the count above
@@ -2485,20 +2485,28 @@ read server output to find the original.
 `preserveUnusableSource()` after the copy is written, and exposes it as `preservedPath()`
 in memory for the life of the process. `GET` and `PATCH /api/process` return it beside
 `path`; it is null until a save creates a copy and stays at that path for later saves in
-the same process. The Config page keeps the value from the load and from the process save
-response, and passes it to the global `ProcessEditor`, which shows a non-dismissible
-`role="status"` notice named "Preserved process file": the absolute path, a warning that
-it may contain prompts or policy, and a reminder to delete it after review. The cell
-editor does not show it because cell saves write `cells.process_json`, not `process.json`.
-Only paths cross the API; the copy is never read back, and no contents or prompts are
-added. The value is not a `process.json` key and is not reconstructed across restarts.
-D98's copy, prune, and five-copy limit are unchanged; the named copy is the one just
-written, which that save always retains.
+the same process. `ProcessStore.preservedCopies()` also scans the process file's
+directory for regular files whose names start with `<basename>.invalid-` and returns their
+absolute paths newest first, ordered by the embedded UTC stamp and then the numeric
+collision suffix. It is path-only and never reads a copy back; a missing or unreadable
+directory returns an empty list without failing the process endpoint or logging. Both
+endpoints return that list as `preservedCopies`, uncapped and without moving this
+process's own copy to the front; the Config page keeps the path and the list from the
+load and save responses, merges them with the current copy first and no duplicates, and
+passes the merged list to the global `ProcessEditor`. The editor shows a non-dismissible
+`role="status"` notice named "Preserved process file" that lists every path, with a
+singular or plural heading and a warning that the copies may contain prompts or policy,
+plus a reminder to delete them after review. The cell editor does not show it because
+cell saves write `cells.process_json`, not `process.json`. Only paths cross the API, and
+no contents or prompts are added. The values are not `process.json` keys. D98's copy,
+prune, and five-copy limit are unchanged; the named current copy is the one the last
+preserving save wrote, which that save always retains.
 
-**Cost.** The notice can outlive a manual deletion of the copy and keeps naming it until
-the page or server reloads. A restarted process does not rediscover earlier process
-copies, so the notice disappears even when `process.json.invalid-*` files remain; listing
-them, like D103 does for settings, is separate work. Resolving a copy never happened here
+**Cost.** The notice can outlive a manual deletion of a copy and keeps naming it until the
+next response or page reload. Every process response now scans the process directory; a
+legacy backlog above five is listed in full until a successful save prunes it. Listing
+reports filesystem state, not a `process.json` key, and can include copies made by
+processes that are no longer running. Resolving or deleting a copy never happened here
 and is still out of scope.
 
 ## D105. The legacy body-only webhook signature is removed

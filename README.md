@@ -216,8 +216,9 @@ block's defaults, is reported as `settings.invalid`, and the Config page names i
 banner until the next save. Before that save rewrites the file, the original bytes are
 copied aside, and the page lists every preserved copy, including copies left by earlier
 runs. The same rule applies to an invalid `process.json`, which reports
-`process.backupFailed` if the copy cannot be written; the global process editor shows the
-copy path after the preserving save. Preserved process copies are capped at the five
+`process.backupFailed` if the copy cannot be written; the global process editor lists
+every preserved process copy, including copies left by earlier runs, after the preserving
+save or a restart. Preserved process copies are capped at the five
 newest; older copies are pruned after a successful save, and a prune failure is logged as
 `process.pruneFailed` without refusing the save.
 

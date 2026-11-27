@@ -146,8 +146,9 @@ merged global user settings) applies.
   most five preserved copies are kept per process file; after every successful save,
   older matching copies are pruned oldest first, and a failed prune reports
   `process.pruneFailed` without refusing the save. `GET/PATCH /api/process` return this
-  process's copy as `preservedPath` (or `null`), and the global process editor shows it
-  after the preserving save; it is in memory, so a restart does not rediscover it.
+  process's copy as `preservedPath` (or `null`) and every existing copy as
+  `preservedCopies` (newest first); the global process editor lists them after the
+  preserving save and after a restart.
 
 ---
 

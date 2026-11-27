@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, unlinkSync, type Dirent } from 'node:fs';
 import path from 'node:path';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
@@ -75,6 +75,35 @@ export class ProcessStore {
    */
   preservedPath(): string | null {
     return this.preservedFilePath;
+  }
+
+  /**
+   * Existing preserved copies next to this process file, newest first. Paths
+   * only; a missing or unreadable directory has no copies. The copy this process
+   * made is not moved to the front here; the Config page merges it.
+   */
+  preservedCopies(): string[] {
+    const dir = path.dirname(this.path);
+    const prefix = `${path.basename(this.path)}.invalid-`;
+
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+      .map((entry) => {
+        const [stamp, suffix] = preservedCopyOrder(entry.name, prefix);
+        return { name: entry.name, stamp, suffix };
+      })
+      .sort((left, right) => {
+        if (left.stamp !== right.stamp) return left.stamp < right.stamp ? 1 : -1;
+        return right.suffix - left.suffix;
+      })
+      .map(({ name }) => path.join(dir, name));
   }
 
   private load(): ProcessConfig | null {

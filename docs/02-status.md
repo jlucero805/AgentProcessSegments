@@ -401,8 +401,9 @@ built and vended by the brain; real-CLI verification is still pending.
   the five newest preserved copies are kept; older matching copies are pruned after a
   successful save, and a failed prune reports `process.pruneFailed` without refusing the
   save. `GET/PATCH /api/process` also return `preservedPath`, the copy this process made
-  (or `null`), which the global process editor shows after the preserving save. It is in
-  memory only, so a restart does not rediscover earlier copies. The legacy `idleMinutes`,
+  (or `null`), and `preservedCopies`, every existing copy next to the process file newest
+  first. The global process editor lists them after the preserving save and after a
+  restart. The legacy `idleMinutes`,
   `autoReview`, and `prompt` values
   remain only to derive process defaults when `process.json` is absent. See
   `docs/07-process-segments.md`. This host runs `agent-process-segments.service` from

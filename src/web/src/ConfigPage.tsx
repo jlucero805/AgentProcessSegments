@@ -47,6 +47,7 @@ import {
   type NotificationStatusResponse,
   type NotificationsView,
   type ProcessConfig,
+  type ProcessResponse,
   type RetentionSettings,
   type SegmentConfig,
   type SettingsWarning,
@@ -245,6 +246,7 @@ export function ConfigPage({
   const [preservedCopies, setPreservedCopies] = useState<string[]>([]);
   const [processPath, setProcessPath] = useState('');
   const [processPreservedPath, setProcessPreservedPath] = useState<string | null>(null);
+  const [processPreservedCopies, setProcessPreservedCopies] = useState<string[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -336,6 +338,21 @@ export function ConfigPage({
     );
   }, []);
 
+  /** Apply the path and preserved copies from a process response. */
+  const applyProcessMeta = useCallback((config: ProcessResponse) => {
+    setProcessPath(config.path);
+    setProcessPreservedPath(
+      typeof config.preservedPath === 'string' && config.preservedPath !== ''
+        ? config.preservedPath
+        : null,
+    );
+    setProcessPreservedCopies(
+      Array.isArray(config.preservedCopies)
+        ? config.preservedCopies.filter((copy) => typeof copy === 'string' && copy !== '')
+        : [],
+    );
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const [
@@ -375,12 +392,7 @@ export function ConfigPage({
       setRetentionSettings(config.retention);
       applyConfigMeta(config);
       setProcess({ version: processConfig.version, segments: processConfig.segments });
-      setProcessPath(processConfig.path);
-      setProcessPreservedPath(
-        typeof processConfig.preservedPath === 'string' && processConfig.preservedPath !== ''
-          ? processConfig.preservedPath
-          : null,
-      );
+      applyProcessMeta(processConfig);
       setEvents(eventList);
       setBudget(loadedBudget);
       setBudgetMonthly(
@@ -419,7 +431,7 @@ export function ConfigPage({
     } catch (error) {
       onError(describeError(error));
     }
-  }, [applyConfigMeta, onError]);
+  }, [applyConfigMeta, applyProcessMeta, onError]);
 
   useEffect(() => {
     void (async () => {
@@ -1117,12 +1129,7 @@ export function ConfigPage({
     try {
       const savedProcess = await api.patchProcess(process.segments);
       setProcess({ version: savedProcess.version, segments: savedProcess.segments });
-      setProcessPath(savedProcess.path);
-      setProcessPreservedPath(
-        typeof savedProcess.preservedPath === 'string' && savedProcess.preservedPath !== ''
-          ? savedProcess.preservedPath
-          : null,
-      );
+      applyProcessMeta(savedProcess);
       setProcessSaved(true);
     } catch (error) {
       onError(describeError(error));
@@ -1222,6 +1229,12 @@ export function ConfigPage({
     preservedPath && !preservedCopies.includes(preservedPath)
       ? [preservedPath, ...preservedCopies]
       : preservedCopies;
+  const shownProcessPreservedCopies = processPreservedPath
+    ? [
+        processPreservedPath,
+        ...processPreservedCopies.filter((copy) => copy !== processPreservedPath),
+      ]
+    : processPreservedCopies;
 
   return (
     <div className="mx-auto h-full w-full max-w-3xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -2594,7 +2607,7 @@ export function ConfigPage({
       <ProcessEditor
         process={process}
         path={processPath}
-        preservedPath={processPreservedPath}
+        preservedCopies={shownProcessPreservedCopies}
         saving={processSaving}
         saved={processSaved}
         title="Global process template"

@@ -42,9 +42,9 @@ Each cell also has its own **ticker** and **master chat**:
   most five preserved copies are kept; after a successful save, older matching copies are
   pruned and a failed prune reports `process.pruneFailed` without refusing the save.
 - `GET`/`PATCH /api/process` return the copy made by the current server process as
-  `preservedPath` (or `null`), and the global process editor shows it after the
-  preserving save. The value is in memory, so a restart does not rediscover earlier
-  copies.
+  `preservedPath` (or `null`) and every existing copy next to the file as
+  `preservedCopies` (newest first). The global process editor lists them after the
+  preserving save and after a restart.
 - Missing or invalid files fall back to a conservative policy derived from
   `config.json`’s `master` section until you save a valid process.
 - An unusable file is still re-read on every load, so a corrected one takes effect without
@@ -329,6 +329,7 @@ unassigned request.
 
 ```text
 GET   /api/process                 process.json, its resolved path, and preservedPath
+                                   plus preservedCopies (newest first)
 PATCH /api/process {segments}      validate, write atomically, return the saved policy
-                                   plus its path and preservedPath
+                                   plus its path, preservedPath, and preservedCopies
 ```

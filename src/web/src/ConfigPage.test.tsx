@@ -846,12 +846,15 @@ function stubConfigWarnings(
 }
 
 /**
- * Wrap the installed mock so `/api/process` reports a preserved copy path on load
- * and after a save. `after` defaults to `before`; pass explicit nulls to omit it.
+ * Wrap the installed mock so `/api/process` reports a preserved copy path and
+ * existing copies on load and after a save. `after` defaults to `before`;
+ * explicit nulls omit the path and undefined copies omit the list.
  */
 function stubProcessPreservedPath(
   before: string | null,
   after: string | null = before,
+  beforeCopies?: string[],
+  afterCopies?: string[],
 ): void {
   const base = globalThis.fetch as typeof fetch;
   vi.stubGlobal(
@@ -860,9 +863,12 @@ function stubProcessPreservedPath(
       const response = await base(input, init);
       if (String(input) !== '/api/process') return response;
       const body = (await response.json()) as Record<string, unknown>;
+      const isPatch = init?.method === 'PATCH';
+      const copies = isPatch ? afterCopies : beforeCopies;
       return jsonResponse({
         ...body,
-        preservedPath: init?.method === 'PATCH' ? after : before,
+        preservedPath: isPatch ? after : before,
+        ...(copies === undefined ? {} : { preservedCopies: copies }),
       });
     }),
   );
@@ -1994,6 +2000,7 @@ describe('ConfigPage', () => {
     render(<ConfigPage onError={() => {}} />);
 
     const status = await screen.findByRole('status', { name: 'Preserved process file' });
+    expect(status).toHaveTextContent('The unusable process file was preserved');
     expect(status).toHaveTextContent(preserved);
     expect(status).toHaveTextContent('may contain prompts or policy');
     expect(status).toHaveTextContent('Delete it once you have reviewed it');
@@ -2021,9 +2028,39 @@ describe('ConfigPage', () => {
     expect(status).toHaveTextContent(preserved);
   }, CONFIG_PAGE_TEST_TIMEOUT_MS);
 
-  it('renders no preserved process notice for an explicit null', async () => {
+  it('lists older preserved process copies after a restart', async () => {
+    const newest = '/tmp/agent-process-segments/process.json.invalid-2026-01-01T00-00-01-000Z';
+    const older = '/tmp/agent-process-segments/process.json.invalid-2026-01-01T00-00-00-000Z';
     installFetch();
-    stubProcessPreservedPath(null);
+    stubProcessPreservedPath(null, null, [newest, older]);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const status = await screen.findByRole('status', { name: 'Preserved process file' });
+    const items = within(status).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([newest, older]);
+    expect(status).toHaveTextContent('Unusable process files were preserved');
+    expect(status).toHaveTextContent('They may contain prompts or policy');
+    expect(status).toHaveTextContent('Delete them once you have reviewed them');
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
+
+  it('keeps the current preserved process copy first and deduplicates the list', async () => {
+    const current = '/tmp/agent-process-segments/process.json.invalid-2026-01-01T00-00-02-000Z';
+    const older = '/tmp/agent-process-segments/process.json.invalid-2026-01-01T00-00-01-000Z';
+    installFetch();
+    stubProcessPreservedPath(current, current, [older, current], [current, older]);
+
+    render(<ConfigPage onError={() => {}} />);
+
+    const status = await screen.findByRole('status', { name: 'Preserved process file' });
+    const items = within(status).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([current, older]);
+    expect(items).toHaveLength(2);
+  }, CONFIG_PAGE_TEST_TIMEOUT_MS);
+
+  it('renders no preserved process notice for an explicit null and empty list', async () => {
+    installFetch();
+    stubProcessPreservedPath(null, null, []);
 
     render(<ConfigPage onError={() => {}} />);
 

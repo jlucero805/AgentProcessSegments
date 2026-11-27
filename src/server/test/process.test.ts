@@ -429,6 +429,83 @@ describe('ProcessStore', () => {
     warn.mockRestore();
   });
 
+  it('lists existing preserved copies newest first and ignores unrelated entries', () => {
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify(defaultProcess(DEFAULT_SETTINGS.master)));
+    const base = `${file}.invalid-2026-01-01T00-00-00-000Z`;
+    const older = `${file}.invalid-2025-12-31T23-59-59-999Z`;
+    writeFileSync(base, 'base');
+    writeFileSync(`${base}-2`, 'two');
+    writeFileSync(`${base}-10`, 'ten');
+    writeFileSync(older, 'older');
+    writeFileSync(
+      path.join(path.dirname(file), 'other.json.invalid-2026-01-01T00-00-00-000Z'),
+      'other',
+    );
+    writeFileSync(`${file}.tmp-1`, 'tmp');
+    mkdirSync(`${base}-dir`);
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.preservedCopies()).toEqual([`${base}-10`, `${base}-2`, base, older]);
+  });
+
+  it('returns no preserved copies for a missing process file or directory', () => {
+    const fallback = () => defaultProcess(DEFAULT_SETTINGS.master);
+    expect(new ProcessStore(tempFile(), fallback).preservedCopies()).toEqual([]);
+
+    const missingDir = path.join(tempFile('missing-dir'), 'process.json');
+    expect(new ProcessStore(missingDir, fallback).preservedCopies()).toEqual([]);
+  });
+
+  it('treats an unreadable process directory as having no copies', () => {
+    const parent = tempFile('not-a-directory');
+    writeFileSync(parent, 'x');
+
+    const store = new ProcessStore(
+      path.join(parent, 'process.json'),
+      () => defaultProcess(DEFAULT_SETTINGS.master),
+    );
+    expect(store.preservedCopies()).toEqual([]);
+  });
+
+  it('lists an existing copy after a restart while preservedPath stays per-process', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const original = '{not json\n';
+      writeFileSync(file, original);
+
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      expect(store.preservedPath()).toBeNull();
+      store.patch({ segments: defaultProcess(DEFAULT_SETTINGS.master).segments });
+      const copy = store.preservedPath();
+      expect(copy).not.toBeNull();
+
+      const restarted = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      expect(restarted.preservedPath()).toBeNull();
+      expect(restarted.preservedCopies()).toEqual([copy]);
+      expect(readFileSync(copy!, 'utf8')).toBe(original);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not load or rewrite the file when listing copies', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile();
+      const original = '{not json\n';
+      writeFileSync(file, original);
+
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      expect(store.preservedCopies()).toEqual([]);
+      expect(readFileSync(file, 'utf8')).toBe(original);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('preserves a schema-invalid file before the first save', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = tempFile();

@@ -29,7 +29,8 @@ export function usage(): string {
     'Only the requests/ tree is scanned: requests/, each session dir, cwd/,',
     'opencode/, session.json, transcript.json, mcp-config.json, and',
     'opencode/opencode.json. It never recurses into cwd/ checkouts and never',
-    'opens the database.',
+    'opens the database. A symlinked requests/ directory is reported as an error',
+    'and never followed.',
   ].join('\n');
 }
 

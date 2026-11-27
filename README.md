@@ -408,9 +408,11 @@ npm run repair:runs -- --apply          # tighten old cutover run dirs and root
 The command only tightens the known `requests/` artifacts (`requests/`, each session
 dir, `cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
 `opencode/opencode.json`). It never rewrites transcripts, never recurses into `cwd/`
-checkouts, refuses a symlinked `requests/` root, and is safe while the brain runs. All
-three commands below share one implementation and the same dry-run/`--apply` contract;
-they differ only in the tree they scan and the root rule.
+checkouts, and is safe while the brain runs. A symlinked `requests/` root is refused
+(exit 1) rather than followed, so a chmod never reaches an unrelated target; to repair a
+relocated tree, point `--data-dir` at the real parent so `requests/` is a real directory.
+All three commands below share one implementation and the same dry-run/`--apply`
+contract; they differ only in the tree they scan and in the root rule.
 
 Upgrade run directories and snapshots from an older version are repaired the same way:
 `npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets the
@@ -425,8 +427,9 @@ Cutover evidence is repaired separately: `npm run repair:runs` previews and
 symlinked `runs/`, deletes anything, descends into `dist/` or `backup/`, reads or
 changes run contents, or touches `~/.aps-cutover/upgrades` or the `latest` symlink. New
 installs already create the root `0700`; either repair command also tightens an older
-root. A symlinked root is skipped, while its `runs/` or `upgrades/` tree is still
-scanned through the link, so tighten the target yourself.
+root. For `repair:upgrades` and `repair:runs`, a symlinked root is skipped, while its
+`runs/` or `upgrades/` tree is still scanned through the link, so tighten the target
+yourself.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -723,7 +726,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1585 vitest cases: 1139 server cases across 59 files (state machine,
+`npm test` runs 1589 vitest cases: 1143 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

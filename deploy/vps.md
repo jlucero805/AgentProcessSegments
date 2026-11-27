@@ -348,6 +348,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 
 Then tighten request workdirs left by an older version: preview with
 `npm run repair:permissions`, then apply with `npm run repair:permissions -- --apply`.
+If `requests/` is a symlink, the command refuses it (exit 1) instead of following it;
+point `--data-dir` at the real parent to repair the relocated tree.
 
 Requests, transcripts, and agent session ids are on disk. A restart loses no request
 state; the engine resumes the agent session from `session.json` on the next turn.
@@ -502,7 +504,8 @@ older version. `npm run repair:upgrades` previews and
 `npm run repair:upgrades -- --apply` changes modes for upgrade run directories and
 snapshots created by an older version. `npm run repair:runs` previews and
 `npm run repair:runs -- --apply` changes modes for cutover run directories and the shared
-`~/.aps-cutover` root created by an older version. None is part of the upgrade script
+`~/.aps-cutover` root created by an older version. `repair:permissions` refuses a
+symlinked `requests/` root instead of following it. None is part of the upgrade script
 yet.
 
 ## Upgrade from Sandbox Harness

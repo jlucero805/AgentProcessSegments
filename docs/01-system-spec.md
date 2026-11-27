@@ -173,10 +173,11 @@ the shared root left by an older version are tightened with `npm run repair:upgr
 follows a symlinked `upgrades/`. Cutover evidence is repaired separately with
 `npm run repair:runs` (dry run first), which tightens the shared root plus
 `~/.aps-cutover/runs`, one level deep, and never descends into `dist/` or `backup/`.
-Either repair skips a symlinked root while still scanning its subtree through the link,
-and neither chmods the `latest` symlink. All three repairs are thin entry points over one engine and CLI
-core, so the owner-only modes, `ENOENT`-as-skip rule, dry-run accounting, and exit codes
-cannot drift; each keeps its own tree and root rule.
+Both evidence repairs skip a symlinked root while still scanning its subtree through the
+link, and neither chmods the `latest` symlink. `repair:permissions` instead refuses a
+symlinked `requests/` root (D135). All three repairs are thin entry points over one
+engine and CLI core, so the owner-only modes, `ENOENT`-as-skip rule, dry-run accounting,
+and exit codes cannot drift; each keeps its own tree and root rule.
 Maintenance paths that must not
 migrate a live brain open through
 `openExistingDb`, which applies the same owner-only repair by default without schema or
@@ -973,7 +974,7 @@ defaults.
   move a file. Existing installs can repair every workdir at once with
   `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
   artifacts, never recurses into `cwd/` checkouts, and refuses a symlinked `requests/`
-  root without chmodding or descending through it. Upgrade run directories and
+  root (D135) without chmodding or descending through it. Upgrade run directories and
   snapshots are repaired separately with `npm run repair:upgrades` (dry run first), and
   cutover run directories and the shared `~/.aps-cutover` root with
   `npm run repair:runs` (dry run first). All three share one engine and CLI core; only

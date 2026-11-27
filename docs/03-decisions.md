@@ -3075,18 +3075,19 @@ options instead of silent unification: `repair:permissions` refuses a symlinked
 while refusing a symlinked `runs/` or `upgrades/` (D120), and missing children are
 silent. All three therefore refuse a symlinked scan root (`requests/`, `runs/`,
 `upgrades/`); a relocated cutover root is the only symlink they scan through, and only
-to reach that child.
+to reach that child. D135 removed the scanner's `follow` mode, so no repair can chmod
+through a root symlink.
 `src/server/test/repair-permissions.test.ts` guards the split: only
 `permission-repair.ts` may mention `chmodSync`, every engine constructs
 `PermissionRepair`, and every CLI imports the shared core.
 `src/server/test/permission-repair.test.ts` covers the policy seam directly: a missing
-root under every symlink mode, refused/followed/skipped symlinked roots, and the
+root under every symlink mode, refused/skipped symlinked roots, and the
 silent-versus-vanished child rule.
 
 **Cost.** Two new modules, one structural guard test, and one focused policy-seam test
 file. A future repair must use the shared scanner; the guard fails if it imports
-`chmodSync` directly. Changing either root rule is a separate decision (the symlinked
-`requests/` root was corrected separately). The shell `chmod` in
+`chmodSync` directly. Changing either root rule is a separate decision; the symlinked
+`requests/` root rule landed in D135. The shell `chmod` in
 `deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this code.
 
 ## D122. The stress harness covers the server suite too
@@ -3452,3 +3453,35 @@ string, so both must merge rather than replace the whole search. The page has to
 distinguish its own reported period from an external history restore; existing local state
 remains authoritative for an unapplied Custom draft. No API, schema, scheduler,
 retention, dependency, or drawer-persistence change is involved.
+
+## D135. `repair:permissions` refuses a symlinked `requests/` root
+
+**Context.** D74's bulk repair followed a symlinked `requests/` root because it used
+`stat`, and D121 kept that policy while moving the scanner into
+`permission-repair.ts` and filing the rule change separately. Following the link let
+`--apply` chmod the link target to `0700` and then tighten every direct child of that
+target as if each were a session workdir. A `requests/` symlink aimed at a home
+directory, a shared mount, or the data dir's parent therefore hardened unrelated files,
+and the dry run advertised those unrelated paths as pending changes. A dangling link
+failed more quietly: `stat` threw `ENOENT`, so the CLI printed `nothing to repair` and
+exited 0.
+
+**Decision.** `repairPermissions` calls `PermissionRepair.root` with no symlink option,
+so a symlinked `requests/` root (dangling included) records one
+`error ...: is a symbolic link` entry, chmods nothing, does not `readdir` the target, and
+exits 1 in both dry-run and `--apply`. The scanner's `follow` policy is gone:
+`RootOptions.symlinks` is `refuse` (the default) or `skip`, an `lstat`-only check. The
+two cutover repairs keep `skip` for their own root and keep refusing a symlinked
+`runs/` or `upgrades/` (D120). An operator repairing a relocated tree points `--data-dir`
+at the real parent so `requests/` is a real directory again.
+
+**Why not D120's skip-and-scan rule.** There the root is only a container: the hardened
+tree is `runs/` or `upgrades/`, and a symlinked `runs/`/`upgrades/` is refused. For
+`requests/` every direct child is a session workdir, so skipping the root chmod but
+walking the link would still tighten every child of an arbitrary target. Refusal is the
+only fail-closed option.
+
+**Cost.** A relocated `requests/` tree needs the `--data-dir <parent>` invocation, and a
+dangling link now fails the repair instead of passing as "nothing to repair". No new
+flag, exit code, report format, or child rule; the shell `chmod`s in
+`deploy/upgrade-vps.sh`/`cutover-vps.sh` are unchanged.

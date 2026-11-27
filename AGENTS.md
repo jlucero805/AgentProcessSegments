@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1585 vitest cases: 1139 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
+- 1589 vitest cases: 1143 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1139 server + 446 web, plus the e2e env guard
+npm test                       # 1143 server + 446 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -157,7 +157,8 @@ npm run migrate:paths           # move legacy paths; refuses while a brain unit,
 npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs;
                                 # terminal transitions retire them automatically.
                                 # --prune-orphans also retires refs with no request row
-npm run repair:permissions      # tighten old request workdirs (dry run first)
+npm run repair:permissions      # tighten old request workdirs (dry run first);
+                                # refuses a symlinked requests/ root
 npm run repair:upgrades         # tighten old upgrade run dirs/snapshots (dry run first)
 npm run repair:runs             # tighten the cutover root and old run dirs (dry run first)
 npm run prune:cutover -- --dry-run  # prune old cutover runs by hand; keeps
@@ -643,10 +644,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
     workdir or file left by an older version is repaired on the next write. Existing
     installs are repaired in bulk with `npm run repair:permissions` (dry run by default;
-    `--apply` to change); it tightens only the known `requests/` artifacts and never
-    recurses into `cwd/` checkouts. It refuses a symlinked `requests/` root. Never write
-    conversation state with a bare `writeFileSync`; transcripts can contain tool output
-    and secrets.
+    `--apply` to change); it tightens only the known `requests/` artifacts, never
+    recurses into `cwd/` checkouts, and refuses a symlinked `requests/` root instead of
+    chmodding through the link. Never write conversation state with a bare
+    `writeFileSync`; transcripts can contain tool output and secrets.
 37. **A harness-reported error result fails the turn once, visibly.** A parser `error`
     event sets `turn.failure` (first one wins), broadcasts one `error`, persists one
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it

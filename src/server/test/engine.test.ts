@@ -1749,8 +1749,12 @@ describe('turn engine', () => {
 });
 
 describe('request worktree branches', () => {
-  it('creates the worktree on aps/<id> and records the branch', async () => {
-    const h = fresh();
+  it('creates the worktree on aps/<id>, records the branch, and logs nothing', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const errors: ErrorSink = {
+      error: (source, error, context) => calls.push({ source, error, ...(context ?? {}) }),
+    };
+    const h = freshWithErrors(defaultScript, errors);
     const repo = gitRepo();
     const request = h.repo.create({ title: 'Branch me', targetRepo: repo });
 
@@ -1762,6 +1766,35 @@ describe('request worktree branches', () => {
     expect(h.repo.require(request.id).branch).toBe(`aps/${request.id}`);
     expect(existsSync(dir)).toBe(true);
     expect(h.harness.commands[0]?.cwd).toBe(dir);
+    expect(calls).toEqual([]);
+  });
+
+  it('runs in the scratch workdir and logs when the target cannot host a worktree', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const errors: ErrorSink = {
+      error: (source, error, context) => calls.push({ source, error, ...(context ?? {}) }),
+    };
+    const h = freshWithErrors(defaultScript, errors);
+    const plain = tmpDir('engine-plain');
+    const request = h.repo.create({ title: 'Not a repo', targetRepo: plain });
+
+    const turn = await h.engine.start(request.id);
+    await turn.promise;
+    await settle();
+
+    expect(turn.events.some((event) => event.t === 'done')).toBe(true);
+    expect(h.repo.require(request.id).branch).toBeNull();
+    expect(h.harness.commands[0]?.cwd).toBe(
+      path.join(h.config.dataDir, 'requests', request.id, 'cwd'),
+    );
+    expect(calls).toEqual([
+      expect.objectContaining({
+        source: 'engine.worktree',
+        request: request.id,
+        targetRepo: plain,
+        stage: 'inspect',
+      }),
+    ]);
   });
 
   it('reuses a legacy sbox/<id> branch and keeps it in the dispatch prompt', async () => {

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +9,7 @@ import {
   removeWorktree,
   removeWorktreeAt,
 } from '../src/clarify/worktree.js';
+import { ErrorLogger, type ErrorSink } from '../src/logging/errors.js';
 
 function tempDir(): string {
   return tmpDir('wt');
@@ -34,6 +35,22 @@ function currentBranch(cwd: string): string {
 
 function branches(repo: string): string {
   return execFileSync('git', ['-C', repo, 'branch', '--list'], { encoding: 'utf8' });
+}
+
+interface ErrorCall {
+  source: string;
+  error: unknown;
+  context: Record<string, unknown>;
+}
+
+function recordingSink(): { calls: ErrorCall[]; errors: ErrorSink } {
+  const calls: ErrorCall[] = [];
+  return {
+    calls,
+    errors: {
+      error: (source, error, context) => calls.push({ source, error, context: context ?? {} }),
+    },
+  };
 }
 
 describe('per-request git worktrees', () => {
@@ -127,28 +144,190 @@ describe('per-request git worktrees', () => {
     expect(ref).toBe(legacySha);
   });
 
-  it('falls back to the scratch workdir without a repo or with a non-repo path', async () => {
+  it('falls back silently when a request has no target repo', async () => {
+    const base = tempDir();
+    const scratchDir = path.join(base, 'scratch');
+    mkdirSync(scratchDir, { recursive: true });
+    const { calls, errors } = recordingSink();
+
+    const result = await ensureWorktree({
+      targetRepo: null,
+      requestId: 'req-e',
+      dataDir: path.join(base, 'data'),
+      scratchDir,
+      errors,
+    });
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
+    expect(calls).toEqual([]);
+  });
+
+  it('logs a missing target path and falls back to the scratch workdir', async () => {
+    const base = tempDir();
+    const scratchDir = path.join(base, 'scratch');
+    mkdirSync(scratchDir, { recursive: true });
+    const absent = path.join(base, 'absent');
+    const { calls, errors } = recordingSink();
+
+    const result = await ensureWorktree({
+      targetRepo: absent,
+      requestId: 'req-missing',
+      dataDir: path.join(base, 'data'),
+      scratchDir,
+      errors,
+    });
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      source: 'engine.worktree',
+      context: { request: 'req-missing', targetRepo: absent, stage: 'target-missing' },
+    });
+    expect((calls[0]?.error as Error).message).toContain('does not exist');
+  });
+
+  it('logs a non-repo target and falls back to the scratch workdir', async () => {
+    const base = tempDir();
+    const scratchDir = path.join(base, 'scratch');
+    mkdirSync(scratchDir, { recursive: true });
+    const plain = tempDir();
+    const { calls, errors } = recordingSink();
+
+    const result = await ensureWorktree({
+      targetRepo: plain,
+      requestId: 'req-plain',
+      dataDir: path.join(base, 'data'),
+      scratchDir,
+      errors,
+    });
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      source: 'engine.worktree',
+      context: { request: 'req-plain', targetRepo: plain, stage: 'inspect' },
+    });
+    expect((calls[0]?.error as Error).message).toContain('not a git repository');
+  });
+
+  it('treats a bare repository as not a work tree', async () => {
+    const base = tempDir();
+    const scratchDir = path.join(base, 'scratch');
+    mkdirSync(scratchDir, { recursive: true });
+    const bare = tempDir();
+    execFileSync('git', ['init', '-q', '--bare'], { cwd: bare });
+    const { calls, errors } = recordingSink();
+
+    const result = await ensureWorktree({
+      targetRepo: bare,
+      requestId: 'req-bare',
+      dataDir: path.join(base, 'data'),
+      scratchDir,
+      errors,
+    });
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      source: 'engine.worktree',
+      context: { request: 'req-bare', targetRepo: bare, stage: 'not-a-repo' },
+    });
+    expect((calls[0]?.error as Error).message).toContain('not a git work tree');
+  });
+
+  it('logs a worktree add failure and falls back to the scratch workdir', async () => {
+    const base = tempDir();
+    const scratchDir = path.join(base, 'scratch');
+    mkdirSync(scratchDir, { recursive: true });
+    const unborn = tempDir();
+    execFileSync('git', ['init', '-q'], { cwd: unborn });
+    const { calls, errors } = recordingSink();
+
+    const result = await ensureWorktree({
+      targetRepo: unborn,
+      requestId: 'req-unborn',
+      dataDir: path.join(base, 'data'),
+      scratchDir,
+      errors,
+    });
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      source: 'engine.worktree',
+      context: { request: 'req-unborn', targetRepo: unborn, stage: 'worktree-add' },
+    });
+    expect((calls[0]?.error as Error).message).toContain('invalid reference: HEAD');
+  });
+
+  it('writes one NDJSON record for a failed checkout', async () => {
+    const base = tempDir();
+    const scratchDir = path.join(base, 'scratch');
+    mkdirSync(scratchDir, { recursive: true });
+    const unborn = tempDir();
+    execFileSync('git', ['init', '-q'], { cwd: unborn });
+    const file = path.join(base, 'errors.log');
+    const logger = new ErrorLogger(file);
+
+    const result = await ensureWorktree({
+      targetRepo: unborn,
+      requestId: 'req-ndjson',
+      dataDir: path.join(base, 'data'),
+      scratchDir,
+      errors: logger,
+    });
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
+    const lines = readFileSync(file, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0] ?? '{}') as {
+      source?: string;
+      message?: string;
+      context?: Record<string, unknown>;
+    };
+    expect(record.source).toBe('engine.worktree');
+    expect(record.message).toContain('invalid reference: HEAD');
+    expect(record.context).toMatchObject({
+      request: 'req-ndjson',
+      targetRepo: unborn,
+      stage: 'worktree-add',
+    });
+  });
+
+  it('does not log a successful checkout', async () => {
+    const repo = makeRepo();
+    const base = tempDir();
+    const { calls, errors } = recordingSink();
+
+    const result = await ensureWorktree({
+      targetRepo: repo,
+      requestId: 'req-ok',
+      dataDir: path.join(base, 'data'),
+      scratchDir: path.join(base, 'scratch'),
+      errors,
+    });
+
+    expect(result.isolated).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  it('falls back without an error sink', async () => {
     const base = tempDir();
     const scratchDir = path.join(base, 'scratch');
     mkdirSync(scratchDir, { recursive: true });
     const plain = tempDir();
 
-    const noRepo = await ensureWorktree({
-      targetRepo: null,
-      requestId: 'req-e',
-      dataDir: path.join(base, 'data'),
-      scratchDir,
-    });
-    expect(noRepo).toEqual({ cwd: scratchDir, branch: null, isolated: false });
-
-    const notGit = await ensureWorktree({
+    const result = await ensureWorktree({
       targetRepo: plain,
-      requestId: 'req-f',
+      requestId: 'req-no-sink',
       dataDir: path.join(base, 'data'),
       scratchDir,
     });
-    expect(notGit.isolated).toBe(false);
-    expect(notGit.cwd).toBe(scratchDir);
+
+    expect(result).toEqual({ cwd: scratchDir, branch: null, isolated: false });
   });
 });
 

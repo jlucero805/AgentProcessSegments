@@ -3216,3 +3216,23 @@ subshell; a generic sink check would be speculative.
 in the existing build-failure tests of `src/server/test/upgrade.test.ts` and
 `src/server/test/cutover.test.ts`. No change to the success path, to failures outside a
 subshell, to retention, or to the rollback sequence.
+
+## D127. A failed worktree checkout is logged, not silent
+
+**Context.** `ensureWorktree` returned the scratch workdir with `isolated: false` on every
+git problem and logged nothing, so an environment change that broke `git worktree add`
+silently ran requests outside their own checkout. The systemd sandbox probe had to assert
+the checkout directly because a green turn proved nothing.
+
+**Decision.** `ensureWorktree` takes an optional `ErrorSink` and records one
+`engine.worktree` error when a non-null target repo is missing, is not a git work tree, or
+fails a git command. Context carries `request`, `targetRepo`, and `stage`
+(`target-missing`, `not-a-repo`, `inspect`, `worktree-add`); git errors keep their message.
+The scratch fallback, turn behavior, and `WorktreeResult` are unchanged, a request with no
+target repo is silent, and `Engine.ensureProc` supplies the engine's sink. Each failed
+attempt logs; a persistent breakage reports on every turn and rotation bounds the file.
+No UI signal or dedupe is added here.
+
+**Cost.** One optional input field, one logging helper, and one engine call site, plus
+tests and docs. Repeated failures repeat the record; `removeWorktree`'s deliberate
+best-effort silence and retention reports are untouched.

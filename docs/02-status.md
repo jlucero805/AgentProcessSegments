@@ -477,8 +477,8 @@ built and vended by the brain; real-CLI verification is still pending.
   `$XDG_STATE_HOME/agent-process-segments/errors.log` (`APS_ERROR_LOG`,
   `APS_ERROR_LOG_MAX_BYTES`), size-rotated to `.1`. Covered: startup, invalid settings
   blocks (per block) and process files, unexpected HTTP 5xx, engine turn/exit/timeout
-  failures, master turn/cycle failures, PTY open failures, and hard-cap enforcement
-  bugs. Normal logs,
+  failures, worktree checkout fallbacks, master turn/cycle failures, PTY open failures,
+  and hard-cap enforcement bugs. Normal logs,
   expected 4xx responses, spend-cap refusals, and cap stops are not persisted. See
   `docs/10-error-log.md`.
 - Chat slash menu: combines installed plugin commands/skills with skills discovered from
@@ -487,7 +487,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1480 vitest cases (one environmental root-skip): 1097 server across 59 files and 383 web across 28 files,
+- 1488 vitest cases (one environmental root-skip): 1105 server across 59 files and 383 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

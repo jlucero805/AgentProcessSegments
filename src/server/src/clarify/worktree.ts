@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import type { ErrorSink } from '../logging/errors.js';
 
 const exec = promisify(execFile);
 
@@ -19,6 +20,11 @@ export interface WorktreeInput {
   requestId: string;
   dataDir: string;
   scratchDir: string;
+}
+
+export interface EnsureWorktreeInput extends WorktreeInput {
+  /** Error-only sink; a failed checkout is reported here and never blocks the turn. */
+  errors?: ErrorSink;
 }
 
 export interface WorktreeResult {
@@ -60,17 +66,32 @@ async function checkedOutBranch(dir: string): Promise<string | null> {
 
 /**
  * Give the agent a private checkout so two requests never write the same tree.
- * Any git problem falls back to the scratch workdir rather than blocking the request.
+ * Any git problem falls back to the scratch workdir and is reported through the
+ * optional sink rather than blocking the request.
  */
-export async function ensureWorktree(input: WorktreeInput): Promise<WorktreeResult> {
-  const { targetRepo, requestId, dataDir, scratchDir } = input;
+export async function ensureWorktree(input: EnsureWorktreeInput): Promise<WorktreeResult> {
+  const { targetRepo, requestId, dataDir, scratchDir, errors } = input;
   const fallback: WorktreeResult = { cwd: scratchDir, branch: null, isolated: false };
 
-  if (!targetRepo || !existsSync(targetRepo)) return fallback;
+  const failed = (
+    stage: 'target-missing' | 'not-a-repo' | 'inspect' | 'worktree-add',
+    error: unknown,
+  ): WorktreeResult => {
+    errors?.error('engine.worktree', error, { request: requestId, targetRepo, stage });
+    return fallback;
+  };
 
+  if (!targetRepo) return fallback;
+  if (!existsSync(targetRepo)) {
+    return failed('target-missing', new Error('target repo does not exist'));
+  }
+
+  let stage: 'inspect' | 'worktree-add' = 'inspect';
   try {
     const inside = await git(targetRepo, ['rev-parse', '--is-inside-work-tree']);
-    if (inside !== 'true') return fallback;
+    if (inside !== 'true') {
+      return failed('not-a-repo', new Error('target repo is not a git work tree'));
+    }
 
     const repoRoot = await git(targetRepo, ['rev-parse', '--show-toplevel']);
     const dir = worktreePath(dataDir, requestId);
@@ -91,6 +112,7 @@ export async function ensureWorktree(input: WorktreeInput): Promise<WorktreeResu
       exists = true;
     }
 
+    stage = 'worktree-add';
     if (exists) {
       await git(repoRoot, ['worktree', 'add', dir, branch]);
     } else {
@@ -98,8 +120,8 @@ export async function ensureWorktree(input: WorktreeInput): Promise<WorktreeResu
     }
 
     return { cwd: dir, branch, isolated: true };
-  } catch {
-    return fallback;
+  } catch (error) {
+    return failed(stage, error);
   }
 }
 

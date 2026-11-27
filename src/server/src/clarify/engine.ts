@@ -863,6 +863,7 @@ export class Engine {
         requestId: id,
         dataDir: this.config.dataDir,
         scratchDir: scratch,
+        errors: this.deps.errors,
       });
       cwd = worktree.cwd;
       if (worktree.branch !== request.branch) this.repo.setBranch(id, worktree.branch);

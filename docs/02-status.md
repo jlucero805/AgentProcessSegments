@@ -519,8 +519,8 @@ built and vended by the brain; real-CLI verification is still pending.
   fails when a tool round trip does not persist. The MCP smoke's brain also pins
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `OPENCODE_CONFIG_DIR` under its temp dir, so
   its skill catalog cannot read host config. `npm run test:e2e-env` guards the
-  builders, their call sites, the screenshot script's missing-Puppeteer policy, and its
-  interrupt cleanup. CI
+  builders, their call sites, the screenshot script's missing-Puppeteer policy, its
+  interrupt cleanup, and the GitHub credential-scope preflight. CI
   runs the E2E and MCP stdio smoke steps with the same hostile `SBOX_*`/`APS_*`
   overrides (including `APS_REQUEST_ID`/`SBOX_REQUEST_ID`) exported, so a regression
   that leaks the host env into either proof fails the build;
@@ -535,6 +535,10 @@ built and vended by the brain; real-CLI verification is still pending.
   on pull requests. It also re-runs the web suite with `NODE_ENV=production` to exercise
   the inherited-production React resolution. Edit the template, copy it over the
   published file, and let `src/server/test/ci-workflow.test.ts` fail if the two diverge.
+  A push that adds or edits a file under `.github/workflows/` also needs a
+  `workflow`-scoped credential: run `npm run check:github-scope` first (exit 0 is the only
+  green light, 1 means a classic token is missing `workflow` or `repo`/`public_repo`, 2
+  means it could not be classified) and follow invariant 47 instead of using a deploy key.
 
 ## Deviations from the spec
 

@@ -741,8 +741,9 @@ reviewed `eslint-disable-next-line no-restricted-syntax -- <reason>` exemptions,
 `src/server/test/lint-gate.test.ts` checks that no other exception appears.
 
 `npm test` also runs `npm run test:e2e-env`, a `node:test` guard for the proof scripts: the
-environments they hand to their children, the missing-Puppeteer policy, and the interrupt
-cleanup coordinator; it is not counted in the vitest totals.
+environments they hand to their children, the missing-Puppeteer policy, the interrupt
+cleanup coordinator, and the GitHub credential-scope preflight; it is not counted in the
+vitest totals.
 
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing
@@ -846,3 +847,9 @@ workflow, and the HTTP/MCP smoke scripts on pushes to `main` and on pull request
 also re-runs the web suite with `NODE_ENV=production`, exercising the inherited-production
 React-resolution path. Edit the template, copy it over the published file, and let
 `src/server/test/ci-workflow.test.ts` fail if the two diverge.
+
+A push that adds or edits a file under `.github/workflows/` also needs a `workflow`-scoped
+credential. Run `npm run check:github-scope` before such a push: exit 0 is the only green
+light, exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit
+2 means the credential could not be classified. See `AGENTS.md` invariant 47 for the
+remediation instead of working around the rejection with a deploy key.

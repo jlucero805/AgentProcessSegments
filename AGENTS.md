@@ -120,8 +120,9 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm test                       # 1046 server + 325 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
-                               # webhook receiver example, missing-Puppeteer policy, and
-                               # interrupt cleanup
+                               # webhook receiver example, missing-Puppeteer policy,
+                               # interrupt cleanup, and the GitHub scope preflight
+npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
@@ -709,6 +710,18 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and assigns ids only to those headings. External schemes and bare `?query` targets are
     never fetched. Run it alone with `npm run check:docs`; it is part of `npm test`, not
     `npm run lint`.
+47. **Workflow-file pushes need a `workflow`-scoped credential.** GitHub rejects a push
+    that adds or edits a file under `.github/workflows/` from a token without the
+    `workflow` scope (`refusing to allow an OAuth App to create or update workflow ...`).
+    Run `npm run check:github-scope` before such a push: exit 0 is the only green light,
+    exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit 2
+    means the credential could not be classified. The harness host's `gh` OAuth token
+    currently carries only `gist`, `read:org`, and `repo`; fix it with
+    `gh auth refresh -h github.com -s workflow`, or export `GH_TOKEN`/`GITHUB_TOKEN` with a
+    classic PAT holding `repo` and `workflow` (or a fine-grained PAT with Contents and
+    Workflows read/write). Do not add a deploy key, switch `origin` to SSH, or push through
+    the API to work around the rejection; stop and report instead. The check lives in
+    `scripts/check-github-scope.mjs` and its tests in `scripts/check-github-scope.test.mjs`.
 
 ## Extension recipes
 

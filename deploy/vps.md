@@ -211,10 +211,11 @@ Three candidates were rejected by the live probe (`npm run probe:sandbox`, D114)
 - `ProcSubset=pid` removes `/proc/meminfo`, so `ps`, `free`, and `uptime` fail inside a
   browser terminal.
 
-`RestrictNamespaces=~user` and `SystemCallFilter=@system-service` are deferred until the
-real Claude Code sandbox is exercised. `PrivateNetwork`, `PrivateUsers`, and
-`MemoryDenyWriteExecute` stay off for the reasons in the unit. Read D96 and D114 in
-`docs/03-decisions.md` before adding any of them.
+`RestrictNamespaces=~user` and `SystemCallFilter=@system-service` are deferred until an
+authenticated Claude Code turn exercises the real sandbox. A cached binary is not enough:
+without a seedable login the probe skips `turn:claude` and keeps both deferred (D114).
+`PrivateNetwork`, `PrivateUsers`, and `MemoryDenyWriteExecute` stay off for the reasons in
+the unit. Read D96 and D114 in `docs/03-decisions.md` before adding any of them.
 
 ### Rerun the sandbox probe
 

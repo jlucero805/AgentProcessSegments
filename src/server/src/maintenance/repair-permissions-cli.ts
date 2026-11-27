@@ -30,6 +30,10 @@ export function usage(): string {
     'opencode/, session.json, transcript.json, mcp-config.json, and',
     'opencode/opencode.json. It never recurses into cwd/ checkouts and never',
     'opens the database.',
+    '',
+    'A symlinked requests/ root is refused (exit 1) instead of followed, so a',
+    'chmod can never reach an unrelated target. To repair a relocated tree,',
+    'point --data-dir at the real parent so requests/ is a real directory.',
   ].join('\n');
 }
 

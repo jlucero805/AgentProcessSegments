@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, statSync, type Stats } from 'node:fs';
+import { chmodSync, lstatSync, type Stats } from 'node:fs';
 
 export const PRIVATE_DIR_MODE = 0o700;
 export const PRIVATE_FILE_MODE = 0o600;
@@ -32,11 +32,11 @@ export interface RepairDeps {
 
 export interface RootOptions {
   /**
-   * `follow` uses `stat`, so a symlinked container resolves like a directory;
-   * `skip` records the link as a skip and keeps walking; the default `refuse`
-   * records an error and stops.
+   * A root is inspected with `lstat` and never followed. `skip` records a
+   * symlinked root as a skip and lets the caller keep walking; the default
+   * `refuse` records an error and stops.
    */
-  symlinks?: 'follow' | 'refuse' | 'skip';
+  symlinks?: 'refuse' | 'skip';
 }
 
 export interface ChildOptions {
@@ -90,18 +90,18 @@ export class PermissionRepair {
   root(target: string, options: RootOptions = {}): 'ok' | 'missing' | 'failed' {
     let stat: Stats;
     try {
-      stat = options.symlinks === 'follow' ? statSync(target) : lstatSync(target);
+      stat = lstatSync(target);
     } catch (error) {
       if (isMissing(error)) return 'missing';
       this.error(target, 'dir', error);
       return 'failed';
     }
 
-    if (options.symlinks === 'skip' && stat.isSymbolicLink()) {
-      this.skip(target, 'dir', 'symlink');
-      return 'ok';
-    }
-    if (options.symlinks !== 'follow' && stat.isSymbolicLink()) {
+    if (stat.isSymbolicLink()) {
+      if (options.symlinks === 'skip') {
+        this.skip(target, 'dir', 'symlink');
+        return 'ok';
+      }
       this.error(target, 'dir', new Error('is a symbolic link'));
       return 'failed';
     }

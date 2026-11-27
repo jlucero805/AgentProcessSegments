@@ -19,7 +19,7 @@ describe('PermissionRepair root policy', () => {
   it('reports a missing root for every symlink policy', () => {
     const root = path.join(tmpDir('permission-repair-missing'), 'root');
 
-    for (const symlinks of ['follow', 'refuse', 'skip'] as const) {
+    for (const symlinks of ['refuse', 'skip'] as const) {
       const scan = new PermissionRepair({ apply: true });
 
       expect(scan.root(root, { symlinks })).toBe('missing');
@@ -63,27 +63,6 @@ describe('PermissionRepair root policy', () => {
     ]);
     expect(calls).toBe(0);
     expect(modeOf(outside)).toBe(0o755);
-  });
-
-  posixIt('follows a symlinked root when configured', () => {
-    const base = tmpDir('permission-repair-follow');
-    const outside = path.join(base, 'outside');
-    dir(outside);
-    const root = path.join(base, 'root');
-    symlinkSync(outside, root, 'dir');
-
-    // D74/D121 keeps this behavior for repair:permissions; the fix is a
-    // separate follow-up.
-    const scan = new PermissionRepair({ apply: true });
-    expect(scan.root(root, { symlinks: 'follow' })).toBe('ok');
-
-    const result = scan.result(false);
-    expect(result.failed).toBe(0);
-    expect(result.tightened).toBe(1);
-    expect(result.entries).toMatchObject([
-      { path: root, kind: 'dir', action: 'tighten', target: 0o700 },
-    ]);
-    expect(modeOf(outside)).toBe(0o700);
   });
 
   posixIt('skips a symlinked root when configured', () => {

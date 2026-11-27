@@ -157,7 +157,8 @@ npm run migrate:paths           # move legacy paths; refuses while a brain unit,
 npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs;
                                 # terminal transitions retire them automatically.
                                 # --prune-orphans also retires refs with no request row
-npm run repair:permissions      # tighten old request workdirs (dry run first)
+npm run repair:permissions      # tighten old request workdirs (dry run first);
+                                # refuses a symlinked requests/ root
 npm run repair:upgrades         # tighten old upgrade run dirs/snapshots (dry run first)
 npm run repair:runs             # tighten the cutover root and old run dirs (dry run first)
 npm run prune:cutover -- --dry-run  # prune old cutover runs by hand; keeps
@@ -643,8 +644,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `0600` through `writePrivateFile`, and the dirs through `ensurePrivateDir`. A loose
     workdir or file left by an older version is repaired on the next write. Existing
     installs are repaired in bulk with `npm run repair:permissions` (dry run by default;
-    `--apply` to change); it tightens only the known `requests/` artifacts and never
-    recurses into `cwd/` checkouts. Never write conversation state with a bare
+    `--apply` to change); it tightens only the known `requests/` artifacts, never
+    recurses into `cwd/` checkouts, and refuses a symlinked `requests/` root instead of
+    chmodding through the link. Never write conversation state with a bare
     `writeFileSync`; transcripts can contain tool output and secrets.
 37. **A harness-reported error result fails the turn once, visibly.** A parser `error`
     event sets `turn.failure` (first one wins), broadcasts one `error`, persists one

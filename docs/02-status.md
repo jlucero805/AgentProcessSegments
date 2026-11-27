@@ -148,7 +148,8 @@ built and vended by the brain; real-CLI verification is still pending.
   before deleting them; checked-out orphans are skipped.
 - Request workdirs: `npm run repair:permissions` tightens existing `requests/` dirs to
   `0700` and session/transcript/harness config files to `0600` (dry run by default;
-  `--apply` to change). It never recurses into `cwd/` checkouts. A missing state file is
+  `--apply` to change). It never recurses into `cwd/` checkouts and refuses a symlinked
+  `requests/` root (exit 1) instead of chmodding through the link. A missing state file is
   empty; an unreadable or invalid one is reported and moved to
   `<name>.unreadable-<timestamp>-<random>` (`0600`) before the next write.
 - Upgrade evidence: `npm run repair:upgrades` tightens the shared `~/.aps-cutover` root,
@@ -160,11 +161,11 @@ built and vended by the brain; real-CLI verification is still pending.
   `~/.aps-cutover/runs`, and each direct run directory to `0700` (dry run by default;
   `--apply` to change). It never follows a symlinked `runs/`, deletes anything, descends
   into `dist/` or `backup/`, reads or changes run contents, chmods the `latest` symlink,
-  or touches `~/.aps-cutover/upgrades`. Either repair skips a symlinked root while still
-  scanning its subtree through the link.
+  or touches `~/.aps-cutover/upgrades`. Both evidence repairs skip a symlinked root while
+  still scanning its subtree through the link.
   All three repairs share the `maintenance/permission-repair.ts` engine and the
-  `maintenance/repair-cli.ts` core; they differ only in the tree they scan and the
-  root-symlink rule.
+  `maintenance/repair-cli.ts` core; `repair:permissions` refuses a symlinked `requests/`
+  root, and they otherwise differ only in the tree they scan.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the

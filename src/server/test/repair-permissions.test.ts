@@ -92,6 +92,8 @@ describe('repair-permissions args', () => {
     expect(usage()).toContain('--apply');
     expect(usage()).toContain('--data-dir DIR');
     expect(usage()).toContain('never recurses into cwd/');
+    expect(usage()).toContain('symlinked requests/ root is refused');
+    expect(usage()).toContain('--data-dir at the real parent');
   });
 
   it('renders modes as four octal digits', () => {
@@ -223,6 +225,112 @@ describe('repair-permissions apply', () => {
   });
 });
 
+describe('repair-permissions symlinked root', () => {
+  function linkedWorkspace(): { data: string; requests: string; real: string } {
+    const data = tmpDir('repair-symlink');
+    const real = path.join(data, 'relocated-requests');
+    dir(real);
+    const requests = path.join(data, 'requests');
+    symlinkSync(real, requests, 'dir');
+    return { data, requests, real };
+  }
+
+  posixIt('refuses the root without chmodding or traversing it', () => {
+    const fixture = linkedWorkspace();
+    const target = session(fixture.real, 'a');
+    let calls = 0;
+
+    const result = repairPermissions(fixture.data, {
+      apply: true,
+      chmod: () => {
+        calls += 1;
+      },
+    });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.tightened).toBe(0);
+    expect(result.private).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.entries).toEqual([
+      {
+        path: fixture.requests,
+        kind: 'dir',
+        mode: null,
+        target: 0o700,
+        action: 'error',
+        detail: 'is a symbolic link',
+      },
+    ]);
+    expect(calls).toBe(0);
+    expect(modeOf(fixture.real)).toBe(0o755);
+    expect(modeOf(target)).toBe(0o755);
+    expect(modeOf(path.join(target, 'cwd'))).toBe(0o755);
+    expect(modeOf(path.join(target, 'session.json'))).toBe(0o644);
+  });
+
+  posixIt('reports the same refusal in a dry run', () => {
+    const fixture = linkedWorkspace();
+    session(fixture.real, 'a');
+
+    const result = repairPermissions(fixture.data, { apply: false });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.tightened).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.entries).toMatchObject([
+      { path: fixture.requests, kind: 'dir', action: 'error' },
+    ]);
+    expect(modeOf(fixture.real)).toBe(0o755);
+  });
+
+  posixIt('exits 1 and prints only the root error in both modes', () => {
+    const fixture = linkedWorkspace();
+    session(fixture.real, 'a');
+    const out: string[] = [];
+    const err: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      out.push(String(line));
+    });
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      err.push(String(line));
+    });
+
+    expect(main(['--data-dir', fixture.data, '--apply'])).toBe(1);
+    expect(main(['--data-dir', fixture.data, '--dry-run'])).toBe(1);
+
+    expect(err).toHaveLength(2);
+    for (const line of err) {
+      expect(line).toContain(fixture.requests);
+      expect(line).toContain('is a symbolic link');
+    }
+    expect(out.filter((line) => line.includes('1 error(s)'))).toHaveLength(2);
+    expect(out.some((line) => line.startsWith('chmod'))).toBe(false);
+    expect(out.some((line) => line.startsWith('would chmod'))).toBe(false);
+  });
+
+  posixIt('treats a dangling requests symlink as an error, not a missing tree', () => {
+    const data = tmpDir('repair-dangling');
+    const requests = path.join(data, 'requests');
+    symlinkSync(path.join(data, 'gone'), requests, 'dir');
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      out.push(String(line));
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = repairPermissions(data, { apply: true });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.entries).toMatchObject([
+      { path: requests, action: 'error', detail: 'is a symbolic link' },
+    ]);
+    expect(main(['--data-dir', data])).toBe(1);
+    expect(out.some((line) => line.includes('nothing to repair'))).toBe(false);
+  });
+});
+
 describe('repair-permissions edge cases', () => {
   it('reports a missing requests tree as nothing to repair', () => {
     const data = tmpDir('repair-missing');
@@ -320,5 +428,16 @@ describe('repair-permissions shared engine', () => {
     ]) {
       expect(source(cli)).toContain("from './repair-cli.js'");
     }
+  });
+
+  it('never follows a scan root in a maintenance engine', () => {
+    const files = readdirSync(maintenanceDir).filter((file) => file.endsWith('.ts'));
+    for (const file of files) {
+      expect(source(file)).not.toContain("symlinks: 'follow'");
+    }
+
+    const engine = source('permission-repair.ts');
+    expect(engine).not.toContain("'follow'");
+    expect(engine).not.toMatch(/\bstatSync\b/);
   });
 });

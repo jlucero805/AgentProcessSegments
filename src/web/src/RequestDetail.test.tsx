@@ -110,7 +110,7 @@ describe('RequestDetail harness override', () => {
       expect(screen.getByRole('combobox', { name: /^model/i })).toHaveValue(''), { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(screen.getByText('harness: OpenCode (request override)')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('—')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('—', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
@@ -132,6 +132,6 @@ describe('RequestDetail harness override', () => {
 
     expect(await screen.findByText('harness: OpenCode (cell OpenCode cell)')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /harness/i })).toHaveValue('');
-    expect(screen.getByDisplayValue('—')).toBeInTheDocument();
-  });
+    expect(await screen.findByDisplayValue('—', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 });

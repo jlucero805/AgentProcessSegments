@@ -7,6 +7,11 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
+    // jsdom costs about 1.5 s per file to construct. vmThreads creates one V8 context
+    // and one jsdom environment per worker while still isolating each file, which
+    // roughly halves the suite's wall time. setup.ts supplies the web-stream globals
+    // that a bare VM context lacks.
+    pool: 'vmThreads',
     restoreMocks: true,
     // The brain unit exports NODE_ENV=production and agent shells inherit it. Vitest
     // only defaults NODE_ENV=test when it is unset, and Vite substitutes the inherited

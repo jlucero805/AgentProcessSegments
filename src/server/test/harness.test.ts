@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { tmpDir } from './tmp.js';
+import { tmpDir, tmpRoot } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EFFORT_LEVELS } from '../src/domain/request.js';
 import type { HarnessSession } from '../src/clarify/harness.js';
@@ -47,6 +47,26 @@ function requestSession(dir: string, cwd: string): HarnessSession {
 
 function errorSink() {
   return { error: vi.fn() };
+}
+
+/**
+ * Warnings caused by this file's fixtures.
+ *
+ * Preparation walks from the fixture cwd to the filesystem root, so a stray
+ * project config on the host (for example `/tmp/opencode.json`) warns once per
+ * process even though no fixture created it. `warnOnce` is process-global, so
+ * without this filter the result would also depend on test order. Drop
+ * project-config warnings for paths outside the fixture temp root; keep every
+ * other warning untouched.
+ */
+function fixtureWarnings(calls: ReadonlyArray<readonly unknown[]>): string[] {
+  const root = tmpRoot();
+  return calls
+    .map((call) => String(call[0]))
+    .filter(
+      (message) =>
+        !message.startsWith('ignoring project OpenCode config at ') || message.includes(root),
+    );
 }
 
 function opencodeConfigDir(home: string): string {
@@ -789,15 +809,15 @@ describe('OpencodeHarness', () => {
       OPENCODE_CONFIG_CONTENT: '',
     });
     await blank.prepare(requestSession(dir, cwd));
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
 
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {
       OPENCODE_CONFIG: '/tmp/host-config.json',
       OPENCODE_CONFIG_CONTENT: '{"model":"secret/model"}',
     });
     await harness.prepare({ ...requestSession(dir, cwd), scope: 'kb' });
-    expect(warn).toHaveBeenCalledTimes(2);
-    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(2);
+    const messages = fixtureWarnings(warn.mock.calls);
     expect(messages.some((message) => message.includes('OPENCODE_CONFIG'))).toBe(true);
     expect(messages.some((message) => message.includes('OPENCODE_CONFIG_CONTENT'))).toBe(true);
     for (const message of messages) {
@@ -807,7 +827,7 @@ describe('OpencodeHarness', () => {
 
     warn.mockClear();
     await harness.prepare(requestSession(dir, cwd));
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('warns once for an ignored project config without naming its contents', async () => {
@@ -827,8 +847,8 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    const message = String(warn.mock.calls[0]?.[0]);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    const message = fixtureWarnings(warn.mock.calls)[0] ?? '';
     expect(message).toContain(projectFile);
     expect(message).toContain('OPENCODE_CONFIG_DIR');
     expect(message).not.toContain('secret/model');
@@ -837,7 +857,7 @@ describe('OpencodeHarness', () => {
 
     warn.mockClear();
     await harness.prepare(requestSession(dir, cwd));
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('warns separately for project configs in different repositories', async () => {
@@ -854,8 +874,8 @@ describe('OpencodeHarness', () => {
     await firstHarness.prepare(requestSession(first.dir, first.cwd));
     await secondHarness.prepare(requestSession(second.dir, second.cwd));
 
-    expect(warn).toHaveBeenCalledTimes(2);
-    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(2);
+    const messages = fixtureWarnings(warn.mock.calls);
     expect(messages.some((message) => message.includes(firstFile))).toBe(true);
     expect(messages.some((message) => message.includes(secondFile))).toBe(true);
   });
@@ -871,8 +891,8 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare(requestSession(dir, nested));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain(projectFile);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(projectFile);
   });
 
   it('does not warn for a .opencode tree that only holds skills', async () => {
@@ -884,7 +904,7 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('does not warn when the cwd has no project config', async () => {
@@ -894,7 +914,7 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('does not warn for a config in the global OpenCode directory', async () => {
@@ -909,7 +929,7 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('warns for a JSONC project config', async () => {
@@ -921,8 +941,8 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain(projectFile);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(projectFile);
   });
 
   it('finds the nearest project config and skips the global directory', () => {
@@ -1057,8 +1077,8 @@ describe('OpencodeHarness', () => {
       }
     }
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain(projectFile);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(projectFile);
   });
 
   it('keeps the bundled aps server when the user also defines one', async () => {
@@ -1092,9 +1112,9 @@ describe('OpencodeHarness', () => {
     expect(config.mcp.aps.type).toBe('local');
     expect(config.mcp.aps.command[0]).toBe(process.execPath);
     expect(config.mcp.user.url).toBe('https://mcp.example.test/sse');
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('aps');
-    expect(warn.mock.calls[0]?.[0]).toContain(configFile);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain('aps');
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(configFile);
   });
 
   it('warns for an aps server in the encoded mcp.servers shape', async () => {
@@ -1123,8 +1143,8 @@ describe('OpencodeHarness', () => {
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
     expect(config.mcp.aps.type).toBe('local');
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain(configFile);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(configFile);
   });
 
   it('does not warn for read-only scopes', async () => {
@@ -1150,7 +1170,7 @@ describe('OpencodeHarness', () => {
       });
     }
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('reads a commented opencode.jsonc config', async () => {
@@ -1181,7 +1201,7 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
     expect(errors.error).not.toHaveBeenCalled();
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
@@ -1209,7 +1229,7 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
     expect(errors.error).not.toHaveBeenCalled();
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
@@ -1229,9 +1249,9 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain(jsoncFile);
-    expect(warn.mock.calls[0]?.[0]).toContain('invalid JSON');
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(jsoncFile);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain('invalid JSON');
     expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
       harness: 'opencode',
       path: jsoncFile,
@@ -1259,10 +1279,10 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain(jsonFile);
-    expect(warn.mock.calls[0]?.[0]).toContain('opencode');
-    expect(warn.mock.calls[0]?.[0]).toContain('invalid JSON');
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain(jsonFile);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain('opencode');
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain('invalid JSON');
     expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
       harness: 'opencode',
       path: jsonFile,
@@ -1288,9 +1308,9 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls.map((call) => call[0]).join('\n')).toContain(jsonFile);
-    expect(warn.mock.calls.map((call) => call[0]).join('\n')).toContain(jsoncFile);
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(2);
+    expect(fixtureWarnings(warn.mock.calls).join('\n')).toContain(jsonFile);
+    expect(fixtureWarnings(warn.mock.calls).join('\n')).toContain(jsoncFile);
     expect(errors.error).toHaveBeenCalledTimes(2);
 
     const config = JSON.parse(readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'));
@@ -1309,8 +1329,8 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toContain('mcp is not an object');
+    expect(fixtureWarnings(warn.mock.calls)).toHaveLength(1);
+    expect(fixtureWarnings(warn.mock.calls)[0] ?? '').toContain('mcp is not an object');
     expect(errors.error).toHaveBeenCalledWith('harness.mcpConfig', expect.any(Error), {
       harness: 'opencode',
       path: configFile,
@@ -1330,7 +1350,7 @@ describe('OpencodeHarness', () => {
     const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
     await harness.prepare(requestSession(dir, cwd));
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
     expect(errors.error).not.toHaveBeenCalled();
   });
 
@@ -1357,7 +1377,7 @@ describe('OpencodeHarness', () => {
       });
     }
 
-    expect(warn).not.toHaveBeenCalled();
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
     expect(errors.error).not.toHaveBeenCalled();
   });
 

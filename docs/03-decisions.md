@@ -3549,3 +3549,27 @@ downgraded to a warning. `retention_after` and its `--no-prune` behavior are unc
 **Cost.** Two call sites share one helper; a missing root plus an external run dir now
 finishes as `success` with `latest` pointed at the run directory. `repair:upgrades` still
 owns tightening an old root.
+
+## D138. The scope grant can hand off the device flow to a file
+
+**Context.** `gh auth refresh` blocks on a browser approval for up to the device code's
+~15-minute lifetime. Agent turns run without a TTY, so `grant:github-scope` refused to
+start the flow and the workflow-scope grant could not be completed by an agent (the
+parent evidence request was dropped for that reason).
+
+**Decision.** An explicit `--device-code-file <path>` starts `gh auth refresh` as a
+detached child with stdout/stderr written to `<path>.log`, waits only for the printed
+one-time code and verification URL, writes them plus the host, missing scopes, child pid,
+log path, and start time to `<path>` as JSON, and exits 3. The child keeps polling after
+the helper exits, so the account owner can approve the code from any device; the caller
+verifies with `check:github-scope` (exit 0 only) and deletes the handoff and log. The
+handoff and log are written atomically with mode 0600 because they are generated state
+holding a live one-time code, and a pre-existing 0644 file is repaired. A handoff whose
+recorded pid is still alive is reused instead of starting a second device flow. The
+default non-TTY behavior is unchanged (exit 1 and the manual command), and exit 0 is
+still reserved for a credential that already passes.
+
+**Cost.** The parser depends on gh's human-readable output; a wording change fails
+closed with exit 2 and the redacted log tail. A pending flow dies if the brain service
+stops (its cgroup is killed), so the caller reruns the helper. Exit 3 is new and must be
+documented anywhere the 0/1/2 contract was quoted.

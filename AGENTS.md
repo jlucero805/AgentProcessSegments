@@ -133,7 +133,7 @@ npm run test:e2e-env           # node:test guards for the proof scripts' spawn e
                                # classifier
 npm run check:native           # native modules load; Linux toolchain + npm/python floor
 npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
-npm run grant:github-scope     # interactive: add the workflow scope to the host gh credential
+npm run grant:github-scope     # interactive or --device-code-file: add the workflow scope
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run test:web-stress        # manual: web suite 3x under 4 CPU hogs; fails on a failed
                                # iteration, a dead hog, or a missing result report
@@ -808,7 +808,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     not record the host's scope list in this file. From an interactive terminal run
     `npm run grant:github-scope`, which wraps
     `gh auth refresh -h github.com -s workflow` and re-verifies; outside a TTY it prints
-    the command and exits 1 instead of blocking on the device-flow approval. Alternatively
+    the command and exits 1 instead of blocking on the device-flow approval. An agent or
+    other non-interactive caller can start the same flow without holding the turn open:
+    `npm run grant:github-scope -- --device-code-file <path>` runs the refresh as a
+    detached child, writes the one-time code and verification URL to `<path>` (JSON, mode
+    0600) plus `<path>.log`, prints them, and exits 3 while approval is pending. A live
+    pending handoff is reused, not duplicated. Relay the code to the account owner, then
+    verify with `check:github-scope` (exit 0 only) and delete the handoff and log.
+    Alternatively
     export `GH_TOKEN`/`GITHUB_TOKEN` with a classic PAT holding `repo` and `workflow` (or a
     fine-grained PAT with Contents and Workflows read/write). Do not add a deploy key,
     switch `origin` to SSH, or push through the API to work around the rejection; stop and

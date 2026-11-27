@@ -208,6 +208,108 @@ describe('ClarifyChat live turns', () => {
     expect(sendBodies).toHaveLength(0);
   }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
+  it('reports a rejected stop, keeps the live turn, and discards the queue', async () => {
+    const live = controllableStream();
+    const sendBodies: unknown[] = [];
+    const stops: string[] = [];
+    const onError = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/stop')) {
+          stops.push(url);
+          return jsonResponse({ error: 'internal', message: 'stop failed' }, 500);
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push(JSON.parse(String(init?.body)));
+          return ndjsonResponse([
+            '{"t":"text","text":"second reply"}\n',
+            doneEvent('second reply'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat
+        requestId="req-stop-fail"
+        started
+        commands={[]}
+        onError={onError}
+        inlineErrors
+      />,
+    );
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    const composer = screen.getByPlaceholderText('Queue a message…');
+    fireEvent.change(composer, { target: { value: 'do not send' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    seedClaim('req-stop-fail', 'in flight', Date.now());
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-stop-fail'))).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(stops).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+
+    await waitFor(
+      () => expect(screen.queryByText('Stopping…')).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('stop failed');
+    expect(screen.getByRole('alert')).toHaveTextContent('stop failed');
+    expect(screen.getAllByText('stop failed')).toHaveLength(1);
+
+    await waitFor(
+      () => expect(screen.queryByText('1 queued')).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(screen.queryByText('do not send')).not.toBeInTheDocument();
+    await waitFor(
+      () => expect(window.localStorage.getItem('aps-queue:req-stop-fail')).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(
+      () => expect(window.localStorage.getItem(inflightKey('aps-queue:req-stop-fail'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(sendBodies).toHaveLength(0);
+
+    expect(screen.queryByText('Stopped. You can interject.')).not.toBeInTheDocument();
+    expect(screen.getByText(WORKING_BANNER)).toBeInTheDocument();
+    const queueAgain = screen.getByPlaceholderText('Queue a message…');
+    expect(queueAgain).not.toBeDisabled();
+    fireEvent.change(queueAgain, { target: { value: 'after failure' } });
+    fireEvent.keyDown(queueAgain, { key: 'Enter' });
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(screen.getByText('after failure')).toBeInTheDocument();
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('first reply')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+    expect(sendBodies[0]).toMatchObject({ text: 'after failure' });
+    expect(await screen.findByText('second reply', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
   it('clears the stopping state when the stop request never resolves', async () => {
     const live = controllableStream();
     const sendBodies: unknown[] = [];

@@ -2189,8 +2189,8 @@ step, not a hook in `upgrade-vps.sh`.
 
 **Cost.** Operators must run the repair once after the first fixed upgrade, and the built
 CLI needs `npm run build` first, like `repair:permissions`. It is not encryption at rest,
-root can still read the files, and `cutover-vps.sh` runs are covered by D94. Snapshot
-contents are unchanged.
+root can still read the files, and `cutover-vps.sh` runs are covered by D94 and repaired
+explicitly by D109. Snapshot contents are unchanged.
 
 ## D94. Cutover run directories are owner-only
 
@@ -2222,9 +2222,8 @@ copied script keep their current modes, exactly as D86 chose for upgrades. There
 **Cost.** One shell helper, two call sites, one root `mkdir` change, three tests, and
 doc updates. Run contents, timing, names, retention, pruning, and the `latest` target are
 unchanged. This is not encryption at rest, and root can still read the files. Run
-directories left by an earlier version are not repaired retroactively; a dry-run-first
-`npm run repair:runs` follow-up owns that, including old ancestors, symlinks, and
-per-entry failures.
+directories left by an earlier version are tightened explicitly with
+`npm run repair:runs` (D109); the shared `~/.aps-cutover` root is left alone.
 
 ## D95. The legacy-branch dry run opens SQLite read-only
 
@@ -2605,3 +2604,35 @@ existing `created_at` indexes cover both bounds.
 **Cost.** Custom ranges are bounded by `retention.cellSummariesDays`, not by an artificial
 cap, and a future end date simply includes everything up to now. Time-of-day precision,
 timezone selection, URL persistence, and a custom range in the drawer are separate work.
+
+## D109. Existing cutover run directories are tightened explicitly
+
+**Context.** D94 made new `deploy/cutover-vps.sh` runs owner-only, but evidence written
+before that change is still `0755` under the usual umask. `~/.aps-cutover/runs` and every
+run directory created by an older script can be read by any local account, including the
+`config-before.json`/`config-after.json`, `errors.log.before`, `cutover.log`, `state`, the
+copied `cutover.sh`, the pre-build `dist/` tree, and `backup/systemd/` — the only in-place
+rollback copy. Retention may keep those runs indefinitely once cutovers stop.
+`repair:permissions` (D74) covers `requests/`, `repair:upgrades` (D93) deliberately covers
+only `upgrades/`, and `prune:cutover` only removes runs.
+
+**Decision.** Add `npm run repair:runs`, a built maintenance CLI
+(`src/server/src/maintenance/repair-run-permissions.ts` plus
+`repair-run-permissions-cli.ts`). It is a dry run by default and changes modes only with
+`--apply`. With `--root DIR` (default `$HOME/.aps-cutover`) it scans only `DIR/runs`, one
+level deep: it sets the `runs` directory and every direct run directory to `0700`. It uses
+`lstat`, never follows a symlinked run directory, skips non-directory children, treats
+`ENOENT` as a skip, continues after other failures, and exits 1 if any entry failed. A
+missing `runs` is a successful no-op and is never created. It never deletes, reads file
+contents, descends into `dist/` or `backup/`, or opens SQLite. The shared
+`~/.aps-cutover` root, the `latest` symlink, and `upgrades/` keep their modes.
+
+Directory-level `0700` is the protection boundary; individual evidence files and the
+copied script keep their current modes, exactly as D86/D93 chose for upgrades. Cutover
+runs have no `db-backup.sqlite` that may be copied out, so no file-level `0600` rule
+applies. The repair is an explicit post-cutover step, not a hook in `cutover-vps.sh`.
+
+**Cost.** Operators must run the repair once after the first fixed cutover, and the built
+CLI needs `npm run build` first, like `repair:permissions` and `repair:upgrades`. It is not
+encryption at rest, and root can still read the files. Run contents, timing, names,
+retention, pruning, and the `latest` target are unchanged.

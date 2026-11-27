@@ -408,7 +408,8 @@ npm run repair:upgrades -- --apply   # tighten old upgrade run dirs and snapshot
 The command scans only `~/.aps-cutover/upgrades`. It sets the `upgrades` directory and
 each direct run directory to `0700`, and each top-level `db-backup.sqlite` to `0600`. It
 never follows symlinks, deletes anything, opens the database, changes snapshot contents,
-or touches `~/.aps-cutover/runs` (cutover evidence is separate).
+or touches `~/.aps-cutover/runs` (cutover evidence is repaired separately with
+`npm run repair:runs`).
 
 Notes:
 
@@ -445,7 +446,9 @@ Then run the one-time repairs. `npm run repair:permissions` previews and
 `npm run repair:permissions -- --apply` changes modes for request workdirs created by an
 older version. `npm run repair:upgrades` previews and
 `npm run repair:upgrades -- --apply` changes modes for upgrade run directories and
-snapshots created by an older version. Neither is part of the upgrade script yet.
+snapshots created by an older version. `npm run repair:runs` previews and
+`npm run repair:runs -- --apply` changes modes for cutover run directories created by an
+older version. None is part of the upgrade script yet.
 
 ## Upgrade from Sandbox Harness
 
@@ -573,8 +576,21 @@ that unit if it is still present.
 Each real cutover creates (or tightens) its run directory under `~/.aps-cutover/runs/` to
 `0700`, so the evidence, `cutover.log`, `state`, and the `backup/` rollback copy stay
 owner-only. A missing `~/.aps-cutover` or `~/.aps-cutover/runs` ancestor is created `0700`
-too; an existing ancestor is left alone. Run directories left by an older version are not
-retroactively changed.
+too; an existing ancestor is left alone.
+
+Run directories left by an older version have not been tightened. After updating to a
+build with the owner-only mode, repair them explicitly:
+
+```bash
+npm run build
+npm run repair:runs              # preview
+npm run repair:runs -- --apply   # tighten old cutover run dirs
+```
+
+The command scans only `~/.aps-cutover/runs`. It sets the `runs` directory and each direct
+run directory to `0700`. It never follows symlinks, deletes anything, descends into
+`dist/` or `backup/`, reads or changes run contents, or touches `~/.aps-cutover` itself,
+the `latest` symlink, or `~/.aps-cutover/upgrades`.
 
 After it finishes, verify the new unit and paths:
 

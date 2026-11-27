@@ -5,7 +5,7 @@ import type { SettingsStore } from '../settings.js';
 import { errorMessage } from '../util/errors.js';
 import { SpendCapError } from '../usage/spend-cap.js';
 import type { SummaryRepository } from './repository.js';
-import type { Summary, SummaryStatus } from './types.js';
+import type { Summary, SummaryConfig, SummaryStatus } from './types.js';
 
 const SCAN_MS = 30_000;
 const MAX_FAILURE_BACKOFF_MS = 30 * 60_000;
@@ -85,8 +85,47 @@ export class SummaryScheduler {
 
   statusFor(cellId: string): SummaryStatus {
     this.deps.cells.require(cellId);
+    return this.cellStatus(
+      cellId,
+      this.deps.summaries.latest(cellId),
+      this.deps.settings.get().summary,
+    );
+  }
+
+  status(): SummaryStatus {
     const settings = this.deps.settings.get().summary;
-    const latest = this.deps.summaries.latest(cellId);
+    const cells = this.deps.cells.list();
+    const latestByCell = new Map<string, Summary>();
+    if (cells.length > 0) {
+      for (const { summary } of this.deps.summaries.latestPerCell()) {
+        latestByCell.set(summary.cellId, summary);
+      }
+    }
+    const perCell = cells.map((cell) =>
+      this.cellStatus(cell.id, latestByCell.get(cell.id) ?? null, settings),
+    );
+    const nextRuns = perCell
+      .map((entry) => entry.nextRunAt)
+      .filter((value): value is number => value !== null);
+    const lastRuns = perCell
+      .map((entry) => entry.lastRunAt)
+      .filter((value): value is number => value !== null);
+    return {
+      enabled: settings.enabled,
+      intervalMinutes: settings.intervalMinutes,
+      windowMinutes: settings.windowMinutes,
+      running: this.jobs.size > 0,
+      nextRunAt: settings.enabled && nextRuns.length > 0 ? Math.min(...nextRuns) : null,
+      lastRunAt: lastRuns.length > 0 ? Math.max(...lastRuns) : null,
+      lastError: null,
+    };
+  }
+
+  private cellStatus(
+    cellId: string,
+    latest: Summary | null,
+    settings: SummaryConfig,
+  ): SummaryStatus {
     const failure = this.failures.get(cellId);
     const intervalMs = settings.intervalMinutes * 60_000;
     const backoffUntil = failure
@@ -103,26 +142,6 @@ export class SummaryScheduler {
         : null,
       lastRunAt: latest?.createdAt ?? null,
       lastError: failure?.message ?? null,
-    };
-  }
-
-  status(): SummaryStatus {
-    const settings = this.deps.settings.get().summary;
-    const cells = this.deps.cells.list();
-    const nextRuns = cells
-      .map((cell) => this.statusFor(cell.id).nextRunAt)
-      .filter((value): value is number => value !== null);
-    const lastRuns = cells
-      .map((cell) => this.deps.summaries.latest(cell.id)?.createdAt)
-      .filter((value): value is number => value !== undefined);
-    return {
-      enabled: settings.enabled,
-      intervalMinutes: settings.intervalMinutes,
-      windowMinutes: settings.windowMinutes,
-      running: this.jobs.size > 0,
-      nextRunAt: settings.enabled && nextRuns.length > 0 ? Math.min(...nextRuns) : null,
-      lastRunAt: lastRuns.length > 0 ? Math.max(...lastRuns) : null,
-      lastError: null,
     };
   }
 

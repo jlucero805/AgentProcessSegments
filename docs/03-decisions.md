@@ -2551,9 +2551,9 @@ the D92 keyset. The focused-cell view stays unchanged; `GET /api/summaries` and
 report per cell instead of 25, so the initial payload no longer grows with history depth.
 Older history is fetched only for the card an operator opens. There is no migration or new
 index: `since` and `until` use `idx_cell_summaries_created` and retention bounds the
-scanned rows; equal-`created_at` ties may sort in memory. `SummaryScheduler.status()` still computes one
-`latest()` per cell internally; replacing that with the latest-per-cell query is separate
-work.
+scanned rows; equal-`created_at` ties may sort in memory. `SummaryScheduler.status()`
+initially still computed one `latest()` per cell internally; D119 replaces that with the
+grouped query.
 
 ## D107. The Cell master drawer scopes its latest five reports by period
 
@@ -2923,3 +2923,34 @@ take inclusive epoch-ms bounds. Two inputs and a stricter pure helper are the on
 surface; a custom range can now be as narrow as one minute. D108 remains the record of the
 date-only version; this decision supersedes its note that time-of-day precision is
 separate work.
+
+## D119. Summary status aggregates from one latest-per-cell query
+
+**Context.** `GET /api/summaries/status` is polled by the web UI and calls
+`SummaryScheduler.status()` when no cell is selected. That method mapped `statusFor()`
+over `cells.list()`, and each `statusFor()` performed a `cells.require()` plus a
+`summaries.latest(cellId)` point lookup; it then iterated the same cells again and called
+`latest()` a second time for `lastRunAt`. A status read therefore cost about two latest
+queries plus one cell lookup per cell, even though the grouped `latestPerCell()` query
+already existed for the Scorecards all-cells feed. D106 deferred replacing this path.
+
+**Decision.** `status()` reads `settings.get().summary` once and `cells.list()` once. When
+the cell list is non-empty it calls `summaries.latestPerCell()` exactly once, builds a
+`cellId -> Summary` map from the groups (`hasOlder` is ignored), and formats every cell in
+the snapshot through a private `cellStatus(cellId, latest, settings)` helper shared with
+`statusFor()`. `statusFor()` keeps its current contract: it still requires the cell and
+performs one single-cell `latest()` point lookup. An empty board skips the summary query
+entirely. Aggregation iterates the cell snapshot, never the grouped result, so an orphan
+summary for a deleted cell cannot appear. The `nextRunAt`, `lastRunAt`, `running`,
+`lastError`, and enabled/interval/window fields keep their exact formulas and values.
+
+**Why the grouped query rather than a narrower MAX query.** `latestPerCell()` already
+encodes the `(created_at DESC, id DESC)` ordering used by `latest()`, so status cannot
+disagree with the per-cell route on timestamp ties. It also avoids a second repository
+method and keeps the scan loop and single-cell paths untouched.
+
+**Cost.** An all-cells status read now scans and ranks the retained summaries once
+(bounded by `retention.cellSummariesDays`) instead of issuing 3N indexed point queries;
+the single-cell status route remains one indexed lookup. The response shape, route
+validation, schema, retention, and web client are unchanged. `SummaryScheduler.scan()`
+still looks up each cell's latest report separately; that is a separate request.

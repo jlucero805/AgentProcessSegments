@@ -724,6 +724,7 @@ describe('http api', () => {
       const before = await call('GET', '/api/config');
       expect(before.status).toBe(200);
       expect(before.json().preservedPath).toBeNull();
+      expect(before.json().preservedCopies).toEqual([]);
       expect(JSON.stringify(before.json())).not.toContain('super-secret-sentinel');
 
       const saved = await call('PATCH', '/api/config', { master: { intervalMinutes: 7 } });
@@ -732,16 +733,19 @@ describe('http api', () => {
       expect(typeof preservedPath).toBe('string');
       expect(preservedPath).not.toBe(h.config.configPath);
       expect(preservedPath.startsWith(`${h.config.configPath}.invalid-`)).toBe(true);
+      expect(saved.json().preservedCopies).toEqual([preservedPath]);
       expect(readFileSync(preservedPath, 'utf8')).toBe(original);
       expect(JSON.stringify(saved.json())).not.toContain('super-secret-sentinel');
 
       const after = await call('GET', '/api/config');
       expect(after.json().preservedPath).toBe(preservedPath);
+      expect(after.json().preservedCopies).toEqual([preservedPath]);
       expect(JSON.stringify(after.json())).not.toContain('super-secret-sentinel');
 
       // Later saves in the same process reuse the same copy and keep naming it.
       const again = await call('PATCH', '/api/config', { master: { intervalMinutes: 8 } });
       expect(again.json().preservedPath).toBe(preservedPath);
+      expect(again.json().preservedCopies).toEqual([preservedPath]);
       const copies = readdirSync(path.dirname(h.config.configPath)).filter((name) =>
         name.startsWith(`${path.basename(h.config.configPath)}.invalid-`),
       );
@@ -749,6 +753,21 @@ describe('http api', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('lists existing preserved settings copies before any save in this process', async () => {
+    const { h } = await makeApp();
+    const base = `${h.config.configPath}.invalid-2026-01-01T00-00-00-000Z`;
+    writeFileSync(`${base}-2`, 'older-preserved-secret');
+    writeFileSync(base, 'base-preserved-secret');
+    writeFileSync(`${base}-10`, 'newer-preserved-secret');
+
+    const response = await call('GET', '/api/config');
+    expect(response.status).toBe(200);
+    expect(response.json().preservedPath).toBeNull();
+    expect(response.json().preservedCopies).toEqual([`${base}-10`, `${base}-2`, base]);
+    expect(response.json().preservedCopies).not.toContain(h.config.configPath);
+    expect(JSON.stringify(response.json())).not.toContain('preserved-secret');
   });
 
   it('reads and patches budget settings and exposes budget status', async () => {

@@ -367,8 +367,10 @@ built and vended by the brain; real-CLI verification is still pending.
   `botToken: null` with `botTokenSet`. They also return `warnings`: the units the load
   reset to defaults (`block` null when the whole file was unusable). The Config page names
   each reset block in a banner until the next successful save, and both endpoints also
-  return `preservedPath`, the copy this process made (or `null`), which the page shows
-  beside the banner so the operator can find and delete the original.
+  return `preservedPath`, the copy this process made (or `null`), and
+  `preservedCopies`, every existing copy next to the settings file newest first. The page
+  lists those copies beside the banner, including ones left by earlier server runs, so
+  the operator can find and delete the originals.
   `process.json` is the global process
   template; each cell snapshots it into `cells.process_json` and the master uses the
   cell policy when present. A missing, unreadable, or invalid `process.json` falls back to
@@ -444,7 +446,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1299 vitest cases (one environmental root-skip): 1001 server across 56 files and 298 web across 28 files,
+- 1307 vitest cases (one environmental root-skip): 1008 server across 56 files and 299 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

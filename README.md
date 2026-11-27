@@ -202,7 +202,8 @@ App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config p
 block and notification channel validates on its own; an invalid one falls back to that
 block's defaults, is reported as `settings.invalid`, and the Config page names it in a
 banner until the next save. Before that save rewrites the file, the original bytes are
-copied aside. The same rule applies to an invalid `process.json`, which reports
+copied aside, and the page lists every preserved copy, including copies left by earlier
+runs. The same rule applies to an invalid `process.json`, which reports
 `process.backupFailed` if the copy cannot be written. Preserved process copies are capped
 at the five newest; older copies are pruned after a successful save, and a prune failure
 is logged as `process.pruneFailed` without refusing the save.
@@ -673,7 +674,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1299 vitest cases: 1001 server cases across 56 files (state machine,
+`npm test` runs 1307 vitest cases: 1008 server cases across 56 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -688,7 +689,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 298 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 299 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat queue claim, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links and
 Help anchors, the source link, board,

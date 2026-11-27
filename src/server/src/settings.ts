@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
@@ -710,6 +711,46 @@ function mergeSettings<T>(defaults: T, saved: unknown): T {
   return merged as unknown as T;
 }
 
+/** Prefix shared by preserved siblings of `file`, such as `config.json.invalid-`. */
+function preservedCopyPrefix(file: string): string {
+  return `${path.basename(file)}.invalid-`;
+}
+
+/** Order preserved names by the embedded UTC stamp, then the numeric suffix. */
+function preservedCopyOrder(name: string, prefix: string): [string, number] {
+  const match = /^(.*?)(?:-(\d+))?$/.exec(name.slice(prefix.length));
+  return [match?.[1] ?? name.slice(prefix.length), match?.[2] ? Number(match[2]) : 0];
+}
+
+/**
+ * Existing preserved copies of `file`, newest first. Only regular files with the
+ * exact prefix are candidates; a missing or unreadable directory has no copies.
+ * Paths only: the copies are never read back.
+ */
+function listPreservedCopies(file: string): string[] {
+  const dir = path.dirname(file);
+  const prefix = preservedCopyPrefix(file);
+
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+    .map((entry) => {
+      const [stamp, suffix] = preservedCopyOrder(entry.name, prefix);
+      return { name: entry.name, stamp, suffix };
+    })
+    .sort((left, right) => {
+      if (left.stamp !== right.stamp) return left.stamp < right.stamp ? 1 : -1;
+      return right.suffix - left.suffix;
+    })
+    .map(({ name }) => path.join(dir, name));
+}
+
 /**
  * Persistent app settings, separate from the brain's environment/path config.
  * Unknown keys are stripped. Every block and notification channel validates on
@@ -751,6 +792,18 @@ export class SettingsStore {
    */
   preservedPath(): string | null {
     return this.preservedFilePath;
+  }
+
+  /**
+   * Existing preserved copies next to this settings file, newest first. Paths
+   * only; a missing or unreadable directory has no copies. The copy this process
+   * made is first when it is among them, even if the clock moved backwards.
+   */
+  preservedCopies(): string[] {
+    const copies = listPreservedCopies(this.path);
+    const own = this.preservedFilePath;
+    if (!own || !copies.includes(own)) return copies;
+    return [own, ...copies.filter((copy) => copy !== own)];
   }
 
   patch(input: unknown): AppSettings {

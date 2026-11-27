@@ -289,6 +289,8 @@ export interface ConfigResponse extends AppConfig {
   warnings: SettingsWarning[];
   /** Copy this server process made of an unusable file, or null if none. */
   preservedPath: string | null;
+  /** Existing preserved copies next to the settings file, newest first. */
+  preservedCopies: string[];
 }
 
 export interface ProcessResponse extends ProcessConfig {

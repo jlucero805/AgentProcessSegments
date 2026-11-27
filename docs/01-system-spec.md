@@ -132,9 +132,10 @@ once and is ignored.
   unusable file, its exact bytes are copied to a sibling `config.json.invalid-<UTC>`
   (owner-only, never overwriting an earlier copy); a failed copy refuses the save and
   reports `settings.backupFailed`. `GET/PATCH /api/config` also return `warnings`, the
-  units that load reset (with `block: null` for a whole-file fallback), and
-  `preservedPath`, the copy this process made (or `null`); the Config page names the
-  reset units until the next successful save and shows where the preserved original went.
+  units that load reset (with `block: null` for a whole-file fallback), `preservedPath`,
+  the copy this process made (or `null`), and `preservedCopies`, every existing copy
+  next to the settings file newest first; the Config page names the reset units until
+  the next successful save and lists the preserved copies.
 - **Process config file** (`process.json`): a missing, unreadable, or invalid file falls
   back to the policy derived from `master` until a valid patch saves one. Loading never
   writes the file. Before the first save replaces an unusable file, its exact bytes are

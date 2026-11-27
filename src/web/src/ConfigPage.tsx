@@ -236,6 +236,7 @@ export function ConfigPage({
   const [path, setPath] = useState('');
   const [warnings, setWarnings] = useState<SettingsWarning[]>([]);
   const [preservedPath, setPreservedPath] = useState<string | null>(null);
+  const [preservedCopies, setPreservedCopies] = useState<string[]>([]);
   const [processPath, setProcessPath] = useState('');
   const [cells, setCells] = useState<CellDetail[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
@@ -313,7 +314,7 @@ export function ConfigPage({
   const [priceError, setPriceError] = useState('');
   const [pendingPriceDelete, setPendingPriceDelete] = useState<string | null>(null);
 
-  /** Apply the shared path and recovered-settings warnings from a config response. */
+  /** Apply the shared path, recovery warnings, and preserved copies from a config response. */
   const applyConfigMeta = useCallback((config: ConfigResponse) => {
     setPath(config.path);
     setWarnings(Array.isArray(config.warnings) ? config.warnings : []);
@@ -321,6 +322,11 @@ export function ConfigPage({
       typeof config.preservedPath === 'string' && config.preservedPath !== ''
         ? config.preservedPath
         : null,
+    );
+    setPreservedCopies(
+      Array.isArray(config.preservedCopies)
+        ? config.preservedCopies.filter((copy) => typeof copy === 'string' && copy !== '')
+        : [],
     );
   }, []);
 
@@ -1199,6 +1205,10 @@ export function ConfigPage({
   }
 
   const budgetView = budgetFeed.budgets;
+  const shownPreservedCopies =
+    preservedPath && !preservedCopies.includes(preservedPath)
+      ? [preservedPath, ...preservedCopies]
+      : preservedCopies;
 
   return (
     <div className="mx-auto h-full w-full max-w-3xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -1225,19 +1235,28 @@ export function ConfigPage({
         </div>
       ) : null}
 
-      {preservedPath ? (
+      {shownPreservedCopies.length > 0 ? (
         <div
           role="status"
-          aria-label="Preserved settings file"
+          aria-label="Preserved settings files"
           className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-4 text-sm text-zinc-300"
         >
           <p className="font-medium text-zinc-100">
-            The unusable settings file was preserved
+            {shownPreservedCopies.length === 1
+              ? 'The unusable settings file was preserved'
+              : 'Unusable settings files were preserved'}
           </p>
-          <p className="break-all font-mono text-[11px] text-zinc-400">{preservedPath}</p>
+          <ul className="space-y-1">
+            {shownPreservedCopies.map((copy) => (
+              <li key={copy} className="break-all font-mono text-[11px] text-zinc-400">
+                {copy}
+              </li>
+            ))}
+          </ul>
           <p className="text-[11px] text-zinc-500">
-            It may contain credentials and is readable only by the account running the server.
-            Delete it once you have reviewed it.
+            {shownPreservedCopies.length === 1
+              ? 'It may contain credentials and is readable only by the account running the server. Delete it once you have reviewed it.'
+              : 'They may contain credentials and are readable only by the account running the server. Delete them once you have reviewed them.'}
           </p>
         </div>
       ) : null}

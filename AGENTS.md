@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1299 vitest cases: 1001 server across 56 files (one environmental root-skip) and 298 web across 28 files, all green.
+- 1307 vitest cases: 1008 server across 56 files (one environmental root-skip) and 299 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -113,7 +113,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # missing install prints the `npm ci --include=dev` hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1001 server + 298 web, plus the e2e env guard
+npm test                       # 1008 server + 299 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -229,7 +229,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `settings.backupFailed`. The same load reports are returned as `warnings` by
   `GET/PATCH /api/config`; the Config page names each reset block in a banner until the
   next successful save and shows the path of the preserved copy (`preservedPath`) after
-  the save that makes it. `process.json` follows the same preserve-before-overwrite rule,
+  the save that makes it, plus every existing copy (`preservedCopies`, newest first).
+  `process.json` follows the same preserve-before-overwrite rule,
   keeps at most the five newest `process.json.invalid-*` copies (pruning older ones after
   a successful save; a prune failure reports `process.pruneFailed` without refusing the
   save), and reports `process.backupFailed` for a failed copy, but it does not yet expose

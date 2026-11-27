@@ -1093,6 +1093,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     path: settings.path,
     warnings: settings.warnings(),
     preservedPath: settings.preservedPath(),
+    preservedCopies: settings.preservedCopies(),
   }));
   app.patch('/api/config', async (request) => {
     const next = settings.patch(request.body);
@@ -1102,6 +1103,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       path: settings.path,
       warnings: settings.warnings(),
       preservedPath: settings.preservedPath(),
+      preservedCopies: settings.preservedCopies(),
     };
   });
 

@@ -450,7 +450,10 @@ feed with a `hasOlder` flag, or the flat cross-cell feed with server-owned pagin
 focused-cell view uses a tie-safe `(created_at, id)` keyset cursor (`before`/`beforeId`),
 ordered `created_at DESC, id DESC`. It defaults to the last 72 hours, offers presets plus
 a custom local date-and-time range whose end includes the selected minute, and requests
-25 reports per cell plus one probe row. The
+25 reports per cell plus one probe row. The SPA encodes the selected period and layout in
+the URL (`period`, `from`, `to`, `view`), with Custom edges as local
+`YYYY-MM-DDTHH:mm` and the end minute included, so a reload or shared link restores the
+same bounds and layout. The
 flat feed returns 25 reports per page plus `hasMore` and the next cursor. No schema change
 is needed for either read path.
 
@@ -1105,6 +1108,11 @@ carried in the `done` event:
 - `main.tsx` adds `.dark` to `<html>`. `App.tsx` is the shell: a left nav (Floor, board
   columns, Knowledge base, Skills), a `CellBar` to switch cells, a stacked-table board,
   a right-side request detail drawer that can maximize, and a create modal.
+- **URL state:** `readRoute()` restores `page`, `cell`, `request`, `master`, and `help`
+  from the query string; the shell writes those keys with `replaceState` by merging into
+  the current query, so page-owned and unknown parameters survive. `ScorecardsPage` owns
+  `period`, `from`, `to`, and `view`, and pushes a history entry when the operator changes
+  the period or layout.
 - **Board:** columns labelled Requests (intake), Plan (clarify), Implement (dispatch),
   Review, and Finalize. `done` leaves the board. `columnOf` and `STATE_LABELS` map state
   to label; `types.ts` mirrors the server state machine. The Finalize header has a small

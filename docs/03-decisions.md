@@ -3287,3 +3287,42 @@ five-copy prune; the live-file write still uses `writePrivateFile`.
 suffix now updates the producer and the reader together. The suffix loop stays unbounded,
 matching the previous probe, and the helper adds one `chmod` per preserved copy. No API,
 UI, database, or file-format change.
+
+## D130. The Scorecards period and layout live in the URL
+
+**Context.** D108 gave the Scorecards page a Custom range with inclusive local
+whole-day or minute bounds, and D109 added the flat feed, but both the period and the
+Grouped/Flat choice were component state. D108 recorded that the range was not persisted
+across reloads and left URL persistence as separate work. The App already restored
+`page`, `cell`, `request`, `master`, and `help` from the query string, so a shared or
+bookmarked scorecard window lost only the page-owned state.
+
+**Decision.** The Scorecards page owns four query parameters: `period` for
+`24h|72h|7d|30d|all|custom`, `from` and `to` for a Custom window, and `view` for
+`grouped|flat`. `from` and `to` are browser-local `YYYY-MM-DDTHH:mm` strings, never epoch
+ms; `to` is the inclusive end minute, so it maps through the existing `customWindow`
+rule to `endMinute + 59_999`. The canonical URL omits the defaults (`72h` and
+`grouped`), but the reader accepts them explicitly. A preset drops both edges. Selecting
+Custom applies the prefilled window immediately, as before; later draft edits write
+nothing until **Apply**.
+
+Custom decoding delegates to `customWindow` rather than duplicating date, time, and
+inversion checks, and a restored window is not re-validated against the current time. An
+unknown period, a missing or malformed edge, an impossible local time, or inverted edges
+fall back to the last 72 hours; an unknown layout falls back to Grouped. The page
+normalizes such a link once with `replaceState`, preserving a valid layout and every
+unrelated parameter, and sends only the fallback request.
+
+`ScorecardsPage` writes its parameters by merging into the current query and calls
+`pushState` from the preset, Custom selection/Apply, and layout handlers, so Back/Forward
+can move between period states without a reload. It does not run a state-to-URL effect;
+one `popstate` listener re-reads the route and batches the state update. App's writer now
+merges its own keys into the existing query instead of rebuilding it. Scorecards
+parameters may remain on other pages so returning to the page restores the view. The
+master drawer keeps its preset-only, non-URL-backed control.
+
+**Cost.** Two components write disjoint parts of one query string, so each must preserve
+the other's keys; a future page-owned parameter needs the same merge discipline. Local
+wall-clock is the contract, so an ambiguous daylight-saving fold resolves with the
+platform's normal local-time rule. Every period or layout change adds a history entry.
+No API, schema, scheduler, retention, or dependency change is involved.

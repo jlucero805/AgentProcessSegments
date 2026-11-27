@@ -5,15 +5,18 @@ import {
   CUSTOM_DEFAULT_END_TIME,
   CUSTOM_DEFAULT_START_TIME,
   CUSTOM_FALLBACK_MS,
-  DEFAULT_RANGE,
   ScorecardPeriod,
   customWindow,
   dateInputValue,
   presetWindow,
   rangeOption,
+  readScorecardRoute,
+  scorecardRouteParams,
   type DateWindow,
   type PageRangeKey,
   type RangeKey,
+  type ScorecardRouteState,
+  type ScorecardsView,
 } from './ScorecardPeriod';
 import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
@@ -36,8 +39,6 @@ interface ScorecardFeed {
   window: DateWindow;
 }
 
-type ScorecardsView = 'grouped' | 'flat';
-
 const VIEWS: Array<{ key: ScorecardsView; label: string }> = [
   { key: 'grouped', label: 'Grouped' },
   { key: 'flat', label: 'Flat' },
@@ -47,6 +48,38 @@ const VIEWS: Array<{ key: ScorecardsView; label: string }> = [
 const PAGE_SIZE = 25;
 /** Reports rendered per flat feed page. */
 const FEED_PAGE_SIZE = 25;
+
+type HistoryMode = 'push' | 'replace';
+
+/**
+ * Write the Scorecards-owned query parameters into the current URL without
+ * disturbing the App route, unrelated parameters, or the hash. User actions
+ * push an entry; canonicalizing an invalid link replaces the current one.
+ */
+function writeScorecardUrl(
+  range: PageRangeKey,
+  view: ScorecardsView,
+  appliedCustom: DateWindow,
+  mode: HistoryMode,
+) {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  const next = scorecardRouteParams(range, view, appliedCustom);
+  const values: Array<[string, string | null]> = [
+    ['period', next.period],
+    ['from', next.from],
+    ['to', next.to],
+    ['view', next.view],
+  ];
+  for (const [key, value] of values) {
+    if (value === null) params.delete(key);
+    else params.set(key, value);
+  }
+  const search = params.toString();
+  const url = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`;
+  if (mode === 'push') window.history.pushState(null, '', url);
+  else window.history.replaceState(null, '', url);
+}
 
 /** Keep one probe row so the caller knows whether another page exists. */
 function pageReports(reports: Summary[]): { reports: Summary[]; hasMore: boolean } {
@@ -96,20 +129,21 @@ export function ScorecardsPage({
   onError: (message: string) => void;
   cellsFeed: CellsFeed;
 }) {
+  const [initialRoute] = useState<ScorecardRouteState>(() =>
+    readScorecardRoute(typeof window === 'undefined' ? '' : window.location.search),
+  );
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [feed, setFeed] = useState<ScorecardFeed | null>(null);
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
-  const [view, setView] = useState<ScorecardsView>('grouped');
-  const [range, setRange] = useState<PageRangeKey>(DEFAULT_RANGE);
-  const [customStart, setCustomStart] = useState(() =>
-    dateInputValue(Date.now() - CUSTOM_FALLBACK_MS),
-  );
-  const [customEnd, setCustomEnd] = useState(() => dateInputValue(Date.now()));
-  const [customStartTime, setCustomStartTime] = useState(CUSTOM_DEFAULT_START_TIME);
-  const [customEndTime, setCustomEndTime] = useState(CUSTOM_DEFAULT_END_TIME);
-  const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
+  const [view, setView] = useState<ScorecardsView>(initialRoute.view);
+  const [range, setRange] = useState<PageRangeKey>(initialRoute.range);
+  const [customStart, setCustomStart] = useState(initialRoute.customStart);
+  const [customEnd, setCustomEnd] = useState(initialRoute.customEnd);
+  const [customStartTime, setCustomStartTime] = useState(initialRoute.customStartTime);
+  const [customEndTime, setCustomEndTime] = useState(initialRoute.customEndTime);
+  const [appliedCustom, setAppliedCustom] = useState<DateWindow>(initialRoute.appliedCustom);
   const loadGeneration = useRef(0);
   /** Bounds used by the load that produced the visible page; paging reuses them. */
   const pageWindow = useRef<DateWindow>({});
@@ -198,6 +232,51 @@ export function ScorecardsPage({
     })();
   }, [load]);
 
+  // A malformed or stale link keeps the default view but leaves a canonical URL.
+  useEffect(() => {
+    if (!initialRoute.normalize) return;
+    writeScorecardUrl(
+      initialRoute.range,
+      initialRoute.view,
+      initialRoute.appliedCustom,
+      'replace',
+    );
+  }, [initialRoute]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = readScorecardRoute(window.location.search);
+      const changed =
+        range !== route.range ||
+        view !== route.view ||
+        appliedCustom.since !== route.appliedCustom.since ||
+        appliedCustom.until !== route.appliedCustom.until;
+      if (changed) {
+        setGroups(null);
+        setFeed(null);
+        setLoadingMoreFeed(false);
+        setLoading(true);
+        setCustomStart(route.customStart);
+        setCustomEnd(route.customEnd);
+        setCustomStartTime(route.customStartTime);
+        setCustomEndTime(route.customEndTime);
+      }
+      setRange(route.range);
+      setView(route.view);
+      setAppliedCustom((previous) =>
+        previous.since === route.appliedCustom.since &&
+        previous.until === route.appliedCustom.until
+          ? previous
+          : route.appliedCustom,
+      );
+      if (route.normalize) {
+        writeScorecardUrl(route.range, route.view, route.appliedCustom, 'replace');
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [appliedCustom.since, appliedCustom.until, range, view]);
+
   const selectCustom = () => {
     if (range === 'custom') return;
     const now = Date.now();
@@ -209,6 +288,7 @@ export function ScorecardsPage({
     const end = dateInputValue(now);
     const bounds = customWindow(start, end);
     if (typeof bounds === 'string') return;
+    writeScorecardUrl('custom', view, bounds, 'push');
     setCustomStart(start);
     setCustomEnd(end);
     setCustomStartTime(CUSTOM_DEFAULT_START_TIME);
@@ -230,6 +310,7 @@ export function ScorecardsPage({
     ) {
       return;
     }
+    writeScorecardUrl('custom', view, draftWindow, 'push');
     setRange('custom');
     setAppliedCustom(draftWindow);
     setGroups(null);
@@ -339,6 +420,16 @@ export function ScorecardsPage({
   const presetRange: RangeKey | null = range === 'custom' ? null : range;
   const flat = cellId === null && view === 'flat';
 
+  const changeView = (next: ScorecardsView) => {
+    if (next === view) return;
+    writeScorecardUrl(range, next, appliedCustom, 'push');
+    setGroups(null);
+    setFeed(null);
+    setLoadingMoreFeed(false);
+    setLoading(true);
+    setView(next);
+  };
+
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -365,14 +456,7 @@ export function ScorecardsPage({
                   key={item.key}
                   type="button"
                   aria-pressed={view === item.key}
-                  onClick={() => {
-                    if (item.key === view) return;
-                    setGroups(null);
-                    setFeed(null);
-                    setLoadingMoreFeed(false);
-                    setLoading(true);
-                    setView(item.key);
-                  }}
+                  onClick={() => changeView(item.key)}
                   className={
                     view === item.key
                       ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
@@ -387,6 +471,7 @@ export function ScorecardsPage({
           <ScorecardPeriod
             value={presetRange}
             onChange={(next) => {
+              writeScorecardUrl(next, view, appliedCustom, 'push');
               setGroups(null);
               setFeed(null);
               setLoadingMoreFeed(false);

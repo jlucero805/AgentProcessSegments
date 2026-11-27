@@ -304,8 +304,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
 - **The UI smoke asserts structure, not copy.** `scripts/ui-smoke.mjs` locates
-  elements through `data-testid` hooks; `scripts/ui-smoke.test.mjs` fails when a hook
-  it uses is missing from `src/web/src`, so hook drift is caught without Puppeteer.
+  elements through `data-testid` hooks, accessible `aria-label`s, and Help `data-slug`s;
+  `scripts/ui-smoke.test.mjs` fails when one it uses is missing from `src/web/src` or
+  the Help manifest, so locator drift is caught without Puppeteer.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.

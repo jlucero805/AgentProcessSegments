@@ -1,8 +1,9 @@
-// End-to-end guard for scripts/ui-smoke.mjs: a run that never launched a browser
-// must not look like a pass. The policy itself is unit-tested in
-// scripts/e2e/puppeteer.test.mjs; this file spawns the real script with a
-// module-resolution hook, so the top-level wiring, exit code, output stream, and
-// no-brain behavior are proven without Puppeteer, Chrome, or a built app.
+// End-to-end guard for scripts/ui-smoke.mjs. It needs no Puppeteer, Chrome, or
+// built app: the policy is unit-tested in scripts/e2e/puppeteer.test.mjs, the
+// no-browser behavior is spawned through a module-resolution hook, and every
+// selector the smoke uses must exist in production code. The smoke may locate
+// through data-testid hooks, aria-labels, and Help data-slugs; it must never
+// assert visible body copy.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const script = path.join(repoRoot, 'scripts', 'ui-smoke.mjs');
+const helpManifest = path.join(repoRoot, 'src', 'server', 'src', 'docs', 'manifest.ts');
 
 const MISSING_MODULE_HOOK = `
 export async function resolve(specifier, context, nextResolve) {
@@ -115,6 +117,30 @@ function productionWebSource() {
   return files.map((file) => readFileSync(path.join(webRoot, file), 'utf8')).join('\n');
 }
 
+function uniqueMatches(source, pattern) {
+  return [...new Set([...source.matchAll(pattern)].map((match) => match[1]))];
+}
+
+function ariaLabelsUsedBySmoke(source) {
+  return [
+    ...uniqueMatches(source, /aria-label="([^"]+)"/g),
+    ...uniqueMatches(source, /getAttribute\(['"]aria-label['"]\)\s*===\s*['"]([^'"]+)['"]/g),
+  ];
+}
+
+function labelIsInWebSource(web, label) {
+  // A numbered label such as "Close terminal 1" comes from a template in the SPA
+  // (`Close terminal ${index + 1}`), so require its prefix there.
+  const numbered = /^(.*?) \d+$/.exec(label);
+  if (numbered) {
+    const prefix = `${numbered[1]} `;
+    if (web.includes('`' + prefix) || web.includes(`'${prefix}'`) || web.includes(`"${prefix}"`)) {
+      return true;
+    }
+  }
+  return web.includes(`'${label}'`) || web.includes(`"${label}"`);
+}
+
 test('ui smoke locates elements through data-testid hooks that exist in the SPA', () => {
   const source = readFileSync(script, 'utf8');
   const hooks = [
@@ -137,6 +163,43 @@ test('ui smoke locates elements through data-testid hooks that exist in the SPA'
     assert.ok(
       present,
       `ui-smoke uses data-testid "${hook}" but no production web component defines it`,
+    );
+  }
+});
+
+test('ui smoke locates elements through aria-labels that exist in the SPA', () => {
+  const source = readFileSync(script, 'utf8');
+  const labels = [...new Set(ariaLabelsUsedBySmoke(source))];
+
+  assert.ok(
+    labels.length >= 10,
+    `expected at least 10 aria-labels in the smoke, found ${labels.length}`,
+  );
+  assert.ok(
+    labels.includes('Close terminal 1'),
+    'expected the numbered terminal label in the smoke; the prefix check below would otherwise be skipped',
+  );
+
+  const web = productionWebSource();
+  for (const label of labels) {
+    assert.ok(
+      labelIsInWebSource(web, label),
+      `ui-smoke uses aria-label "${label}" but no production web component defines it`,
+    );
+  }
+});
+
+test('ui smoke opens Help pages through slugs that exist in the manifest', () => {
+  const source = readFileSync(script, 'utf8');
+  const slugs = uniqueMatches(source, /data-slug="([^"]+)"/g);
+
+  assert.ok(slugs.length >= 2, `expected at least 2 Help slugs in the smoke, found ${slugs.length}`);
+
+  const manifest = readFileSync(helpManifest, 'utf8');
+  for (const slug of slugs) {
+    assert.ok(
+      manifest.includes(`slug: '${slug}'`) || manifest.includes(`slug: "${slug}"`),
+      `ui-smoke uses Help slug "${slug}" but the Help manifest does not define it`,
     );
   }
 });

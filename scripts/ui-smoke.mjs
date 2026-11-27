@@ -13,8 +13,9 @@
 // A missing Puppeteer fails the run; --allow-missing-puppeteer skips it
 // deliberately and prints SKIPPED (a skip is not a pass).
 //
-// Locate elements through the data-testid hooks below, never through visible copy.
-// scripts/ui-smoke.test.mjs fails when a hook used here is missing from the SPA.
+// Locate elements through the data-testid hooks, accessible aria-labels, and Help
+// data-slugs below, never through visible copy. scripts/ui-smoke.test.mjs fails when
+// one used here is missing from the SPA or the Help manifest.
 import { resolveUiSmokePuppeteer } from './e2e/puppeteer.mjs';
 
 const guard = await resolveUiSmokePuppeteer({ argv: process.argv.slice(2) });

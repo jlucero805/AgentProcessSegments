@@ -570,26 +570,34 @@ export function openDb(dbPath: string): Db {
 export interface OpenExistingDbOptions {
   /**
    * Use SQLite's read-only flag. The connection cannot write database content
-   * or recover/checkpoint a WAL, while the owner-only mode sweep still runs.
+   * or recover/checkpoint a WAL.
    */
   readonly?: boolean;
+  /**
+   * Force the database and sidecars to 0600 before and after opening. Defaults
+   * to true. Pass false for a read-only inspection that must not chmod files the
+   * caller does not own.
+   */
+  harden?: boolean;
 }
 
 /**
  * Open an existing database without migrating or reconciling it.
  *
- * For maintenance paths that must not change a live brain. The database is
- * tightened before SQLite opens it so new sidecars inherit its mode, and the
- * sweep after opening repairs sidecars already on disk. Pass
+ * For maintenance paths that must not change a live brain. By default the
+ * database is tightened before SQLite opens it so new sidecars inherit its mode,
+ * and the sweep after opening repairs sidecars already on disk. Pass
  * `{ readonly: true }` for dry runs that must not write content or recover or
- * checkpoint the WAL.
+ * checkpoint the WAL. Pass `{ harden: false }` to skip the owner-only sweep when
+ * the caller may only have read access.
  */
 export function openExistingDb(dbPath: string, options: OpenExistingDbOptions = {}): Db {
-  ensurePrivateFile(dbPath);
+  const harden = options.harden !== false;
+  if (harden) ensurePrivateFile(dbPath);
   const db = new Database(dbPath, {
     fileMustExist: true,
     readonly: options.readonly === true,
   });
-  hardenDbFiles(dbPath);
+  if (harden) hardenDbFiles(dbPath);
   return db;
 }

@@ -43,8 +43,10 @@ export function usage(): string {
     'aps/sbox pairs are always skipped. Orphan refs are pruned only with',
     '--prune-orphans, and checked-out orphans are never touched. The database is',
     'the source of truth: point --db at the live brain database. A dry run opens',
-    'it read-only and never checkpoints or recovers the WAL; --apply opens it',
-    'read-write for the branch-row updates.',
+    'it read-only, never checkpoints or recovers the WAL, and does not repair file',
+    'modes, so it can inspect a database you can read but do not own; --apply',
+    'opens it read-write, tightens the database and sidecars, and needs write',
+    'access.',
   ].join('\n');
 }
 
@@ -151,11 +153,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 1;
   }
 
-  // openExistingDb() hardens the database and its sidecars without openDb()'s
-  // migrate()/reconcile(), which would write to a live brain's database and
-  // reset a working request to idle. A dry run opens read-only so SQLite cannot
-  // recover or checkpoint the WAL; --apply opens read-write for the row updates.
-  const db = openExistingDb(dbPath, { readonly: !options.apply });
+  // openExistingDb() skips openDb()'s migrate()/reconcile(), which would write
+  // to a live brain's database and reset a working request to idle. A dry run is
+  // read-only and opts out of the owner-only chmod sweep so an operator who does
+  // not own the database can still inspect it; --apply opens read-write, tightens
+  // the files, and is the only path that writes requests.branch.
+  const db = openExistingDb(dbPath, {
+    readonly: !options.apply,
+    harden: options.apply,
+  });
   db.pragma('busy_timeout = 5000');
 
   try {

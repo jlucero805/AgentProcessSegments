@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1369 vitest cases: 1044 server across 57 files (one environmental root-skip) and 325 web across 28 files, all green.
+- 1371 vitest cases: 1046 server across 57 files (one environmental root-skip) and 325 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,7 +117,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1044 server + 325 web, plus the e2e env guard
+npm test                       # 1046 server + 325 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -642,11 +642,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `journal_mode=WAL` so SQLite creates new sidecars with the same private mode, and a
     second pass repairs sidecars already on disk. A missing database parent is created
     `0700`; an existing parent (usually the repo/cwd) is never chmodded. `:memory:` keeps
-    no files. A chmod failure propagates. Maintenance paths that must not migrate use
-    `openExistingDb`, which applies the same sweep before and after opening. A dry run
-    passes `{ readonly: true }`, so SQLite cannot write content or recover/checkpoint the
-    WAL; the mode sweep still applies. This is not encryption at rest; root can still
-    read the files.
+    no files. A chmod failure propagates unless the caller explicitly opts out with
+    `harden: false`. Maintenance paths that must not migrate use `openExistingDb`, which
+    applies the same sweep before and after opening by default. A dry run passes
+    `{ readonly: true, harden: false }`: SQLite cannot write content or recover/checkpoint
+    the WAL, and no chmod is attempted, so an operator with read access can inspect a
+    database they do not own. `--apply` opens read-write, keeps hardening, and still fails
+    closed on a chmod error. This is not encryption at rest; root can still read the
+    files.
 41. **Never overwrite conversation state you could not parse.** A missing
     `session.json` or `transcript.json` is empty state. A file that exists but cannot be
     read (`EACCES`, `EISDIR`, ...), is invalid JSON, or has the wrong root shape is
@@ -672,9 +675,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 43. **Only `db.ts` opens SQLite directly.** Under `src/server/src`, no other module may
     import `better-sqlite3` or construct `new Database(...)`. Production calls `openDb`;
     maintenance paths that must not migrate or reconcile a live brain call
-    `openExistingDb`, which hardens the database and sidecars without touching schema or
-    request state; `openExistingDb(dbPath, { readonly: true })` is the non-mutating open
-    for dry runs. Test fixtures and the proof scripts are exempt because they use
+    `openExistingDb`, which hardens the database and sidecars by default without touching
+    schema or request state; `openExistingDb(dbPath, { readonly: true, harden: false })`
+    is the non-mutating, non-chmodding open for dry runs that must inspect a database
+    owned by another user. Test fixtures and the proof scripts are exempt because they use
     throwaway temp roots. `src/server/test/db.test.ts` guards the rule.
 44. **The runtime dependency audit is high-severity and guarded.** CI runs
     `npm audit --omit=dev --audit-level=high` after `npm ci` and before lint, so a high

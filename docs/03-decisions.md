@@ -2026,15 +2026,17 @@ tightens the database before SQLite opens it so new sidecars inherit `0600`, ope
 `{ fileMustExist: true }`, and sweeps again to repair sidecars already on disk. The helper
 sets no pragmas and never migrates or reconciles, so maintenance cannot change a live
 brain's schema or request state. The CLI calls it and keeps its own `busy_timeout`; it
-selects the read-only open for a dry run (D95). A chmod failure propagates (fail closed).
+selects the read-only open for a dry run (D95) and later opted out of the mode sweep there
+(D111). A chmod failure propagates (fail closed) unless the caller explicitly passes
+`harden: false` (D111).
 `src/server/src` may contain `better-sqlite3`/`new Database` only in `db.ts`; a
 source-scan test in `test/db.test.ts` enforces it. Test fixtures and the proof scripts are
 exempt because they run on throwaway temp roots.
 
 **Cost.** One more exported open path and a source-scan guard that must be updated
 deliberately if a future maintenance command needs a different open mode. The dry run
-uses the read-only option (D95); `--apply` still opens read-write. This is not encryption
-at rest, and root can still read the files.
+uses the read-only option (D95) and skips the mode repair (D111); `--apply` still opens
+read-write and hardens. This is not encryption at rest, and root can still read the files.
 
 ## D88. The Config page names the preserved settings file
 
@@ -2242,16 +2244,17 @@ default is unchanged read-write. It passes `readonly: true` to `better-sqlite3` 
 own read-only flag) rather than using `immutable=1`, which assumes no concurrent writer
 and would be wrong for a live brain. `legacy-branches-cli.ts` opens with
 `{ readonly: !options.apply }`, keeps `busy_timeout = 5000`, and drops `query_only`. The
-owner-only `ensurePrivateFile`/`hardenDbFiles` sweep still runs in both modes, and a chmod
-failure still aborts (fail closed). The guarantee is no database-content mutation: a
+owner-only `ensurePrivateFile`/`hardenDbFiles` sweep ran in both modes at the time; D111
+later made the dry run skip it while `--apply` kept hardening and failing closed. The
+guarantee is no database-content mutation: a
 read-only WAL connection may still create an empty `-wal`/`-shm` or update `-shm` locks
 through the wal-index, so it needs the same filesystem access as before. A database that
 needs rollback-journal recovery now fails closed with SQLite's read-only-recovery error
 instead of being mutated; operators can run `--apply` or open it once normally.
 
 **Cost.** One option on the existing helper and one call-site branch. `--apply` keeps the
-read-write open and remains the only path that writes `requests.branch`. Making a dry run
-work without ownership/chmod is separate work, and this is not encryption at rest.
+read-write open and remains the only path that writes `requests.branch`. D111 later made a
+dry run work without ownership/chmod; this is not encryption at rest.
 
 ## D96. The brain's systemd unit is sandboxed and the lint gate pins the result
 
@@ -2667,3 +2670,29 @@ applies. The repair is an explicit post-cutover step, not a hook in `cutover-vps
 CLI needs `npm run build` first, like `repair:permissions` and `repair:upgrades`. It is not
 encryption at rest, and root can still read the files. Run contents, timing, names,
 retention, pruning, and the `latest` target are unchanged.
+
+## D111. The legacy-branch dry run skips the owner-only repair
+
+**Context.** D87/D95 kept the `openExistingDb` chmod sweep in both modes, so
+`npm run migrate:branches --dry-run` failed with `EPERM` before reading anything whenever
+the database was owned by another user. A read-only operator inspecting a shared brain
+copy or a snapshot could not get the branch plan. The run only needs read access; the
+chmod is a defensive repair, not a requirement for reading.
+
+**Decision.** `openExistingDb` takes `harden?: boolean`, default `true`. Callers that keep
+the default still run `ensurePrivateFile` before the open and `hardenDbFiles` after it and
+still fail closed on a chmod error. `legacy-branches-cli.ts` passes
+`harden: options.apply`: a dry run is `{ readonly: true, harden: false }` and performs no
+chmod on the database, `-wal`, `-shm`, or `-journal`; `--apply` is
+`{ readonly: false, harden: true }` and is the only path that writes `requests.branch`.
+The dry run still uses SQLite's read-only flag, never `immutable=1`, and the
+no-content-mutation guarantee from D95 is unchanged. Read access to the database and any existing
+sidecars is still required; the option does not bypass filesystem permissions, and a
+`0600` database owned by someone else remains unreadable. `openDb` on the next brain start
+and `--apply` still repair loose modes. A WAL database whose `-shm` is absent in a
+non-writable directory still needs the wal-index and fails with
+`SQLITE_READONLY_DIRECTORY`; that is separate work.
+
+**Cost.** A dry run no longer repairs loose modes on an owned database; `openDb` and
+`--apply` do. A database the caller cannot chmod keeps its current privacy, which the
+owner controls. This is not encryption at rest.

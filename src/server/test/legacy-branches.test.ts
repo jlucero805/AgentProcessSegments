@@ -779,7 +779,7 @@ describe('legacy branch CLI helpers', () => {
   });
 
   it.skipIf(process.platform === 'win32')(
-    'keeps the database owner-only without reconciling a working request',
+    'leaves modes alone and does not reconcile a working request on a dry run',
     async () => {
       const dbPath = path.join(tempDir(), 'brain.sqlite');
       const seed = openDb(dbPath);
@@ -791,6 +791,35 @@ describe('legacy branch CLI helpers', () => {
 
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
       const code = await main(['--db', dbPath]);
+      log.mockRestore();
+
+      expect(code).toBe(0);
+      expect(modeOf(dbPath)).toBe(0o644);
+
+      const check = openExistingDb(dbPath, { readonly: true, harden: false });
+      try {
+        expect(
+          check.prepare('SELECT agent_status FROM requests WHERE id = ?').get(request.id),
+        ).toEqual({ agent_status: 'working' });
+      } finally {
+        check.close();
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'repairs modes without reconciling a working request on apply',
+    async () => {
+      const dbPath = path.join(tempDir(), 'brain.sqlite');
+      const seed = openDb(dbPath);
+      const repo = new RequestRepository(seed);
+      const request = repo.create({ title: 'still working' });
+      repo.setAgentStatus(request.id, 'working');
+      seed.close();
+      chmodSync(dbPath, 0o644);
+
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const code = await main(['--apply', '--db', dbPath]);
       log.mockRestore();
 
       expect(code).toBe(0);

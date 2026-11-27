@@ -870,11 +870,52 @@ describe('database open paths', () => {
     expect(readFileSync(`${snapshot}-wal`).equals(walBefore)).toBe(true);
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'skips the owner-only sweep when hardening is off',
+    () => {
+      const dir = tmpDir('db-noharden');
+      const live = path.join(dir, 'live.sqlite');
+      const snapshot = path.join(dir, 'snapshot.sqlite');
+      const seed = new Database(live);
+      try {
+        seed.pragma('journal_mode = WAL');
+        seed.exec('CREATE TABLE note (value TEXT)');
+        seed.prepare('INSERT INTO note (value) VALUES (?)').run('committed');
+
+        // Copy the database and WAL while the writer is still open so the
+        // snapshot keeps committed frames in -wal and has no -shm.
+        copyFileSync(live, snapshot);
+        copyFileSync(`${live}-wal`, `${snapshot}-wal`);
+      } finally {
+        seed.close();
+      }
+      chmodSync(snapshot, 0o644);
+      chmodSync(`${snapshot}-wal`, 0o644);
+
+      const walBefore = readFileSync(`${snapshot}-wal`);
+      const db = openExistingDb(snapshot, { readonly: true, harden: false });
+      try {
+        expect(db.prepare('SELECT value FROM note').get()).toEqual({ value: 'committed' });
+        expect(() => db.prepare('INSERT INTO note (value) VALUES (?)').run('nope')).toThrow(
+          /readonly/i,
+        );
+        expect(modeOf(snapshot)).toBe(0o644);
+        expect(modeOf(`${snapshot}-wal`)).toBe(0o644);
+      } finally {
+        db.close();
+      }
+
+      expect(existsSync(`${snapshot}-wal`)).toBe(true);
+      expect(readFileSync(`${snapshot}-wal`).equals(walBefore)).toBe(true);
+    },
+  );
+
   it('refuses a missing database without creating it', () => {
     const file = path.join(tmpDir('db-missing'), 'missing.sqlite');
 
     expect(() => openExistingDb(file)).toThrow();
     expect(() => openExistingDb(file, { readonly: true })).toThrow();
+    expect(() => openExistingDb(file, { readonly: true, harden: false })).toThrow();
     expect(existsSync(file)).toBe(false);
   });
 });

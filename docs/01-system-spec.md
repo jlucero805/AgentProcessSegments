@@ -168,9 +168,10 @@ separately with `npm run repair:runs` (dry run first), which scans only
 `~/.aps-cutover/runs`, one level deep, and never descends into `dist/` or `backup/`.
 Maintenance paths that must not
 migrate a live brain open through
-`openExistingDb`, which applies the same owner-only repair without schema or reconcile
-work. A dry run passes `{ readonly: true }`, so SQLite does not write content or
-recover/checkpoint the WAL; `--apply` opens read-write.
+`openExistingDb`, which applies the same owner-only repair by default without schema or
+reconcile work. A dry run passes `{ readonly: true, harden: false }`, so SQLite does not
+write content or recover/checkpoint the WAL and no chmod is attempted; `--apply` opens
+read-write and keeps hardening.
 
 ### `requests`
 
@@ -925,9 +926,11 @@ defaults.
   failure. The transition hook, the sweeper, and `npm run migrate:branches` share the
   conservative rules in `src/server/src/maintenance/legacy-branches.ts`; the CLI remains
   the dry-run/manual recovery command. It opens the live database through
-  `openExistingDb` without migrating or reconciling it, and keeps the database and
-  sidecars `0600`. Its dry run opens read-only and never checkpoints or recovers the WAL;
-  `--apply` opens it read-write for the row updates. The same command also reports orphan
+  `openExistingDb` without migrating or reconciling it. Its dry run opens read-only,
+  never checkpoints or recovers the WAL, and skips the owner-only mode repair so a
+  readable database owned by another user can be inspected; `--apply` opens it
+  read-write, tightens the database and sidecars to `0600`, and writes the row updates.
+  The same command also reports orphan
   `sbox/*` refs with no request row, and with `--prune-orphans` archives their tips under
   `refs/sbox-pruned/` before deleting the branch.
 - **Workdirs:** `~/.agent-process-segments/requests/<id>/` holds `transcript.json`,

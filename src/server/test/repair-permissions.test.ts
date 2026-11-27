@@ -93,6 +93,7 @@ describe('repair-permissions args', () => {
     expect(usage()).toContain('--apply');
     expect(usage()).toContain('--data-dir DIR');
     expect(usage()).toContain('never recurses into cwd/');
+    expect(usage()).toContain('symlinked requests/');
   });
 
   it('renders modes as four octal digits', () => {
@@ -257,6 +258,8 @@ describe('repair-permissions edge cases', () => {
     const data = tmpDir('repair-symlink-root');
     const outside = path.join(data, 'outside');
     dir(outside);
+    const outsideSession = path.join(outside, 'session');
+    dir(outsideSession);
     const requests = path.join(data, 'requests');
     symlinkSync(outside, requests, 'dir');
 
@@ -275,6 +278,7 @@ describe('repair-permissions edge cases', () => {
       },
     ]);
     expect(modeOf(outside)).toBe(0o755);
+    expect(modeOf(outsideSession)).toBe(0o755);
 
     let calls = 0;
     const applied = repairPermissions(data, {
@@ -284,10 +288,12 @@ describe('repair-permissions edge cases', () => {
       },
     });
     expect(applied.failed).toBe(1);
+    expect(applied.tightened).toBe(0);
+    expect(applied.skipped).toBe(0);
     expect(calls).toBe(0);
     expect(modeOf(outside)).toBe(0o755);
+    expect(modeOf(outsideSession)).toBe(0o755);
     expect(lstatSync(requests).isSymbolicLink()).toBe(true);
-    expect(readdirSync(outside)).toEqual([]);
 
     const errors: string[] = [];
     const lines: string[] = [];
@@ -298,10 +304,39 @@ describe('repair-permissions edge cases', () => {
       lines.push(String(line));
     });
 
+    expect(main(['--data-dir', data])).toBe(1);
     expect(main(['--data-dir', data, '--apply'])).toBe(1);
     expect(errors.some((line) => line.includes('is a symbolic link'))).toBe(true);
     expect(lines.some((line) => line.includes('1 error(s)'))).toBe(true);
     expect(modeOf(outside)).toBe(0o755);
+    expect(modeOf(outsideSession)).toBe(0o755);
+  });
+
+  posixIt('refuses a dangling requests symlink instead of treating it as missing', () => {
+    const data = tmpDir('repair-symlink-dangling');
+    const requests = path.join(data, 'requests');
+    symlinkSync(path.join(data, 'gone'), requests, 'dir');
+
+    const result = repairPermissions(data, { apply: false });
+
+    expect(result.rootMissing).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.tightened).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(result.entries).toEqual([
+      {
+        path: requests,
+        kind: 'dir',
+        mode: null,
+        target: 0o700,
+        action: 'error',
+        detail: 'is a symbolic link',
+      },
+    ]);
+
+    silenceConsole();
+    expect(main(['--data-dir', data])).toBe(1);
+    expect(main(['--data-dir', data, '--apply'])).toBe(1);
   });
 
   posixIt('continues after a chmod failure and exits 1', () => {

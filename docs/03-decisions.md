@@ -1674,7 +1674,8 @@ error (`is a symbolic link`) without chmodding or descending through the link, s
 symlinked children and non-regular entries, treats `ENOENT` as a skip, continues after
 other failures, and exits 1 when any entry fails. It never recurses into `cwd/`, never
 touches the data-dir root, plugins, worktrees, SQLite, the error log, or unrelated
-siblings, and never opens the database.
+siblings, and never opens the database. The top-level `requests/` rule changed in D135;
+this entry originally followed a symlinked root with `stat`.
 
 **Cost.** The repair is an explicit post-upgrade step, not automatic. It is not
 encryption at rest and root can still read the files. A boot-time recursive repair is
@@ -3075,7 +3076,8 @@ options instead of silent unification: `repair:permissions` refuses a symlinked
 while refusing a symlinked `runs/` or `upgrades/` (D120), and missing children are
 silent. All three therefore refuse a symlinked scan root (`requests/`, `runs/`,
 `upgrades/`); a relocated cutover root is the only symlink they scan through, and only
-to reach that child.
+to reach that child. D135 replaced this entry's original `stat`/follow rule for
+`requests/`.
 `src/server/test/repair-permissions.test.ts` guards the split: only
 `permission-repair.ts` may mention `chmodSync`, every engine constructs
 `PermissionRepair`, and every CLI imports the shared core.
@@ -3086,7 +3088,7 @@ silent-versus-vanished child rule.
 **Cost.** Two new modules, one structural guard test, and one focused policy-seam test
 file. A future repair must use the shared scanner; the guard fails if it imports
 `chmodSync` directly. Changing either root rule is a separate decision (the symlinked
-`requests/` root was corrected separately). The shell `chmod` in
+`requests/` root was corrected separately in D135). The shell `chmod` in
 `deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this code.
 
 ## D122. The stress harness covers the server suite too
@@ -3452,3 +3454,32 @@ string, so both must merge rather than replace the whole search. The page has to
 distinguish its own reported period from an external history restore; existing local state
 remains authoritative for an unapplied Custom draft. No API, schema, scheduler,
 retention, dependency, or drawer-persistence change is involved.
+
+## D135. A symlinked `requests/` root is refused
+
+**Context.** D74 originally used `stat` for the top-level `requests/` path and `lstat`
+for children, so a symlinked `$APS_DATA_DIR/requests` was followed and its target tree
+was chmodded. `repair:upgrades` (D93) and `repair:runs` (D110/D120) already used `lstat`
+and recorded a symlinked `upgrades/` or `runs/` container as an error. D121 kept that
+split as an explicit engine option and left this root rule for a separate decision. The
+follow rule was the one remaining way the repair tree could be redirected outside the
+data dir, and no documented or deployed layout symlinks `requests/` (`deploy/*.sh`
+creates only the `latest` links).
+
+**Decision.** `repair:permissions` passes `{ symlinks: 'refuse' }` to
+`PermissionRepair.root`. A symlinked `requests/` records one error
+(`is a symbolic link`), is neither chmodded nor traversed, and exits 1 in both the dry
+run and `--apply`, matching the two cutover containers. A dangling link is refused the
+same way; under `stat` it looked like `ENOENT` and exited 0 as "nothing to repair".
+Skipping instead was rejected because exit 0 would silently leave the whole requests
+tree unrepaired.
+
+Only the configured `requests/` leaf is checked. A symlinked ancestor of `dataDir` (or a
+`--data-dir` path that traverses a link) still resolves, exactly as a cutover repair may
+reach `--root` through a link while refusing the `upgrades/`/`runs/` leaf. The engine's
+`follow` mode stays as a tested policy seam, but no maintenance command selects it.
+
+**Cost.** A data dir assembled from a symlinked `requests/` can no longer be repaired
+through the link; run the repair against the real tree or replace the link. A broken
+link now exits 1 instead of 0. File modes, traversal, retention, deploy scripts, and the
+cutover root rule are unchanged.

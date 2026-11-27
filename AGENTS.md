@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1584 vitest cases: 1139 server across 59 files (one environmental root-skip) and 445 web across 30 files, all green.
+- 1585 vitest cases: 1140 server across 59 files (one environmental root-skip) and 445 web across 30 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1139 server + 445 web, plus the e2e env guard
+npm test                       # 1140 server + 445 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -644,9 +644,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     workdir or file left by an older version is repaired on the next write. Existing
     installs are repaired in bulk with `npm run repair:permissions` (dry run by default;
     `--apply` to change); it tightens only the known `requests/` artifacts and never
-    recurses into `cwd/` checkouts. It refuses a symlinked `requests/` root. Never write
-    conversation state with a bare `writeFileSync`; transcripts can contain tool output
-    and secrets.
+    recurses into `cwd/` checkouts. It refuses a symlinked `requests/` root with exit 1
+    and never chmods the link target (D135). Never write conversation state with a bare
+    `writeFileSync`; transcripts can contain tool output and secrets.
 37. **A harness-reported error result fails the turn once, visibly.** A parser `error`
     event sets `turn.failure` (first one wins), broadcasts one `error`, persists one
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it
@@ -827,8 +827,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, and the
     direct-run bootstrap. `repair-permissions.ts`, `repair-upgrade-permissions.ts`, and
     `repair-run-permissions.ts` only describe their trees; their CLIs only hold the
-    usage text, default target, and missing-root message. Commands, flags, output, exit
-    codes, and traversal must not change. A new repair uses the same scanner; the guard
+    usage text, default target, and missing-root message. Commands, flags, report
+    format, exit-code mechanics, and traversal must not change; D135 changes only the
+    result for a symlinked `requests/` root, which joins the symlinked `upgrades/` and
+    `runs/` containers in being refused. A new repair uses the same scanner; the guard
     in `src/server/test/repair-permissions.test.ts` fails if another maintenance module
     mentions `chmodSync`.
 50. **The top-level shell owns the single deploy rollback.** `deploy/upgrade-vps.sh` and

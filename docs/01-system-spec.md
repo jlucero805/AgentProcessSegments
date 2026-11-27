@@ -976,8 +976,10 @@ defaults.
   root without chmodding or descending through it. Upgrade run directories and
   snapshots are repaired separately with `npm run repair:upgrades` (dry run first), and
   cutover run directories and the shared `~/.aps-cutover` root with
-  `npm run repair:runs` (dry run first). All three share one engine and CLI core; only
-  the tree and the root-symlink rule differ.
+  `npm run repair:runs` (dry run first). All three share one engine and CLI core; a
+  symlinked `requests/`, `upgrades/`, or `runs/` container is refused, and the only
+  symlink a repair scans through is a symlinked cutover `--root`, to reach `upgrades/`
+  or `runs/`.
   Terminal workdirs older than
   `retention.requestArtifactsDays` are deleted whole; see **Request artifact retention**
   below. An existing legacy

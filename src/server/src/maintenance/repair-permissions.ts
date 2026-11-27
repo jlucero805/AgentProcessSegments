@@ -27,8 +27,8 @@ function scanSession(scan: PermissionRepair, sessionDir: string): void {
 /**
  * Tighten every existing request/session workdir to the owner-only layout from
  * D58. This never recurses into `cwd/` checkouts, never creates paths, and
- * refuses a symlinked `requests/` root without chmodding or descending through
- * it.
+ * refuses a symlinked `requests/` root (D135) without chmodding or descending
+ * through it.
  */
 export function repairPermissions(
   dataDir: string,
@@ -37,7 +37,7 @@ export function repairPermissions(
   const scan = new PermissionRepair(options);
   const root = requestsDir(dataDir);
 
-  const rootState = scan.root(root);
+  const rootState = scan.root(root, { symlinks: 'refuse' });
   if (rootState !== 'ok') return scan.result(rootState === 'missing');
 
   let names: string[];

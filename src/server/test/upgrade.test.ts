@@ -8,6 +8,7 @@ import {
   readdirSync,
   realpathSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -691,6 +692,7 @@ describe('deploy/upgrade-vps.sh', () => {
     expect(output).toContain('would run npm ci --include=dev');
     expect(output).toContain('would pause master.enabled=true');
     expect(output).toContain('dry run complete; nothing was changed');
+    expect(output).not.toContain(`WARNING: ${path.join(fixture.home, '.aps-cutover')}`);
     expect(head(fixture.clone)).toBe(before);
     expect(calls(fixture, 'npm.calls')).toBe('');
     expect(calls(fixture, 'restarts')).toBe('');
@@ -925,6 +927,97 @@ describe('deploy/upgrade-vps.sh', () => {
       expect(stateOf(fixture)).toBe('success');
       expect(modeOf(cutoverRoot)).toBe(0o755);
       expect(modeOf(upgrades)).toBe(0o755);
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'warns about a permissive cutover root without changing it',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      mkdirSync(cutoverRoot, { recursive: true });
+      chmodSync(cutoverRoot, 0o755);
+
+      const result = runScript(fixture, ['--detach', '--health-timeout', '10'], 30_000);
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(stateOf(fixture)).toBe('success');
+      expect(modeOf(cutoverRoot)).toBe(0o755);
+      expect(output).toContain(`${cutoverRoot} is mode 755, expected 700`);
+      expect(output).toContain('npm run repair:runs -- --apply');
+      expect(output).toContain('npm run repair:upgrades -- --apply');
+      const log = readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8');
+      expect(log).toContain(`${cutoverRoot} is mode 755, expected 700`);
+      expect(log).toContain('npm run repair:runs -- --apply');
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'warns about a permissive cutover root during a dry run without changing it',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      mkdirSync(cutoverRoot, { recursive: true });
+      chmodSync(cutoverRoot, 0o755);
+
+      const result = runScript(fixture, ['--dry-run', '--no-prune'], 30_000);
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(output).toContain(`${cutoverRoot} is mode 755, expected 700`);
+      expect(modeOf(cutoverRoot)).toBe(0o755);
+      expect(existsSync(path.join(cutoverRoot, 'upgrades'))).toBe(false);
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not warn when the cutover root is already owner-only',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      mkdirSync(cutoverRoot, { recursive: true });
+      chmodSync(cutoverRoot, 0o700);
+
+      const result = runScript(fixture, ['--dry-run', '--no-prune'], 30_000);
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(output).not.toContain(`WARNING: ${cutoverRoot}`);
+      expect(modeOf(cutoverRoot)).toBe(0o700);
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'reports a symlinked cutover root without following it',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      const target = path.join(fixture.root, 'relocated-cutover');
+      mkdirSync(target, { recursive: true });
+      chmodSync(target, 0o755);
+      symlinkSync(target, cutoverRoot);
+      const run = path.join(fixture.root, 'external-run');
+
+      const result = runScript(
+        fixture,
+        ['--run', '--run-dir', run, '--health-timeout', '10', '--no-prune'],
+        30_000,
+      );
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(run, 'state'), 'utf8').trim()).toBe('success');
+      expect(modeOf(target)).toBe(0o755);
+      expect(output).toContain(`${cutoverRoot} is a symlink`);
+      expect(output).not.toContain('is mode 755, expected 700');
+      expect(readFileSync(path.join(run, 'upgrade.log'), 'utf8')).toContain(
+        `${cutoverRoot} is a symlink`,
+      );
     },
     30_000,
   );

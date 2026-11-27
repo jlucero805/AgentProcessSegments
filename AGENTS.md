@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1589 vitest cases: 1143 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
+- 1597 vitest cases: 1151 server across 59 files (one environmental root-skip) and 446 web across 30 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1143 server + 446 web, plus the e2e env guard
+npm test                       # 1151 server + 446 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -723,7 +723,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `db-backup.sqlite` is forced to `0600`. A local `umask 077` covers creation, then
     `chmod` makes the result independent of the caller's umask and repairs a retried run;
     both fail closed. A missing `~/.aps-cutover`/`upgrades` ancestor chain is created
-    `0700`; an existing shared root is not silently chmodded by the deploy script. The
+    `0700`; an existing shared root is not silently chmodded by the deploy script, which
+    instead warns (without failing or changing it) when that root is not `0700` and names
+    `npm run repair:runs -- --apply` or `npm run repair:upgrades -- --apply`. The
     snapshot remains a normal, manually restorable SQLite database. This is not encryption
     at rest; older run directories, snapshots, and the shared root are tightened with
     `npm run repair:upgrades` (dry run by default; `--apply` to change), which scans
@@ -754,7 +756,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     the protection boundary. The shared `~/.aps-cutover` root is `0700` too: a missing
     root is created that way, and an existing root is repaired explicitly with either
     `npm run repair:runs` or `npm run repair:upgrades` (dry run by default; `--apply` to
-    change). `repair:runs` tightens the root, `~/.aps-cutover/runs`, and each direct run
+    change). A deploy run warns when an existing root is not `0700`, naming those repair
+    commands and leaving the mode unchanged; a symlinked root is reported, never followed.
+    `repair:runs` tightens the root, `~/.aps-cutover/runs`, and each direct run
     directory, one level deep. It never follows a symlinked `runs/`, deletes, or reads run
     contents, and leaves `latest` and `upgrades/` alone; a symlinked root is skipped while
     `runs/` is still scanned through the link. `latest` needs no mode of its own because

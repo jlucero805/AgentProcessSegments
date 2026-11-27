@@ -198,6 +198,24 @@ prepare_run_dir() {
   chmod 700 "$dir"
 }
 
+# Warn (never fail, never chmod) when the shared cutover root already exists with
+# a mode other than 0700. A symlinked root is reported as-is, not followed.
+warn_if_cutover_root_permissive() {
+  local root="$HOME/.aps-cutover" mode
+  if [[ -L "$root" ]]; then
+    log "WARNING: $root is a symlink; not following it or changing its mode. The repair commands do not chmod a symlinked root, so tighten the target yourself."
+    return 0
+  fi
+  [[ -d "$root" ]] || return 0
+  if ! mode="$(stat -c '%a' "$root" 2>/dev/null)"; then
+    log "WARNING: could not read the mode of $root; skipping the permission check."
+    return 0
+  fi
+  [[ "$mode" == "700" ]] && return 0
+  log "WARNING: $root is mode $mode, expected 700; run 'npm run repair:runs -- --apply' (or 'npm run repair:upgrades -- --apply') to tighten it. This run leaves it unchanged."
+  return 0
+}
+
 unit_active() {
   [[ "$(systemctl --user is-active "$1" 2>/dev/null || true)" == "active" ]]
 }
@@ -417,6 +435,8 @@ check_preflight() {
   require_cmd stat
 
   systemctl --user show-environment >/dev/null 2>&1 || die "systemd user manager is not available"
+
+  warn_if_cutover_root_permissive
 
   if [[ -n "${XDG_CONFIG_HOME:-}" && "$XDG_CONFIG_HOME" != "$HOME/.config" ]]; then
     die "XDG_CONFIG_HOME=$XDG_CONFIG_HOME is outside the supported layout"

@@ -419,7 +419,8 @@ Upgrade run directories and snapshots from an older version are repaired the sam
 shared `~/.aps-cutover` root, `~/.aps-cutover/upgrades`, and each run directory to
 `0700`, and each `db-backup.sqlite` to `0600`. It never follows a symlinked `upgrades/`,
 deletes anything, opens the database, chmods the `latest` symlink, or touches cutover
-runs.
+runs. Both deploy scripts warn at launch when an existing shared root is not `0700`,
+naming the matching repair command, but never change the mode themselves.
 
 Cutover evidence is repaired separately: `npm run repair:runs` previews and
 `npm run repair:runs -- --apply` sets the shared `~/.aps-cutover` root,
@@ -427,9 +428,10 @@ Cutover evidence is repaired separately: `npm run repair:runs` previews and
 symlinked `runs/`, deletes anything, descends into `dist/` or `backup/`, reads or
 changes run contents, or touches `~/.aps-cutover/upgrades` or the `latest` symlink. New
 installs already create the root `0700`; either repair command also tightens an older
-root. For `repair:upgrades` and `repair:runs`, a symlinked root is skipped, while its
-`runs/` or `upgrades/` tree is still scanned through the link, so tighten the target
-yourself.
+root. A deploy run warns when an existing root is not `0700` and never changes it; a
+symlinked root is reported, not followed. For `repair:upgrades` and `repair:runs`, a
+symlinked root is skipped, while its `runs/` or `upgrades/` tree is still scanned through
+the link, so tighten the target yourself.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -451,7 +453,8 @@ cutover prunes older runs before it starts and after it finishes; it keeps the n
 runs and anything modified in the last 30 days by default, plus the current run, the
 `latest` target, and the newest successful rollback point. Pass `--no-prune` to opt out.
 Run directories and the shared root left by an older version are tightened with
-`npm run repair:runs` (dry run first). You can still prune by hand with
+`npm run repair:runs` (dry run first); until then, each deploy warns when the root is
+still permissive. You can still prune by hand with
 `npm run prune:cutover -- --dry-run` and then `npm run prune:cutover`; see
 [`deploy/vps.md`](deploy/vps.md#prune-cutover-run-directories-and-backups).
 
@@ -726,7 +729,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1589 vitest cases: 1143 server cases across 59 files (state machine,
+`npm test` runs 1597 vitest cases: 1151 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

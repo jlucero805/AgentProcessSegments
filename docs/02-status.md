@@ -162,7 +162,9 @@ built and vended by the brain; real-CLI verification is still pending.
   `--apply` to change). It never follows a symlinked `runs/`, deletes anything, descends
   into `dist/` or `backup/`, reads or changes run contents, chmods the `latest` symlink,
   or touches `~/.aps-cutover/upgrades`. Both evidence repairs skip a symlinked root while
-  still scanning its subtree through the link.
+  still scanning its subtree through the link. Both deploy scripts warn at launch when an
+  existing shared root is not `0700`, naming the matching repair command, and never
+  change the mode themselves.
   All three repairs share the `maintenance/permission-repair.ts` engine and the
   `maintenance/repair-cli.ts` core; `repair:permissions` refuses a symlinked `requests/`
   root, and they otherwise differ only in the tree they scan. The `repair:runs` and
@@ -507,7 +509,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1589 vitest cases (one environmental root-skip): 1143 server across 59 files and 446 web across 30 files,
+- 1597 vitest cases (one environmental root-skip): 1151 server across 59 files and 446 web across 30 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -558,7 +560,8 @@ built and vended by the brain; real-CLI verification is still pending.
   The same retention can be run by hand with `npm run prune:upgrades`.
   Runs and snapshots left by an older version are tightened with `npm run repair:upgrades`
   (dry run first), and cutover run directories and the shared `~/.aps-cutover` root with
-  `npm run repair:runs` (dry run first).
+  `npm run repair:runs` (dry run first). Both deploy scripts warn when an existing shared
+  root is not `0700` and leave it unchanged.
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`
   with APS paths, bound to `127.0.0.1:7391`; SPA and API are served with `/api` winning
   over the SPA fallback, and unknown routes return `{ "error": "not_found" }`. The

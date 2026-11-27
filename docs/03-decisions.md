@@ -3495,3 +3495,30 @@ only fail-closed option.
 dangling link now fails the repair instead of passing as "nothing to repair". No new
 flag, exit code, report format, or child rule; the shell `chmod`s in
 `deploy/upgrade-vps.sh`/`cutover-vps.sh` are unchanged.
+
+## D136. Deploys warn when the shared cutover root is still permissive
+
+**Context.** D120 made `~/.aps-cutover` owner-only for new installs and taught both repair
+commands to tighten an existing root, but the deploy scripts never chmod that root and
+said nothing when it was still `0755`. An operator who never ran a repair kept a
+world-listable root indefinitely: other local accounts could see run and upgrade names and
+resolve the `latest` target, even though the `0700` children protected the contents. A
+new-install root was already correct, so only older hosts needed the advisory.
+
+**Decision.** `deploy/cutover-vps.sh` and `deploy/upgrade-vps.sh` each run a local
+`warn_if_cutover_root_permissive` helper from `check_preflight()`, after the required
+commands and `systemctl --user show-environment` succeed and before any refusal. A missing
+root or an exact `700` is silent. Any other directory mode logs one `WARNING:` line with
+the path, the observed mode, `expected 700`, and both `npm run repair:runs -- --apply` and
+`npm run repair:upgrades -- --apply`; a symlink is reported as a symlink without being
+followed or chmodded; a `stat` failure logs that the check was skipped. Every path returns
+success. The helper uses `log()`, so a real run records the warning in `cutover.log` or
+`upgrade.log`, and it is a deliberate duplicate rather than a shared library to match the
+scripts' existing independence. Because it sits in preflight, `--dry-run`, the `--detach`
+parent, and the internal `--run` path all report it; a detached deploy can print it once in
+the parent and once in the run log.
+
+**Cost.** Two small duplicated helpers, one call site per script, focused tests, and doc
+updates. The warning is advisory only: an operator can ignore it and leave the root
+permissive, and D120's rule that a deploy never changes an existing root is unchanged.
+No repair CLI, retention, run-directory mode, `latest`, argument, or runtime change.

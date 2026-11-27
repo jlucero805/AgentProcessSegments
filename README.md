@@ -408,9 +408,9 @@ npm run repair:runs -- --apply          # tighten old cutover run dirs and root
 The command only tightens the known `requests/` artifacts (`requests/`, each session
 dir, `cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
 `opencode/opencode.json`). It never rewrites transcripts, never recurses into `cwd/`
-checkouts, and is safe while the brain runs. All three commands below share one
-implementation and the same dry-run/`--apply` contract; they differ only in the tree
-they scan.
+checkouts, refuses a symlinked `requests/` root, and is safe while the brain runs. All
+three commands below share one implementation and the same dry-run/`--apply` contract;
+they differ only in the tree they scan and the root rule.
 
 Upgrade run directories and snapshots from an older version are repaired the same way:
 `npm run repair:upgrades` previews and `npm run repair:upgrades -- --apply` sets the
@@ -723,7 +723,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1573 vitest cases: 1129 server cases across 59 files (state machine,
+`npm test` runs 1584 vitest cases: 1139 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -739,7 +739,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 444 web cases across 30 files (shared contract re-exports, NDJSON
+real socket) and 445 web cases across 30 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, manifest-aware served-page links, served image/non-Markdown targets,

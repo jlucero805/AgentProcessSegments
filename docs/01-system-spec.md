@@ -972,7 +972,8 @@ defaults.
   so unreadable bytes are never overwritten; reads keep the empty fallback and never
   move a file. Existing installs can repair every workdir at once with
   `npm run repair:permissions` (dry run first); it tightens only the known `requests/`
-  artifacts and never recurses into `cwd/` checkouts. Upgrade run directories and
+  artifacts, never recurses into `cwd/` checkouts, and refuses a symlinked `requests/`
+  root without chmodding or descending through it. Upgrade run directories and
   snapshots are repaired separately with `npm run repair:upgrades` (dry run first), and
   cutover run directories and the shared `~/.aps-cutover` root with
   `npm run repair:runs` (dry run first). All three share one engine and CLI core; only

@@ -72,8 +72,8 @@ describe('PermissionRepair root policy', () => {
     const root = path.join(base, 'root');
     symlinkSync(outside, root, 'dir');
 
-    // D74/D121 keeps this behavior for repair:permissions; the fix is a
-    // separate follow-up.
+    // The engine still exposes `follow` as a policy seam, but no maintenance
+    // engine uses it since repair:permissions began refusing a symlinked root.
     const scan = new PermissionRepair({ apply: true });
     expect(scan.root(root, { symlinks: 'follow' })).toBe('ok');
 

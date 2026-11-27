@@ -1668,11 +1668,13 @@ transcripts indefinitely, even after the owner-only change ships.
 is a dry run by default and changes modes only with `--apply`. It scans
 `$APS_DATA_DIR/requests`, each direct child session dir, and the known artifacts
 (`cwd/`, `opencode/`, `session.json`, `transcript.json`, `mcp-config.json`, and
-`opencode/opencode.json`), setting dirs `0700` and files `0600`. It uses `stat` for the
-top-level `requests/` path and `lstat` for children, skips symlinks and non-regular
-entries, treats `ENOENT` as a skip, continues after other failures, and exits 1 when any
-entry fails. It never recurses into `cwd/`, never touches the data-dir root, plugins,
-worktrees, SQLite, the error log, or unrelated siblings, and never opens the database.
+`opencode/opencode.json`), setting dirs `0700` and files `0600`. It uses `lstat` for the
+top-level `requests/` path and for children, records a symlinked `requests/` root as one
+error (`is a symbolic link`) without chmodding or descending through the link, skips
+symlinked children and non-regular entries, treats `ENOENT` as a skip, continues after
+other failures, and exits 1 when any entry fails. It never recurses into `cwd/`, never
+touches the data-dir root, plugins, worktrees, SQLite, the error log, or unrelated
+siblings, and never opens the database.
 
 **Cost.** The repair is an explicit post-upgrade step, not automatic. It is not
 encryption at rest and root can still read the files. A boot-time recursive repair is
@@ -3067,11 +3069,13 @@ to `repair-cli.ts` (`parseRepairArgs`, `printRepairReport`, `repairExitCode`,
 `runDirectly`). The three engines now only describe their tree; the three CLIs only hold
 their usage text, default target, and missing-root messages. Commands, flags, report
 lines, order, exit codes, and traversal are unchanged. The root rules stay explicit
-options instead of silent unification: `repair:permissions` follows a symlinked
-`requests/` root (`stat`) and records a session dir that vanishes between `readdir` and
+options instead of silent unification: `repair:permissions` refuses a symlinked
+`requests/` root (`lstat`) and records a session dir that vanishes between `readdir` and
 `lstat` as a skip; the cutover repairs use `lstat`, both skip a symlinked cutover root
 while refusing a symlinked `runs/` or `upgrades/` (D120), and missing children are
-silent.
+silent. All three therefore refuse a symlinked scan root (`requests/`, `runs/`,
+`upgrades/`); a relocated cutover root is the only symlink they scan through, and only
+to reach that child.
 `src/server/test/repair-permissions.test.ts` guards the split: only
 `permission-repair.ts` may mention `chmodSync`, every engine constructs
 `PermissionRepair`, and every CLI imports the shared core.
@@ -3082,7 +3086,7 @@ silent-versus-vanished child rule.
 **Cost.** Two new modules, one structural guard test, and one focused policy-seam test
 file. A future repair must use the shared scanner; the guard fails if it imports
 `chmodSync` directly. Changing either root rule is a separate decision (the symlinked
-`requests/` root is filed separately). The shell `chmod` in
+`requests/` root was corrected separately). The shell `chmod` in
 `deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this code.
 
 ## D122. The stress harness covers the server suite too

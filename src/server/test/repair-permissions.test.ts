@@ -1,6 +1,7 @@
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -250,6 +251,57 @@ describe('repair-permissions edge cases', () => {
     expect(result.rootMissing).toBe(false);
     expect(result.failed).toBe(1);
     expect(main(['--data-dir', data])).toBe(1);
+  });
+
+  posixIt('refuses a symlinked requests root without chmodding or descending', () => {
+    const data = tmpDir('repair-symlink-root');
+    const outside = path.join(data, 'outside');
+    dir(outside);
+    const requests = path.join(data, 'requests');
+    symlinkSync(outside, requests, 'dir');
+
+    const dry = repairPermissions(data, { apply: false });
+    expect(dry.rootMissing).toBe(false);
+    expect(dry.failed).toBe(1);
+    expect(dry.tightened).toBe(0);
+    expect(dry.entries).toEqual([
+      {
+        path: requests,
+        kind: 'dir',
+        mode: null,
+        target: 0o700,
+        action: 'error',
+        detail: 'is a symbolic link',
+      },
+    ]);
+    expect(modeOf(outside)).toBe(0o755);
+
+    let calls = 0;
+    const applied = repairPermissions(data, {
+      apply: true,
+      chmod: () => {
+        calls += 1;
+      },
+    });
+    expect(applied.failed).toBe(1);
+    expect(calls).toBe(0);
+    expect(modeOf(outside)).toBe(0o755);
+    expect(lstatSync(requests).isSymbolicLink()).toBe(true);
+    expect(readdirSync(outside)).toEqual([]);
+
+    const errors: string[] = [];
+    const lines: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+
+    expect(main(['--data-dir', data, '--apply'])).toBe(1);
+    expect(errors.some((line) => line.includes('is a symbolic link'))).toBe(true);
+    expect(lines.some((line) => line.includes('1 error(s)'))).toBe(true);
+    expect(modeOf(outside)).toBe(0o755);
   });
 
   posixIt('continues after a chmod failure and exits 1', () => {

@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1573 vitest cases: 1129 server across 59 files (one environmental root-skip) and 444 web across 30 files, all green.
+- 1584 vitest cases: 1139 server across 59 files (one environmental root-skip) and 445 web across 30 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -122,7 +122,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1129 server + 444 web, plus the e2e env guard
+npm test                       # 1139 server + 445 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
@@ -644,8 +644,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     workdir or file left by an older version is repaired on the next write. Existing
     installs are repaired in bulk with `npm run repair:permissions` (dry run by default;
     `--apply` to change); it tightens only the known `requests/` artifacts and never
-    recurses into `cwd/` checkouts. Never write conversation state with a bare
-    `writeFileSync`; transcripts can contain tool output and secrets.
+    recurses into `cwd/` checkouts. It refuses a symlinked `requests/` root. Never write
+    conversation state with a bare `writeFileSync`; transcripts can contain tool output
+    and secrets.
 37. **A harness-reported error result fails the turn once, visibly.** A parser `error`
     event sets `turn.failure` (first one wins), broadcasts one `error`, persists one
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it

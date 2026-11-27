@@ -136,6 +136,15 @@ test('ui smoke finds the created card by request id, not title copy', () => {
   assert.match(web, /data-request-id=\{request\.id\}/);
 });
 
+test('ui smoke proves the drawer harness resolved before continuing', () => {
+  const source = readFileSync(script, 'utf8');
+
+  assert.ok(
+    source.includes('[data-testid="harness-effective"][data-resolved="true"]'),
+    'the drawer step must wait for a resolved harness, not just the Harness field',
+  );
+});
+
 function productionWebSource() {
   const webRoot = path.join(repoRoot, 'src', 'web', 'src');
   const files = readdirSync(webRoot, { recursive: true }).filter(

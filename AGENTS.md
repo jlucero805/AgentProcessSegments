@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1476 vitest cases: 1097 server across 59 files (one environmental root-skip) and 379 web across 28 files, all green.
+- 1477 vitest cases: 1097 server across 59 files (one environmental root-skip) and 380 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1097 server + 379 web, plus the e2e env guard
+npm test                       # 1097 server + 380 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages, SPA Help targets
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
@@ -308,7 +308,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
 - **The UI smoke asserts structure, not copy.** `scripts/ui-smoke.mjs` locates
   elements through `data-testid` hooks, accessible `aria-label`s, and Help `data-slug`s;
   `scripts/ui-smoke.test.mjs` fails when one it uses is missing from `src/web/src` or
-  the Help manifest, so locator drift is caught without Puppeteer.
+  the Help manifest, so locator drift is caught without Puppeteer. The request drawer
+  step requires the harness to have resolved (`harness-effective[data-resolved="true"]`),
+  not merely the Harness field to be mounted.
   The smoke also removes its request and cell on success, failure, and interrupt.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning

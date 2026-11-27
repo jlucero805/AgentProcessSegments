@@ -718,7 +718,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1476 vitest cases: 1097 server cases across 59 files (state machine,
+`npm test` runs 1477 vitest cases: 1097 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -734,7 +734,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 379 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 380 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, manifest-aware served-page links, and SPA Help targets, the source link, board,
@@ -870,8 +870,9 @@ env SBOX_HARNESS_BIN=/bin/false APS_HARNESS=opencode APS_CLAUDE_BIN=/bin/false \
 `node scripts/ui-smoke.mjs` is an optional real-browser check. Install Puppeteer first
 (`npm install --no-save puppeteer && npx puppeteer browsers install chrome`), point
 `UI_BASE` at a running brain, then run it. It creates a request and a cell, opens the
-drawer/chat, opens Help and Config, verifies that the Help Getting started page renders
-its Mermaid diagram as an SVG, removes both artifacts on success, failure, and
+drawer/chat and confirms the drawer resolved the request's harness, opens Help and
+Config, verifies that the Help Getting started page renders its Mermaid diagram as an
+SVG, removes both artifacts on success, failure, and
 interrupt, and fails on page errors. It locates elements through `data-testid` hooks,
 accessible `aria-label`s, and Help `data-slug`s rather than visible copy, and
 `scripts/ui-smoke.test.mjs` fails in the normal test suite when one it references

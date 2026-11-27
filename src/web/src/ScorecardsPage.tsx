@@ -3,7 +3,7 @@ import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import type { CellDetail, Summary, SummaryStatus } from './types';
 import { timeAgo } from './types';
-import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
+import { Button, Card, EmptyState, Field, Input, SectionTitle, Spinner } from './ui';
 
 interface ScorecardGroup {
   cell: CellDetail;
@@ -13,9 +13,15 @@ interface ScorecardGroup {
   loadingMore: boolean;
 }
 
-type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
+type PresetKey = '24h' | '72h' | '7d' | '30d' | 'all';
+type RangeKey = PresetKey | 'custom';
 
-const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms: number | null }> = [
+interface DateWindow {
+  since?: number;
+  until?: number;
+}
+
+const RANGES: Array<{ key: PresetKey; label: string; spellout: string; ms: number | null }> = [
   { key: '24h', label: '24h', spellout: 'the last 24 hours', ms: 24 * 60 * 60_000 },
   { key: '72h', label: '72h', spellout: 'the last 72 hours', ms: 72 * 60 * 60_000 },
   { key: '7d', label: '7d', spellout: 'the last 7 days', ms: 7 * 24 * 60 * 60_000 },
@@ -23,18 +29,66 @@ const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms: number
   { key: 'all', label: 'All', spellout: 'all time', ms: null },
 ];
 
-const DEFAULT_RANGE: RangeKey = '72h';
+const DEFAULT_RANGE: PresetKey = '72h';
+/** Fallback span when Custom is opened from All, which has no lower bound. */
+const CUSTOM_FALLBACK_MS = 72 * 60 * 60_000;
 /** Reports rendered per cell before the group offers "Load older". */
 const PAGE_SIZE = 25;
 
-function rangeOption(range: RangeKey) {
+function presetOption(range: PresetKey) {
   return RANGES.find((option) => option.key === range) ?? RANGES[1]!;
 }
 
-/** Inclusive lower bound for the selected period; undefined means all time. */
-function sinceFor(range: RangeKey): number | undefined {
-  const option = rangeOption(range);
-  return option.ms === null ? undefined : Date.now() - option.ms;
+/** Inclusive window for a preset, evaluated at `now`; an empty window means all time. */
+function presetWindow(range: PresetKey, now = Date.now()): DateWindow {
+  const option = presetOption(range);
+  return option.ms === null ? {} : { since: now - option.ms };
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Local `YYYY-MM-DD` value for an `<input type="date">`. */
+function dateInputValue(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * Local whole-day window for two date inputs. The start date includes local
+ * midnight and the end date includes the last millisecond of the local day.
+ * Returns a validation message when either date is missing or inverted.
+ */
+function customWindow(start: string, end: string): DateWindow | string {
+  const startMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  const endMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
+  if (!startMatch || !endMatch) return 'Choose both a start and end date.';
+  const bounded = (match: RegExpExecArray, edge: 'start' | 'end'): number | null => {
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const date =
+      edge === 'start'
+        ? new Date(year, month, day, 0, 0, 0, 0)
+        : new Date(year, month, day, 23, 59, 59, 999);
+    return date.getFullYear() === year &&
+      date.getMonth() === month &&
+      date.getDate() === day
+      ? date.getTime()
+      : null;
+  };
+  const since = bounded(startMatch, 'start');
+  const until = bounded(endMatch, 'end');
+  if (since === null || until === null) return 'Choose a valid start and end date.';
+  if (until < since) return 'Choose a start date on or before the end date.';
+  return { since, until };
+}
+
+function segmentClass(active: boolean): string {
+  return active
+    ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
+    : 'rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200';
 }
 
 /** Keep one probe row so the caller knows whether another page exists. */
@@ -73,20 +127,30 @@ export function ScorecardsPage({
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
+  const [customStart, setCustomStart] = useState(() =>
+    dateInputValue(Date.now() - CUSTOM_FALLBACK_MS),
+  );
+  const [customEnd, setCustomEnd] = useState(() => dateInputValue(Date.now()));
+  const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
   const loadGeneration = useRef(0);
+  /** Bounds used by the load that produced the visible page; paging reuses them. */
+  const pageWindow = useRef<DateWindow>({});
+
+  const draftWindow = customWindow(customStart, customEnd);
+  const draftError = typeof draftWindow === 'string' ? draftWindow : null;
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
+    const bounds = range === 'custom' ? appliedCustom : presetWindow(range);
     try {
       const [cells, summaryStatus] = await Promise.all([
         api.getCells(),
         api.getSummaryStatus(cellId ?? undefined),
       ]);
-      const since = sinceFor(range);
       let next: ScorecardGroup[];
       if (cellId) {
         const page = pageReports(
-          await api.getSummaries({ cellId, limit: PAGE_SIZE + 1, since }),
+          await api.getSummaries({ cellId, limit: PAGE_SIZE + 1, ...bounds }),
         );
         const cell = cells.find((item) => item.id === cellId);
         next =
@@ -96,7 +160,7 @@ export function ScorecardsPage({
       } else {
         const pages = await Promise.all(
           cells.map((cell) =>
-            api.getSummaries({ cellId: cell.id, limit: PAGE_SIZE + 1, since }),
+            api.getSummaries({ cellId: cell.id, limit: PAGE_SIZE + 1, ...bounds }),
           ),
         );
         next = cells
@@ -109,6 +173,7 @@ export function ScorecardsPage({
           .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0));
       }
       if (generation !== loadGeneration.current) return;
+      pageWindow.current = bounds;
       setStatus(summaryStatus);
       setGroups(next);
     } catch (error) {
@@ -122,13 +187,47 @@ export function ScorecardsPage({
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [cellId, onError, range]);
+  }, [appliedCustom, cellId, onError, range]);
 
   useEffect(() => {
     void (async () => {
       await load();
     })();
   }, [load]);
+
+  const selectCustom = () => {
+    if (range === 'custom') return;
+    const now = Date.now();
+    const startTime =
+      range === 'all'
+        ? now - CUSTOM_FALLBACK_MS
+        : presetWindow(range, now).since ?? now - CUSTOM_FALLBACK_MS;
+    const start = dateInputValue(startTime);
+    const end = dateInputValue(now);
+    const bounds = customWindow(start, end);
+    if (typeof bounds === 'string') return;
+    setCustomStart(start);
+    setCustomEnd(end);
+    setRange('custom');
+    setAppliedCustom(bounds);
+    setGroups(null);
+    setLoading(true);
+  };
+
+  const applyCustom = () => {
+    if (typeof draftWindow === 'string') return;
+    if (
+      range === 'custom' &&
+      draftWindow.since === appliedCustom.since &&
+      draftWindow.until === appliedCustom.until
+    ) {
+      return;
+    }
+    setRange('custom');
+    setAppliedCustom(draftWindow);
+    setGroups(null);
+    setLoading(true);
+  };
 
   const loadOlder = useCallback(
     async (targetCellId: string) => {
@@ -146,7 +245,7 @@ export function ScorecardsPage({
         const older = await api.getSummaries({
           cellId: targetCellId,
           limit: PAGE_SIZE + 1,
-          since: sinceFor(range),
+          ...pageWindow.current,
           before: oldest.createdAt,
           beforeId: oldest.id,
         });
@@ -179,18 +278,24 @@ export function ScorecardsPage({
         }
       }
     },
-    [groups, onError, range],
+    [groups, onError],
   );
 
-  const option = rangeOption(range);
-  const emptyTitle =
-    range === 'all'
-      ? 'No scorecards yet'
-      : `No scorecards in ${option.spellout}`;
-  const emptyHint =
-    range === 'all'
-      ? 'The scheduler writes one per cell on its cadence. Run one from a cell master, or enable the schedule in Config.'
-      : 'Choose a longer period, run one from a cell master, or enable the schedule in Config.';
+  let emptyTitle: string;
+  let emptyHint: string;
+  if (range === 'all') {
+    emptyTitle = 'No scorecards yet';
+    emptyHint =
+      'The scheduler writes one per cell on its cadence. Run one from a cell master, or enable the schedule in Config.';
+  } else if (range === 'custom') {
+    emptyTitle = 'No scorecards in the selected date range';
+    emptyHint =
+      'Widen the start or end date, run one from a cell master, or enable the schedule in Config.';
+  } else {
+    emptyTitle = `No scorecards in ${presetOption(range).spellout}`;
+    emptyHint =
+      'Choose a longer period, run one from a cell master, or enable the schedule in Config.';
+  }
 
   return (
     <div className="mx-auto h-full w-full max-w-5xl space-y-4 overflow-y-auto p-4 md:p-6">
@@ -200,7 +305,8 @@ export function ScorecardsPage({
           <p className="mt-1 text-sm text-zinc-500">
             Persisted reports written per cell over a trailing window. The period filters
             by when a report was generated; each report still covers its own configured
-            window. Pick a cell in the sidebar to focus its history.
+            window. Custom dates use local time and include whole days. Pick a cell in the
+            sidebar to focus its history.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -220,15 +326,19 @@ export function ScorecardsPage({
                   setLoading(true);
                   setRange(item.key);
                 }}
-                className={
-                  range === item.key
-                    ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
-                    : 'rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200'
-                }
+                className={segmentClass(range === item.key)}
               >
                 {item.label}
               </button>
             ))}
+            <button
+              type="button"
+              aria-pressed={range === 'custom'}
+              onClick={selectCustom}
+              className={segmentClass(range === 'custom')}
+            >
+              Custom
+            </button>
           </div>
           <Button
             variant="secondary"
@@ -243,6 +353,44 @@ export function ScorecardsPage({
           </Button>
         </div>
       </div>
+
+      {range === 'custom' ? (
+        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+          <Field label="Start date">
+            <Input
+              type="date"
+              aria-label="Start date"
+              className="w-40"
+              value={customStart}
+              onChange={(event) => setCustomStart(event.target.value)}
+            />
+          </Field>
+          <Field label="End date">
+            <Input
+              type="date"
+              aria-label="End date"
+              className="w-40"
+              value={customEnd}
+              onChange={(event) => setCustomEnd(event.target.value)}
+            />
+          </Field>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={draftError !== null}
+            onClick={applyCustom}
+          >
+            Apply
+          </Button>
+          <p
+            className={
+              draftError ? 'text-[11px] text-amber-300' : 'text-[11px] text-zinc-600'
+            }
+          >
+            {draftError ?? 'Local time; whole days.'}
+          </p>
+        </div>
+      ) : null}
 
       {status ? (
         <p className="text-[11px] text-zinc-600">

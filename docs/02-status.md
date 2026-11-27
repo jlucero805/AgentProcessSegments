@@ -247,11 +247,11 @@ built and vended by the brain; real-CLI verification is still pending.
   master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, history, and **Run scorecard now**, a dedicated **Scorecards** page
   groups every cell's persisted reports by generation time (default last 72 hours;
-  `24h`/`72h`/`7d`/`30d`/`All`, newest first, earlier history collapsible, **Load older**
-  in 25-report pages) and follows the sidebar cell filter, and the Config page edits the
-  schedule/prompt. `retention.cellSummariesDays` prunes old reports while always keeping
-  the newest per cell and bounds the page's **All** period. See
-  `docs/08-user-workflows.md`.
+  `24h`/`72h`/`7d`/`30d`/`All`, or a custom local start/end date range, newest first,
+  earlier history collapsible, **Load older** in 25-report pages) and follows the sidebar
+  cell filter, and the Config page edits the schedule/prompt.
+  `retention.cellSummariesDays` prunes old reports while always keeping the newest per
+  cell and bounds the page's **All** period. See `docs/08-user-workflows.md`.
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
   scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
   transcript without a model turn. The Config page and the Cell master drawer embed the
@@ -449,7 +449,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1318 vitest cases (one environmental root-skip): 1014 server across 56 files and 304 web across 28 files,
+- 1324 vitest cases (one environmental root-skip): 1016 server across 56 files and 308 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -644,7 +644,7 @@ PATCH  /api/process                       {segments:[…]}
 GET    /api/master/status[?cellId=…]
 POST   /api/master/run?cellId=…
 GET    /api/master/events?cellId=…&limit=…
-GET    /api/summaries[?cellId=…&limit=…&since=…&before=…&beforeId=…]
+GET    /api/summaries[?cellId=…&limit=…&since=…&until=…&before=…&beforeId=…]
 GET    /api/summaries/latest?cellId=…
 POST   /api/summaries/run?cellId=…
 GET    /api/summaries/status[?cellId=…]

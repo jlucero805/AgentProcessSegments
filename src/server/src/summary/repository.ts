@@ -27,6 +27,8 @@ export interface SummaryListOptions {
   limit?: number | undefined;
   /** Inclusive lower bound on `created_at` (epoch ms). */
   since?: number | undefined;
+  /** Inclusive upper bound on `created_at` (epoch ms). */
+  until?: number | undefined;
   /** Exclusive upper bound on the `(created_at, id)` keyset cursor. */
   before?: number | undefined;
   /** Tie-breaker for `before`; both cursor fields must be supplied together. */
@@ -82,6 +84,10 @@ export class SummaryRepository {
     if (options.since !== undefined) {
       clauses.push('created_at >= ?');
       params.push(options.since);
+    }
+    if (options.until !== undefined) {
+      clauses.push('created_at <= ?');
+      params.push(options.until);
     }
     if (options.before !== undefined && options.beforeId !== undefined) {
       clauses.push('(created_at < ? OR (created_at = ? AND id < ?))');

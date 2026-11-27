@@ -141,6 +141,7 @@ describe('api client', () => {
       cellId: 'c1',
       limit: 5,
       since: 1_000,
+      until: 3_000,
       before: 2_000,
       beforeId: 's1',
     });
@@ -160,7 +161,7 @@ describe('api client', () => {
       init: call[1],
     }));
     expect(calls[0]?.url).toBe(
-      '/api/summaries?cellId=c1&limit=5&since=1000&before=2000&beforeId=s1',
+      '/api/summaries?cellId=c1&limit=5&since=1000&until=3000&before=2000&beforeId=s1',
     );
     expect(calls[1]?.url).toBe('/api/summaries/latest?cellId=c1');
     expect(calls[2]?.url).toBe('/api/summaries/status?cellId=c1');

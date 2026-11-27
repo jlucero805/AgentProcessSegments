@@ -2506,3 +2506,34 @@ with no toggle; a receiver that treats a missing signature as unsigned can accep
 unauthenticated deliveries until it is fixed. Code copied from the old example's legacy
 helper must move to V2. There is no data or config migration. `X-APS-Timestamp` remains an
 unsigned informational header; removing it is separate.
+
+## D106. Scorecards custom ranges use inclusive local whole-day bounds
+
+**Context.** D92 gave the Scorecards page five rolling presets and an inclusive
+generation-time `since` plus a keyset cursor. Operators could not ask for an arbitrary
+calendar window, such as a specific week or a range that ends in the past, because the read
+path had no upper bound and the page had no date inputs.
+
+**Decision.** Add a sixth **Custom** segment with native start and end date inputs. The
+browser's local dates become inclusive bounds: start at local `00:00:00.000` and end at
+local `23:59:59.999`, converted to epoch ms. `GET /api/summaries` and
+`SummaryRepository.list()` accept an optional inclusive `until`, and it ANDs with `since`,
+`cellId`, the limit, and the `(created_at, id)` cursor. `until` is not a cursor: `before`
+remains the exclusive keyset bound, so paging inside a custom range keeps both the applied
+`since`/`until` and the cursor. Selecting Custom prefills the start from the current finite
+preset (or the last 72 hours from All) and the end from today, then applies at once;
+subsequent edits need **Apply**. Draft dates never affect Refresh or **Load older**, and
+the page reuses the window that produced the visible page when paging. Presets still
+compute a fresh rolling lower bound on each load. The API places no ordering rule on
+`since` and `until`; an inverted pair returns an empty list, while the UI rejects it before
+sending. The range is not persisted across reloads.
+
+**Why local whole days.** The control is a date picker, not a datetime picker, and
+operators read report history in local time. Parsing `YYYY-MM-DD` with `new Date(value)`
+would use UTC midnight and shift the boundary by a day in negative-offset zones; building
+the date from its local components avoids that. No new index is needed because the
+existing `created_at` indexes cover both bounds.
+
+**Cost.** Custom ranges are bounded by `retention.cellSummariesDays`, not by an artificial
+cap, and a future end date simply includes everything up to now. Time-of-day precision,
+timezone selection, URL persistence, and a drawer control are separate work.

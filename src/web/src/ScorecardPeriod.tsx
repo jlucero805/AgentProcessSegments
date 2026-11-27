@@ -3,6 +3,7 @@ import { Button, Field, Input } from './ui';
 
 export type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
 export type PageRangeKey = RangeKey | 'custom';
+export type ScorecardsView = 'grouped' | 'flat';
 
 /** Inclusive generation-time window; an empty object means all time. */
 export interface DateWindow {
@@ -44,6 +45,12 @@ function pad(value: number): string {
 export function dateInputValue(timestamp: number): string {
   const date = new Date(timestamp);
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** Local `YYYY-MM-DDTHH:mm` value used by the URL and Custom inputs. */
+export function dateTimeInputValue(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${dateInputValue(timestamp)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 interface ClockTime {
@@ -127,6 +134,19 @@ export function customRangeSeed(range: RangeKey, now = Date.now()): CustomRangeS
   };
 }
 
+/** Draft inputs for an applied Custom window, to the minute. */
+export function customSeedForWindow(window: DateWindow): CustomRangeSeed | null {
+  if (window.since === undefined || window.until === undefined) return null;
+  const start = dateTimeInputValue(window.since);
+  const end = dateTimeInputValue(window.until);
+  return {
+    start: start.slice(0, 10),
+    startTime: start.slice(11),
+    end: end.slice(0, 10),
+    endTime: end.slice(11),
+  };
+}
+
 /** Applied Custom window in the operator's local time, to minute precision. */
 export function appliedRangeLabel(window: DateWindow): string {
   if (window.since === undefined || window.until === undefined) return '';
@@ -136,6 +156,24 @@ export function appliedRangeLabel(window: DateWindow): string {
       timeStyle: 'short',
     });
   return `Applied: ${format(window.since)} – ${format(window.until)} (local; the end minute is included)`;
+}
+
+/** Scorecards page state encoded in the URL. */
+export interface ScorecardRouteState {
+  range: PageRangeKey;
+  view: ScorecardsView;
+  customSeed: CustomRangeSeed;
+  appliedCustom: DateWindow;
+  /** The URL carried an invalid or stale value and should be rewritten once. */
+  normalize: boolean;
+}
+
+/** Scorecards-owned query values; null means remove the parameter. */
+export interface ScorecardRouteParams {
+  period: string | null;
+  from: string | null;
+  to: string | null;
+  view: string | null;
 }
 
 /**
@@ -215,6 +253,95 @@ export function ScorecardCustomRange({
       </p>
     </div>
   );
+}
+
+const SCORECARD_EDGE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
+
+function splitScorecardEdge(value: string | null): { date: string; time: string } | null {
+  if (value === null) return null;
+  const match = SCORECARD_EDGE.exec(value);
+  if (!match) return null;
+  return {
+    date: `${match[1]}-${match[2]}-${match[3]}`,
+    time: `${match[4]}:${match[5]}`,
+  };
+}
+
+/**
+ * Read the Scorecards period and layout from a query string. Missing values use
+ * the defaults; a malformed or partial Custom range falls back to 72h and asks
+ * the caller to normalize the URL. Custom bounds are restored as-is and are not
+ * re-validated against the current time.
+ */
+export function readScorecardRoute(
+  search: string,
+  now = Date.now(),
+): ScorecardRouteState {
+  const params = new URLSearchParams(search);
+  const defaults: ScorecardRouteState = {
+    range: DEFAULT_RANGE,
+    view: 'grouped',
+    customSeed: customRangeSeed(DEFAULT_RANGE, now),
+    appliedCustom: {},
+    normalize: false,
+  };
+  const rawView = params.get('view');
+  const view: ScorecardsView = rawView === 'flat' ? 'flat' : 'grouped';
+  const badView = rawView !== null && rawView !== 'grouped' && rawView !== 'flat';
+  const rawPeriod = params.get('period');
+  if (rawPeriod === null) {
+    return {
+      ...defaults,
+      view,
+      normalize: badView || params.has('from') || params.has('to'),
+    };
+  }
+  if (rawPeriod === 'custom') {
+    const start = splitScorecardEdge(params.get('from'));
+    const end = splitScorecardEdge(params.get('to'));
+    if (!start || !end) return { ...defaults, view, normalize: true };
+    const window = customWindow(start.date, end.date, start.time, end.time);
+    if (typeof window === 'string') return { ...defaults, view, normalize: true };
+    const seed = customSeedForWindow(window);
+    if (!seed) return { ...defaults, view, normalize: true };
+    return {
+      ...defaults,
+      range: 'custom',
+      view,
+      customSeed: seed,
+      appliedCustom: window,
+      normalize: badView,
+    };
+  }
+  const option = RANGES.find((item) => item.key === rawPeriod);
+  if (!option) return { ...defaults, view, normalize: true };
+  return {
+    ...defaults,
+    range: option.key,
+    view,
+    normalize: badView || params.has('from') || params.has('to'),
+  };
+}
+
+/** Canonical query values for a Scorecards page state. */
+export function scorecardRouteParams(
+  range: PageRangeKey,
+  view: ScorecardsView,
+  appliedCustom: DateWindow,
+): ScorecardRouteParams {
+  const since = appliedCustom.since;
+  const until = appliedCustom.until;
+  const custom = range === 'custom' && since !== undefined && until !== undefined;
+  let period: string | null;
+  if (range === 'custom') period = custom ? 'custom' : null;
+  else if (range === DEFAULT_RANGE) period = null;
+  else period = range;
+  return {
+    period,
+    from: custom ? dateTimeInputValue(since) : null,
+    to: custom ? dateTimeInputValue(until) : null,
+    view: view === 'grouped' ? null : view,
+  };
 }
 
 function segmentClass(active: boolean): string {

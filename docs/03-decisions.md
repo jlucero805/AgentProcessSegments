@@ -3320,3 +3320,49 @@ variant was rejected because the same wrapped field row fits the narrower card.
 retention, or dependency change. The page's tests run unchanged as the extraction guard. The
 drawer can still show at most five reports, by design, and the Custom range is not persisted
 across drawer opens (D107).
+
+## D131. The Scorecards period and layout live in the URL
+
+**Context.** D108 gave the Scorecards page a Custom range with inclusive local
+whole-day or minute bounds, and D109 added the flat feed, but both the period and the
+Grouped/Flat choice were component state. D108 recorded that the range was not persisted
+across reloads and left URL persistence as separate work. The App already restored
+`page`, `cell`, `request`, `master`, and `help` from the query string, so a shared or
+bookmarked scorecard window lost only the page-owned state. D130 then shared the Custom
+inputs between the page and the drawer, so this decision builds on `CustomRangeSeed`
+rather than adding a second copy of the draft state.
+
+**Decision.** The Scorecards page owns four query parameters: `period` for
+`24h|72h|7d|30d|all|custom`, `from` and `to` for a Custom window, and `view` for
+`grouped|flat`. `from` and `to` are browser-local `YYYY-MM-DDTHH:mm` strings, never epoch
+ms; `to` is the inclusive end minute, so it maps through the existing `customWindow`
+rule to `endMinute + 59_999`. The canonical URL omits the defaults (`72h` and
+`grouped`), but the reader accepts them explicitly. A preset drops both edges. Selecting
+Custom applies the prefilled window immediately, as before; later draft edits write
+nothing until **Apply**.
+
+Custom decoding delegates to `customWindow` rather than duplicating date, time, and
+inversion checks, and a restored window is not re-validated against the current time. It
+produces a `CustomRangeSeed`, so `ScorecardCustomRange` mounts with the restored edges.
+An unknown period, a missing or malformed edge, an impossible local time, or inverted
+edges fall back to the last 72 hours; an unknown layout falls back to Grouped. The page
+normalizes such a link once with `replaceState`, preserving a valid layout and every
+unrelated query parameter, and sends only the fallback request.
+
+`ScorecardsPage` writes its parameters by merging into the current query and calls
+`pushState` from the preset, Custom selection/Apply, and layout handlers, so Back/Forward
+can move between period states without a reload. It does not run a state-to-URL effect;
+one `popstate` listener re-reads the route and batches the state update. Because the
+shared Custom inputs initialize from their seed only on mount, the page keys that
+component from the seed so a custom-to-custom history move replaces both drafts. App's
+writer now merges its own keys into the existing query instead of rebuilding it.
+Scorecards parameters may remain on other pages so returning to the page restores the
+view. The drawer keeps its own local period; it is not URL-backed.
+
+**Cost.** Two components write disjoint parts of one query string, so each must preserve
+the other's keys; a future page-owned parameter needs the same merge discipline. Local
+wall-clock is the contract, so an ambiguous daylight-saving fold resolves with the
+platform's normal local-time rule. Every period or layout change adds a history entry.
+The page remounts the shared Custom inputs when history replaces the applied edges, which
+discards any unapplied draft at that point by design. No API, schema, scheduler,
+retention, or dependency change is involved.

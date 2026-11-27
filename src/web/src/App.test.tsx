@@ -534,6 +534,122 @@ describe('App', () => {
     expect(window.location.search).toContain('page=scorecards');
   });
 
+  it('restores a deep-linked Scorecards period and preserves it on reload and navigation', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?page=scorecards&period=custom&from=2026-11-01T08:00&to=2026-11-01T12:00&view=flat&utm=x',
+    );
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+    const feedCalls = () =>
+      fetchMock.mock.calls.flatMap(([input]) => {
+        const url = new URL(String(input), 'http://localhost');
+        return url.pathname === '/api/summaries/feed' ? [url.searchParams] : [];
+      });
+
+    const first = render(<App />);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(feedCalls().length).toBeGreaterThan(0), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const expectedSince = String(new Date(2026, 10, 1, 8, 0, 0, 0).getTime());
+    const expectedUntil = String(new Date(2026, 10, 1, 12, 0, 59, 999).getTime());
+    expect(feedCalls()[0]?.get('since')).toBe(expectedSince);
+    expect(feedCalls()[0]?.get('until')).toBe(expectedUntil);
+    expect(screen.getByRole('button', { name: 'Flat' })).toHaveAttribute('aria-pressed', 'true');
+    expect(new URL(window.location.href).searchParams.get('utm')).toBe('x');
+
+    first.unmount();
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(feedCalls().length).toBeGreaterThanOrEqual(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const reloaded = feedCalls().at(-1);
+    expect(reloaded?.get('since')).toBe(expectedSince);
+    expect(reloaded?.get('until')).toBe(expectedUntil);
+    expect(new URL(window.location.href).searchParams.get('utm')).toBe('x');
+
+    fireEvent.click(screen.getByText('Usage'));
+    await waitFor(() => expect(window.location.search).toContain('page=usage'));
+    const afterNavigation = new URL(window.location.href).searchParams;
+    expect(afterNavigation.get('period')).toBe('custom');
+    expect(afterNavigation.get('view')).toBe('flat');
+    expect(afterNavigation.get('utm')).toBe('x');
+
+    fireEvent.click(screen.getByText('Scorecards'));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Flat' })).toHaveAttribute('aria-pressed', 'true');
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('moves between Scorecards periods with browser back and forward', async () => {
+    window.history.replaceState(null, '', '/?page=scorecards');
+    const fetchMock = installFetch(makeRequest({ id: 'a', title: 'Url card' }));
+    const latestCalls = () =>
+      fetchMock.mock.calls.flatMap(([input]) => {
+        const url = new URL(String(input), 'http://localhost');
+        return url.pathname === '/api/summaries/latest-per-cell' ? [url.searchParams] : [];
+      });
+
+    render(<App />);
+    expect(
+      await screen.findByText('No scorecards in the last 72 hours', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(latestCalls().length).toBeGreaterThan(0), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '24h' }));
+    await waitFor(() => expect(window.location.search).toContain('period=24h'));
+    await waitFor(() => expect(latestCalls().length).toBeGreaterThanOrEqual(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const daySince = Number(latestCalls().at(-1)?.get('since'));
+    expect(Math.abs(daySince - (Date.now() - 24 * 60 * 60_000))).toBeLessThan(60_000);
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => expect(window.location.search).toContain('period=7d'));
+    await waitFor(() => expect(latestCalls().length).toBeGreaterThanOrEqual(3), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    window.history.back();
+    await waitFor(() => expect(window.location.search).toContain('period=24h'), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: '24h' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        ),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(() => expect(latestCalls().length).toBeGreaterThanOrEqual(4), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const afterBack = Number(latestCalls().at(-1)?.get('since'));
+    expect(Math.abs(afterBack - (Date.now() - 24 * 60 * 60_000))).toBeLessThan(60_000);
+
+    window.history.forward();
+    await waitFor(() => expect(window.location.search).toContain('period=7d'), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    await waitFor(() => expect(latestCalls().length).toBeGreaterThanOrEqual(5), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const afterForward = Number(latestCalls().at(-1)?.get('since'));
+    expect(Math.abs(afterForward - (Date.now() - 7 * 24 * 60 * 60_000))).toBeLessThan(60_000);
+  }, APP_TEST_TIMEOUT_MS);
+
   it('focuses a cell from the flat feed and records it like the sidebar', async () => {
     window.history.replaceState(null, '', '/?page=scorecards');
     const report = {

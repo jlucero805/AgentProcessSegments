@@ -135,7 +135,13 @@ beyond five.
   **00:00** and **23:59**). Custom values use the browser's local time; the start is
   exact at the selected minute and the end includes the whole end minute. A start after
   the end at minute granularity is rejected before any request is sent, and equal start
-  and end minutes are valid. Clearing a time falls back to its default. The period
+  and end minutes are valid. The selected period, including both Custom edges, and the
+  Grouped/Flat layout are encoded in the URL (`period`, `from`, `to`, and `view`; Custom
+  edges use local `YYYY-MM-DDTHH:mm` with the end minute included), so a reload,
+  bookmark, or shared link restores the same view along with the sidebar's cell filter.
+  Changing the period or layout adds a history entry; Back/Forward moves between them
+  without a page reload. A malformed or partial Custom link falls back to the last 72
+  hours. The period
   filters by when a report was generated, not by the window the report covers;
   each report still shows its own configured trailing window. With **All cells** selected
   it lists every cell with a report in the period, newest cell first, loading each cell's

@@ -231,10 +231,11 @@ built and vended by the brain; real-CLI verification is still pending.
 - Mobile shell: the sidebar is off-canvas with a hamburger below `md`, board columns
   scroll horizontally with snap, and the drawer fills the screen. A 390 px Chromium run
   verified the menu, board scroll, and full-width drawer.
-- Durable chat: `?page=`, `?cell=`, and `?request=` restore the view on reload;
-  `GET /clarify` reports `active`; the chat hydrates the snapshot and reattaches to a
-  live turn, showing a working indicator and streaming text. Verified by reloading
-  Chromium mid-turn and seeing the same turn continue.
+- Durable route and chat: `?page=`, `?cell=`, and `?request=` restore the view on reload,
+  as do the Scorecards `?period=`, `?from=`, `?to=`, and `?view=` state; `GET /clarify`
+  reports `active`; the chat hydrates the snapshot and reattaches to a live turn, showing
+  a working indicator and streaming text. Verified by reloading Chromium mid-turn and
+  seeing the same turn continue.
 - Chat controls: composing while a turn runs queues the message under the per-request
   `aps-queue:<requestId>` localStorage key and drains in order when the turn ends. A
   restored queue waits for `GET /clarify` to report whether a turn is live, so a reload
@@ -496,7 +497,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1519 vitest cases (one environmental root-skip): 1117 server across 59 files and 402 web across 29 files,
+- 1552 vitest cases (one environmental root-skip): 1117 server across 59 files and 435 web across 30 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

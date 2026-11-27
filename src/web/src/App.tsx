@@ -177,12 +177,19 @@ export function App() {
   // Keep the current page, floor, request, docs page, and open overlay in the URL
   // so a reload (or a phone switching apps) comes back to the same place.
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (page !== 'board') params.set('page', page);
-    if (cellId) params.set('cell', cellId);
-    if (detailId) params.set('request', detailId);
-    if (masterOpen) params.set('master', '1');
-    if (helpSlug) params.set('help', helpSlug);
+    // Merge this shell's route keys into the current query so page-owned state
+    // (for example the Scorecards period and layout) and unknown parameters
+    // survive navigation and reloads.
+    const params = new URLSearchParams(window.location.search);
+    const setOrDelete = (key: string, value: string | null) => {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    };
+    setOrDelete('page', page === 'board' ? null : page);
+    setOrDelete('cell', cellId);
+    setOrDelete('request', detailId);
+    setOrDelete('master', masterOpen ? '1' : null);
+    setOrDelete('help', helpSlug);
     const search = params.toString();
     const hash = helpSlug && helpAnchor ? `#${helpAnchor}` : '';
     window.history.replaceState(

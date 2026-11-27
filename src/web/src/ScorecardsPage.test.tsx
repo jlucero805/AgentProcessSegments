@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
 import { customWindow } from './ScorecardPeriod';
 import { jsonResponse, makeCellsFeed } from './test/fixtures';
@@ -8,6 +8,10 @@ import { jsonResponse, makeCellsFeed } from './test/fixtures';
 // paging cases room under full-suite load while keeping them bounded.
 const ASYNC_TIMEOUT_MS = 10_000;
 const SCORECARDS_TEST_TIMEOUT_MS = 30_000;
+
+beforeEach(() => {
+  window.history.replaceState(null, '', '/');
+});
 
 function makeCell(id: string, name: string) {
   return {
@@ -212,6 +216,242 @@ describe('customWindow', () => {
       'Choose a start on or before the end.',
     );
   });
+});
+
+describe('Scorecards URL state', () => {
+  it('restores a custom window and layout from the URL without a default fetch', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?period=custom&from=2026-11-01T08:00&to=2026-11-01T12:00',
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(latestRequests(urls)).toHaveLength(1);
+    const params = latestRequests(urls)[0];
+    expect(params?.get('since')).toBe(String(new Date(2026, 10, 1, 8, 0, 0, 0).getTime()));
+    expect(params?.get('until')).toBe(String(new Date(2026, 10, 1, 12, 0, 59, 999).getTime()));
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('Start time')).toHaveValue('08:00');
+    expect(screen.getByLabelText('End date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('End time')).toHaveValue('12:00');
+    expect(
+      screen.getByText(
+        appliedRangeLabel(
+          new Date(2026, 10, 1, 8, 0, 0, 0).getTime(),
+          new Date(2026, 10, 1, 12, 0, 59, 999).getTime(),
+        ),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('writes a preset to the URL and restores it on a fresh mount', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    const first = renderPage();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '24h' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(new URL(window.location.href).searchParams.get('period')).toBe('24h');
+    expect(screen.getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+
+    first.unmount();
+    renderPage();
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(3), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const since = Number(latestRequests(urls)[2]?.get('since'));
+    expect(Math.abs(since - (Date.now() - 24 * 60 * 60_000))).toBeLessThan(60_000);
+    expect(screen.getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps Custom drafts out of the URL and requests until Apply', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const appliedUrl = window.location.search;
+    const prefilled = new URLSearchParams(appliedUrl);
+    const prefillFrom = prefilled.get('from');
+    const prefillTo = prefilled.get('to');
+    if (!prefillFrom || !prefillTo) throw new Error('Custom selection did not write both edges');
+
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-11-02' } });
+    fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '09:30' } });
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-11-03' } });
+    fireEvent.change(screen.getByLabelText('End time'), { target: { value: '17:45' } });
+    expect(window.location.search).toBe(appliedUrl);
+    await act(async () => {});
+    expect(latestRequests(urls)).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(3), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const params = new URL(window.location.href).searchParams;
+    expect(params.get('period')).toBe('custom');
+    expect(params.get('from')).toBe('2026-11-02T09:30');
+    expect(params.get('to')).toBe('2026-11-03T17:45');
+    const request = latestRequests(urls)[2];
+    expect(request?.get('since')).toBe(String(new Date(2026, 10, 2, 9, 30, 0, 0).getTime()));
+    expect(request?.get('until')).toBe(String(new Date(2026, 10, 3, 17, 45, 59, 999).getTime()));
+
+    window.history.back();
+    await waitFor(
+      () => expect(new URL(window.location.href).searchParams.get('from')).toBe(prefillFrom),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(new URL(window.location.href).searchParams.get('to')).toBe(prefillTo);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Start date')).toHaveValue(prefillFrom.slice(0, 10));
+      expect(screen.getByLabelText('Start time')).toHaveValue(prefillFrom.slice(11));
+      expect(screen.getByLabelText('End date')).toHaveValue(prefillTo.slice(0, 10));
+      expect(screen.getByLabelText('End time')).toHaveValue(prefillTo.slice(11));
+    });
+  });
+
+  it('falls back to 72h and canonicalizes a malformed custom link', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?period=custom&from=2026-11-01T08:00&utm=keep',
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(latestRequests(urls)).toHaveLength(1);
+    expect(latestRequests(urls)[0]?.has('until')).toBe(false);
+    expect(latestRequests(urls)[0]?.has('since')).toBe(true);
+
+    await waitFor(() => {
+      expect(new URL(window.location.href).searchParams.get('period')).toBeNull();
+    });
+    const params = new URL(window.location.href).searchParams;
+    expect(params.get('from')).toBeNull();
+    expect(params.get('to')).toBeNull();
+    expect(params.get('utm')).toBe('keep');
+  });
+
+  it('restores and writes the flat layout', async () => {
+    window.history.replaceState(null, '', '/?period=24h&view=flat');
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(screen.getByRole('button', { name: 'Flat' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Grouped' }));
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(new URL(window.location.href).searchParams.get('view')).toBeNull();
+  });
+
+  it('keeps the focused cell, custom bounds, layout, and unknown params together', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?cell=c1&period=custom&from=2026-11-01T08:00&to=2026-11-01T12:00&view=flat&utm=x',
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage({ cellId: 'c1' });
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    const request = summaryRequests(urls)[0];
+    expect(request?.get('cellId')).toBe('c1');
+    expect(request?.get('since')).toBe(String(new Date(2026, 10, 1, 8, 0, 0, 0).getTime()));
+    expect(request?.get('until')).toBe(String(new Date(2026, 10, 1, 12, 0, 59, 999).getTime()));
+    const params = new URL(window.location.href).searchParams;
+    expect(params.get('view')).toBe('flat');
+    expect(params.get('utm')).toBe('x');
+  });
+
+  it('follows popstate between period states', async () => {
+    window.history.replaceState(null, '', '/?period=24h');
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(latestRequests(urls)).toHaveLength(1);
+
+    window.history.replaceState(null, '', '/?period=7d');
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const since = Number(latestRequests(urls)[1]?.get('since'));
+    expect(Math.abs(since - (Date.now() - 7 * 24 * 60 * 60_000))).toBeLessThan(60_000);
+    expect(screen.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('replaces the Custom drafts when history moves between custom windows', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?period=custom&from=2026-11-01T08:00&to=2026-11-01T12:00',
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage();
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('Start time')).toHaveValue('08:00');
+    expect(screen.getByLabelText('End date')).toHaveValue('2026-11-01');
+    expect(screen.getByLabelText('End time')).toHaveValue('12:00');
+
+    window.history.replaceState(
+      null,
+      '',
+      '/?period=custom&from=2026-11-05T09:15&to=2026-11-06T18:30',
+    );
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-11-05');
+    expect(screen.getByLabelText('Start time')).toHaveValue('09:15');
+    expect(screen.getByLabelText('End date')).toHaveValue('2026-11-06');
+    expect(screen.getByLabelText('End time')).toHaveValue('18:30');
+    const request = latestRequests(urls)[1];
+    expect(request?.get('since')).toBe(String(new Date(2026, 10, 5, 9, 15, 0, 0).getTime()));
+    expect(request?.get('until')).toBe(String(new Date(2026, 10, 6, 18, 30, 59, 999).getTime()));
+  }, SCORECARDS_TEST_TIMEOUT_MS);
 });
 
 describe('ScorecardsPage', () => {

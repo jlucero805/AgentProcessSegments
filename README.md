@@ -136,6 +136,8 @@ mean to skip: it prints each image's timestamp so a stale capture stays visible.
 
 ![Cell master drawer showing status, cron loop, activity, and chat](docs/screenshots/master.png)
 
+![Help Getting started page with the deployment flowchart, sequence diagram, and process-segment flowchart rendered by Mermaid](docs/screenshots/help-getting-started.png)
+
 The **Usage** page shows reported cost and, for turns a harness left unpriced, estimates
 from the operator-maintained **Model pricing** table on the Config page. It also breaks
 cost and cycle time down by cell and process segment: wall-clock time includes waiting in
@@ -829,7 +831,9 @@ absent; pass `--allow-missing-puppeteer` to skip it deliberately (the skip print
 `SKIPPED` and is not a pass).
 
 `node scripts/screenshots.mjs` uses the same optional Puppeteer install to rebuild
-`docs/screenshots/board.png` and `docs/screenshots/master.png` from a staged temp board.
+`docs/screenshots/board.png`, `docs/screenshots/master.png`, and
+`docs/screenshots/help-getting-started.png` from a staged temp board. The Help capture
+is the visual baseline for the three rendered Getting started Mermaid diagrams.
 It needs `npm run build` first and exits non-zero when Puppeteer is absent; pass
 `--allow-missing-puppeteer` to skip the capture deliberately (it prints the current
 image timestamps). The spawned server and the capture browser both get a pinned

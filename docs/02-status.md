@@ -568,6 +568,8 @@ built and vended by the brain; real-CLI verification is still pending.
   `workflow`-scoped credential: run `npm run check:github-scope` first (exit 0 is the only
   green light, 1 means a classic token is missing `workflow` or `repo`/`public_repo`, 2
   means it could not be classified) and follow invariant 47 instead of using a deploy key.
+  If the scope is missing, run `npm run grant:github-scope` from an interactive terminal;
+  it wraps the refresh and, outside a TTY, prints the command instead of blocking.
 
 ## Deviations from the spec
 

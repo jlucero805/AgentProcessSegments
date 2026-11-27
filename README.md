@@ -889,4 +889,7 @@ A push that adds or edits a file under `.github/workflows/` also needs a `workfl
 credential. Run `npm run check:github-scope` before such a push: exit 0 is the only green
 light, exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit
 2 means the credential could not be classified. See `AGENTS.md` invariant 47 for the
-remediation instead of working around the rejection with a deploy key.
+remediation instead of working around the rejection with a deploy key. If the scope is
+missing, run `npm run grant:github-scope` from an interactive terminal; it wraps
+`gh auth refresh` and re-verifies, and outside a TTY it prints the operator command and
+exits 1 instead of blocking on the device-flow approval.

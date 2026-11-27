@@ -125,8 +125,9 @@ npm test                       # 1097 server + 372 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
-                               # interrupt cleanup, and the GitHub scope preflight
+                               # interrupt cleanup, and the GitHub scope preflight/grant
 npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
+npm run grant:github-scope     # interactive: add the workflow scope to the host gh credential
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run test:web-stress        # manual: web suite 3x under 4 CPU hogs; fails on a failed
                                # iteration, a dead hog, or a missing result report
@@ -753,12 +754,16 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     Run `npm run check:github-scope` before such a push: exit 0 is the only green light,
     exit 1 means a classic token is missing `workflow` or `repo`/`public_repo`, and exit 2
     means the credential could not be classified. The harness host's `gh` OAuth token
-    currently carries only `gist`, `read:org`, and `repo`; fix it with
-    `gh auth refresh -h github.com -s workflow`, or export `GH_TOKEN`/`GITHUB_TOKEN` with a
-    classic PAT holding `repo` and `workflow` (or a fine-grained PAT with Contents and
-    Workflows read/write). Do not add a deploy key, switch `origin` to SSH, or push through
-    the API to work around the rejection; stop and report instead. The check lives in
-    `scripts/check-github-scope.mjs` and its tests in `scripts/check-github-scope.test.mjs`.
+    currently carries only `gist`, `read:org`, and `repo`. From an interactive terminal
+    run `npm run grant:github-scope`, which wraps
+    `gh auth refresh -h github.com -s workflow` and re-verifies; outside a TTY it prints
+    the command and exits 1 instead of blocking on the device-flow approval. Alternatively
+    export `GH_TOKEN`/`GITHUB_TOKEN` with a classic PAT holding `repo` and `workflow` (or a
+    fine-grained PAT with Contents and Workflows read/write). Do not add a deploy key,
+    switch `origin` to SSH, or push through the API to work around the rejection; stop and
+    report instead. The check lives in `scripts/check-github-scope.mjs` (tests in
+    `scripts/check-github-scope.test.mjs`); the grant helper lives in
+    `scripts/grant-github-scope.mjs` (tests in `scripts/grant-github-scope.test.mjs`).
 48. **The web stress run is fail-closed and leaves no hog behind.** `npm run
     test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite `--runs` times
     (default 3) while `--hogs` busy-loop processes (default 4) compete. An iteration

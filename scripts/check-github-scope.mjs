@@ -203,6 +203,7 @@ export function formatHuman(result, host) {
       "    refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope",
     );
     lines.push('  Fix the host credential with one of:');
+    lines.push('    npm run grant:github-scope        # interactive terminal; wraps the refresh');
     lines.push(`    gh auth refresh -h ${host} -s workflow`);
     lines.push('    export GH_TOKEN=<classic PAT with repo + workflow>');
     lines.push('    (or a fine-grained PAT with Contents: Read and write, Workflows: Read and write)');
@@ -215,7 +216,7 @@ export function formatHuman(result, host) {
   return lines.join('\n');
 }
 
-function probe(host) {
+export function probe(host) {
   const bin = process.env.GH_BIN || 'gh';
   const run = spawnSync(bin, ['api', '-i', 'user', '--hostname', host], { encoding: 'utf8' });
   return classify({

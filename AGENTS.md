@@ -645,9 +645,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     workdir or file left by an older version is repaired on the next write. Existing
     installs are repaired in bulk with `npm run repair:permissions` (dry run by default;
     `--apply` to change); it tightens only the known `requests/` artifacts, never
-    recurses into `cwd/` checkouts, and refuses a symlinked `requests/` root instead of
-    chmodding through the link. Never write conversation state with a bare
-    `writeFileSync`; transcripts can contain tool output and secrets.
+    recurses into `cwd/` checkouts, and refuses a symlinked `requests/` root with exit 1
+    instead of chmodding through the link (D135). Never write conversation state with a
+    bare `writeFileSync`; transcripts can contain tool output and secrets.
 37. **A harness-reported error result fails the turn once, visibly.** A parser `error`
     event sets `turn.failure` (first one wins), broadcasts one `error`, persists one
     `⚠` line, and logs `engine.result` with session/harness ids. Do not re-broadcast it
@@ -822,7 +822,7 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `test:e2e-env`.
 49. **The three maintenance permission repairs share one engine.** `PermissionRepair` in
     `src/server/src/maintenance/permission-repair.ts` owns `PRIVATE_DIR_MODE`/
-    `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the
+    `PRIVATE_FILE_MODE`, `formatMode`, the `lstat` and kind checks, the
     symlink/`ENOENT` policy, the dry-run counters, and the only `chmod` under
     `src/server/src/maintenance`. `repair-cli.ts` owns the shared
     `--apply`/`--dry-run`/`--help` parsing, the report, the exit code, the cutover
@@ -831,9 +831,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `repair-run-permissions.ts` only describe their trees. The `repair:runs` and
     `repair:upgrades` CLIs are usage text plus one command spec; `repair:permissions`
     keeps its `loadConfig()` data-directory resolution and error path. Commands, flags,
-    output, exit codes, and traversal must not change. A new repair uses the same
-    scanner; the guard in `src/server/test/repair-permissions.test.ts` fails if another
-    maintenance module mentions `chmodSync`.
+    report format, exit-code mechanics, and traversal must not change; D135 changes only
+    the result for a symlinked `requests/` root, which joins the symlinked `upgrades/`
+    and `runs/` containers in being refused. A new repair uses the same scanner; the
+    guard in `src/server/test/repair-permissions.test.ts` fails if another maintenance
+    module mentions `chmodSync`.
 50. **The top-level shell owns the single deploy rollback.** `deploy/upgrade-vps.sh` and
     `deploy/cutover-vps.sh` keep `set -E` so a failure inside a shell function reaches the
     `ERR` trap, but the trap is inherited by the redirected `npm`/build/migration

@@ -928,8 +928,9 @@ defaults.
   the target repo on branch `aps/<requestId>`, or a legacy `sbox/<requestId>` when
   that is the only ref that exists, via `ensureWorktree`,
   `removeWorktree`, and `branchName`. It falls back to the scratch workdir when there is
-  no target repo or git fails. Transcript, session, and MCP config stay in the scratch
-  workdir, out of the repo. `dispose(id)` kills the child, removes the worktree, and
+  no target repo or git fails; a non-null target that cannot produce a checkout is
+  recorded as `engine.worktree` in the error log. Transcript, session, and MCP config
+  stay in the scratch workdir, out of the repo. `dispose(id)` kills the child, removes the worktree, and
   then retires a legacy `sbox/<id>` ref once the checkout is gone.
   `retention.requestArtifactsDays` later sweeps leftover checkouts for terminal or
   row-less requests; it never touches a non-terminal request and keeps the branch. A

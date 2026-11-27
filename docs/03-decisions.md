@@ -3185,3 +3185,23 @@ non-Markdown target fails. Missing/escaping/empty targets and non-Markdown fragm
 **Cost.** One pure module, one metadata tag in the shared extractor, the stricter checker,
 and fixture cases in the existing docs-gate test file. No new dependency, network access,
 or Help UI change.
+
+## D126. A failed worktree checkout is logged, not silent
+
+**Context.** `ensureWorktree` returned the scratch workdir with `isolated: false` on every
+git problem and logged nothing, so an environment change that broke `git worktree add`
+silently ran requests outside their own checkout. The systemd sandbox probe had to assert
+the checkout directly because a green turn proved nothing.
+
+**Decision.** `ensureWorktree` takes an optional `ErrorSink` and records one
+`engine.worktree` error when a non-null target repo is missing, is not a git work tree, or
+fails a git command. Context carries `request`, `targetRepo`, and `stage`
+(`target-missing`, `not-a-repo`, `inspect`, `worktree-add`); git errors keep their message.
+The scratch fallback, turn behavior, and `WorktreeResult` are unchanged, a request with no
+target repo is silent, and `Engine.ensureProc` supplies the engine's sink. Each failed
+attempt logs; a persistent breakage reports on every turn and rotation bounds the file.
+No UI signal or dedupe is added here.
+
+**Cost.** One optional input field, one logging helper, and one engine call site, plus
+tests and docs. Repeated failures repeat the record; `removeWorktree`'s deliberate
+best-effort silence and retention reports are untouched.

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MasterDetail } from './MasterDetail';
 import { jsonResponse, makeProcessResponse } from './test/fixtures';
@@ -175,6 +175,8 @@ describe('MasterDetail', () => {
     render(
       <MasterDetail
         cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
         commands={[]}
         onClose={() => {}}
         onConfigure={() => {}}
@@ -258,6 +260,8 @@ describe('MasterDetail', () => {
     render(
       <MasterDetail
         cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
         commands={[]}
         onClose={() => {}}
         onConfigure={() => {}}
@@ -352,6 +356,8 @@ describe('MasterDetail', () => {
     render(
       <MasterDetail
         cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
         commands={[]}
         onClose={() => {}}
         onConfigure={onConfigure}
@@ -387,6 +393,8 @@ describe('MasterDetail', () => {
     render(
       <MasterDetail
         cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
         commands={[]}
         onClose={() => {}}
         onConfigure={() => {}}
@@ -432,6 +440,8 @@ describe('MasterDetail', () => {
     render(
       <MasterDetail
         cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
         commands={[]}
         onClose={() => {}}
         onConfigure={() => {}}
@@ -453,6 +463,8 @@ describe('MasterDetail', () => {
     render(
       <MasterDetail
         cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
         commands={[]}
         onClose={() => {}}
         onConfigure={() => {}}
@@ -463,5 +475,50 @@ describe('MasterDetail', () => {
     expect(await screen.findByText(/No scorecards in the last 72 hours/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     expect(await screen.findByText(/No scorecard yet/)).toBeInTheDocument();
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('disables every action when the cell is deleted', async () => {
+    const urls = stubMasterDetail(() => []);
+
+    const { rerender } = render(
+      <MasterDetail
+        cellId="c1"
+        cells={[makeCell()]}
+        cellsLoaded
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(
+      await screen.findByText('Alpha · process automation', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    const masterCalls = urls.filter((url) => url.startsWith('/api/master/')).length;
+
+    rerender(
+      <MasterDetail
+        cellId="c1"
+        cells={[]}
+        cellsLoaded
+        commands={[]}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    await act(async () => {});
+    expect(screen.getByTestId('master-deleted')).toHaveTextContent(
+      'This cell no longer exists.',
+    );
+    expect(screen.queryByRole('button', { name: 'Run now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Configure' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Master chat/)).not.toBeInTheDocument();
+    expect(urls.filter((url) => url.startsWith('/api/master/'))).toHaveLength(masterCalls);
+    expect(urls).not.toContain('/api/cells');
   }, MASTER_DETAIL_TEST_TIMEOUT_MS);
 });

@@ -105,7 +105,7 @@ describe('RequestDetail harness override', () => {
   it('saves an override and resets the model when the effective harness changes', async () => {
     const { patched } = installFetch();
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+    render(<RequestDetail id="req-1" cells={[cell]} cellsLoaded onClose={() => {}} onError={() => {}} />);
 
     const harness = await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
     expect(await screen.findByText('Opus 5.5', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe('RequestDetail harness override', () => {
       opencodeCell,
     );
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+    render(<RequestDetail id="req-1" cells={[opencodeCell]} cellsLoaded onClose={() => {}} onError={() => {}} />);
 
     expect(await screen.findByText('harness: OpenCode (cell OpenCode cell)')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /harness/i })).toHaveValue('');
@@ -160,7 +160,7 @@ describe('RequestDetail harness override', () => {
       requestGate,
     );
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+    render(<RequestDetail id="req-1" cells={[cell]} cellsLoaded onClose={() => {}} onError={() => {}} />);
 
     expect(
       await screen.findByText('Loading request...', undefined, { timeout: ASYNC_TIMEOUT_MS }),
@@ -204,7 +204,7 @@ describe('RequestDetail harness override', () => {
       { models: 'fail' },
     );
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={onError} />);
+    render(<RequestDetail id="req-1" cells={[cell]} cellsLoaded onClose={() => {}} onError={onError} />);
 
     await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() => expect(urls).toContain('/api/models'), { timeout: ASYNC_TIMEOUT_MS });
@@ -214,5 +214,40 @@ describe('RequestDetail harness override', () => {
     expect(hint).toHaveAttribute('data-resolved', 'false');
     expect(hint).toHaveTextContent('effective: not resolved (brain default)');
     expect(onError).not.toHaveBeenCalled();
+  }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
+
+  it('clears a deleted cell assignment without closing the drawer', async () => {
+    const { urls } = installFetch();
+
+    const { rerender } = render(
+      <RequestDetail
+        id="req-1"
+        cells={[cell]}
+        cellsLoaded
+        onClose={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    const cellSelect = await screen.findByRole(
+      'combobox',
+      { name: 'Cell' },
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    await waitFor(() => expect(cellSelect).toHaveValue('c1'));
+
+    rerender(
+      <RequestDetail
+        id="req-1"
+        cells={[]}
+        cellsLoaded
+        onClose={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(cellSelect).toHaveValue(''));
+    expect(screen.getByRole('combobox', { name: /harness/i })).toBeInTheDocument();
+    expect(urls).not.toContain('/api/cells');
   }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 });

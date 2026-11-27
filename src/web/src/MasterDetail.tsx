@@ -13,7 +13,6 @@ import {
 import {
   masterSessionId,
   timeAgo,
-  type Cell,
   type CellDetail,
   type CommandInfo,
   type MasterEvent,
@@ -34,6 +33,8 @@ import {
 
 interface MasterDetailProps {
   cellId: string;
+  cells: CellDetail[];
+  cellsLoaded: boolean;
   onClose: () => void;
   onConfigure: (cell: CellDetail | null) => void;
   onError: (message: string) => void;
@@ -49,11 +50,17 @@ function duration(minutes: number): string {
 }
 
 /** The cell master as a first-class thread: cron policy, activity, and chat. */
-export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }: MasterDetailProps) {
+export function MasterDetail({
+  cellId,
+  cells,
+  cellsLoaded,
+  onClose,
+  onConfigure,
+  onError,
+  commands,
+}: MasterDetailProps) {
   const [process, setProcess] = useState<ProcessConfig | null>(null);
-  const [cell, setCell] = useState<CellDetail | null>(null);
   const [status, setStatus] = useState<MasterStatus | null>(null);
-  const [cells, setCells] = useState<Cell[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [running, setRunning] = useState(false);
@@ -74,33 +81,32 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
     if (cellId !== currentRequest.current.cellId || range !== currentRequest.current.range) {
       return;
     }
+    if (!cellsLoaded) return;
+    const selected = cells.find((item) => item.id === cellId) ?? null;
+    // A missing cell must not keep polling status or leave actions pointing at it.
+    if (!selected) return;
     const generation = ++loadGeneration.current;
     try {
       const [
         globalProcess,
         masterStatus,
-        cellList,
         eventList,
         history,
         scorecardStatus,
       ] = await Promise.all([
         api.getProcess(),
         api.getMasterStatus(cellId),
-        api.getCells(),
         api.getMasterEvents({ cellId, limit: 30 }),
         api.getSummaries({ cellId, limit: 5, since: sinceFor(range) }),
         api.getSummaryStatus(cellId),
       ]);
       if (generation !== loadGeneration.current) return;
-      const selected = cellList.find((item) => item.id === cellId) ?? null;
-      const effective = selected?.process ?? {
+      const effective = selected.process ?? {
         version: globalProcess.version,
         segments: globalProcess.segments,
       };
-      setCell(selected);
       setProcess(effective);
       setStatus(masterStatus);
-      setCells(cellList);
       setEvents(eventList);
       setLastResult(masterStatus.lastResult);
       setSummaryHistory(history);
@@ -112,7 +118,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
         onError(describeError(error));
       }
     }
-  }, [cellId, onError, range]);
+  }, [cellId, cells, cellsLoaded, onError, range]);
 
   useEffect(() => {
     void (async () => {
@@ -157,6 +163,35 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
     } finally {
       setSummaryRunning(false);
     }
+  }
+
+  const cell = cells.find((item) => item.id === cellId) ?? null;
+
+  if (cellsLoaded && !cell) {
+    return (
+      <aside
+        data-testid="master-detail"
+        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
+      >
+        <header className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+          <Badge tone="purple">cell master</Badge>
+          <span
+            data-testid="master-title"
+            className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+          >
+            Cell no longer exists
+          </span>
+          <IconButton label="Close master detail" onClick={onClose}>
+            ×
+          </IconButton>
+        </header>
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <p data-testid="master-deleted" className="text-sm text-zinc-500">
+            This cell no longer exists.
+          </p>
+        </div>
+      </aside>
+    );
   }
 
   const enabled = process?.segments.filter((segment) => segment.enabled) ?? [];

@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1479 vitest cases: 1097 server across 59 files (one environmental root-skip) and 382 web across 28 files, all green.
+- 1489 vitest cases: 1097 server across 59 files (one environmental root-skip) and 392 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1097 server + 382 web, plus the e2e env guard
+npm test                       # 1097 server + 392 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate

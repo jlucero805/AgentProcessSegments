@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import {
@@ -15,7 +15,7 @@ import {
   type PageRangeKey,
   type RangeKey,
 } from './ScorecardPeriod';
-import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
+import type { Cell, Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
 import { Button, Card, EmptyState, Field, Input, SectionTitle, Spinner } from './ui';
 
@@ -86,16 +86,17 @@ function appliedRangeLabel(window: DateWindow): string {
  */
 export function ScorecardsPage({
   cellId,
+  cells,
   onSelectCell,
   onError,
 }: {
   cellId: string | null;
+  cells: Cell[];
   onSelectCell: (cellId: string) => void;
   onError: (message: string) => void;
 }) {
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [feed, setFeed] = useState<ScorecardFeed | null>(null);
-  const [cellNames, setCellNames] = useState<Map<string, string>>(() => new Map());
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
@@ -114,6 +115,10 @@ export function ScorecardsPage({
 
   const draftWindow = customWindow(customStart, customEnd, customStartTime, customEndTime);
   const draftError = typeof draftWindow === 'string' ? draftWindow : null;
+  const cellNames = useMemo(
+    () => new Map(cells.map((cell) => [cell.id, cell.name])),
+    [cells],
+  );
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -121,14 +126,12 @@ export function ScorecardsPage({
     try {
       const statusPromise = api.getSummaryStatus(cellId ?? undefined);
       if (cellId === null && view === 'flat') {
-        const [cells, summaryStatus, page] = await Promise.all([
-          api.getCells(),
+        const [summaryStatus, page] = await Promise.all([
           statusPromise,
           api.getSummaryFeed({ limit: FEED_PAGE_SIZE, ...bounds }),
         ]);
         if (generation !== loadGeneration.current) return;
         pageWindow.current = bounds;
-        setCellNames(new Map(cells.map((cell) => [cell.id, cell.name])));
         setStatus(summaryStatus);
         setFeed({
           reports: page.reports,
@@ -142,8 +145,7 @@ export function ScorecardsPage({
       let next: ScorecardGroup[];
       let summaryStatus: SummaryStatus;
       if (cellId) {
-        const [cells, status, rows] = await Promise.all([
-          api.getCells(),
+        const [status, rows] = await Promise.all([
           statusPromise,
           api.getSummaries({ cellId, limit: PAGE_SIZE + 1, ...bounds }),
         ]);
@@ -186,7 +188,7 @@ export function ScorecardsPage({
         setLoadingMoreFeed(false);
       }
     }
-  }, [appliedCustom, cellId, onError, range, view]);
+  }, [appliedCustom, cellId, cells, onError, range, view]);
 
   useEffect(() => {
     void (async () => {

@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -624,9 +623,7 @@ describe('notification event deliveries', () => {
     expect(headers['content-type']).toBe('application/json');
     expect(headers['idempotency-key']).toMatch(/^turn:req-1:engine\.exit:/);
     const rawBody = String(sent.init.body);
-    expect(headers['x-aps-signature']).toBe(
-      `sha256=${createHmac('sha256', '0123456789abcdef').update(rawBody).digest('hex')}`,
-    );
+    expect(headers['x-aps-signature']).toBeUndefined();
     expect(headers['x-aps-timestamp']).toBe(String(NOW));
     expect(headers['x-aps-signature-v2']).toBe(
       `t=${NOW},v2=${webhookSignatureV2('0123456789abcdef', NOW, rawBody)}`,

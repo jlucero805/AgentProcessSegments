@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -305,7 +304,7 @@ describe('NotificationService', () => {
     });
   });
 
-  it('signs JSON bodies with legacy and timestamped V2 HMAC-SHA256', async () => {
+  it('signs JSON bodies with the timestamped V2 HMAC-SHA256 only', async () => {
     const secret = '0123456789abcdef';
     const fake = sender(() => ok());
     const context = setup({ send: fake.send, webhook: { secret } });
@@ -316,9 +315,8 @@ describe('NotificationService', () => {
 
     const sent = fake.calls[0]!;
     const body = String(sent.init.body);
-    const expected = createHmac('sha256', secret).update(body).digest('hex');
     const headers = new Headers(sent.init.headers);
-    expect(headers.get('x-aps-signature')).toBe(`sha256=${expected}`);
+    expect(headers.get('x-aps-signature')).toBeNull();
     expect(headers.get('x-aps-timestamp')).toBe(String(NOW));
     expect(headers.get('x-aps-signature-v2')).toBe(
       `t=${NOW},v2=${webhookSignatureV2(secret, NOW, body)}`,
@@ -350,6 +348,7 @@ describe('NotificationService', () => {
 
     const slackBody = String(fake.calls[0]!.init.body);
     const slackHeaders = new Headers(fake.calls[0]!.init.headers);
+    expect(slackHeaders.get('x-aps-signature')).toBeNull();
     expect(slackHeaders.get('x-aps-signature-v2')).toBe(
       `t=${NOW},v2=${webhookSignatureV2(secret, NOW, slackBody)}`,
     );
@@ -373,6 +372,7 @@ describe('NotificationService', () => {
 
     const discordBody = String(fake.calls[1]!.init.body);
     const discordHeaders = new Headers(fake.calls[1]!.init.headers);
+    expect(discordHeaders.get('x-aps-signature')).toBeNull();
     expect(discordHeaders.get('x-aps-signature-v2')).toBe(
       `t=${NOW},v2=${webhookSignatureV2(secret, NOW, discordBody)}`,
     );
@@ -395,6 +395,7 @@ describe('NotificationService', () => {
     const second = fake.calls[1]!;
     const body = String(second.init.body);
     const headers = new Headers(second.init.headers);
+    expect(headers.get('x-aps-signature')).toBeNull();
     expect(headers.get('x-aps-timestamp')).toBe(String(NOW + 5 * 60_000));
     expect(headers.get('x-aps-signature-v2')).toBe(
       `t=${NOW + 5 * 60_000},v2=${webhookSignatureV2(secret, NOW + 5 * 60_000, body)}`,

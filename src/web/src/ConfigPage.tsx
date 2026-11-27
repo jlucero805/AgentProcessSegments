@@ -1981,10 +1981,9 @@ export function ConfigPage({
         </div>
 
         <p className="text-[11px] text-zinc-600">
-          Signed webhooks carry the legacy{' '}
-          <code className="text-zinc-500">X-APS-Signature</code> and the timestamped{' '}
-          <code className="text-zinc-500">X-APS-Signature-V2</code>. Slack and Discord
-          incoming webhooks accept the text-only format and ignore both headers. See{' '}
+          Signed webhooks carry the timestamped{' '}
+          <code className="text-zinc-500">X-APS-Signature-V2</code> header. Slack and Discord
+          incoming webhooks accept the text-only format and ignore the signature header. See{' '}
           <a
             href={helpHref(
               VERIFY_WEBHOOK_SIGNATURES_HELP.slug,

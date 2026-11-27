@@ -283,8 +283,6 @@ function headersFor(
     'x-aps-timestamp': String(timestamp),
   };
   if (webhook.secret !== null) {
-    const signature = createHmac('sha256', webhook.secret).update(body).digest('hex');
-    headers['x-aps-signature'] = `sha256=${signature}`;
     headers['x-aps-signature-v2'] =
       `t=${timestamp},v2=${webhookSignatureV2(webhook.secret, timestamp, body)}`;
   }

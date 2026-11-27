@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Runnable example: verify APS webhook signatures over the exact raw body.
 //
-// When a signing secret is configured APS sends the legacy
-// `X-APS-Signature: sha256=<hex>` over the body only and the recommended
-// `X-APS-Signature-V2: t=<ms>,v2=<hex>` over the timestamp and body. This
-// example requires V2, enforces a freshness window, verifies before parsing,
-// compares digests with crypto.timingSafeEqual, and dedupes on authenticated
-// body ids. `Idempotency-Key` is not signed.
+// When a signing secret is configured APS sends
+// `X-APS-Signature-V2: t=<ms>,v2=<hex>` over the timestamp and exact body; the
+// legacy body-only `X-APS-Signature` header has been removed. This example
+// requires V2, enforces a freshness window, verifies before parsing, compares
+// digests with crypto.timingSafeEqual, and dedupes on authenticated body ids.
+// `Idempotency-Key` is not signed.
 //
 // This is an example receiver, not a production queue: replace onVerified with
 // your durable work. Run with --help for the CLI.
@@ -22,8 +22,6 @@ export const DEFAULT_TOLERANCE_MS = 5 * 60 * 1000;
 export const MIN_SECRET_LENGTH = 16;
 export const MAX_SECRET_LENGTH = 256;
 
-const SIGNATURE_PREFIX = 'sha256=';
-const HEX_SIGNATURE = /^[0-9a-f]{64}$/i;
 const SIGNATURE_V2 = /^t=([0-9]{1,15}),v2=([0-9a-fA-F]{64})$/;
 
 const USAGE = `Usage: node scripts/webhook-receiver-example.mjs --secret <secret> [options]
@@ -56,27 +54,6 @@ function bodyBytes(rawBody) {
   if (rawBody instanceof Uint8Array) return Buffer.from(rawBody);
   if (typeof rawBody === 'string') return Buffer.from(rawBody, 'utf8');
   return null;
-}
-
-/** Verify the legacy body-only signature. It does not prove freshness. */
-export function verifyWebhookSignature(rawBody, signatureHeader, secret) {
-  if (typeof secret !== 'string' || secret === '') return false;
-  if (
-    typeof signatureHeader !== 'string' ||
-    !signatureHeader.startsWith(SIGNATURE_PREFIX)
-  ) {
-    return false;
-  }
-
-  const providedHex = signatureHeader.slice(SIGNATURE_PREFIX.length);
-  if (!HEX_SIGNATURE.test(providedHex)) return false;
-
-  const body = bodyBytes(rawBody);
-  if (body === null) return false;
-
-  const expected = createHmac('sha256', secret).update(body).digest();
-  const provided = Buffer.from(providedHex, 'hex');
-  return provided.length === expected.length && timingSafeEqual(expected, provided);
 }
 
 /**

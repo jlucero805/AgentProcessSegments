@@ -5,6 +5,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -338,6 +339,121 @@ describe('ProcessStore', () => {
     expect(store.get()).toEqual(corrected);
     expect(errors.error).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  it('re-reads a valid file edited on disk', () => {
+    const file = tempFile('external.json');
+    const before = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(before, 'intake').enabled = false;
+    writeFileSync(file, JSON.stringify(before));
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(segmentBy(store.get(), 'intake').enabled).toBe(false);
+
+    const after = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(after, 'intake').enabled = true;
+    writeFileSync(file, JSON.stringify(after));
+
+    expect(segmentBy(store.get(), 'intake').enabled).toBe(true);
+  });
+
+  it('re-reads a valid file after a save', () => {
+    const file = tempFile('after-save.json');
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    const saved = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(saved, 'intake').enabled = true;
+    store.patch({ segments: saved.segments });
+
+    const external = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(external, 'plan').enabled = true;
+    writeFileSync(file, JSON.stringify(external));
+
+    expect(store.get()).toEqual(external);
+  });
+
+  it('re-reads a same-size valid edit when its mtime changes', () => {
+    const file = tempFile('same-size.json');
+    const before = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(before, 'plan').prompt = 'alpha';
+    writeFileSync(file, JSON.stringify(before));
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(segmentBy(store.get(), 'plan').prompt).toBe('alpha');
+
+    const after = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(after, 'plan').prompt = 'bravo';
+    writeFileSync(file, JSON.stringify(after));
+    const stamp = new Date(Date.now() + 2_000);
+    utimesSync(file, stamp, stamp);
+
+    expect(segmentBy(store.get(), 'plan').prompt).toBe('bravo');
+  });
+
+  it('does not notify listeners for an external edit', () => {
+    const file = tempFile('external-listener.json');
+    const before = defaultProcess(DEFAULT_SETTINGS.master);
+    writeFileSync(file, JSON.stringify(before));
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    const seen: ProcessConfig[] = [];
+    store.onChange((process) => seen.push(process));
+    store.get();
+
+    const after = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(after, 'intake').enabled = true;
+    writeFileSync(file, JSON.stringify(after));
+    store.get();
+
+    expect(seen).toEqual([]);
+  });
+
+  it('falls back for an invalid external edit and recovers when corrected', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile('external-invalid.json');
+      const valid = defaultProcess(DEFAULT_SETTINGS.master);
+      writeFileSync(file, JSON.stringify(valid));
+
+      const errors = { error: vi.fn() };
+      const store = new ProcessStore(
+        file,
+        () => defaultProcess(DEFAULT_SETTINGS.master),
+        errors,
+      );
+      expect(store.get()).toEqual(valid);
+
+      writeFileSync(file, '{bad\n');
+      expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+      expect(errors.error).toHaveBeenCalledTimes(1);
+      expect(errors.error.mock.calls[0]![0]).toBe('process.unreadable');
+
+      expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+      expect(errors.error).toHaveBeenCalledTimes(1);
+
+      const corrected = defaultProcess(DEFAULT_SETTINGS.master);
+      segmentBy(corrected, 'intake').enabled = true;
+      writeFileSync(file, JSON.stringify(corrected));
+      expect(store.get()).toEqual(corrected);
+      expect(errors.error).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('falls back when a cached file is deleted and picks up a restored file', () => {
+    const file = tempFile('deleted.json');
+    const config = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(config, 'intake').enabled = true;
+    writeFileSync(file, JSON.stringify(config));
+
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.get()).toEqual(config);
+
+    rmSync(file);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+
+    writeFileSync(file, JSON.stringify(config));
+    expect(store.get()).toEqual(config);
   });
 
   it('reports the same state again after the file is removed', () => {

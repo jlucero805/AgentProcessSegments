@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import { jsonParseReason } from '../util/json.js';
@@ -22,6 +22,8 @@ function bytesIdentity(raw: string): string {
  */
 export class ProcessStore {
   private cached: ProcessConfig | null = null;
+  /** Identity of the file that produced `cached`; a change forces a reload. */
+  private cachedIdentity: string | null = null;
   private readonly listeners = new Set<(process: ProcessConfig) => void>();
   /** Set when the loaded file was unusable; the next save preserves its bytes. */
   private preserveSource = false;
@@ -37,10 +39,19 @@ export class ProcessStore {
   ) {}
 
   get(): ProcessConfig {
-    if (this.cached) return this.cached;
+    const identity = this.fileIdentity();
+    if (this.cached && identity !== null && identity === this.cachedIdentity) {
+      return this.cached;
+    }
+    this.cached = null;
+    this.cachedIdentity = null;
     const loaded = this.load();
     if (loaded) {
       this.cached = loaded;
+      // Capture the identity from before the read: if a writer replaced the
+      // file while it was being read, the next get() must reload instead of
+      // trusting this cache.
+      this.cachedIdentity = identity;
       return loaded;
     }
     return structuredClone(this.fallback());
@@ -54,6 +65,9 @@ export class ProcessStore {
     this.get();
     this.write(next);
     this.cached = next;
+    // The write replaced the file. Revalidate it on the next get() rather than
+    // trusting an identity captured before or after the replacement.
+    this.cachedIdentity = null;
     for (const listener of this.listeners) listener(next);
     return next;
   }
@@ -78,6 +92,20 @@ export class ProcessStore {
    */
   preservedCopies(): string[] {
     return listPreservedCopies(this.path, { newest: this.preservedFilePath });
+  }
+
+  /**
+   * Cheap identity for the process file as it exists now. An unchanged file is
+   * not read again; a missing or unstattable file returns null so the caller
+   * falls through to `load()` for the normal fallback and reporting.
+   */
+  private fileIdentity(): string | null {
+    try {
+      const stats = statSync(this.path);
+      return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
+    } catch {
+      return null;
+    }
   }
 
   private load(): ProcessConfig | null {

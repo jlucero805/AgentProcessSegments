@@ -130,9 +130,11 @@ and error-event shape.
   process) pruning.
 - `maintenance/permission-repair.ts` owns the owner-only mode decision, the symlink/kind/
   `ENOENT` policy, the counters, and the only repair `chmod`; `maintenance/repair-cli.ts`
-  owns argument parsing, reporting, exit codes, and the direct-run bootstrap for
-  `repair:permissions`, `repair:upgrades`, and `repair:runs`, whose engines and CLIs are
-  now thin tree/usage descriptions; `permission-repair.test.ts` pins the root and
+  owns argument parsing, reporting, exit codes, the cutover root parser and command
+  runner, and the direct-run bootstrap for `repair:permissions`, `repair:upgrades`, and
+  `repair:runs`, whose engines and CLIs are now thin tree/usage descriptions. The
+  `repair:runs`/`repair:upgrades` CLIs share the runner; `repair:permissions` keeps its
+  own data-directory resolution. `permission-repair.test.ts` pins the root and
   missing-child policies.
 
 ## Deferred, with reasons

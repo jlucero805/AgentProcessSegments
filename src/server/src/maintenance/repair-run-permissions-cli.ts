@@ -1,20 +1,13 @@
-import os from 'node:os';
-import path from 'node:path';
 import { repairRunPermissions } from './repair-run-permissions.js';
 import {
-  parseRepairArgs,
-  printRepairReport,
-  repairExitCode,
+  parseCutoverRepairArgs,
+  runCutoverRepairCli,
   runDirectly,
-  unsafeRoot,
+  type CutoverRepairOptions,
 } from './repair-cli.js';
 import type { RepairDeps } from './permission-repair.js';
 
-export interface CliOptions {
-  apply: boolean;
-  root: string;
-  help: boolean;
-}
+export type CliOptions = CutoverRepairOptions;
 
 export function usage(): string {
   return [
@@ -37,48 +30,16 @@ export function usage(): string {
 }
 
 export function parseArgs(argv: string[]): CliOptions {
-  const args = parseRepairArgs(argv, '--root');
-  return {
-    apply: args.apply,
-    root: args.value ?? path.join(os.homedir(), '.aps-cutover'),
-    help: args.help,
-  };
+  return parseCutoverRepairArgs(argv);
 }
 
 export function main(argv: string[] = process.argv.slice(2), deps: RepairDeps = {}): number {
-  let options: CliOptions;
-  try {
-    options = parseArgs(argv);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    console.error(usage());
-    return 1;
-  }
-
-  if (options.help) {
-    console.log(usage());
-    return 0;
-  }
-
-  const unsafe = unsafeRoot(options.root);
-  if (unsafe !== null) {
-    console.error(`${unsafe}: ${options.root}`);
-    console.error(usage());
-    return 1;
-  }
-
-  const result = repairRunPermissions(options.root, { apply: options.apply, ...deps });
-  if (result.rootMissing) {
-    console.log(`nothing to tighten: ${options.root} does not exist`);
-    return 0;
-  }
-
-  if (result.runsMissing) {
-    console.log(`runs directory not found: ${path.join(options.root, 'runs')}`);
-  }
-
-  printRepairReport(result, options.apply, 'not a directory');
-  return repairExitCode(result);
+  return runCutoverRepairCli(argv, deps, {
+    usage: usage(),
+    run: repairRunPermissions,
+    missingSubtree: { key: 'runsMissing', dir: 'runs' },
+    skipFallback: 'not a directory',
+  });
 }
 
 runDirectly(import.meta.url, () => main());

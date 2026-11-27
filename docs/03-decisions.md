@@ -3084,6 +3084,14 @@ through a root symlink.
 root under every symlink mode, refused/skipped symlinked roots, and the
 silent-versus-vanished child rule.
 
+**Amendment (follow-up).** The two cutover CLIs now also share the bootstrap:
+`parseCutoverRepairArgs`/`runCutoverRepairCli` in `repair-cli.ts` own the default
+`$HOME/.aps-cutover` root and the parse/help/unsafe-root/missing-root/notice/report/exit
+sequence. `repair:runs` and `repair:upgrades` pass only their usage text, engine,
+missing-subtree name, and skip detail. `repair:permissions` stays on the shared
+primitives because its post-parse `loadConfig()` resolution has a distinct error path.
+Commands, flags, output, exit codes, and traversal are unchanged.
+
 **Cost.** Two new modules, one structural guard test, and one focused policy-seam test
 file. A future repair must use the shared scanner; the guard fails if it imports
 `chmodSync` directly. Changing either root rule is a separate decision; the symlinked

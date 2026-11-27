@@ -585,32 +585,21 @@ function Summary({ totals }: { totals: UsageTotals }) {
 }
 
 export function UsagePage({
+  cells,
   onError,
   budgetFeed,
 }: {
+  cells: CellDetail[];
   onError: (message: string) => void;
   budgetFeed: BudgetFeed;
 }) {
   const [range, setRange] = useState<RangeKey>('30d');
-  const [cellId, setCellId] = useState('');
-  const [cells, setCells] = useState<CellDetail[]>([]);
+  const [cellFilter, setCellFilter] = useState('');
   const [data, setData] = useState<UsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let mounted = true;
-    api
-      .getCells()
-      .then((list) => {
-        if (mounted) setCells(list);
-      })
-      .catch((error) => {
-        if (mounted) onError(describeError(error));
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [onError]);
+  // The sidebar owns the cell list; a deleted filter target falls back to all.
+  const cellId = cells.some((cell) => cell.id === cellFilter) ? cellFilter : '';
 
   const load = useCallback(async () => {
     try {
@@ -672,7 +661,7 @@ export function UsagePage({
             onChange={(event) => {
               if (event.target.value === cellId) return;
               setLoading(true);
-              setCellId(event.target.value);
+              setCellFilter(event.target.value);
             }}
           >
             <option value="">All cells</option>

@@ -37,6 +37,8 @@ import {
 
 interface RequestDetailProps {
   id: string;
+  cells: Cell[];
+  cellsLoaded: boolean;
   onClose: () => void;
   onError: (message: string) => void;
   onChanged?: () => void;
@@ -53,10 +55,16 @@ const STATE_TONES: Record<State, 'purple' | 'blue' | 'amber' | 'green' | 'red' |
 };
 
 /** Right-side request drawer: editable fields, workflow actions, chat, and digest. */
-export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetailProps) {
+export function RequestDetail({
+  id,
+  cells,
+  cellsLoaded,
+  onClose,
+  onError,
+  onChanged,
+}: RequestDetailProps) {
   const [request, setRequest] = useState<Request | null>(null);
   const [form, setForm] = useState<RequestFormState | null>(null);
-  const [cells, setCells] = useState<Cell[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
   const [harness, setHarness] = useState<HarnessId | null>(null);
@@ -78,15 +86,13 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       setForm(formFromRequest(found));
       setDigest(found.digest ?? '');
 
-      const [clarify, commandList, skillList, cellList] = await Promise.all([
+      const [clarify, commandList, skillList] = await Promise.all([
         api.getClarify(id).catch(() => ({ started: found.clarifyStarted, transcript: [] })),
         api.getCommands().catch(() => [] as CommandInfo[]),
         api.getSkills(id).catch(() => []),
-        api.getCells().catch(() => [] as Cell[]),
       ]);
       setTranscript(clarify.transcript);
       setCommands(mergeSlashCommands(commandList, skillList));
-      setCells(cellList);
     } catch (error) {
       onError(describeError(error));
     }
@@ -97,6 +103,14 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       await load();
     })();
   }, [load]);
+
+  // Deleting a cell detaches its requests server-side. Mirror that once the
+  // shared list has loaded so Save cannot send the deleted id.
+  const rawCellId = form?.cellId ?? '';
+  const cellId =
+    !rawCellId || !cellsLoaded || cells.some((cell) => cell.id === rawCellId)
+      ? rawCellId
+      : '';
 
   const loadUsage = useCallback(async () => {
     try {
@@ -126,7 +140,6 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     modelContextRef.current = undefined;
   }, [id]);
   const formReady = form !== null;
-  const cellId = form?.cellId ?? '';
   const requestHarness = form?.harness ?? '';
   useEffect(() => {
     if (!formReady) return;
@@ -183,7 +196,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     if (!form) return;
     setBusy('save');
     try {
-      const updated = await api.patchRequest(id, patchFromForm(form, digest));
+      const updated = await api.patchRequest(id, patchFromForm({ ...form, cellId }, digest));
       setRequest(updated);
       setForm(formFromRequest(updated));
       setSaved(true);
@@ -292,8 +305,8 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   }
 
   const terminal = request ? isTerminal(request.state) : false;
-  const selectedCell = form?.cellId
-    ? cells.find((candidate) => candidate.id === form.cellId)
+  const selectedCell = cellId
+    ? cells.find((candidate) => candidate.id === cellId)
     : undefined;
   const effectiveHarness = form?.harness || selectedCell?.harness || harness;
   const harnessLabel = effectiveHarness
@@ -431,7 +444,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   />
                 </Field>
                 <Field label="Cell">
-                  <Select value={form.cellId} onChange={(event) => set('cellId', event.target.value)}>
+                  <Select value={cellId} onChange={(event) => set('cellId', event.target.value)}>
                     <option value="">Unassigned</option>
                     {cells.map((cell) => (
                       <option key={cell.id} value={cell.id}>
@@ -536,7 +549,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                 />
               </div>
               <div className="flex items-center justify-end gap-2">
-                {saved ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
+                {saved && cellId === rawCellId ? <span className="text-[11px] text-emerald-400">Saved</span> : null}
                 <Button variant="primary" size="sm" disabled={busy !== null} onClick={() => void save()}>
                   {busy === 'save' ? <Spinner /> : 'Save changes'}
                 </Button>

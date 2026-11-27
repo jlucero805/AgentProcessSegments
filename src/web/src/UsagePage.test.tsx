@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UsagePage } from './UsagePage';
 import { jsonResponse, makeUsageResponse } from './test/fixtures';
-import type { BudgetAlert, BudgetsResponse } from './types';
+import type { BudgetAlert, BudgetsResponse, CellDetail } from './types';
 import type { BudgetFeed } from './useBudgets';
 
 // The page loads usage and budgets before rendering. Give its slow async cases room
@@ -17,14 +17,17 @@ const CELLS = [
     masterEnabled: true,
     masterIntervalMinutes: null,
     maxConcurrent: 3,
+    harness: null,
     model: null,
     effort: null,
     monthlyBudgetUsd: null,
     pauseOnExceeded: false,
     pauseOnUnknownCost: false,
+    autocompactPercent: 80,
+    process: null,
     createdAt: 1,
   },
-];
+] satisfies CellDetail[];
 
 const BUDGETS: BudgetsResponse = {
   periodStart: Date.UTC(2026, 10, 1),
@@ -91,16 +94,19 @@ function makeFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
   };
 }
 
-function renderUsage(overrides: Partial<BudgetFeed> = {}, onError = vi.fn()) {
+function renderUsage(
+  overrides: Partial<BudgetFeed> = {},
+  onError = vi.fn(),
+  cells: CellDetail[] = CELLS,
+) {
   const budgetFeed = makeFeed(overrides);
-  const view = render(<UsagePage onError={onError} budgetFeed={budgetFeed} />);
+  const view = render(<UsagePage cells={cells} onError={onError} budgetFeed={budgetFeed} />);
   return { ...view, budgetFeed, onError };
 }
 
 function installFetch(response = makeUsageResponse()) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === '/api/cells') return jsonResponse(CELLS);
     if (url.startsWith('/api/usage')) return jsonResponse(response);
     return jsonResponse([]);
   });
@@ -596,5 +602,63 @@ describe('UsagePage', () => {
     );
 
     expect(budgetFeed.acknowledge).toHaveBeenCalledWith(ALERT);
+  });
+
+  it('uses the shared cell list instead of fetching its own', async () => {
+    const fetchMock = installFetch();
+    renderUsage();
+    await screen.findByText('Effective cost');
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls).not.toContain('/api/cells');
+  });
+
+  it('drops a deleted cell from the filter and returns to all cells', async () => {
+    const fetchMock = installFetch();
+    const { rerender, budgetFeed } = renderUsage();
+    await screen.findByText('Effective cost');
+
+    fireEvent.change(screen.getByLabelText('Filter usage by cell'), {
+      target: { value: 'cell-1' },
+    });
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(urls.some((url) => url.includes('cellId=cell-1'))).toBe(true);
+    });
+
+    const callsBeforeDelete = fetchMock.mock.calls.length;
+    rerender(
+      <UsagePage cells={[]} onError={vi.fn()} budgetFeed={budgetFeed} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('option', { name: 'Alpha' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('Filter usage by cell')).toHaveValue('');
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls
+        .slice(callsBeforeDelete)
+        .map(([input]) => String(input));
+      expect(urls.some((url) => url.includes('/api/usage') && !url.includes('cellId'))).toBe(
+        true,
+      );
+    });
+  });
+
+  it('shows a newly created cell without remounting the page', async () => {
+    installFetch();
+    const { rerender, budgetFeed } = renderUsage();
+    await screen.findByText('Effective cost');
+    expect(screen.queryByRole('option', { name: 'Beta' })).not.toBeInTheDocument();
+
+    rerender(
+      <UsagePage
+        cells={[...CELLS, { ...CELLS[0], id: 'cell-2', name: 'Beta' }]}
+        onError={vi.fn()}
+        budgetFeed={budgetFeed}
+      />,
+    );
+
+    expect(await screen.findByRole('option', { name: 'Beta' })).toBeInTheDocument();
   });
 });

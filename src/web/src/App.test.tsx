@@ -1188,4 +1188,139 @@ describe('App', () => {
     await waitFor(() => expect(window.location.search).toContain('help=07-process-segments'), { timeout: ASYNC_TIMEOUT_MS });
     expect(await screen.findByText('Process segments article.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
   }, APP_TEST_TIMEOUT_MS);
+
+  it('removes a sidebar-deleted cell from the open Usage filter', async () => {
+    const cells = [makeCell('c1', 'Alpha')];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${url}`);
+        if (url === '/api/cells/c1' && method === 'DELETE') {
+          cells.splice(0, cells.length);
+          return new Response(null, { status: 204 });
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Usage'));
+
+    const filter = await screen.findByLabelText('Filter usage by cell', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(
+      await within(filter).findByRole('option', { name: 'Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(filter, { target: { value: 'c1' } });
+    await waitFor(
+      () =>
+        expect(
+          calls.some((call) => call.includes('/api/usage') && call.includes('cellId=c1')),
+        ).toBe(true),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Alpha' }));
+
+    await waitFor(
+      () => expect(within(filter).queryByRole('option', { name: 'Alpha' })).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(filter).toHaveValue('');
+    const deleteAt = calls.findIndex((call) => call === 'DELETE /api/cells/c1');
+    expect(deleteAt).toBeGreaterThan(-1);
+    await waitFor(
+      () =>
+        expect(
+          calls.slice(deleteAt + 1).some(
+            (call) => call.includes('/api/usage') && !call.includes('cellId'),
+          ),
+        ).toBe(true),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(calls.slice(deleteAt + 1).some((call) => call.includes('cellId=c1'))).toBe(false);
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('falls back to all cells when a Scorecards deep link loses its cell', async () => {
+    const cells = [makeCell('c1', 'Alpha')];
+    window.history.replaceState(null, '', '/?page=scorecards&cell=c1');
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === '/api/cells/c1' && init?.method === 'DELETE') {
+          cells.splice(0, cells.length);
+          return new Response(null, { status: 204 });
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    expect(
+      await screen.findByRole('heading', { name: 'Scorecards' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Grouped' })).not.toBeInTheDocument();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Grouped' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).not.toContain('cell='), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+  }, APP_TEST_TIMEOUT_MS);
+
+  it('shows a newly created cell in the open Usage filter', async () => {
+    const cells = [makeCell('c1', 'Alpha')];
+    installFetch(makeRequest({ id: 'a', title: 'Url card' }), [], cells);
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url === '/api/cells' && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as Partial<CellDetail>;
+          const created = { ...makeCell('c2', 'Beta'), ...body };
+          cells.push(created);
+          return jsonResponse(created, 201);
+        }
+        return baseFetch(input, init);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Usage'));
+    const filter = await screen.findByLabelText('Filter usage by cell', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(
+      await within(filter).findByRole('option', { name: 'Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('new-cell'));
+    fireEvent.change(await screen.findByLabelText('Cell name', undefined, { timeout: ASYNC_TIMEOUT_MS }), {
+      target: { value: 'Beta' },
+    });
+    const create = await screen.findByTestId('cell-submit', undefined, { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(create).toBeEnabled(), { timeout: ASYNC_TIMEOUT_MS });
+    fireEvent.click(create);
+
+    expect(
+      await within(filter).findByRole('option', { name: 'Beta' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+  }, APP_TEST_TIMEOUT_MS);
 });

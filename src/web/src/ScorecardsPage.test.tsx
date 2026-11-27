@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, beforeEach, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
 import { customWindow } from './ScorecardPeriod';
 import { jsonResponse } from './test/fixtures';
@@ -43,6 +43,7 @@ function makeReport(id: string, cellId: string, content: string, createdAt: numb
 
 type Cell = ReturnType<typeof makeCell>;
 type Report = ReturnType<typeof makeReport>;
+let pageCells: Cell[] = [];
 
 const STATUS = {
   enabled: true,
@@ -79,6 +80,7 @@ function feedPage(reportsByCell: Record<string, Report[]>, params: URLSearchPara
 }
 
 function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
+  pageCells = cells;
   const urls: string[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -154,6 +156,10 @@ function appliedRangeLabel(since: number, until: number): string {
   return `Applied: ${format(since)} – ${format(until)} (local; the end minute is included)`;
 }
 
+beforeEach(() => {
+  pageCells = [];
+});
+
 describe('customWindow', () => {
   it('defaults blank times to whole local days', () => {
     expect(customWindow('2026-11-01', '2026-11-15', '', '')).toEqual({
@@ -198,7 +204,7 @@ describe('ScorecardsPage', () => {
       },
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     expect(await screen.findByText('Alpha newest report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('Beta newest report')).toBeInTheDocument();
@@ -224,7 +230,7 @@ describe('ScorecardsPage', () => {
     );
     const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByText('Earlier scorecards (1)')).not.toBeInTheDocument();
@@ -266,7 +272,7 @@ describe('ScorecardsPage', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
     const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
     expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     const first = summaryRequests(urls)[0];
@@ -334,7 +340,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     const buttons = await screen.findAllByRole('button', { name: 'Load older' }, { timeout: ASYNC_TIMEOUT_MS });
     expect(buttons).toHaveLength(2);
@@ -372,7 +378,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={onError} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={onError} />);
 
     expect(await screen.findByText('Latest report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
@@ -387,7 +393,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     expect(await screen.findByText('Alpha report')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Custom' })).toBeInTheDocument();
@@ -404,7 +410,7 @@ describe('ScorecardsPage', () => {
       c2: [makeReport('s2', 'c2', 'Beta report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
 
     expect(await screen.findByText('Alpha report')).toBeInTheDocument();
     expect(screen.queryByText('Beta report')).not.toBeInTheDocument();
@@ -419,12 +425,82 @@ describe('ScorecardsPage', () => {
     expect(urls.some((url) => url.includes('cellId=c2'))).toBe(false);
   });
 
+  it('drops a focused report when its cell is deleted', async () => {
+    stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    const { rerender } = render(
+      <ScorecardsPage
+        cells={[makeCell('c1', 'Alpha')]}
+        onSelectCell={() => {}}
+        cellId="c1"
+        onError={() => {}}
+      />,
+    );
+    expect(
+      await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <ScorecardsPage
+        cells={[]}
+        onSelectCell={() => {}}
+        cellId="c1"
+        onError={() => {}}
+      />,
+    );
+
+    await waitFor(
+      () => expect(screen.queryByText('Alpha report')).not.toBeInTheDocument(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(screen.getByText(/No scorecards in the last 72 hours/)).toBeInTheDocument();
+  });
+
+  it('updates flat-mode cell names from the shared list without refetching cells', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    const { rerender } = render(
+      <ScorecardsPage
+        cells={[makeCell('c1', 'Alpha')]}
+        onSelectCell={() => {}}
+        cellId={null}
+        onError={() => {}}
+      />,
+    );
+    expect(
+      await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Focus Alpha' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <ScorecardsPage
+        cells={[makeCell('c1', 'Renamed')]}
+        onSelectCell={() => {}}
+        cellId={null}
+        onError={() => {}}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Focus Renamed' }, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(urls).not.toContain('/api/cells');
+  });
+
   it('reloads with a matching period and omits since for all time', async () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
@@ -443,7 +519,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
@@ -481,7 +557,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
@@ -516,7 +592,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
@@ -551,7 +627,7 @@ describe('ScorecardsPage', () => {
         c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
       });
 
-      render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+      render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
       expect(
         await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
       ).toBeInTheDocument();
@@ -618,7 +694,7 @@ describe('ScorecardsPage', () => {
         c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
       });
 
-      render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+      render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
       expect(
         await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
       ).toBeInTheDocument();
@@ -674,7 +750,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
@@ -702,7 +778,7 @@ describe('ScorecardsPage', () => {
     );
     const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
@@ -759,7 +835,7 @@ describe('ScorecardsPage', () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
     const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
     try {
-      render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+      render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
       expect(await screen.findByText('Report 1', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
       const firstSince = latestRequests(urls)[0]?.get('since');
       expect(firstSince).toBe(String(2_000_000 - 72 * 60 * 60_000));
@@ -787,7 +863,7 @@ describe('ScorecardsPage', () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
     const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
     try {
-      render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
+      render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
       expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
       const firstSince = summaryRequests(urls)[0]?.get('since');
       expect(firstSince).toBe(String(2_000_000 - 72 * 60 * 60_000));
@@ -821,7 +897,7 @@ describe('ScorecardsPage', () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
     const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
     try {
-      render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+      render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
       expect(await screen.findByText('Report 1', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
       const firstSince = latestRequests(urls)[0]?.get('since');
       expect(firstSince).toBe(String(2_000_000 - 72 * 60 * 60_000));
@@ -857,7 +933,7 @@ describe('ScorecardsPage', () => {
       c2: [makeReport('s2', 'c2', 'Beta report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
@@ -871,7 +947,7 @@ describe('ScorecardsPage', () => {
   it('shows a range-aware empty state', async () => {
     stubFetch([makeCell('c1', 'Alpha')], {});
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     expect(await screen.findByText('No scorecards in the last 72 hours')).toBeInTheDocument();
 
@@ -902,7 +978,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={onError} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={onError} />);
 
     expect(await screen.findByText("Couldn't load scorecards")).toBeInTheDocument();
     await waitFor(() => expect(onError).toHaveBeenCalled());
@@ -924,7 +1000,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={onError} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId="c1" onError={onError} />);
 
     expect(await screen.findByText("Couldn't load scorecards")).toBeInTheDocument();
     await waitFor(() => expect(onError).toHaveBeenCalled());
@@ -935,7 +1011,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     expect(
       await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
@@ -957,7 +1033,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
 
     expect(
       await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
@@ -978,7 +1054,7 @@ describe('ScorecardsPage', () => {
       },
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
 
     expect(
       await screen.findByText('Alpha newest report', undefined, {
@@ -1021,7 +1097,7 @@ describe('ScorecardsPage', () => {
     );
 
     const { rerender } = render(
-      <ScorecardsPage onSelectCell={onSelectCell} cellId={null} onError={() => {}} />,
+      <ScorecardsPage cells={pageCells} onSelectCell={onSelectCell} cellId={null} onError={() => {}} />,
     );
     expect(
       await screen.findByText('Alpha newest report', undefined, {
@@ -1039,7 +1115,7 @@ describe('ScorecardsPage', () => {
     expect(onSelectCell).toHaveBeenCalledWith('c2');
 
     rerender(
-      <ScorecardsPage onSelectCell={onSelectCell} cellId="c1" onError={() => {}} />,
+      <ScorecardsPage cells={pageCells} onSelectCell={onSelectCell} cellId="c1" onError={() => {}} />,
     );
 
     expect(
@@ -1074,7 +1150,7 @@ describe('ScorecardsPage', () => {
       },
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(
       await screen.findByText('Feed report 0', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
@@ -1138,7 +1214,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={onError} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={onError} />);
     expect(
       await screen.findByText('Flat report 0', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
@@ -1189,7 +1265,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={onError} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={onError} />);
     expect(
       await screen.findByText('Recovered report', undefined, {
         timeout: ASYNC_TIMEOUT_MS,
@@ -1220,7 +1296,7 @@ describe('ScorecardsPage', () => {
       gone: [makeReport('r2', 'gone', 'Detached cell report', 1_500_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(
       await screen.findByText('Known cell report', undefined, {
         timeout: ASYNC_TIMEOUT_MS,
@@ -1244,7 +1320,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('r1', 'c1', 'Period report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(
       await screen.findByText('Period report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
@@ -1275,7 +1351,7 @@ describe('ScorecardsPage', () => {
       c1: [makeReport('r1', 'c1', 'Custom flat report', 2_000_000)],
     });
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(
       await screen.findByText('Custom flat report', undefined, {
         timeout: ASYNC_TIMEOUT_MS,
@@ -1350,7 +1426,7 @@ describe('ScorecardsPage', () => {
       }),
     );
 
-    render(<ScorecardsPage onSelectCell={() => {}} cellId={null} onError={() => {}} />);
+    render(<ScorecardsPage cells={pageCells} onSelectCell={() => {}} cellId={null} onError={() => {}} />);
     expect(
       await screen.findByText('Grouped report', undefined, {
         timeout: ASYNC_TIMEOUT_MS,

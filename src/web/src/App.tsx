@@ -98,7 +98,11 @@ export function App() {
   const [initialRoute] = useState(readRoute);
   const [page, setPage] = useState<Page>(initialRoute.page);
   const [cells, setCells] = useState<CellDetail[]>([]);
+  const [cellsLoaded, setCellsLoaded] = useState(false);
   const [cellId, setCellId] = useState<string | null>(initialRoute.cellId);
+  // loadCells runs asynchronously; this ref lets it validate the current
+  // selection without re-creating the loader on every cell change.
+  const cellIdRef = useRef<string | null>(initialRoute.cellId);
   const [detailId, setDetailId] = useState<string | null>(initialRoute.detailId);
   const [masterOpen, setMasterOpen] = useState(initialRoute.masterOpen);
   const [helpSlug, setHelpSlug] = useState<string | null>(initialRoute.helpSlug);
@@ -120,7 +124,16 @@ export function App() {
 
   const loadCells = useCallback(async () => {
     try {
-      setCells(await api.getCells());
+      const list = await api.getCells();
+      setCells(list);
+      setCellsLoaded(true);
+      // A cell deleted elsewhere (or a stale ?cell= link) must not leave the
+      // sidebar, Scorecards, or the master drawer pointed at a missing id.
+      const selected = cellIdRef.current;
+      if (selected && !list.some((cell) => cell.id === selected)) {
+        setCellId(null);
+        setMasterOpen(false);
+      }
     } catch (caught) {
       setError(describeError(caught));
     }
@@ -131,10 +144,15 @@ export function App() {
   }, []);
 
   const selectCell = useCallback((id: string | null) => {
+    cellIdRef.current = id;
     setCellId(id);
     if (!id) setMasterOpen(false);
     setNavOpen(false);
   }, []);
+
+  useEffect(() => {
+    cellIdRef.current = cellId;
+  }, [cellId]);
 
   useEffect(() => {
     void (async () => {
@@ -193,6 +211,7 @@ export function App() {
     const onPopState = () => {
       const route = readRoute();
       setPage(route.page);
+      cellIdRef.current = route.cellId;
       setCellId(route.cellId);
       setDetailId(route.detailId);
       setMasterOpen(route.masterOpen);
@@ -514,12 +533,13 @@ export function App() {
           {page === 'kb' ? <KbEntries commands={commands} onError={setError} /> : null}
           {page === 'skills' ? <SkillsPage onError={setError} /> : null}
           {page === 'usage' ? (
-            <UsagePage onError={setError} budgetFeed={budgetFeed} />
+            <UsagePage cells={cells} onError={setError} budgetFeed={budgetFeed} />
           ) : null}
           {page === 'scorecards' ? (
             <ScorecardsPage
               key={cellId ?? 'all'}
               cellId={cellId}
+              cells={cells}
               onSelectCell={selectCell}
               onError={setError}
             />
@@ -543,6 +563,8 @@ export function App() {
       {detailId ? (
         <RequestDetail
           id={detailId}
+          cells={cells}
+          cellsLoaded={cellsLoaded}
           onClose={() => {
             setDetailId(null);
             refreshBoard();
@@ -555,6 +577,8 @@ export function App() {
       {masterOpen && cellId ? (
         <MasterDetail
           cellId={cellId}
+          cells={cells}
+          cellsLoaded={cellsLoaded}
           commands={commands}
           onClose={() => setMasterOpen(false)}
           onConfigure={(cell) => {
@@ -579,7 +603,15 @@ export function App() {
         onClose={() => setCellModalOpen(false)}
         onSaved={(cell) => {
           setCellModalOpen(false);
+          // The new cell must be in the shared list before the reload can
+          // validate (and potentially clear) the selected id.
+          setCells((current) =>
+            current.some((item) => item.id === cell.id)
+              ? current.map((item) => (item.id === cell.id ? cell : item))
+              : [...current, cell],
+          );
           setCellId(cell.id);
+          cellIdRef.current = cell.id;
           void loadCells();
           // A cell save can change its budget or pause policy; refresh the one
           // shared budget feed instead of waiting for the next poll.

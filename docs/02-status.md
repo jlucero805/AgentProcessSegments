@@ -153,6 +153,10 @@ built and vended by the brain; real-CLI verification is still pending.
   direct run directory to `0700` and each top-level `db-backup.sqlite` to `0600` (dry run
   by default; `--apply` to change). It never follows symlinks, deletes anything, opens the
   database, or touches `~/.aps-cutover/runs`.
+- Cutover evidence: `npm run repair:runs` tightens `~/.aps-cutover/runs` and each direct
+  run directory to `0700` (dry run by default; `--apply` to change). It never follows
+  symlinks, deletes anything, descends into `dist/` or `backup/`, reads or changes run
+  contents, or touches `~/.aps-cutover/upgrades` or the shared `~/.aps-cutover` root.
 - MCP server (`src/server/src/mcp/server.ts`): stdio server keyed and registered as
   `aps`, scoped by `APS_REQUEST_ID`, proxying to the loopback API. Request sessions get
   `update_request`, `get_request`, `list_requests`, `spawn_request`, `index_to_kb`; the
@@ -456,7 +460,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1355 vitest cases (one environmental root-skip): 1030 server across 56 files and 325 web across 28 files,
+- 1367 vitest cases (one environmental root-skip): 1042 server across 57 files and 325 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -489,7 +493,7 @@ built and vended by the brain; real-CLI verification is still pending.
   (`--keep-runs`/`--keep-days`/`--no-prune`) prunes older runs after every terminal state.
   The same retention can be run by hand with `npm run prune:upgrades`.
   Runs and snapshots left by an older version are tightened with `npm run repair:upgrades`
-  (dry run first).
+  (dry run first), and cutover run directories with `npm run repair:runs` (dry run first).
   This host runs `agent-process-segments.service` from `$HOME/agent-process-segments`
   with APS paths, bound to `127.0.0.1:7391`; SPA and API are served with `/api` winning
   over the SPA fallback, and unknown routes return `{ "error": "not_found" }`. The

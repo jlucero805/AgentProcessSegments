@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1355 vitest cases: 1030 server across 56 files (one environmental root-skip) and 325 web across 28 files, all green.
+- 1367 vitest cases: 1042 server across 57 files (one environmental root-skip) and 325 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,7 +117,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1030 server + 325 web, plus the e2e env guard
+npm test                       # 1042 server + 325 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -144,6 +144,7 @@ npm run migrate:branches        # dry-run/manual recovery for legacy sbox/* refs
                                 # --prune-orphans also retires refs with no request row
 npm run repair:permissions      # tighten old request workdirs (dry run first)
 npm run repair:upgrades         # tighten old upgrade run dirs/snapshots (dry run first)
+npm run repair:runs             # tighten old cutover run dirs (dry run first)
 npm run prune:cutover -- --dry-run  # prune old cutover runs by hand; keeps
                                     # latest, newest success, newest 10, 30 days
 npm run prune:upgrades -- --dry-run # prune old upgrade runs by hand; keeps
@@ -689,8 +690,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     `point_latest` root mkdir; existing ancestors are left alone. The explicit `chmod`
     makes the leaf independent of the caller's umask and repairs a retried run; mode
     failures fail closed. Files inside keep their current modes because the directory is
-    the protection boundary. This is not encryption at rest, and older run directories are
-    not repaired retroactively.
+    the protection boundary. This is not encryption at rest; older run directories are
+    tightened explicitly with `npm run repair:runs` (dry run by default; `--apply` to
+    change), which scans only `~/.aps-cutover/runs`, one level deep, never follows
+    symlinks, deletes, or reads run contents, and leaves `~/.aps-cutover`, `latest`, and
+    `upgrades/` alone.
 46. **Documentation links resolve in Help.** Every local link, image, and `#fragment` in
     the root Markdown, `docs/`, `deploy/vps.md`, and `.opencode/skills` must resolve.
     `src/web/src/doc-links.test.ts` walks that corpus (`.git`, `node_modules`, and `dist`

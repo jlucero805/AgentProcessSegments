@@ -3020,9 +3020,12 @@ cutover root but refuses a symlinked `runs/` (D120), and missing children are si
 `src/server/test/repair-permissions.test.ts` guards the split: only
 `permission-repair.ts` may mention `chmodSync`, every engine constructs
 `PermissionRepair`, and every CLI imports the shared core.
+`src/server/test/permission-repair.test.ts` covers the policy seam directly: a missing
+root under every symlink mode, refused/followed/skipped symlinked roots, and the
+silent-versus-vanished child rule.
 
-**Cost.** Two new modules and one guard test. A future repair must use the shared
-scanner; the guard fails if it imports `chmodSync` directly. Changing either root rule
-is a separate decision (the symlinked `requests/` root is filed separately). The shell
-`chmod` in `deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this
-code.
+**Cost.** Two new modules, one structural guard test, and one focused policy-seam test
+file. A future repair must use the shared scanner; the guard fails if it imports
+`chmodSync` directly. Changing either root rule is a separate decision (the symlinked
+`requests/` root is filed separately). The shell `chmod` in
+`deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this code.

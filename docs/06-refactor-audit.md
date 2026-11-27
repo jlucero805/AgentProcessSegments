@@ -131,7 +131,8 @@ and error-event shape.
   `ENOENT` policy, the counters, and the only repair `chmod`; `maintenance/repair-cli.ts`
   owns argument parsing, reporting, exit codes, and the direct-run bootstrap for
   `repair:permissions`, `repair:upgrades`, and `repair:runs`, whose engines and CLIs are
-  now thin tree/usage descriptions.
+  now thin tree/usage descriptions; `permission-repair.test.ts` pins the root and
+  missing-child policies.
 
 ## Deferred, with reasons
 

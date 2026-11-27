@@ -106,7 +106,9 @@ root (default `<cwd>/docs`, and the unit sets it explicitly to
 never copies Markdown into the SPA, so a `git pull`
 updates the in-app docs after a restart. `GET /api/docs` lists pages,
 `GET /api/docs/:slug` returns one article, and `GET /api/docs/assets/*` serves only
-`docs/screenshots/**`.
+`docs/screenshots/**` in the supported image types. A served page may reference only those
+screenshots; every other local file is not served, so link it by absolute URL or show it
+as inline code.
 
 ## Skills in chat
 

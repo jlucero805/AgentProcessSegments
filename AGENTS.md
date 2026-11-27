@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1476 vitest cases: 1097 server across 59 files (one environmental root-skip) and 379 web across 28 files, all green.
+- 1477 vitest cases: 1097 server across 59 files (one environmental root-skip) and 380 web across 28 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -121,8 +121,9 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1097 server + 379 web, plus the e2e env guard
-npm run check:docs             # local Markdown links, images, Help anchors, manifest pages, SPA Help targets
+npm test                       # 1097 server + 380 web, plus the e2e env guard
+npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
+                               # served screenshots, SPA Help targets
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
                                # interrupt cleanup, the native-module preflight, and the
@@ -482,8 +483,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     sent as raw slash commands.
 25. **Help docs are manifest-only.** Add pages to `src/server/src/docs/manifest.ts`; the
     server reads that list through `docs/service.ts`. Never join a user slug onto a
-    filesystem path. Assets are limited to `docs/screenshots/**`, and an empty docs
-    directory must render the unavailable state, not an error.
+    filesystem path. Assets are limited to `docs/screenshots/**` and the MIME types in
+    `src/server/src/docs/assets.ts`; a served page may reference only those assets. An
+    empty docs directory must render the unavailable state, not an error.
 26. **Brain agent runs are non-interactive.** Never allow a harness to wait for a UI
     question. OpenCode's `question` tool is denied in every scope; prompts must ask in
     plain text. The setup chat answers simple messages directly instead of touring tools.
@@ -757,9 +759,12 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     Help serves: a served page may only link another manifest page or a `?help=<slug>`
     target whose slug and `#fragment` exist in `src/server/src/docs/manifest.ts`, and the
     manifest itself must keep unique lowercase slugs, existing Markdown sources, and
-    `slugForDocPath(source) === slug`. The SPA's own Help targets live in
-    `src/web/src/links.ts` (`SPA_HELP_TARGETS`), and `checkSpaHelpLinks` requires every
-    declared slug to be a `HELP_MANIFEST` entry and every non-null anchor an
+    `slugForDocPath(source) === slug`. A served page's images and other local
+    non-Markdown targets must resolve to a regular `docs/screenshots/**` file with a type
+    in `src/server/src/docs/assets.ts` and map to the same asset URL Help builds; any other
+    local file fails, so use an absolute URL or inline code. The SPA's own Help targets
+    live in `src/web/src/links.ts` (`SPA_HELP_TARGETS`), and `checkSpaHelpLinks` requires
+    every declared slug to be a `HELP_MANIFEST` entry and every non-null anchor an
     `extractHeadings` id of that entry's source. It also rejects a literal `?help=<slug>`
     or a quoted `HELP_MANIFEST` slug anywhere else in `src/web/src` (comments included, so
     refer to the constant by name), because components must use the typed constants rather

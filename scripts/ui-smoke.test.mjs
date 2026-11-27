@@ -128,6 +128,14 @@ test('ui smoke removes its artifacts through the shared cleanup path', () => {
   assert.doesNotMatch(source, /\/drop`, \{ method: 'POST' \}/);
 });
 
+test('ui smoke finds the created card by request id, not title copy', () => {
+  const source = readFileSync(script, 'utf8');
+  assert.match(source, /card\.dataset\.requestId === id/);
+
+  const web = productionWebSource();
+  assert.match(web, /data-request-id=\{request\.id\}/);
+});
+
 function productionWebSource() {
   const webRoot = path.join(repoRoot, 'src', 'web', 'src');
   const files = readdirSync(webRoot, { recursive: true }).filter(

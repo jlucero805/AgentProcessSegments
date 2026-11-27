@@ -9,10 +9,10 @@
 // Set UI_MOBILE=1 for a 390x844 viewport (off-canvas menu, horizontal board,
 // full-width drawer). Set UI_BASE for a different running brain.
 // The script creates a request and a cell through the UI, checks the drawer/chat and
-// the Config schedule card, removes both through the API on every exit path, and
-// fails on page or console errors. A missing Puppeteer fails the run;
-// --allow-missing-puppeteer skips it deliberately and prints SKIPPED (a skip is not
-// a pass).
+// the Config schedule card, removes both through the API on every exit path, verifies
+// the request ended in the dropped state, and fails on page or console errors. A
+// missing Puppeteer fails the run; --allow-missing-puppeteer skips it deliberately
+// and prints SKIPPED (a skip is not a pass).
 //
 // Locate elements through the data-testid hooks, accessible aria-labels, and Help
 // data-slugs below, never through visible copy. scripts/ui-smoke.test.mjs fails when
@@ -310,12 +310,12 @@ try {
   });
   await page.waitForSelector('[data-testid="request-detail"]', { hidden: true, timeout: 10_000 });
   await page.waitForFunction(
-    (title) =>
-      [...document.querySelectorAll('[data-testid="request-card"]')].some((card) =>
-        card.textContent?.includes(title),
+    (id) =>
+      [...document.querySelectorAll('[data-testid="request-card"]')].some(
+        (card) => card.dataset.requestId === id,
       ),
     { timeout: 10_000 },
-    REQUEST_TITLE,
+    requestId,
   );
 
   await openMenu('cell');
@@ -359,15 +359,12 @@ try {
   await page.waitForSelector('[data-testid="master-detail"]', { timeout: 15_000 });
   await page.waitForSelector('[data-testid="master-cron-loop"]', { visible: true, timeout: 15_000 });
   await page.waitForSelector('[data-testid="master-title"]', { visible: true, timeout: 10_000 });
-  if (cellId) {
-    await page.waitForFunction(
-      (name) =>
-        document.querySelector('[data-testid="master-title"]')?.textContent?.includes(name),
-      { timeout: 10_000 },
-      CELL_NAME,
-    );
-    await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
-  }
+  await page.waitForFunction(
+    (name) => document.querySelector('[data-testid="master-title"]')?.textContent?.includes(name),
+    { timeout: 10_000 },
+    CELL_NAME,
+  );
+  await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
   await page.waitForSelector('[data-testid="master-chat"]', { visible: true, timeout: 10_000 });
   await page.evaluate(() => {
     const close = [...document.querySelectorAll('button')].find(
@@ -473,6 +470,7 @@ try {
   console.log(`ui smoke ok (${mobile ? 'mobile' : 'desktop'})`);
   console.log('root background:', background);
   console.log('request:', requestId);
+  console.log('cell:', cellId);
   console.log('screenshot:', shot);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

@@ -27,6 +27,9 @@ test('captured ids are dropped before the cell is deleted', async () => {
     if (url === 'http://brain.example/api/requests/req-1/drop' && method === 'POST') {
       return response(200, {});
     }
+    if (url === 'http://brain.example/api/requests/req-1' && method === 'GET') {
+      return response(200, { id: 'req-1', state: 'dropped' });
+    }
     if (url === 'http://brain.example/api/cells/cell-1' && method === 'DELETE') {
       return response(204);
     }
@@ -45,6 +48,7 @@ test('captured ids are dropped before the cell is deleted', async () => {
     calls.map((call) => `${call.method} ${call.url}`),
     [
       'POST http://brain.example/api/requests/req-1/drop',
+      'GET http://brain.example/api/requests/req-1',
       'DELETE http://brain.example/api/cells/cell-1',
     ],
   );
@@ -71,6 +75,9 @@ test('missing ids resolve by exact name outside the baseline', async () => {
     if (url === 'http://brain.example/api/requests/new-request/drop' && method === 'POST') {
       return response(200, {});
     }
+    if (url === 'http://brain.example/api/requests/new-request' && method === 'GET') {
+      return response(200, { id: 'new-request', state: 'dropped' });
+    }
     if (url === 'http://brain.example/api/cells/new-cell' && method === 'DELETE') {
       return response(204);
     }
@@ -93,6 +100,7 @@ test('missing ids resolve by exact name outside the baseline', async () => {
       'GET http://brain.example/api/requests',
       'GET http://brain.example/api/cells',
       'POST http://brain.example/api/requests/new-request/drop',
+      'GET http://brain.example/api/requests/new-request',
       'DELETE http://brain.example/api/cells/new-cell',
     ],
   );
@@ -121,14 +129,45 @@ test('an empty list leaves no artifact actions', async () => {
 });
 
 test('404 means the artifact is already gone', async () => {
+  const { calls, fetchImpl } = createFetch(() => response(404));
+
   const { failures } = await cleanupUiSmokeArtifacts({
     base: 'http://brain.example',
     request: { id: 'req-1', title: 'Browser smoke' },
     cell: { id: 'cell-1', name: 'Smoke cell' },
-    fetchImpl: async () => response(404),
+    fetchImpl,
   });
 
   assert.deepEqual(failures, []);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.url}`),
+    [
+      'POST http://brain.example/api/requests/req-1/drop',
+      'DELETE http://brain.example/api/cells/cell-1',
+    ],
+  );
+});
+
+test('a request that is not dropped is reported', async () => {
+  const { fetchImpl } = createFetch(({ url, method }) => {
+    if (url.endsWith('/api/requests/req-1/drop') && method === 'POST') return response(200, {});
+    if (url.endsWith('/api/requests/req-1') && method === 'GET') {
+      return response(200, { id: 'req-1', state: 'clarify' });
+    }
+    if (url.endsWith('/api/cells/cell-1') && method === 'DELETE') return response(204);
+    throw new Error(`unexpected ${method} ${url}`);
+  });
+
+  const { failures } = await cleanupUiSmokeArtifacts({
+    base: 'http://brain.example',
+    request: { id: 'req-1', title: 'Browser smoke' },
+    cell: { id: 'cell-1', name: 'Smoke cell' },
+    fetchImpl,
+  });
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].kind, 'request');
+  assert.match(failures[0].message, /is clarify after drop/);
 });
 
 test('a failed drop still deletes the cell', async () => {
@@ -171,6 +210,9 @@ test('a failed list does not skip a known id', async () => {
   const { calls, fetchImpl } = createFetch(({ url, method }) => {
     if (url.endsWith('/api/cells') && method === 'GET') throw new Error('brain offline');
     if (url.endsWith('/api/requests/req-1/drop') && method === 'POST') return response(200, {});
+    if (url.endsWith('/api/requests/req-1') && method === 'GET') {
+      return response(200, { id: 'req-1', state: 'dropped' });
+    }
     throw new Error(`unexpected ${method} ${url}`);
   });
 

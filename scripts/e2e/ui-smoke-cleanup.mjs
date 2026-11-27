@@ -4,6 +4,9 @@
 // before the response is read. In that case the artifacts are found by their fixed
 // names, minus the ids that existed before the run. A missing baseline disables
 // that fallback so cleanup can never delete an artifact it did not create.
+//
+// A successful drop is verified by re-reading the request: cleanup must leave it in
+// the dropped state, not just accept the POST's status code.
 const CLEANUP_TIMEOUT_MS = 5_000;
 
 function describe(error) {
@@ -57,6 +60,7 @@ export async function cleanupUiSmokeArtifacts({
     if (!response.ok && response.status !== 404) {
       throw new Error(`${method} ${path} -> ${response.status}`);
     }
+    return response.status;
   }
 
   async function resolveIds({ id, kind, matches, listPath, baseline }) {
@@ -98,7 +102,14 @@ export async function cleanupUiSmokeArtifacts({
 
     for (const id of requestIds) {
       try {
-        await send('POST', `/api/requests/${encodeURIComponent(id)}/drop`);
+        const status = await send('POST', `/api/requests/${encodeURIComponent(id)}/drop`);
+        if (status === 404) continue; // Already gone; nothing to verify.
+        const current = await requestJson(`/api/requests/${encodeURIComponent(id)}`);
+        if (current.state !== 'dropped') {
+          throw new Error(
+            `request ${id} is ${current.state ?? 'in an unknown state'} after drop`,
+          );
+        }
       } catch (error) {
         fail('request', id, error);
       }

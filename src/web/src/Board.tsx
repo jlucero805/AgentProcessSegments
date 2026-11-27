@@ -283,6 +283,7 @@ export function Board({ cellId, onOpen, onError }: BoardProps) {
                     key={request.id}
                     type="button"
                     data-testid="request-card"
+                    data-request-id={request.id}
                     draggable
                     onDragStart={(event) => startDrag(event, request)}
                     onDragEnd={endDrag}

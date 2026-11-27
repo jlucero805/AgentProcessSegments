@@ -28,6 +28,8 @@ if (typeof Element.prototype.scrollTo !== 'function') {
 
 afterEach(() => {
   cleanup();
+  // Backstop for a case that installs fake timers and fails before its own finally.
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   window.localStorage.clear();

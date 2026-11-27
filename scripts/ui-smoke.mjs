@@ -273,14 +273,29 @@ try {
 
   await openMenu('config');
   await clickText('Config');
-  await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('cell master'),
-    { timeout: 15_000 },
-  );
-  await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('run master now'),
-    { timeout: 10_000 },
-  );
+  // The settings cards mount only after every config fetch resolves, so the
+  // page heading and the schedule card prove the page is really loaded. The
+  // sidebar also has a "Cell master" button when a cell is selected, so match
+  // the main heading instead of the page text.
+  try {
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('main h1')].some(
+          (heading) => heading.textContent?.trim() === 'Cell master',
+        ),
+      { timeout: 15_000 },
+    );
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('button')].some(
+          (button) =>
+            button.textContent?.trim() === 'Save schedule' && button.getClientRects().length > 0,
+        ),
+      { timeout: 15_000 },
+    );
+  } catch (error) {
+    throw new Error(`Config schedule card did not load: ${error.message}`, { cause: error });
+  }
   if (mobile) {
     const menu = await sidebarBox();
     if (!menu || menu.open !== 'false') {

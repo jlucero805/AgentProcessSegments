@@ -1137,8 +1137,8 @@ If the shell inherits `NODE_ENV=production` (the brain unit exports it), a bare
 `npm install` installs production dependencies only and `npm run typecheck` fails with
 `tsc: not found`; install with `npm ci --include=dev`, or `NODE_ENV=development npm ci`.
 The root `typecheck`, `test`, `lint`, `build`, `dev`, and `e2e` commands, direct workspace
-`test`/`typecheck` invocations, and `npm run lint:js` preflight the project-local binaries
-and print that install hint when one is missing. See the `AGENTS.md` environment-facts
+`test`/`typecheck`/`build`/`dev`/`preview` invocations, and `npm run lint:js`/`lint:md`
+preflight the project-local binaries and print that install hint when one is missing. See the `AGENTS.md` environment-facts
 bullet for the sibling failures and the re-prune warning.
 
 The original test suite covered the request repo and state machine, the cells repo,

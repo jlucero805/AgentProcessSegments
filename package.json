@@ -18,6 +18,7 @@
     "lint:sh": "for f in deploy/*.sh scripts/*.sh; do bash -n \"$f\" || exit 1; shellcheck --severity=warning \"$f\" || exit 1; done",
     "lint:actions": "actionlint deploy/ci-workflow.yml .github/workflows/ci.yml",
     "lint:unit": "node scripts/verify-systemd-unit.mjs",
+    "prelint:md": "node scripts/check-dev-deps.mjs lint-md",
     "lint:md": "markdownlint-cli2 \"**/*.md\"",
     "pretest": "node scripts/check-dev-deps.mjs test",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",

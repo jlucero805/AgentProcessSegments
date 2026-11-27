@@ -5,11 +5,13 @@
   "type": "module",
   "main": "dist/app.js",
   "scripts": {
+    "prebuild": "node ../../scripts/check-dev-deps.mjs build-server",
     "build": "tsc -p tsconfig.json",
     "pretypecheck": "node ../../scripts/check-dev-deps.mjs typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "pretest": "node ../../scripts/check-dev-deps.mjs test",
     "test": "vitest run",
+    "predev": "node ../../scripts/check-dev-deps.mjs dev-server",
     "dev": "tsx watch src/app.ts"
   },
   "dependencies": {

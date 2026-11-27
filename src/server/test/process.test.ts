@@ -371,11 +371,14 @@ describe('ProcessStore', () => {
     expect(store.get()).toEqual(external);
   });
 
-  it('re-reads a same-size valid edit when its mtime changes', () => {
+  it('re-reads a same-size valid edit with an unchanged mtime', () => {
     const file = tempFile('same-size.json');
     const before = defaultProcess(DEFAULT_SETTINGS.master);
     segmentBy(before, 'plan').prompt = 'alpha';
     writeFileSync(file, JSON.stringify(before));
+    const stamp = new Date('2026-01-02T00:00:00.000Z');
+    utimesSync(file, stamp, stamp);
+    const original = statSync(file);
 
     const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
     expect(segmentBy(store.get(), 'plan').prompt).toBe('alpha');
@@ -383,9 +386,10 @@ describe('ProcessStore', () => {
     const after = defaultProcess(DEFAULT_SETTINGS.master);
     segmentBy(after, 'plan').prompt = 'bravo';
     writeFileSync(file, JSON.stringify(after));
-    const stamp = new Date(Date.now() + 2_000);
-    utimesSync(file, stamp, stamp);
+    utimesSync(file, original.atime, original.mtime);
 
+    expect(statSync(file).size).toBe(original.size);
+    expect(statSync(file).mtimeMs).toBe(original.mtimeMs);
     expect(segmentBy(store.get(), 'plan').prompt).toBe('bravo');
   });
 
@@ -435,6 +439,34 @@ describe('ProcessStore', () => {
       writeFileSync(file, JSON.stringify(corrected));
       expect(store.get()).toEqual(corrected);
       expect(errors.error).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('preserves an externally broken valid file before the next save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const file = tempFile('external-preserve.json');
+      const valid = defaultProcess(DEFAULT_SETTINGS.master);
+      writeFileSync(file, JSON.stringify(valid));
+
+      const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master));
+      expect(store.get()).toEqual(valid);
+
+      const broken = '{bad externally\n';
+      writeFileSync(file, broken);
+      expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+
+      const next = defaultProcess(DEFAULT_SETTINGS.master);
+      segmentBy(next, 'intake').enabled = true;
+      store.patch({ segments: next.segments });
+
+      const names = backupNames(file);
+      expect(names).toHaveLength(1);
+      const preserved = backupFile(file, names[0]!);
+      expect(store.preservedPath()).toBe(preserved);
+      expect(readFileSync(preserved, 'utf8')).toBe(broken);
     } finally {
       warn.mockRestore();
     }

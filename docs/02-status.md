@@ -419,8 +419,8 @@ built and vended by the brain; real-CLI verification is still pending.
   unusable file is re-read on every load, so a correction takes effect without a restart,
   while its `process.unreadable`/`process.invalid` report and stderr warning are emitted
   once per distinct state (kind, detail, and file bytes) instead of on every read. A valid
-  file is re-read when its on-disk identity changes, so a manual edit or deletion takes
-  effect on the next tick without a restart; external edits do not notify `onChange`, and
+  file is re-read on every load, so a manual edit or deletion takes effect on the next
+  tick without a restart; external edits do not notify `onChange`, and
   cells with their own policy keep that snapshot. Only the five newest preserved copies are
   kept; older matching copies are pruned after a
   successful save, and a failed prune reports `process.pruneFailed` without refusing the
@@ -495,7 +495,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1514 vitest cases (one environmental root-skip): 1116 server across 59 files and 398 web across 29 files,
+- 1516 vitest cases (one environmental root-skip): 1118 server across 59 files and 398 web across 29 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

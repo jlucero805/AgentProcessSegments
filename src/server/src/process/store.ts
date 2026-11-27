@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync, unlinkSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import { jsonParseReason } from '../util/json.js';
@@ -22,8 +22,8 @@ function bytesIdentity(raw: string): string {
  */
 export class ProcessStore {
   private cached: ProcessConfig | null = null;
-  /** Identity of the file that produced `cached`; a change forces a reload. */
-  private cachedIdentity: string | null = null;
+  /** Exact bytes that produced `cached`; any difference forces a reload. */
+  private cachedRaw: string | null = null;
   private readonly listeners = new Set<(process: ProcessConfig) => void>();
   /** Set when the loaded file was unusable; the next save preserves its bytes. */
   private preserveSource = false;
@@ -39,19 +39,34 @@ export class ProcessStore {
   ) {}
 
   get(): ProcessConfig {
-    const identity = this.fileIdentity();
-    if (this.cached && identity !== null && identity === this.cachedIdentity) {
-      return this.cached;
+    let raw: string;
+    try {
+      raw = readFileSync(this.path, 'utf8');
+    } catch (error) {
+      this.cached = null;
+      this.cachedRaw = null;
+      this.preserveSource = false;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        this.lastUnusable = null;
+        return structuredClone(this.fallback());
+      }
+      this.preserveSource = true;
+      const detail = String(error);
+      this.reportUnusable(`read\0${code ?? ''}\0${detail}`, () => {
+        this.errors?.error('process.unreadable', error, { path: this.path });
+        console.warn(`ignoring unreadable process config at ${this.path}: ${detail}`);
+      });
+      return structuredClone(this.fallback());
     }
+
+    if (this.cached && raw === this.cachedRaw) return this.cached;
     this.cached = null;
-    this.cachedIdentity = null;
-    const loaded = this.load();
+    this.cachedRaw = null;
+    const loaded = this.load(raw);
     if (loaded) {
       this.cached = loaded;
-      // Capture the identity from before the read: if a writer replaced the
-      // file while it was being read, the next get() must reload instead of
-      // trusting this cache.
-      this.cachedIdentity = identity;
+      this.cachedRaw = raw;
       return loaded;
     }
     return structuredClone(this.fallback());
@@ -63,11 +78,10 @@ export class ProcessStore {
     // Load before writing so a save that is the first operation still notices
     // an unusable file on disk and preserves it.
     this.get();
-    this.write(next);
+    const raw = `${JSON.stringify(next, null, 2)}\n`;
+    this.write(raw);
     this.cached = next;
-    // The write replaced the file. Revalidate it on the next get() rather than
-    // trusting an identity captured before or after the replacement.
-    this.cachedIdentity = null;
+    this.cachedRaw = raw;
     for (const listener of this.listeners) listener(next);
     return next;
   }
@@ -94,40 +108,8 @@ export class ProcessStore {
     return listPreservedCopies(this.path, { newest: this.preservedFilePath });
   }
 
-  /**
-   * Cheap identity for the process file as it exists now. An unchanged file is
-   * not read again; a missing or unstattable file returns null so the caller
-   * falls through to `load()` for the normal fallback and reporting.
-   */
-  private fileIdentity(): string | null {
-    try {
-      const stats = statSync(this.path);
-      return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
-    } catch {
-      return null;
-    }
-  }
-
-  private load(): ProcessConfig | null {
+  private load(raw: string): ProcessConfig | null {
     this.preserveSource = false;
-
-    let raw: string;
-    try {
-      raw = readFileSync(this.path, 'utf8');
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        this.lastUnusable = null;
-        return null;
-      }
-      this.preserveSource = true;
-      const detail = String(error);
-      this.reportUnusable(`read\0${code ?? ''}\0${detail}`, () => {
-        this.errors?.error('process.unreadable', error, { path: this.path });
-        console.warn(`ignoring unreadable process config at ${this.path}: ${detail}`);
-      });
-      return null;
-    }
 
     try {
       const result = processSchema.safeParse(normalizeProcess(JSON.parse(raw)));
@@ -214,9 +196,9 @@ export class ProcessStore {
     }
   }
 
-  private write(config: ProcessConfig): void {
+  private write(raw: string): void {
     const preserved = this.preserveUnusableSource();
-    writePrivateFile(this.path, `${JSON.stringify(config, null, 2)}\n`);
+    writePrivateFile(this.path, raw);
     // Prune only after the replacement succeeds, so a failed save never
     // removes a preserved copy.
     this.prunePreservedCopies(preserved);

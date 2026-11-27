@@ -312,7 +312,7 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   is passed.
   A headless Chromium on this host needs the usual shared libraries (`libnss3`,
   `libnspr4`, `libatk*`, `libgbm1`, `libasound2`, …).
-- **The UI smoke asserts structure, not copy.** `scripts/ui-smoke.mjs` locates
+- **The UI proofs assert structure, not copy.** `scripts/ui-smoke.mjs` locates
   elements through `data-testid` hooks, accessible `aria-label`s, and Help `data-slug`s;
   `scripts/ui-smoke.test.mjs` fails when one it uses is missing from `src/web/src` or
   the Help manifest, so locator drift is caught without Puppeteer. The request drawer
@@ -320,6 +320,10 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   and the Model select to have at least one option (`model-select[data-model-count]`
   other than `0`), not merely the Harness field to be mounted.
   The smoke also removes its request and cell on success, failure, and interrupt.
+  `scripts/screenshots.mjs` follows the same rule: it locates the staged board through
+  `data-testid` hooks and Help `data-slug`s, and only matches seeded fixture values and
+  the brand identity as text. `scripts/screenshots.test.mjs` fails when a hook or slug
+  it uses disappears, or when `clickText`/body-copy matching returns.
 - **Node 22.7.** `app.inject()` throws because `light-my-request` requires ESM-only
   `cookie` v2. Tests listen on port 0 and use `fetch`. Do not "fix" this by pinning
   `cookie`.

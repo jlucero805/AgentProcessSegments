@@ -298,6 +298,7 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
   return (
     <div
       ref={dialogRef}
+      data-testid="help-dialog"
       role="dialog"
       aria-modal="true"
       aria-label="Documentation"

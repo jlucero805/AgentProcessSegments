@@ -366,10 +366,15 @@ export function App() {
       >
         <div className="flex items-start justify-between px-2 pt-1">
           <div>
-            <h1 className="text-sm font-semibold tracking-tight text-zinc-100">
+            <h1
+              data-testid="brand-title"
+              className="text-sm font-semibold tracking-tight text-zinc-100"
+            >
               Agent Process Segments
             </h1>
-            <p className="text-[11px] text-zinc-600">headless agent orchestration</p>
+            <p data-testid="brand-tagline" className="text-[11px] text-zinc-600">
+              headless agent orchestration
+            </p>
           </div>
           <button
             type="button"

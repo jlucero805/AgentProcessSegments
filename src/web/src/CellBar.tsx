@@ -68,6 +68,7 @@ export function CellBar({
           <button
             type="button"
             data-testid="cell-option"
+            data-cell-id={cell.id}
             onClick={() => onChange(cell.id)}
             className={cn(
               'min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-sm transition-colors',

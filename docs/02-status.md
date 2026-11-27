@@ -183,7 +183,8 @@ built and vended by the brain; real-CLI verification is still pending.
   with the winning entry used whole; OpenCode merges `mcp` entries from the global
   `opencode.json`/`opencode.jsonc`, both read as JSONC (comments and trailing commas
   accepted, JSON5 not), and runs with `--auto`. Project/ancestor config is disabled with
-  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; process-level config env overrides are stripped,
+  `OPENCODE_CONFIG_PROJECT_DISABLE=1`; a file found at the session cwd or an ancestor is
+  named once on stderr by path only; process-level config env overrides are stripped,
   not merged. Read-only KB sessions exclude user servers and plugins. The
   bundled `aps` key is reserved: a user entry with that name is
   replaced by the bundled server, with a one-time warning naming its config file and
@@ -471,7 +472,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1427 vitest cases (one environmental root-skip): 1063 server across 58 files and 364 web across 28 files,
+- 1435 vitest cases (one environmental root-skip): 1071 server across 58 files and 364 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

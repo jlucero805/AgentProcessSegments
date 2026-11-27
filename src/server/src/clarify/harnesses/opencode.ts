@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -31,6 +31,14 @@ const CONFIG_ENV_KEYS = ['OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT'] as const;
 
 /** OpenCode switch that stops project and ancestor config discovery. */
 const PROJECT_DISABLE_ENV = 'OPENCODE_CONFIG_PROJECT_DISABLE';
+
+/** Project config names OpenCode would have loaded before the harness disabled discovery. */
+const PROJECT_CONFIG_NAMES = [
+  'opencode.json',
+  'opencode.jsonc',
+  path.join('.opencode', 'opencode.json'),
+  path.join('.opencode', 'opencode.jsonc'),
+] as const;
 
 /**
  * Remove process-level OpenCode config overrides so only the config the harness
@@ -98,14 +106,69 @@ export interface OpencodeConfigFile {
   issues: McpConfigIssue[];
 }
 
+/** The global OpenCode config directory the harness merges into generated configs. */
+export function opencodeGlobalConfigDir(
+  home = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return (
+    env.OPENCODE_CONFIG_DIR ??
+    path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'opencode')
+  );
+}
+
+/**
+ * Find the nearest project OpenCode config the harness ignores.
+ *
+ * OpenCode resolves project and ancestor config from the child cwd, but every
+ * harness child sets `OPENCODE_CONFIG_PROJECT_DISABLE=1`. Stop at the first
+ * candidate, nearest directory first, so one repo does not report every config
+ * above it. The global config directory is skipped because the harness merges
+ * that file instead of ignoring it.
+ *
+ * `root` exists for hermetic tests. Production callers omit it and walk to the
+ * filesystem root.
+ */
+export function findIgnoredProjectOpencodeConfig(
+  cwd: string,
+  globalDir: string,
+  root = path.parse(path.resolve(cwd)).root,
+): string | null {
+  const global = path.resolve(globalDir);
+  const stop = path.resolve(root);
+  let dir = path.resolve(cwd);
+
+  while (true) {
+    if (dir !== global) {
+      for (const name of PROJECT_CONFIG_NAMES) {
+        const file = path.join(dir, name);
+        if (existsSync(file)) return file;
+      }
+    }
+    if (dir === stop) return null;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** Warn once per ignored project config path without reading its contents. */
+function warnIgnoredProjectOpencodeConfig(cwd: string, globalDir: string): void {
+  const file = findIgnoredProjectOpencodeConfig(cwd, globalDir);
+  if (file === null) return;
+  warnOnce(
+    `opencode-project-config:${file}`,
+    `ignoring project OpenCode config at ${file}: ` +
+      `harness sessions use the generated OPENCODE_CONFIG_DIR config`,
+  );
+}
+
 /** Reads the user's OpenCode config so its MCP servers and settings survive injection. */
 export function readOpencodeConfig(
   home = os.homedir(),
   env: NodeJS.ProcessEnv = process.env,
 ): OpencodeConfigFile {
-  const dir =
-    env.OPENCODE_CONFIG_DIR ??
-    path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'opencode');
+  const dir = opencodeGlobalConfigDir(home, env);
 
   const issues: McpConfigIssue[] = [];
   for (const name of ['opencode.json', 'opencode.jsonc']) {
@@ -184,6 +247,7 @@ export class OpencodeHarness implements AgentHarness {
 
   async prepare(session: HarnessSession): Promise<HarnessCommand> {
     warnConfigEnvOverrides(this.env);
+    warnIgnoredProjectOpencodeConfig(session.cwd, opencodeGlobalConfigDir(this.home, this.env));
     const { config: user, path: configPath, issues } = readOpencodeConfig(this.home, this.env);
     const requestScope = session.scope === 'request';
     // User MCP servers, plugins, and user permissions are request-session only.

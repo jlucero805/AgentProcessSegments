@@ -60,8 +60,9 @@ plus the user's MCP servers. That allowlist is the agent's permission boundary. 
 OpenCode child env also strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` and sets
 `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so process-level overrides and project/ancestor
 config cannot supply MCP servers, plugins, skills, agents, or permissions. A set override
-variable warns once and is ignored; only the generated config (which already contains
-merged global user settings) applies.
+variable warns once and is ignored; a project or ancestor config found at the session
+cwd is named once on stderr by path only. Only the generated config (which already
+contains merged global user settings) applies.
 
 ---
 
@@ -883,7 +884,8 @@ defaults.
   global `opencode.json`/`opencode.jsonc` as JSONC, comments and trailing commas included,
   strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from its child env, and sets
   `OPENCODE_CONFIG_PROJECT_DISABLE=1` so project/ancestor config cannot add servers,
-  plugins, skills, agents, or permissions).
+  plugins, skills, agents, or permissions; an ignored project config found at the
+  session cwd or an ancestor is named once on stderr by path only).
   The KB session (`__kb__`) is read-only: `Read` plus the KB MCP tools, no plugins, no
   user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.

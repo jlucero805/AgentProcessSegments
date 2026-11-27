@@ -6,8 +6,10 @@ import { EFFORT_LEVELS } from '../src/domain/request.js';
 import type { HarnessSession } from '../src/clarify/harness.js';
 import { ClaudeHarness, claudeUserMcpServers } from '../src/clarify/harnesses/claude.js';
 import {
+  findIgnoredProjectOpencodeConfig,
   OpencodeHarness,
   OpencodeProcess,
+  opencodeGlobalConfigDir,
   opencodeHarnessEnv,
   probeOpencodeModels,
   scrubOpencodeConfigEnv,
@@ -808,6 +810,138 @@ describe('OpencodeHarness', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('warns once for an ignored project config without naming its contents', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errors = errorSink();
+    const { home, cwd, dir } = workspace();
+    const projectFile = path.join(cwd, 'opencode.json');
+    writeFileSync(
+      projectFile,
+      JSON.stringify({
+        model: 'secret/model',
+        permission: { bash: 'allow' },
+        mcp: { secret: { type: 'remote', url: 'https://secret.example.test/sse' } },
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {}, errors);
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain(projectFile);
+    expect(message).toContain('OPENCODE_CONFIG_DIR');
+    expect(message).not.toContain('secret/model');
+    expect(message).not.toContain('secret.example.test');
+    expect(errors.error).not.toHaveBeenCalled();
+
+    warn.mockClear();
+    await harness.prepare(requestSession(dir, cwd));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns separately for project configs in different repositories', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const first = workspace();
+    const second = workspace();
+    const firstFile = path.join(first.cwd, 'opencode.json');
+    const secondFile = path.join(second.cwd, 'opencode.json');
+    writeFileSync(firstFile, '{}');
+    writeFileSync(secondFile, '{}');
+
+    const firstHarness = new OpencodeHarness('opencode', 'http://brain:7391', first.home, {});
+    const secondHarness = new OpencodeHarness('opencode', 'http://brain:7391', second.home, {});
+    await firstHarness.prepare(requestSession(first.dir, first.cwd));
+    await secondHarness.prepare(requestSession(second.dir, second.cwd));
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    const messages = warn.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((message) => message.includes(firstFile))).toBe(true);
+    expect(messages.some((message) => message.includes(secondFile))).toBe(true);
+  });
+
+  it('warns for an ignored project config in an ancestor directory', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { base, home, cwd, dir } = workspace();
+    const projectFile = path.join(base, 'opencode.json');
+    writeFileSync(projectFile, '{}');
+    const nested = path.join(cwd, 'packages', 'app');
+    mkdirSync(nested, { recursive: true });
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare(requestSession(dir, nested));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(projectFile);
+  });
+
+  it('does not warn for a .opencode tree that only holds skills', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(cwd, '.opencode', 'skills', 'example'), { recursive: true });
+    writeFileSync(path.join(cwd, '.opencode', 'skills', 'example', 'SKILL.md'), '# Example\n');
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('does not warn when the cwd has no project config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('does not warn for a config in the global OpenCode directory', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, dir } = workspace();
+    const globalDir = opencodeConfigDir(home);
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(path.join(globalDir, 'opencode.json'), '{"permission":{"bash":"ask"}}');
+    const cwd = path.join(globalDir, 'work');
+    mkdirSync(cwd, { recursive: true });
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns for a JSONC project config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    const projectFile = path.join(cwd, 'opencode.jsonc');
+    writeFileSync(projectFile, '{\n  // project settings\n  "model": "secret/model",\n}\n');
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(projectFile);
+  });
+
+  it('finds the nearest project config and skips the global directory', () => {
+    const { base, home, cwd } = workspace();
+    const globalDir = opencodeGlobalConfigDir(home, {});
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(path.join(globalDir, 'opencode.json'), '{}');
+
+    expect(findIgnoredProjectOpencodeConfig(globalDir, globalDir, base)).toBeNull();
+
+    const projectFile = path.join(cwd, 'opencode.json');
+    writeFileSync(projectFile, '{}');
+    const nested = path.join(cwd, 'packages', 'app');
+    mkdirSync(nested, { recursive: true });
+
+    expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBe(projectFile);
+    expect(findIgnoredProjectOpencodeConfig(nested, globalDir, base)).toBe(projectFile);
+  });
+
   it('merges user MCP servers and points OpenCode at the generated config dir', async () => {
     const { home, cwd, dir } = workspace();
     mkdirSync(path.join(home, '.config', 'opencode'), { recursive: true });
@@ -879,9 +1013,11 @@ describe('OpencodeHarness', () => {
   });
 
   it('keeps the generated aps and read-only denies when the repo has a project config', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { home, cwd, dir } = workspace();
+    const projectFile = path.join(cwd, 'opencode.json');
     writeFileSync(
-      path.join(cwd, 'opencode.json'),
+      projectFile,
       JSON.stringify({
         mcp: {
           servers: {
@@ -920,6 +1056,9 @@ describe('OpencodeHarness', () => {
         expect(config.permission).toMatchObject({ edit: 'deny', bash: 'deny' });
       }
     }
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(projectFile);
   });
 
   it('keeps the bundled aps server when the user also defines one', async () => {

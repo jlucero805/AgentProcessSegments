@@ -350,7 +350,12 @@ new key is authoritative whenever it exists (even when malformed), so a drained 
 stopped queue cannot resurrect from the legacy key. `POST /clarify/stop` marks the turn
 cancelled, kills the child (SIGTERM then SIGKILL), lets `finishTurn` save the partial
 transcript, and leaves `session.json` alone so the next message resumes. Stop clears the
-queue; the client shows "Stopped. You can interject."
+queue; the client shows "Stopped. You can interject." The clear is optimistic: the client
+drops the queue and its claims before the stop POST resolves, so a rejected stop still
+discards the queued messages because Stop is an explicit destructive action. A failed POST
+does not prove the child died, so the client stays attached to the still-live turn and
+reports the failure through `onError` and the inline error banner. A stop that never
+resolves is bounded by the 4 s fallback.
 
 A queue restored from storage is held until `GET /clarify` reports whether a turn is
 live. If one is, the queue waits for that turn's `done` and then drains; if the snapshot

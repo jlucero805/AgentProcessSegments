@@ -55,8 +55,10 @@ function toolLabel(name: string): string {
  * One chat per request. React owns the messages and running flag; a live turn is
  * reattached from the NDJSON stream on mount. Composing while a turn runs queues
  * the message, Stop cuts the turn short and clears the queue so the human can
- * interject, and the queue survives a reload. The queue is claimed from storage
- * under a per-request lock, so two tabs never send the same queued message.
+ * interject, and the queue survives a reload. The clear is optimistic: a rejected
+ * stop POST still discards the queue and is reported through `onError` and the
+ * inline error banner. The queue is claimed from storage under a per-request lock,
+ * so two tabs never send the same queued message.
  */
 export function ClarifyChat({
   requestId,
@@ -420,7 +422,9 @@ export function ClarifyChat({
       await api.stopClarify(requestId);
       setStopped(true);
     } catch (error) {
-      onErrorRef.current(describeError(error));
+      const message = describeError(error);
+      setInlineError(message);
+      onErrorRef.current(message);
       setStopping(false);
     }
   }, [requestId, queueKey]);

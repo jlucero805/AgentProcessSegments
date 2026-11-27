@@ -1674,7 +1674,8 @@ error (`is a symbolic link`) without chmodding or descending through the link, s
 symlinked children and non-regular entries, treats `ENOENT` as a skip, continues after
 other failures, and exits 1 when any entry fails. It never recurses into `cwd/`, never
 touches the data-dir root, plugins, worktrees, SQLite, the error log, or unrelated
-siblings, and never opens the database.
+siblings, and never opens the database. The top-level `requests/` rule changed in D135;
+this entry originally followed a symlinked root with `stat`.
 
 **Cost.** The repair is an explicit post-upgrade step, not automatic. It is not
 encryption at rest and root can still read the files. A boot-time recursive repair is
@@ -3466,10 +3467,11 @@ and the dry run advertised those unrelated paths as pending changes. A dangling 
 failed more quietly: `stat` threw `ENOENT`, so the CLI printed `nothing to repair` and
 exited 0.
 
-**Decision.** `repairPermissions` calls `PermissionRepair.root` with no symlink option,
-so a symlinked `requests/` root (dangling included) records one
-`error ...: is a symbolic link` entry, chmods nothing, does not `readdir` the target, and
-exits 1 in both dry-run and `--apply`. The scanner's `follow` policy is gone:
+**Decision.** `repairPermissions` calls `PermissionRepair.root` with
+`{ symlinks: 'refuse' }`, so a symlinked `requests/` root (dangling included) records
+one `error ...: is a symbolic link` entry, chmods nothing, does not `readdir` the target,
+and exits 1 in both dry-run and `--apply`. The option is explicit because it pins the
+rule even if the scanner default changes. The scanner's `follow` policy is gone:
 `RootOptions.symlinks` is `refuse` (the default) or `skip`, an `lstat`-only check. The
 two cutover repairs keep `skip` for their own root and keep refusing a symlinked
 `runs/` or `upgrades/` (D120). An operator repairing a relocated tree points `--data-dir`

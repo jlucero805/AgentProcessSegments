@@ -3287,3 +3287,36 @@ five-copy prune; the live-file write still uses `writePrivateFile`.
 suffix now updates the producer and the reader together. The suffix loop stays unbounded,
 matching the previous probe, and the helper adds one `chmod` per preserved copy. No API,
 UI, database, or file-format change.
+
+## D130. The Cell master drawer's Scorecard card offers the same Custom window
+
+**Context.** D107 gave the Cell master drawer the Scorecards page's preset control so
+operators could widen the latest-five card without leaving the drawer, but it left the
+drawer preset-only and D108 deliberately deferred a drawer-level custom range. Meanwhile
+the Scorecards page grew a Custom segment with browser-local dates, optional minute-level
+times, inclusive bounds, prefill from the current preset, and an Apply step. Copying that
+state machine and its four inputs into the drawer would give the same window two
+implementations and let them drift on parsing, prefill, or validation.
+
+**Decision.** Add **Custom** to the drawer through the page's existing model rather than a
+copy. `ScorecardPeriod.tsx` now exports `CustomRangeSeed`/`customRangeSeed` for the prefill,
+`appliedRangeLabel` for the applied local window, and `ScorecardCustomRange` for the four
+inputs, **Apply**, and the inline applied/validation line; `ScorecardsPage` and
+`MasterDetail` both use them. Selecting Custom prefills from the current finite preset (or
+72 hours from **All**), applies at once, and requires **Apply** for edits. The drawer sends
+`since` and `until` with its existing `limit=5` and still does not page or send a probe row;
+switching to a preset restores that preset's rolling `since` and omits `until`. The applied
+Custom window is fixed, so the drawer's 10-second reload re-reads the same bounds instead of
+sliding them, and the request guard keys on the bounds rather than only on
+`range === 'custom'` so a queued poll cannot restore an older window. This supersedes the
+"drawer is preset-only" sentences in D107 and D108; the page's behavior is unchanged.
+
+**Why not a drawer-local copy.** The page's prefill, parsing, error strings, and applied
+label are user-visible contract. One shared component keeps the two surfaces identical and
+keeps the date/time logic beside `customWindow`, where D108 placed it. A drawer-only layout
+variant was rejected because the same wrapped field row fits the narrower card.
+
+**Cost.** One more consumer of the shared period module and no API, schema, scheduler,
+retention, or dependency change. The page's tests run unchanged as the extraction guard. The
+drawer can still show at most five reports, by design, and the Custom range is not persisted
+across drawer opens (D107).

@@ -112,8 +112,12 @@ With a cell selected in the **Cell master** drawer, the **Scorecard** card shows
 recent report for that cell: a short markdown summary, throughput, pipeline health,
 automation activity, risks, and a comparison with the prior window. It also shows when
 the report was generated and the window it covers. The card has the same generation-time
-period control as the **Scorecards** page: it defaults to **72h** and can be widened to
-**24h**, **7d**, **30d**, or **All**. The card shows at most the newest five reports in
+period control as the **Scorecards** page: it defaults to **72h** and can be set to
+**24h**, **7d**, **30d**, **All**, or **Custom**. Custom starts from the current preset's
+whole local days and offers a start and end date plus optional start and end times
+(defaults **00:00** and **23:59**); the start is exact at the selected minute and the end
+includes the whole end minute. An inverted or malformed range is rejected before any
+request is sent, and edits need **Apply**. The card shows at most the newest five reports in
 the selected period; the newest is expanded and up to four older in-range reports are
 under **Earlier scorecards**. The drawer does not page: use the **Scorecards** page to go
 beyond five.
@@ -121,9 +125,10 @@ beyond five.
 - **Run scorecard now** generates one immediately. It is allowed even when automatic
   scorecards are disabled.
 - The drawer's period filters by when a report was generated, not by the window the
-  report covers; each report still shows its own configured trailing window. Widening the
-  period is how you reach reports older than 72 hours. A report generated outside the
-  selected period is not shown, even when it is the cell's newest overall.
+  report covers; each report still shows its own configured trailing window. Presets keep
+  a rolling lower bound, while an applied Custom window is fixed until you change it.
+  Widening the period is how you reach reports older than 72 hours. A report generated
+  outside the selected period is not shown, even when it is the cell's newest overall.
 - The sidebar's **Scorecards** page browses the same persisted reports. A period control
   defaults to **72h** and can be widened to **24h**, **7d**, **30d**, or **All**, or set
   to **Custom** with a start and end date plus optional start and end times (defaults

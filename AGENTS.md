@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1515 vitest cases: 1117 server across 59 files (one environmental root-skip) and 398 web across 29 files, all green.
+- 1519 vitest cases: 1117 server across 59 files (one environmental root-skip) and 402 web across 29 files, all green.
 - Five proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API),
@@ -62,7 +62,7 @@ digests.
   per cell with a generation-time period filter — presets plus a custom date-and-time range —
   keyset paging, one latest-per-cell all-cells feed or one flat cross-cell feed with
   server-side paging, and the Cell master drawer's latest-five view scoped by the same
-  selectable generation-time period), a cell creation flow that
+  selectable generation-time period, including Custom), a cell creation flow that
   defines the policy up front with an editable setup chat, per-cell concurrency caps,
   model/effort defaults, auto-compaction thresholds, advisory overall/per-cell spend
   budgets with durable alerts, opt-in hard caps that pause new work and stop in-flight
@@ -121,7 +121,7 @@ npm run lint                   # eslint + shell + actionlint + systemd unit (san
 npm run probe:sandbox           # manual: boot the brain under one candidate systemd
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
-npm test                       # 1117 server + 398 web, plus the e2e env guard
+npm test                       # 1117 server + 402 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
                                # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate

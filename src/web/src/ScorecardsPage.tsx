@@ -2,22 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import {
-  CUSTOM_DEFAULT_END_TIME,
-  CUSTOM_DEFAULT_START_TIME,
-  CUSTOM_FALLBACK_MS,
   DEFAULT_RANGE,
+  ScorecardCustomRange,
   ScorecardPeriod,
+  customRangeSeed,
   customWindow,
-  dateInputValue,
   presetWindow,
   rangeOption,
+  type CustomRangeSeed,
   type DateWindow,
   type PageRangeKey,
   type RangeKey,
 } from './ScorecardPeriod';
 import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
-import { Button, Card, EmptyState, Field, Input, SectionTitle, Spinner } from './ui';
+import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
 import type { CellsFeed } from './useCells';
 
 interface ScorecardGroup {
@@ -68,17 +67,6 @@ function windowLabel(summary: Summary): string {
   ).toLocaleTimeString()}`;
 }
 
-/** Applied Custom window in the operator's local time, to minute precision. */
-function appliedRangeLabel(window: DateWindow): string {
-  if (window.since === undefined || window.until === undefined) return '';
-  const format = (value: number) =>
-    new Date(value).toLocaleString(undefined, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  return `Applied: ${format(window.since)} – ${format(window.until)} (local; the end minute is included)`;
-}
-
 /**
  * Browse the persisted scorecard reports. The sidebar's cell selection, or a flat
  * item's cell name, scopes the page to one cell; "All cells" shows each cell's newest
@@ -103,12 +91,9 @@ export function ScorecardsPage({
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
   const [view, setView] = useState<ScorecardsView>('grouped');
   const [range, setRange] = useState<PageRangeKey>(DEFAULT_RANGE);
-  const [customStart, setCustomStart] = useState(() =>
-    dateInputValue(Date.now() - CUSTOM_FALLBACK_MS),
+  const [customSeed, setCustomSeed] = useState<CustomRangeSeed>(() =>
+    customRangeSeed(DEFAULT_RANGE),
   );
-  const [customEnd, setCustomEnd] = useState(() => dateInputValue(Date.now()));
-  const [customStartTime, setCustomStartTime] = useState(CUSTOM_DEFAULT_START_TIME);
-  const [customEndTime, setCustomEndTime] = useState(CUSTOM_DEFAULT_END_TIME);
   const [appliedCustom, setAppliedCustom] = useState<DateWindow>({});
   const loadGeneration = useRef(0);
   /** Bounds used by the load that produced the visible page; paging reuses them. */
@@ -121,9 +106,6 @@ export function ScorecardsPage({
   const selectedCell = cellId ? cellsFeed.cells.find((cell) => cell.id === cellId) ?? null : null;
   const missingCell = cellId !== null && cellsFeed.loaded && selectedCell === null;
   const cellReady = cellId === null || (cellsFeed.loaded && selectedCell !== null);
-
-  const draftWindow = customWindow(customStart, customEnd, customStartTime, customEndTime);
-  const draftError = typeof draftWindow === 'string' ? draftWindow : null;
 
   const load = useCallback(async () => {
     if (cellId !== null && !cellReady) return;
@@ -200,19 +182,10 @@ export function ScorecardsPage({
 
   const selectCustom = () => {
     if (range === 'custom') return;
-    const now = Date.now();
-    const startTime =
-      range === 'all'
-        ? now - CUSTOM_FALLBACK_MS
-        : presetWindow(range, now).since ?? now - CUSTOM_FALLBACK_MS;
-    const start = dateInputValue(startTime);
-    const end = dateInputValue(now);
-    const bounds = customWindow(start, end);
+    const seed = customRangeSeed(range);
+    const bounds = customWindow(seed.start, seed.end, seed.startTime, seed.endTime);
     if (typeof bounds === 'string') return;
-    setCustomStart(start);
-    setCustomEnd(end);
-    setCustomStartTime(CUSTOM_DEFAULT_START_TIME);
-    setCustomEndTime(CUSTOM_DEFAULT_END_TIME);
+    setCustomSeed(seed);
     setRange('custom');
     setAppliedCustom(bounds);
     setGroups(null);
@@ -221,17 +194,16 @@ export function ScorecardsPage({
     setLoading(true);
   };
 
-  const applyCustom = () => {
-    if (typeof draftWindow === 'string') return;
+  const applyCustom = (bounds: DateWindow) => {
     if (
       range === 'custom' &&
-      draftWindow.since === appliedCustom.since &&
-      draftWindow.until === appliedCustom.until
+      bounds.since === appliedCustom.since &&
+      bounds.until === appliedCustom.until
     ) {
       return;
     }
     setRange('custom');
-    setAppliedCustom(draftWindow);
+    setAppliedCustom(bounds);
     setGroups(null);
     setFeed(null);
     setLoadingMoreFeed(false);
@@ -411,61 +383,11 @@ export function ScorecardsPage({
       </div>
 
       {range === 'custom' ? (
-        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
-          <Field label="Start date">
-            <Input
-              type="date"
-              aria-label="Start date"
-              className="w-40"
-              value={customStart}
-              onChange={(event) => setCustomStart(event.target.value)}
-            />
-          </Field>
-          <Field label="Start time">
-            <Input
-              type="time"
-              step={60}
-              aria-label="Start time"
-              className="w-28"
-              value={customStartTime}
-              onChange={(event) => setCustomStartTime(event.target.value)}
-            />
-          </Field>
-          <Field label="End date">
-            <Input
-              type="date"
-              aria-label="End date"
-              className="w-40"
-              value={customEnd}
-              onChange={(event) => setCustomEnd(event.target.value)}
-            />
-          </Field>
-          <Field label="End time">
-            <Input
-              type="time"
-              step={60}
-              aria-label="End time"
-              className="w-28"
-              value={customEndTime}
-              onChange={(event) => setCustomEndTime(event.target.value)}
-            />
-          </Field>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={draftError !== null}
-            onClick={applyCustom}
-          >
-            Apply
-          </Button>
-          <p
-            className={
-              draftError ? 'text-[11px] text-amber-300' : 'text-[11px] text-zinc-600'
-            }
-          >
-            {draftError ?? appliedRangeLabel(appliedCustom)}
-          </p>
-        </div>
+        <ScorecardCustomRange
+          seed={customSeed}
+          applied={appliedCustom}
+          onApply={applyCustom}
+        />
       ) : null}
 
       {!missingCell && status ? (

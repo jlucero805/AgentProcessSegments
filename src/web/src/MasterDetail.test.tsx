@@ -465,6 +465,252 @@ describe('MasterDetail', () => {
     expect(await screen.findByText(/No scorecard yet/)).toBeInTheDocument();
   }, MASTER_DETAIL_TEST_TIMEOUT_MS);
 
+  it('applies a custom local window and still caps the card at five reports', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const reports = [
+        makeReport('s6', 'Newest report', now),
+        makeReport('s5', 'Second report', now - 60 * 60_000),
+        makeReport('s4', 'Third report', now - 2 * 60 * 60_000),
+        makeReport('s3', 'Fourth report', now - 3 * 60 * 60_000),
+        makeReport('s2', 'Fifth report', now - 4 * 60 * 60_000),
+        makeReport('s1', 'Sixth report', now - 5 * 60 * 60_000),
+      ];
+      const urls = stubMasterDetail((params) => {
+        const since = params.has('since') ? Number(params.get('since')) : -Infinity;
+        const until = params.has('until') ? Number(params.get('until')) : Infinity;
+        const limit = Number(params.get('limit') ?? reports.length);
+        return reports
+          .filter((report) => report.createdAt >= since && report.createdAt <= until)
+          .slice(0, limit);
+      });
+
+      render(
+        <MasterDetail
+          cellId="c1"
+          commands={[]}
+          cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
+          onClose={() => {}}
+          onConfigure={() => {}}
+          onError={() => {}}
+        />,
+      );
+
+      expect(
+        await screen.findByText('Newest report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Earlier scorecards (4)')).toBeInTheDocument();
+      expect(screen.queryByText('Sixth report')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument();
+
+      const period = screen.getByRole('group', { name: 'Scorecard period' });
+      expect(within(period).getByRole('button', { name: '72h' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      expect(within(period).getByRole('button', { name: 'Custom' })).toBeInTheDocument();
+
+      const initial = summaryRequests(urls)[0];
+      expect(initial?.get('limit')).toBe('5');
+      expect(initial?.get('since')).toBe(String(now - 72 * 60 * 60_000));
+      expect(initial?.has('until')).toBe(false);
+
+      fireEvent.click(within(period).getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+
+      const prefilled = summaryRequests(urls)[1];
+      expect(prefilled?.get('limit')).toBe('5');
+      expect(prefilled?.get('since')).toBe(
+        String(new Date(2026, 10, 12, 0, 0, 0, 0).getTime()),
+      );
+      expect(prefilled?.get('until')).toBe(
+        String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
+      );
+      expect(
+        within(screen.getByRole('group', { name: 'Scorecard period' })).getByRole('button', {
+          name: 'Custom',
+        }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByLabelText('Start time')).toHaveValue('00:00');
+      expect(screen.getByLabelText('End time')).toHaveValue('23:59');
+      expect(screen.getByText(/^Applied: /)).toBeInTheDocument();
+
+      const beforeEdits = summaryRequests(urls).length;
+      fireEvent.change(screen.getByLabelText('Start date'), {
+        target: { value: '2026-11-13' },
+      });
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: '08:00' },
+      });
+      fireEvent.change(screen.getByLabelText('End date'), {
+        target: { value: '2026-11-14' },
+      });
+      fireEvent.change(screen.getByLabelText('End time'), {
+        target: { value: '12:00' },
+      });
+      expect(summaryRequests(urls)).toHaveLength(beforeEdits);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(beforeEdits + 1), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      const applied = summaryRequests(urls).at(-1);
+      expect(applied?.get('limit')).toBe('5');
+      expect(applied?.get('since')).toBe(
+        String(new Date(2026, 10, 13, 8, 0, 0, 0).getTime()),
+      );
+      expect(applied?.get('until')).toBe(
+        String(new Date(2026, 10, 14, 12, 0, 59, 999).getTime()),
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('rejects an invalid custom window without sending a request', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const urls = stubMasterDetail(() => [makeReport('s1', 'Newest report', now)]);
+
+      render(
+        <MasterDetail
+          cellId="c1"
+          commands={[]}
+          cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
+          onClose={() => {}}
+          onConfigure={() => {}}
+          onError={() => {}}
+        />,
+      );
+
+      expect(
+        await screen.findByText('Newest report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+
+      fireEvent.change(screen.getByLabelText('Start date'), {
+        target: { value: '2030-05-10' },
+      });
+      fireEvent.change(screen.getByLabelText('Start time'), {
+        target: { value: '12:00' },
+      });
+      fireEvent.change(screen.getByLabelText('End date'), {
+        target: { value: '2030-05-10' },
+      });
+      fireEvent.change(screen.getByLabelText('End time'), {
+        target: { value: '08:00' },
+      });
+
+      expect(screen.getByText('Choose a start on or before the end.')).toBeInTheDocument();
+      const apply = screen.getByRole('button', { name: 'Apply' });
+      expect(apply).toBeDisabled();
+      const before = summaryRequests(urls).length;
+      fireEvent.click(apply);
+      expect(summaryRequests(urls)).toHaveLength(before);
+      expect(screen.getByText('Newest report')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '' } });
+      expect(screen.getByText('Choose both a start and end date.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      expect(summaryRequests(urls)).toHaveLength(before);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('resets Custom to a rolling preset and prefills it again', async () => {
+    const now = new Date(2026, 10, 15, 10, 30, 0, 0).getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const urls = stubMasterDetail(() => [makeReport('s1', 'Newest report', now)]);
+
+      render(
+        <MasterDetail
+          cellId="c1"
+          commands={[]}
+          cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
+          onClose={() => {}}
+          onConfigure={() => {}}
+          onError={() => {}}
+        />,
+      );
+
+      expect(
+        await screen.findByText('Newest report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: '7d' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      const preset = summaryRequests(urls)[2];
+      expect(preset?.has('until')).toBe(false);
+      expect(preset?.get('since')).toBe(String(now - 7 * 24 * 60 * 60_000));
+      expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+      const period = screen.getByRole('group', { name: 'Scorecard period' });
+      expect(within(period).getByRole('button', { name: '7d' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      expect(within(period).getByRole('button', { name: 'Custom' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+
+      fireEvent.click(within(period).getByRole('button', { name: 'Custom' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(4), {
+        timeout: ASYNC_TIMEOUT_MS,
+      });
+      const reseeded = summaryRequests(urls)[3];
+      expect(reseeded?.get('since')).toBe(
+        String(new Date(2026, 10, 8, 0, 0, 0, 0).getTime()),
+      );
+      expect(reseeded?.get('until')).toBe(
+        String(new Date(2026, 10, 15, 23, 59, 59, 999).getTime()),
+      );
+      expect(screen.getByLabelText('Start time')).toHaveValue('00:00');
+      expect(screen.getByLabelText('End time')).toHaveValue('23:59');
+    } finally {
+      nowSpy.mockRestore();
+    }
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('shows the custom empty state for a window with no reports', async () => {
+    stubMasterDetail(() => []);
+
+    render(
+      <MasterDetail
+        cellId="c1"
+        commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
+        onClose={() => {}}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText(/No scorecards in the last 72 hours/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    expect(
+      await screen.findByText(/No scorecards in the selected range/, undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No scorecards in the last 72 hours/)).not.toBeInTheDocument();
+  }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
   it('replaces an open drawer with a deleted state and no actions', async () => {
     const onClose = vi.fn();
     const fetchMock = vi.fn(async () => jsonResponse([]));

@@ -443,9 +443,10 @@ never runs `VACUUM`; SQLite reuses freed pages.
 `idx_cell_summaries_cell_created` for per-cell history lookups and
 `idx_cell_summaries_created` for retention cutoffs. One row is written per generated
 scorecard; the scheduler reads only the newest row per cell. The drawer requests the
-newest five, optionally scoped by an inclusive generation-time `since` (default 72 hours
-in the UI), and shows at most five. The Scorecards page reads history with inclusive
-generation-time bounds (`since`/`until`). The all-cells view requests one latest-per-cell
+newest five, scoped by inclusive generation-time bounds (`since`/`until`; default rolling
+72 hours in the UI, or a custom local date-and-time range), and shows at most five with no
+paging. The Scorecards page reads history with the same inclusive generation-time bounds
+(`since`/`until`). The all-cells view requests one latest-per-cell
 feed with a `hasOlder` flag, or the flat cross-cell feed with server-owned paging; the
 focused-cell view uses a tie-safe `(created_at, id)` keyset cursor (`before`/`beforeId`),
 ordered `created_at DESC, id DESC`. It defaults to the last 72 hours, offers presets plus

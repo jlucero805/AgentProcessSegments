@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Stress-run the web Vitest suite under competing CPU load.
+// Stress-run a Vitest workspace suite under competing CPU load.
 //
 //   npm run test:web-stress
-//   node scripts/web-stress.mjs --runs 5 --hogs 8 --verbose
+//   npm run test:server-stress
+//   node scripts/web-stress.mjs --suite server --runs 5 --hogs 8 --verbose
 //
 // Fails closed: a failed iteration, a hog that exited early, a per-iteration
 // timeout, or a missing Vitest JSON report is a non-zero exit, never a pass.
@@ -32,9 +33,9 @@ import { createSignalCleanup } from './e2e/signal-cleanup.mjs';
 import { parseArgs, USAGE, UsageError } from './web-stress/args.mjs';
 import { checkHogs, startHogs, stopHogs } from './web-stress/hogs.mjs';
 import { ResultsError, formatFailures, formatRunLine, formatSlowest, readResults } from './web-stress/results.mjs';
+import { SUITES, suiteArgs } from './web-stress/suites.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const WORKSPACE = 'src/web';
 const SUITE_SUPERVISOR = path.join(root, 'scripts', 'web-stress', 'suite-supervisor.mjs');
 const HOG_WARMUP_MS = 300;
 const SUITE_STOP_MS = 5000;
@@ -48,17 +49,13 @@ function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function fail(message) {
-  console.error(`web-stress: ${message}`);
-  process.exit(2);
-}
-
 let options;
 try {
   options = parseArgs(process.argv.slice(2));
 } catch (error) {
   if (!(error instanceof UsageError)) throw error;
-  console.error(`web-stress: ${error.message}`);
+  const errorLabel = SUITES[error.suite]?.label ?? SUITES.web.label;
+  console.error(`${errorLabel}: ${error.message}`);
   console.error(USAGE);
   process.exit(2);
 }
@@ -67,11 +64,19 @@ if (options.help) {
   process.exit(0);
 }
 
+const suite = SUITES[options.suite];
+const label = suite.label;
+
+function fail(message) {
+  console.error(`${label}: ${message}`);
+  process.exit(2);
+}
+
 const defaultLogDir = options.logDir === null;
 let logDir;
 try {
   logDir = defaultLogDir
-    ? mkdtempSync(path.join(os.tmpdir(), 'aps-web-stress-'))
+    ? mkdtempSync(path.join(os.tmpdir(), suite.logPrefix))
     : path.resolve(options.logDir);
   mkdirSync(logDir, { recursive: true });
 } catch (error) {
@@ -81,15 +86,15 @@ try {
 const cpus =
   typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length;
 console.log(
-  `web-stress: cpus=${cpus} hogs=${options.hogs} runs=${options.runs} ` +
+  `${label}: suite=${options.suite} cpus=${cpus} hogs=${options.hogs} runs=${options.runs} ` +
     `node=${process.version} tmp=${logDir}`,
 );
 if (options.hogs > cpus) {
-  console.log(`web-stress: note: ${options.hogs} hogs on ${cpus} CPUs oversubscribes heavily`);
+  console.log(`${label}: note: ${options.hogs} hogs on ${cpus} CPUs oversubscribes heavily`);
 }
 if (options.only.length > 0) {
   console.log(
-    `web-stress: warning: --only ${options.only.join(' ')} filters the suite; ` +
+    `${label}: warning: --only ${options.only.join(' ')} filters the suite; ` +
       'this run is not a full-suite proof',
   );
 }
@@ -207,16 +212,7 @@ function tailLines(file) {
 function runSuite({ resultsPath, outputPath }) {
   return new Promise((resolve) => {
     const fd = openSync(outputPath, 'w');
-    const npmArgs = [
-      'test',
-      '--workspace',
-      WORKSPACE,
-      '--',
-      '--reporter=verbose',
-      '--reporter=json',
-      `--outputFile.json=${resultsPath}`,
-      ...options.only,
-    ];
+    const npmArgs = suiteArgs(suite, { resultsPath, only: options.only });
     const useSupervisor = process.platform !== 'win32';
     const child = spawn(
       useSupervisor ? process.execPath : npmCommand(),
@@ -311,12 +307,12 @@ let completed = 0;
 
 try {
   if (options.hogs > 0) {
-    hogs = startHogs({ count: options.hogs });
-    console.log(`web-stress: hog pids=${hogs.children.map((child) => child.pid).join(' ')}`);
+    hogs = startHogs({ count: options.hogs, marker: suite.hogMarker });
+    console.log(`${label}: hog pids=${hogs.children.map((child) => child.pid).join(' ')}`);
     await sleep(HOG_WARMUP_MS);
     checkHogs(hogs);
   } else {
-    console.log('web-stress: hog pids=none');
+    console.log(`${label}: hog pids=none`);
   }
 
   for (let index = 1; index <= options.runs; index += 1) {
@@ -365,16 +361,16 @@ try {
 } catch (error) {
   failedRuns += 1;
   keepLogs = true;
-  console.error(`web-stress: ${error instanceof Error ? error.message : error}`);
+  console.error(`${label}: ${error instanceof Error ? error.message : error}`);
 } finally {
   await signalCleanup.run();
   signalCleanup.dispose();
 }
 
 if (failedRuns === 0) {
-  console.log(`web-stress: PASS (${completed}/${options.runs} runs, hogs alive throughout)`);
+  console.log(`${label}: PASS (${completed}/${options.runs} runs, hogs alive throughout)`);
 } else {
-  console.log(`web-stress: FAIL (${failedRuns} failing ${failedRuns === 1 ? 'run' : 'runs'})`);
+  console.log(`${label}: FAIL (${failedRuns} failing ${failedRuns === 1 ? 'run' : 'runs'})`);
 }
-if (keepLogs) console.log(`web-stress: logs in ${logDir}`);
+if (keepLogs) console.log(`${label}: logs in ${logDir}`);
 process.exitCode = failedRuns === 0 ? 0 : 1;

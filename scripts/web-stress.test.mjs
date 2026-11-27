@@ -32,6 +32,7 @@ import {
   summarize,
 } from './web-stress/results.mjs';
 import { parseSupervisorArgs, SupervisorUsageError } from './web-stress/suite-supervisor.mjs';
+import { SUITES, suiteArgs } from './web-stress/suites.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const entry = path.join(repoRoot, 'scripts', 'web-stress.mjs');
@@ -121,6 +122,7 @@ function passingReport() {
 
 test('parseArgs returns the documented defaults', () => {
   assert.deepEqual(parseArgs([]), {
+    suite: 'web',
     runs: 3,
     hogs: 4,
     timeoutSeconds: 600,
@@ -135,6 +137,7 @@ test('parseArgs returns the documented defaults', () => {
 
 test('parseArgs accepts long, equal-sign, and repeated options', () => {
   const options = parseArgs([
+    '--suite=server',
     '--runs=5',
     '--hogs',
     '0',
@@ -150,6 +153,7 @@ test('parseArgs accepts long, equal-sign, and repeated options', () => {
   ]);
 
   assert.deepEqual(options, {
+    suite: 'server',
     runs: 5,
     hogs: 0,
     timeoutSeconds: 30,
@@ -169,6 +173,9 @@ test('parseArgs rejects invalid values with one-line usage errors', () => {
     [['--runs', 'abc'], /--runs needs an integer of at least 1/],
     [['--hogs', '-1'], /--hogs needs an integer of at least 0/],
     [['--timeout', '0'], /--timeout needs an integer of at least 1/],
+    [['--suite', 'nope'], /--suite must be one of: web, server/],
+    [['--suite'], /--suite needs a value/],
+    [['--suite='], /--suite needs a value/],
     [['--only'], /--only needs a value/],
     [['--log-dir'], /--log-dir needs a value/],
     [['--verbose=yes'], /--verbose does not take a value/],
@@ -213,6 +220,48 @@ test('parseSupervisorArgs accepts the runner contract and rejects malformed inpu
       `argv: ${argv.join(' ')}`,
     );
   }
+});
+
+test('parseArgs keeps the selected suite for the usage error label', () => {
+  assert.equal(parseArgs(['--suite', 'server', '--runs', '1']).suite, 'server');
+  assert.throws(
+    () => parseArgs(['--suite', 'server', '--runs', '0']),
+    (error) => error instanceof UsageError && error.suite === 'server',
+  );
+});
+
+test('the suite registry maps both workspaces to their labels and markers', () => {
+  assert.deepEqual(SUITES.web, {
+    workspace: 'src/web',
+    label: 'web-stress',
+    logPrefix: 'aps-web-stress-',
+    hogMarker: 'aps-web-stress-hog',
+  });
+  assert.deepEqual(SUITES.server, {
+    workspace: 'src/server',
+    label: 'server-stress',
+    logPrefix: 'aps-server-stress-',
+    hogMarker: 'aps-server-stress-hog',
+  });
+});
+
+test('suiteArgs builds the workspace, reporters, report path, and filters', () => {
+  assert.deepEqual(
+    suiteArgs(SUITES.server, { resultsPath: '/tmp/run-1/results.json', only: ['http', 'cutover'] }),
+    [
+      'test',
+      '--workspace',
+      'src/server',
+      '--',
+      '--reporter=verbose',
+      '--reporter=json',
+      '--outputFile.json=/tmp/run-1/results.json',
+      'http',
+      'cutover',
+    ],
+  );
+  assert.equal(suiteArgs(SUITES.web, { resultsPath: '/tmp/x.json' })[2], 'src/web');
+  assert.throws(() => suiteArgs(null, { resultsPath: '/tmp/x.json' }), TypeError);
 });
 
 test('summarize orders slow cases and collects failure messages', () => {
@@ -350,6 +399,20 @@ test('startHogs spawns one marked busy loop per hog', () => {
   );
 });
 
+test('startHogs embeds the requested suite marker', () => {
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, options });
+    return fakeChild(300 + calls.length);
+  };
+
+  startHogs({ count: 1, marker: 'aps-server-stress-hog', spawn, execPath: '/fake/node' });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].args[1], /aps-server-stress-hog/);
+  assert.doesNotMatch(calls[0].args[1], /aps-web-stress-hog/);
+});
+
 test('checkHogs rejects a hog that exited or failed to spawn', () => {
   const hogs = { children: [fakeChild(11), fakeChild(12)], errors: new Map(), stopped: false };
   assert.doesNotThrow(() => checkHogs(hogs));
@@ -408,6 +471,7 @@ function writeNpmShim(dir, { report = null, exitCode = 0, delayMs = 0, stdout = 
     shim,
     `#!/usr/bin/env node
 const { writeFileSync } = require('node:fs');
+if (process.env.SHIM_ARGS_FILE) writeFileSync(process.env.SHIM_ARGS_FILE, JSON.stringify(process.argv.slice(2)));
 const prefix = '--outputFile.json=';
 const arg = process.argv.slice(2).find((candidate) => candidate.startsWith(prefix));
 if (${payload} !== 'null' && arg) writeFileSync(arg.slice(prefix.length), ${JSON.stringify(payload)});
@@ -427,8 +491,13 @@ function shimHarness(t, behavior) {
   mkdirSync(bin, { recursive: true });
   writeNpmShim(bin, behavior);
   const logDir = path.join(dir, 'logs');
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
-  return { env, logDir };
+  const argsFile = path.join(dir, 'argv.json');
+  const env = {
+    ...process.env,
+    PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    SHIM_ARGS_FILE: argsFile,
+  };
+  return { env, logDir, argsFile };
 }
 
 function runEntry(args, env) {
@@ -470,7 +539,7 @@ setInterval(() => {}, 1000);
 }
 
 function hogPids(stdout) {
-  const match = /web-stress: hog pids=([^\n]*)/.exec(stdout);
+  const match = /(?:web|server)-stress: hog pids=([^\n]*)/.exec(stdout);
   if (!match) return [];
   return match[1]
     .trim()
@@ -659,6 +728,7 @@ test('--help prints usage and exits 0', () => {
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage: node scripts\/web-stress\.mjs/);
+  assert.match(result.stdout, /--suite <name>/);
   assert.match(result.stdout, /--runs <n>/);
   assert.equal(result.stderr, '');
 });
@@ -670,6 +740,15 @@ test('an invalid flag exits 2 with one stderr line and no stack', () => {
   assert.equal(result.stdout, '');
   assert.match(result.stderr, /web-stress: --hogs needs an integer of at least 0/);
   assert.match(result.stderr, new RegExp(USAGE.split('\n')[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(result.stderr, /\n\s+at /);
+});
+
+test('a server usage error is labelled server-stress', () => {
+  const result = runEntry(['--suite', 'server', '--runs', '0'], process.env);
+
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /^server-stress: --runs needs an integer of at least 1/);
   assert.doesNotMatch(result.stderr, /\n\s+at /);
 });
 
@@ -690,6 +769,34 @@ test(
     // An explicit --log-dir is never deleted; an all-pass run removes its runs.
     assert.equal(existsSync(logDir), true);
     assert.equal(existsSync(path.join(logDir, 'run-1')), false);
+  },
+);
+
+test(
+  'the server suite runs src/server with the server-stress label',
+  { skip: process.platform === 'win32' },
+  async (t) => {
+    const { env, logDir, argsFile } = shimHarness(t, { report: passingReport() });
+
+    const result = runEntry(
+      ['--suite', 'server', '--runs', '1', '--hogs', '1', '--log-dir', logDir],
+      env,
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /server-stress: suite=server /);
+    assert.match(result.stdout, /server-stress: PASS \(1\/1 runs/);
+    assert.doesNotMatch(result.stdout, /web-stress:/);
+    const args = JSON.parse(readFileSync(argsFile, 'utf8'));
+    assert.deepEqual(args.slice(0, 3), ['test', '--workspace', 'src/server']);
+    assert.ok(args.includes('--reporter=verbose'));
+    assert.ok(args.includes('--reporter=json'));
+    const reportArg = args.find((arg) => arg.startsWith('--outputFile.json='));
+    assert.ok(reportArg);
+    const reportPath = reportArg.slice('--outputFile.json='.length);
+    assert.equal(path.isAbsolute(reportPath), true);
+    assert.match(reportPath, /run-1\/results\.json$/);
+    assert.deepEqual(await waitForPidsGone(hogPids(result.stdout)), []);
   },
 );
 

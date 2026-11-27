@@ -1,5 +1,6 @@
-import { readdirSync, type Dirent } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
 import path from 'node:path';
+import { writePrivateFile } from './files.js';
 
 /** Options for {@link listPreservedCopies}. */
 export interface PreservedCopyListOptions {
@@ -15,6 +16,51 @@ export interface PreservedCopyListOptions {
 /** Prefix shared by preserved siblings of `file`, such as `config.json.invalid-`. */
 export function preservedCopyPrefix(file: string): string {
   return `${path.basename(file)}.invalid-`;
+}
+
+/** Options for {@link createPreservedCopy}. */
+export interface PreservedCopyCreateOptions {
+  /** Noun for the success warning, e.g. `settings` or `process config`. */
+  label: string;
+  /** Called once when the source cannot be read or the copy cannot be written. */
+  onError?: (error: unknown) => void;
+}
+
+/**
+ * Copy `file` beside itself as `<file>.invalid-<UTC>[-n]`, owner-only and never
+ * overwriting an existing copy. Returns the copy path, or null when the source no
+ * longer exists. Reports a read or write failure through `onError` and rethrows so
+ * the caller can refuse the save that would have replaced it; the source is never
+ * modified.
+ */
+export function createPreservedCopy(
+  file: string,
+  options: PreservedCopyCreateOptions,
+): string | null {
+  let raw: string;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    options.onError?.(error);
+    throw error;
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  let copy = `${file}.invalid-${stamp}`;
+  for (let suffix = 1; existsSync(copy); suffix += 1) {
+    copy = `${file}.invalid-${stamp}-${suffix}`;
+  }
+
+  try {
+    writePrivateFile(copy, raw);
+  } catch (error) {
+    options.onError?.(error);
+    throw error;
+  }
+
+  console.warn(`preserving unusable ${options.label} at ${file} as ${copy}`);
+  return copy;
 }
 
 /** Order preserved names by the embedded UTC stamp, then the numeric suffix. */

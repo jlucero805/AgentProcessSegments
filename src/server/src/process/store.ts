@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
-import path from 'node:path';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import type { ErrorSink } from '../logging/errors.js';
 import { writePrivateFile } from '../util/files.js';
 import { jsonParseReason } from '../util/json.js';
+import { listPreservedCopies } from '../util/preserved-copies.js';
 import type { ProcessConfig } from './definition.js';
 import { normalizeProcess, processPatchSchema, processSchema } from './defaults.js';
 
@@ -13,12 +13,6 @@ const MAX_PRESERVED_COPIES = 5;
 /** Stable identity for an unusable file's bytes; used only for comparison. */
 function bytesIdentity(raw: string): string {
   return createHash('sha256').update(raw).digest('hex');
-}
-
-/** Order preserved names by the embedded UTC stamp, then the numeric suffix. */
-function preservedCopyOrder(name: string, prefix: string): [string, number] {
-  const match = /^(.*?)(?:-(\d+))?$/.exec(name.slice(prefix.length));
-  return [match?.[1] ?? name.slice(prefix.length), match?.[2] ? Number(match[2]) : 0];
 }
 
 /**
@@ -185,37 +179,17 @@ export class ProcessStore {
    * never fails the save that triggered it.
    */
   private prunePreservedCopies(newest: string | null): void {
-    const dir = path.dirname(this.path);
-    const prefix = `${path.basename(this.path)}.invalid-`;
-    const newestName = newest ? path.basename(newest) : null;
-
-    let copies: Array<{ name: string; stamp: string; suffix: number }>;
-    try {
-      copies = readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
-        .map((entry) => {
-          const [stamp, suffix] = preservedCopyOrder(entry.name, prefix);
-          return { name: entry.name, stamp, suffix };
-        });
-    } catch (error) {
-      this.errors?.error('process.pruneFailed', error, { path: this.path });
-      return;
-    }
-
-    copies.sort((left, right) => {
-      // The copy just written is the newest operation even if the clock moved
-      // backwards, so never let name ordering make it the first to go.
-      if (left.name === newestName) return 1;
-      if (right.name === newestName) return -1;
-      if (left.stamp !== right.stamp) return left.stamp < right.stamp ? -1 : 1;
-      return left.suffix - right.suffix;
+    const copies = listPreservedCopies(this.path, {
+      newest,
+      onError: (error) => this.errors?.error('process.pruneFailed', error, { path: this.path }),
     });
 
     const excess = copies.length - MAX_PRESERVED_COPIES;
     if (excess <= 0) return;
 
-    for (const { name } of copies.slice(0, excess)) {
-      const copy = path.join(dir, name);
+    // Prune from the oldest end so the copy this save just wrote is never the
+    // first to go, even when the clock moved backwards.
+    for (const copy of copies.slice(MAX_PRESERVED_COPIES).reverse()) {
       try {
         unlinkSync(copy);
       } catch (error) {

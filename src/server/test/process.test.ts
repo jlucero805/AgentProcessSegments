@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from './tmp.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -235,6 +243,164 @@ describe('ProcessStore', () => {
       parse.mockRestore();
       warn.mockRestore();
     }
+  });
+
+  it('reports an unchanged unusable file once across repeated reads', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    writeFileSync(file, '{bad\n');
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    for (let index = 0; index < 3; index += 1) {
+      expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    }
+
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith(
+      'process.unreadable',
+      expect.objectContaining({ message: expect.stringMatching(/^invalid JSON/) }),
+      { path: file, reason: 'invalid-json' },
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('reports a changed unusable file again', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    writeFileSync(file, '{bad\n');
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    store.get();
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(1);
+
+    writeFileSync(file, '{worse\n');
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(2);
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('reports a schema failure once and a different kind again', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    writeFileSync(file, JSON.stringify({ version: 1, segments: [] }));
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    store.get();
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error.mock.calls[0]![0]).toBe('process.invalid');
+
+    writeFileSync(file, '{bad\n');
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(2);
+    expect(errors.error.mock.calls[1]![0]).toBe('process.unreadable');
+    warn.mockRestore();
+  });
+
+  it('reports an unreadable file once across repeated reads', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    mkdirSync(file);
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error).toHaveBeenCalledWith('process.unreadable', expect.any(Error), {
+      path: file,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('still reads a file corrected after a reported failure', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    writeFileSync(file, '{bad\n');
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+
+    const corrected = defaultProcess(DEFAULT_SETTINGS.master);
+    segmentBy(corrected, 'intake').enabled = true;
+    writeFileSync(file, JSON.stringify(corrected));
+    expect(store.get()).toEqual(corrected);
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('reports the same state again after the file is removed', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    writeFileSync(file, '{bad\n');
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(1);
+
+    rmSync(file);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    writeFileSync(file, '{bad\n');
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('reports an unusable file created after a missing file once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile('created-later.json');
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(errors.error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+
+    writeFileSync(file, '{bad\n');
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error.mock.calls[0]![0]).toBe('process.unreadable');
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('does not report the same state again across a preserving save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    const original = '{bad\n';
+    writeFileSync(file, original);
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(errors.error).toHaveBeenCalledTimes(1);
+
+    store.patch({ segments: defaultProcess(DEFAULT_SETTINGS.master).segments });
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    const ignoring = warn.mock.calls.filter(([line]) =>
+      String(line).startsWith('ignoring unreadable process config'),
+    );
+    expect(ignoring).toHaveLength(1);
+
+    const names = backupNames(file);
+    expect(names).toHaveLength(1);
+    expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe(original);
+    warn.mockRestore();
   });
 
   it('reports the copy path created by the preserving save', () => {

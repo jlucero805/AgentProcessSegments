@@ -2814,3 +2814,30 @@ depends on the host's CLI auth; a missing Claude binary defers the namespace and
 verdicts. The four rejected/deferred directives keep their previous behavior, and a
 changed unit still installs by hand because `upgrade-vps.sh` refuses target commits that
 edit it.
+
+## D115. An unusable process file is reported once per distinct state
+
+**Context.** `ProcessStore` caches only a successful load, so while `process.json` is
+unusable every `get()` reads it again. That re-read is deliberate: a corrected file is
+picked up without a restart. But the report was not deduped, so the same broken file
+appended a `process.unreadable` or `process.invalid` row and printed a `console.warn` on
+every master bucket tick and every `GET /api/process`, burying everything else in the
+error log. Caching the failure would silence the noise but also hide a correction until a
+restart, which is why the settings store's approach does not fit here.
+
+**Decision.** `ProcessStore` keeps an in-memory signature of the last unusable state it
+reported: the failure kind, its detail (the `jsonParseReason` text, the zod message, or
+the fs error), and, when the file could be read, a SHA-256 of its bytes. A failure whose
+signature matches the previous one returns the fallback without touching the error sink or
+`console.warn`; a new signature reports once. A missing file and a successful load clear
+the signature. Every load still reads and validates the file and still sets
+`preserveSource`, so the atomic write, the backup-before-save copy, and the five-copy
+prune are unchanged. The signature is never logged and the raw bytes are not retained in
+it.
+
+**Cost.** While an identical unusable state persists, the log shows one row instead of
+one per tick, and the same applies to the stderr warning; a restart reports the
+still-broken file once. A corrected file is read on the next `get()` and then cached as
+before, so later edits to a valid file still need a restart (unchanged). Operators editing
+an unusable file get a fresh report because the byte identity changes. The digest is
+computed only on a failed load and only on the small operator file.

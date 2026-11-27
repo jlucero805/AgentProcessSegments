@@ -111,6 +111,8 @@ export { EVENT_NOTIFICATION_KINDS } from '../../server/src/domain/notifications'
 export type {
   Summary,
   SummaryConfig,
+  SummaryFeedCursor,
+  SummaryFeedPage,
   SummaryStats,
   SummaryStatus,
 } from '../../server/src/summary/types';

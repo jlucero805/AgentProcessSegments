@@ -77,6 +77,19 @@ export interface Summary {
   createdAt: number;
 }
 
+/** The tie-safe cursor for the next page of the flat cross-cell feed. */
+export interface SummaryFeedCursor {
+  before: number;
+  beforeId: string;
+}
+
+/** One page of the flat cross-cell scorecard feed. */
+export interface SummaryFeedPage {
+  reports: Summary[];
+  hasMore: boolean;
+  nextCursor: SummaryFeedCursor | null;
+}
+
 export interface SummaryStatus {
   enabled: boolean;
   intervalMinutes: number;

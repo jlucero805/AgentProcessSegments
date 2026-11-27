@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
-import type { CellDetail, Summary, SummaryStatus } from './types';
+import type { CellDetail, Summary, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
 import { Button, Card, EmptyState, SectionTitle, Spinner } from './ui';
 
@@ -13,7 +13,22 @@ interface ScorecardGroup {
   loadingMore: boolean;
 }
 
+interface ScorecardFeed {
+  reports: Summary[];
+  hasMore: boolean;
+  nextCursor: SummaryFeedCursor | null;
+  /** Period bound used for the first page; later pages reuse it. */
+  since: number | undefined;
+}
+
 type RangeKey = '24h' | '72h' | '7d' | '30d' | 'all';
+
+type ScorecardsView = 'grouped' | 'flat';
+
+const VIEWS: Array<{ key: ScorecardsView; label: string }> = [
+  { key: 'grouped', label: 'Grouped' },
+  { key: 'flat', label: 'Flat' },
+];
 
 const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms: number | null }> = [
   { key: '24h', label: '24h', spellout: 'the last 24 hours', ms: 24 * 60 * 60_000 },
@@ -26,6 +41,8 @@ const RANGES: Array<{ key: RangeKey; label: string; spellout: string; ms: number
 const DEFAULT_RANGE: RangeKey = '72h';
 /** Reports rendered per cell before the group offers "Load older". */
 const PAGE_SIZE = 25;
+/** Reports rendered per flat feed page. */
+const FEED_PAGE_SIZE = 25;
 
 function rangeOption(range: RangeKey) {
   return RANGES.find((option) => option.key === range) ?? RANGES[1]!;
@@ -70,8 +87,12 @@ export function ScorecardsPage({
   onError: (message: string) => void;
 }) {
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
+  const [feed, setFeed] = useState<ScorecardFeed | null>(null);
+  const [cellsById, setCellsById] = useState<Map<string, CellDetail>>(() => new Map());
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
+  const [view, setView] = useState<ScorecardsView>('grouped');
   const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
   const loadGeneration = useRef(0);
 
@@ -83,6 +104,21 @@ export function ScorecardsPage({
         api.getSummaryStatus(cellId ?? undefined),
       ]);
       const since = sinceFor(range);
+      const nextCells = new Map(cells.map((cell) => [cell.id, cell] as const));
+      if (cellId === null && view === 'flat') {
+        const page = await api.getSummaryFeed({ limit: FEED_PAGE_SIZE, since });
+        if (generation !== loadGeneration.current) return;
+        setCellsById(nextCells);
+        setStatus(summaryStatus);
+        setFeed({
+          reports: page.reports,
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
+          since,
+        });
+        setGroups(null);
+        return;
+      }
       let next: ScorecardGroup[];
       if (cellId) {
         const page = pageReports(
@@ -109,20 +145,26 @@ export function ScorecardsPage({
           .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0));
       }
       if (generation !== loadGeneration.current) return;
+      setCellsById(nextCells);
       setStatus(summaryStatus);
       setGroups(next);
+      setFeed(null);
     } catch (error) {
       if (generation === loadGeneration.current) {
         setGroups(
           (previous) =>
             previous?.map((item) => ({ ...item, loadingMore: false })) ?? previous,
         );
+        setLoadingMoreFeed(false);
         onError(describeError(error));
       }
     } finally {
-      if (generation === loadGeneration.current) setLoading(false);
+      if (generation === loadGeneration.current) {
+        setLoading(false);
+        setLoadingMoreFeed(false);
+      }
     }
-  }, [cellId, onError, range]);
+  }, [cellId, onError, range, view]);
 
   useEffect(() => {
     void (async () => {
@@ -182,7 +224,38 @@ export function ScorecardsPage({
     [groups, onError, range],
   );
 
+  const loadMoreFeed = useCallback(async () => {
+    if (!feed || loadingMoreFeed || !feed.hasMore || !feed.nextCursor) return;
+    const generation = loadGeneration.current;
+    setLoadingMoreFeed(true);
+    try {
+      const page = await api.getSummaryFeed({
+        limit: FEED_PAGE_SIZE,
+        since: feed.since,
+        before: feed.nextCursor.before,
+        beforeId: feed.nextCursor.beforeId,
+      });
+      if (generation !== loadGeneration.current) return;
+      setFeed((current) => {
+        if (!current) return current;
+        const seen = new Set(current.reports.map((report) => report.id));
+        const appended = page.reports.filter((report) => !seen.has(report.id));
+        return {
+          ...current,
+          reports: appended.length > 0 ? [...current.reports, ...appended] : current.reports,
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
+        };
+      });
+    } catch (error) {
+      if (generation === loadGeneration.current) onError(describeError(error));
+    } finally {
+      if (generation === loadGeneration.current) setLoadingMoreFeed(false);
+    }
+  }, [feed, loadingMoreFeed, onError]);
+
   const option = rangeOption(range);
+  const flat = cellId === null && view === 'flat';
   const emptyTitle =
     range === 'all'
       ? 'No scorecards yet'
@@ -200,10 +273,42 @@ export function ScorecardsPage({
           <p className="mt-1 text-sm text-zinc-500">
             Persisted reports written per cell over a trailing window. The period filters
             by when a report was generated; each report still covers its own configured
-            window. Pick a cell in the sidebar to focus its history.
+            window. Grouped shows each cell's newest report first; Flat is one
+            chronological cross-cell stream. Pick a cell in the sidebar to focus its
+            history.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {cellId === null ? (
+            <div
+              className="flex rounded-lg border border-zinc-800 p-0.5"
+              role="group"
+              aria-label="Scorecards layout"
+            >
+              {VIEWS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={view === item.key}
+                  onClick={() => {
+                    if (item.key === view) return;
+                    setGroups(null);
+                    setFeed(null);
+                    setLoadingMoreFeed(false);
+                    setLoading(true);
+                    setView(item.key);
+                  }}
+                  className={
+                    view === item.key
+                      ? 'rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100'
+                      : 'rounded-md px-2 py-1 text-xs text-zinc-500 hover:text-zinc-200'
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div
             className="flex rounded-lg border border-zinc-800 p-0.5"
             role="group"
@@ -217,6 +322,8 @@ export function ScorecardsPage({
                 onClick={() => {
                   if (item.key === range) return;
                   setGroups(null);
+                  setFeed(null);
+                  setLoadingMoreFeed(false);
                   setLoading(true);
                   setRange(item.key);
                 }}
@@ -263,7 +370,7 @@ export function ScorecardsPage({
         </p>
       ) : null}
 
-      {groups === null ? (
+      {groups === null && feed === null ? (
         loading ? (
           <div className="flex h-40 items-center justify-center gap-2 text-sm text-zinc-500">
             <Spinner /> Loading scorecards...
@@ -274,9 +381,42 @@ export function ScorecardsPage({
             hint="Retry to reload the reports from the brain."
           />
         )
-      ) : groups.length === 0 ? (
+      ) : flat && feed ? (
+        feed.reports.length === 0 ? (
+          <EmptyState title={emptyTitle} hint={emptyHint} />
+        ) : (
+          <div className="space-y-4">
+            {feed.reports.map((report) => (
+              <Card key={report.id} className="space-y-3 p-4">
+                <div>
+                  <SectionTitle>
+                    {cellsById.get(report.cellId)?.name ?? report.cellId}
+                  </SectionTitle>
+                  <p className="mt-1 text-[11px] text-zinc-600">
+                    Generated {timeAgo(report.createdAt)} ago · window{' '}
+                    {duration(report.windowMinutes)} · {windowLabel(report)}
+                  </p>
+                </div>
+
+                <Scorecard summary={report} />
+              </Card>
+            ))}
+
+            {feed.hasMore && feed.nextCursor ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={loadingMoreFeed}
+                onClick={() => void loadMoreFeed()}
+              >
+                {loadingMoreFeed ? 'Loading…' : 'Load more'}
+              </Button>
+            ) : null}
+          </div>
+        )
+      ) : groups && groups.length === 0 ? (
         <EmptyState title={emptyTitle} hint={emptyHint} />
-      ) : (
+      ) : groups ? (
         <div className="space-y-4">
           {groups.map(({ cell, reports, hasMore, loadingMore }) => {
             const latest = reports[0];
@@ -326,7 +466,7 @@ export function ScorecardsPage({
             );
           })}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

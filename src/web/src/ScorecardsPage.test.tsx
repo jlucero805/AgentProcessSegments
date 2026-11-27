@@ -53,6 +53,30 @@ const STATUS = {
   lastError: null,
 };
 
+function feedPage(reportsByCell: Record<string, Report[]>, params: URLSearchParams) {
+  const limit = Number(params.get('limit') ?? '25');
+  const before = params.get('before');
+  const beforeId = params.get('beforeId');
+  let rows = Object.values(reportsByCell).flat();
+  if (before !== null && beforeId !== null) {
+    const at = Number(before);
+    rows = rows.filter(
+      (row) => row.createdAt < at || (row.createdAt === at && row.id < beforeId),
+    );
+  }
+  rows = [...rows].sort(
+    (a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1),
+  );
+  const reports = rows.slice(0, limit);
+  const last = reports[reports.length - 1];
+  const hasMore = rows.length > limit;
+  return {
+    reports,
+    hasMore,
+    nextCursor: hasMore && last ? { before: last.createdAt, beforeId: last.id } : null,
+  };
+}
+
 function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -60,6 +84,10 @@ function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
     urls.push(url);
     if (url === '/api/cells') return jsonResponse(cells);
     if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+    if (url === '/api/summaries/feed' || url.startsWith('/api/summaries/feed?')) {
+      const params = new URL(url, 'http://localhost').searchParams;
+      return jsonResponse(feedPage(reportsByCell, params));
+    }
     if (url.startsWith('/api/summaries?')) {
       const params = new URL(url, 'http://localhost').searchParams;
       const cellId = params.get('cellId') ?? '';
@@ -84,6 +112,12 @@ function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
 function summaryRequests(urls: string[]): URLSearchParams[] {
   return urls
     .filter((url) => url.startsWith('/api/summaries?'))
+    .map((url) => new URL(url, 'http://localhost').searchParams);
+}
+
+function feedRequests(urls: string[]): URLSearchParams[] {
+  return urls
+    .filter((url) => url.startsWith('/api/summaries/feed'))
     .map((url) => new URL(url, 'http://localhost').searchParams);
 }
 
@@ -282,4 +316,326 @@ describe('ScorecardsPage', () => {
     expect(await screen.findByText("Couldn't load scorecards")).toBeInTheDocument();
     await waitFor(() => expect(onError).toHaveBeenCalled());
   });
+
+  it('offers Grouped and Flat for all cells and keeps grouped the default', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    expect(
+      await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Grouped' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Flat' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(feedRequests(urls)).toHaveLength(0);
+    expect(summaryRequests(urls)).toHaveLength(1);
+  });
+
+  it('hides the layout control when a cell is focused', async () => {
+    stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId="c1" onError={() => {}} />);
+
+    expect(
+      await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Flat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Grouped' })).not.toBeInTheDocument();
+  });
+
+  it('loads one flat feed request across cells and renders newest first', async () => {
+    const urls = stubFetch(
+      [makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')],
+      {
+        c1: [
+          makeReport('s1', 'c1', 'Alpha newest report', 3_000),
+          makeReport('s0', 'c1', 'Alpha older report', 1_000),
+        ],
+        c2: [makeReport('s2', 'c2', 'Beta newest report', 2_000)],
+      },
+    );
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    expect(
+      await screen.findByText('Alpha newest report', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const [params] = feedRequests(urls);
+    expect(params?.get('limit')).toBe('25');
+    expect(params?.get('since')).not.toBeNull();
+    expect(params?.has('cellId')).toBe(false);
+    expect(summaryRequests(urls)).toHaveLength(2);
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(3),
+    );
+    expect(
+      screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent),
+    ).toEqual(['Alpha', 'Beta', 'Alpha']);
+    expect(screen.getByText('Alpha older report')).toBeInTheDocument();
+    expect(screen.queryByText(/Earlier scorecards/)).not.toBeInTheDocument();
+  });
+
+  it('appends the next flat page from the server cursor and reuses the period bound', async () => {
+    const reports = Array.from({ length: 27 }, (_, index) =>
+      makeReport(
+        `s${index}`,
+        index % 2 === 0 ? 'c1' : 'c2',
+        `Feed report ${index}`,
+        1_000 - index,
+      ),
+    );
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    const urls = stubFetch(
+      [makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')],
+      {
+        c1: reports.filter((report) => report.cellId === 'c1'),
+        c2: reports.filter((report) => report.cellId === 'c2'),
+      },
+    );
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(
+      await screen.findByText('Feed report 0', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    await waitFor(
+      () => expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(25),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    const firstSince = feedRequests(urls)[0]?.get('since');
+    clock.mockReturnValue(2_060_000);
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const older = feedRequests(urls)[1];
+    expect(older?.get('since')).toBe(firstSince);
+    expect(older?.get('before')).toBe('976');
+    expect(older?.get('beforeId')).toBe('s24');
+    await waitFor(
+      () => expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(27),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(screen.getByText('Feed report 26')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('keeps the flat page when loading more fails', async () => {
+    const onError = vi.fn();
+    const reports = Array.from({ length: 30 }, (_, index) =>
+      makeReport(`f${index}`, 'c1', `Flat report ${index}`, 1_000 - index),
+    );
+    let feedCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/cells') return jsonResponse([makeCell('c1', 'Alpha')]);
+        if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url === '/api/summaries/feed' || url.startsWith('/api/summaries/feed?')) {
+          feedCalls += 1;
+          if (feedCalls > 1) return jsonResponse({ error: 'boom' }, 500);
+          return jsonResponse(
+            feedPage({ c1: reports }, new URL(url, 'http://localhost').searchParams),
+          );
+        }
+        if (url.startsWith('/api/summaries?')) return jsonResponse(reports);
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ScorecardsPage cellId={null} onError={onError} />);
+    expect(
+      await screen.findByText('Flat report 0', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    await waitFor(
+      () => expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(25),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalled(), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(screen.getByText('Flat report 0')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('shows the retry state when the flat feed fails and recovers on refresh', async () => {
+    const onError = vi.fn();
+    const reports = [makeReport('r1', 'c1', 'Recovered report', 2_000_000)];
+    let failFeed = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/cells') return jsonResponse([makeCell('c1', 'Alpha')]);
+        if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url === '/api/summaries/feed' || url.startsWith('/api/summaries/feed?')) {
+          if (failFeed) {
+            failFeed = false;
+            return jsonResponse({ error: 'boom' }, 500);
+          }
+          return jsonResponse(
+            feedPage({ c1: reports }, new URL(url, 'http://localhost').searchParams),
+          );
+        }
+        if (url.startsWith('/api/summaries?')) return jsonResponse(reports);
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ScorecardsPage cellId={null} onError={onError} />);
+    expect(
+      await screen.findByText('Recovered report', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+
+    expect(
+      await screen.findByText("Couldn't load scorecards", undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    expect(
+      await screen.findByText('Recovered report', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load scorecards")).not.toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('renders a flat report whose cell is missing under its raw id', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('r1', 'c1', 'Known cell report', 2_000_000)],
+      gone: [makeReport('r2', 'gone', 'Detached cell report', 1_500_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(
+      await screen.findByText('Known cell report', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(await screen.findByText('Detached cell report')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'gone' })).toBeInTheDocument();
+  });
+
+  it('re-requests the flat feed for a new period and omits since for all time', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('r1', 'c1', 'Period report', 2_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(
+      await screen.findByText('Period report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const sevenDaySince = Number(feedRequests(urls)[1]?.get('since'));
+    expect(Number.isFinite(sevenDaySince)).toBe(true);
+    expect(Math.abs(sevenDaySince - (Date.now() - 7 * 24 * 60 * 60_000))).toBeLessThan(
+      60_000,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(3), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(feedRequests(urls)[2]?.has('since')).toBe(false);
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('discards a flat response that arrives after switching back to grouped', async () => {
+    let resolveFeed: ((response: Response) => void) | undefined;
+    const grouped = [makeReport('r1', 'c1', 'Grouped report', 2_000_000)];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === '/api/cells') return jsonResponse([makeCell('c1', 'Alpha')]);
+        if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url === '/api/summaries/feed' || url.startsWith('/api/summaries/feed?')) {
+          return new Promise<Response>((resolve) => {
+            resolveFeed = resolve;
+          });
+        }
+        if (url.startsWith('/api/summaries?')) return jsonResponse(grouped);
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+    expect(
+      await screen.findByText('Grouped report', undefined, {
+        timeout: ASYNC_TIMEOUT_MS,
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    await waitFor(() => expect(resolveFeed).toBeDefined(), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Grouped' }));
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Grouped' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        ),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+
+    resolveFeed!(
+      jsonResponse({
+        reports: [makeReport('r2', 'c1', 'Stale flat report', 3_000_000)],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    );
+    await waitFor(() => expect(resolveFeed).toBeDefined());
+    expect(screen.queryByText('Stale flat report')).not.toBeInTheDocument();
+    expect(screen.getByText('Grouped report')).toBeInTheDocument();
+  }, SCORECARDS_TEST_TIMEOUT_MS);
 });

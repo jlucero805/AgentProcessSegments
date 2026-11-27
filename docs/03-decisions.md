@@ -2506,3 +2506,28 @@ with no toggle; a receiver that treats a missing signature as unsigned can accep
 unauthenticated deliveries until it is fixed. Code copied from the old example's legacy
 helper must move to V2. There is no data or config migration. `X-APS-Timestamp` remains an
 unsigned informational header; removing it is separate.
+
+## D106. The flat scorecard feed returns a server-owned page envelope
+
+**Context.** The Scorecards page's **All cells** view renders one card per cell, so its
+height and request count grow with the number of cells. The grouped read path also uses a
+bare array plus a client-side probe row to decide whether more history exists.
+
+**Decision.** Add `GET /api/summaries/feed?limit=&since=&before=&beforeId=` for an opt-in
+**Flat** layout in the All cells view. It returns `{ reports, hasMore, nextCursor }`,
+ranked `created_at DESC, id DESC` across cells, with the same inclusive `since` and paired
+`(created_at, id)` keyset cursor as `/api/summaries`. The server clamps the page to 1–50
+(default 25), fetches one probe row, trims it, and returns the last row's cursor.
+**Grouped** stays the default and `/api/summaries` keeps its bare-array contract used by
+the drawer and focused-cell history. The feed reuses the list WHERE/ORDER query through a
+non-clamping helper so a 50-row page still gets a probe row. A report whose cell no longer
+exists is kept and labelled with its raw id rather than dropped, so the rendered count
+matches `hasMore`. The page captures the first page's `since` and reuses it for **Load
+more**, so a boundary report cannot age out between pages. No schema or index change is
+needed; `idx_cell_summaries_created` bounds the in-range scan.
+
+**Cost.** The response carries the same report bytes as the grouped fan-out but in one
+payload, so 25 full reports can be several hundred KB; the flat layout asks for one request
+per page and keeps the previous rows in memory. The flat view is All cells only; a focused
+cell stays grouped. The grouped fan-out, per-cell **Load older**, and any paging beyond the
+flat page are unchanged.

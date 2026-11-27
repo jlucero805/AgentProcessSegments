@@ -94,18 +94,20 @@ export function ScorecardsPage({
             ? [{ cell, ...page, loadingMore: false }]
             : [];
       } else {
-        const pages = await Promise.all(
-          cells.map((cell) =>
-            api.getSummaries({ cellId: cell.id, limit: PAGE_SIZE + 1, since }),
-          ),
-        );
-        next = cells
-          .map((cell, index) => ({
-            cell,
-            ...pageReports(pages[index] ?? []),
-            loadingMore: false,
-          }))
-          .filter((group) => group.reports.length > 0)
+        const page = await api.getSummaryGroups({ limit: PAGE_SIZE, since });
+        const cellsById = new Map(cells.map((cell) => [cell.id, cell]));
+        next = page.groups
+          .map((group): ScorecardGroup | null => {
+            const cell = cellsById.get(group.cellId);
+            if (!cell || group.reports.length === 0) return null;
+            return {
+              cell,
+              reports: group.reports,
+              hasMore: group.hasMore,
+              loadingMore: false,
+            };
+          })
+          .filter((group): group is ScorecardGroup => group !== null)
           .sort((a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0));
       }
       if (generation !== loadGeneration.current) return;

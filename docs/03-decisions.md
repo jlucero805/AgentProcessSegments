@@ -2506,3 +2506,32 @@ with no toggle; a receiver that treats a missing signature as unsigned can accep
 unauthenticated deliveries until it is fixed. Code copied from the old example's legacy
 helper must move to V2. There is no data or config migration. `X-APS-Timestamp` remains an
 unsigned informational header; removing it is separate.
+
+## D106. The all-cells scorecard view loads one grouped feed
+
+**Context.** D92 gave the Scorecards page generation-time filters and keyset paging, but
+the all-cells view still fetched one `GET /api/summaries` page per cell. With N cells a
+single load, Refresh, or period change made N summaries requests plus the cell list and
+status, and each request repeated the same filter and sort. The page only needs the
+newest reports per cell for its first page; older pages are already per-cell keyset
+requests.
+
+**Decision.** Add an additive `GET /api/summaries/grouped[?limit=…&since=…]` returning
+`{ groups: [{ cellId, reports, hasMore }] }`. `limit` is per cell, validated 1..50 and
+defaulting to 10; `since` is the same inclusive generation-time bound as the existing
+list route. `SummaryRepository.grouped()` ranks in-range rows per cell with
+`ROW_NUMBER() OVER (PARTITION BY cell_id ORDER BY created_at DESC, id DESC)`, fetches
+`limit + 1` per cell, and trims the probe row to set `hasMore`. Groups follow their
+newest report (`created_at DESC, id DESC`), and cells with no in-range reports are
+omitted. The route returns `cellId` rather than a `CellDetail`; the page already loads
+the cell list and maps names there. The all-cells view now calls this endpoint once and
+keeps its existing sort defensively, while the focused-cell view and per-card **Load
+older** stay on `/api/summaries` with the D92 keyset. `GET /api/summaries` and its bare
+array contract are unchanged for `MasterDetail` and other callers.
+
+**Cost.** The grouped query scans and ranks the in-range rows once instead of running N
+indexed queries, and one response can carry the same bytes the fan-out did, so a board
+with many cells and 25 reports each still returns a multi-megabyte payload. There is no
+migration or new index: `since` uses `idx_cell_summaries_created` and retention bounds
+the scanned rows. Grouped paging beyond the first page, caching the cell list, and
+reducing the focused view's requests remain separate work.

@@ -207,6 +207,21 @@ describe('api client', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/summaries?cellId=c1');
   });
 
+  it('requests grouped scorecards with only the supplied filters', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ groups: [] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.getSummaryGroups({ limit: 25, since: 1_000 });
+    await api.getSummaryGroups();
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      '/api/summaries/grouped?limit=25&since=1000',
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/summaries/grouped');
+  });
+
   it('surfaces the first validation issue when there is no message', async () => {
     vi.stubGlobal(
       'fetch',

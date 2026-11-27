@@ -40,6 +40,7 @@ import type {
   State,
   Summary,
   SummaryConfig,
+  SummaryGroupsResponse,
   SummaryStatus,
   TerminalSessionInfo,
   TerminalStatus,
@@ -523,6 +524,11 @@ export const api = {
     } = {},
   ): Promise<Summary[]> {
     return request(withQuery('/api/summaries', options));
+  },
+  getSummaryGroups(
+    options: { limit?: number; since?: number } = {},
+  ): Promise<SummaryGroupsResponse> {
+    return request(withQuery('/api/summaries/grouped', options));
   },
   getLatestSummary(cellId: string): Promise<Summary | null> {
     return request(withQuery('/api/summaries/latest', { cellId }));

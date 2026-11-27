@@ -168,3 +168,80 @@ describe('summary repository history filters', () => {
     expect(repo.latest('c1')?.content).toBe('report-50');
   });
 });
+
+describe('summary repository grouped feed', () => {
+  it('returns the newest reports per cell and probes hasMore once', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'alpha-old', 1_000);
+    recordAt(repo, 'c1', 'alpha-mid', 2_000);
+    recordAt(repo, 'c1', 'alpha-new', 3_000);
+    recordAt(repo, 'c1', 'alpha-newest', 4_000);
+    recordAt(repo, 'c2', 'beta-old', 1_500);
+    recordAt(repo, 'c2', 'beta-new', 2_500);
+
+    const groups = repo.grouped({ limit: 2 });
+
+    expect(groups.map((group) => group.cellId)).toEqual(['c1', 'c2']);
+    expect(groups[0]?.reports.map((report) => report.content)).toEqual([
+      'alpha-newest',
+      'alpha-new',
+    ]);
+    expect(groups[0]?.hasMore).toBe(true);
+    expect(groups[1]?.reports.map((report) => report.content)).toEqual([
+      'beta-new',
+      'beta-old',
+    ]);
+    expect(groups[1]?.hasMore).toBe(false);
+    for (const group of groups) {
+      expect(group.reports.every((report) => report.cellId === group.cellId)).toBe(true);
+    }
+  });
+
+  it('applies an inclusive since filter before ranking', () => {
+    const repo = setup();
+    recordAt(repo, 'c1', 'alpha-old', 1_000);
+    recordAt(repo, 'c1', 'alpha-new', 5_000);
+    recordAt(repo, 'c2', 'beta-new', 4_000);
+    recordAt(repo, 'c3', 'gamma-old', 2_000);
+
+    const groups = repo.grouped({ limit: 1, since: 4_000 });
+
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.cellId)).toEqual(['c1', 'c2']);
+    expect(groups[0]?.reports.map((report) => report.content)).toEqual(['alpha-new']);
+    expect(groups[0]?.hasMore).toBe(false);
+    expect(groups[1]?.reports.map((report) => report.content)).toEqual(['beta-new']);
+    expect(repo.grouped({ since: 6_000 })).toEqual([]);
+  });
+
+  it('orders groups by their newest report with the id tie-break', () => {
+    const repo = setup();
+    const alpha = recordAt(repo, 'c1', 'alpha-new', 5_000);
+    const beta = recordAt(repo, 'c2', 'beta-new', 5_000);
+    recordAt(repo, 'c1', 'alpha-old', 4_000);
+    recordAt(repo, 'c2', 'beta-old', 3_000);
+
+    const expected = alpha.id > beta.id ? ['c1', 'c2'] : ['c2', 'c1'];
+    expect(repo.grouped({ limit: 1 }).map((group) => group.cellId)).toEqual(expected);
+  });
+
+  it('defaults to ten per cell and clamps the limit', () => {
+    const repo = setup();
+    for (let index = 0; index < 51; index += 1) {
+      recordAt(repo, 'c1', `report-${index}`, 1_000 + index);
+    }
+    recordAt(repo, 'c2', 'beta-only', 500);
+
+    const byDefault = repo.grouped();
+    expect(byDefault[0]?.reports).toHaveLength(10);
+    expect(byDefault[0]?.hasMore).toBe(true);
+
+    const capped = repo.grouped({ limit: 100 });
+    expect(capped[0]?.reports).toHaveLength(50);
+    expect(capped[0]?.hasMore).toBe(true);
+
+    const smallest = repo.grouped({ limit: 0 });
+    expect(smallest[0]?.reports).toHaveLength(1);
+    expect(smallest[0]?.hasMore).toBe(true);
+  });
+});

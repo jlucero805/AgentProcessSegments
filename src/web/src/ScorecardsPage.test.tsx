@@ -60,6 +60,21 @@ function stubFetch(cells: Cell[], reportsByCell: Record<string, Report[]>) {
     urls.push(url);
     if (url === '/api/cells') return jsonResponse(cells);
     if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+    if (url.startsWith('/api/summaries/grouped')) {
+      const params = new URL(url, 'http://localhost').searchParams;
+      const limit = Number(params.get('limit') ?? 10);
+      const groups = Object.entries(reportsByCell)
+        .map(([cellId, rows]) => ({
+          cellId,
+          reports: rows.slice(0, limit),
+          hasMore: rows.length > limit,
+        }))
+        .filter((group) => group.reports.length > 0)
+        .sort(
+          (a, b) => (b.reports[0]?.createdAt ?? 0) - (a.reports[0]?.createdAt ?? 0),
+        );
+      return jsonResponse({ groups });
+    }
     if (url.startsWith('/api/summaries?')) {
       const params = new URL(url, 'http://localhost').searchParams;
       const cellId = params.get('cellId') ?? '';
@@ -87,6 +102,12 @@ function summaryRequests(urls: string[]): URLSearchParams[] {
     .map((url) => new URL(url, 'http://localhost').searchParams);
 }
 
+function groupedRequests(urls: string[]): URLSearchParams[] {
+  return urls
+    .filter((url) => url.startsWith('/api/summaries/grouped'))
+    .map((url) => new URL(url, 'http://localhost').searchParams);
+}
+
 describe('ScorecardsPage', () => {
   it('groups reports by cell, newest first, with earlier history', async () => {
     const urls = stubFetch(
@@ -111,14 +132,47 @@ describe('ScorecardsPage', () => {
     expect(screen.queryByText('Gamma')).not.toBeInTheDocument();
     expect(screen.queryByText('No scorecards yet')).not.toBeInTheDocument();
 
-    const requests = summaryRequests(urls);
-    expect(requests).toHaveLength(3);
-    expect(requests.map((params) => params.get('cellId')).sort()).toEqual(['c1', 'c2', 'c3']);
-    for (const params of requests) {
-      expect(params.get('limit')).toBe('26');
-      expect(params.get('since')).not.toBeNull();
-    }
+    const requests = groupedRequests(urls);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.get('limit')).toBe('25');
+    expect(requests[0]?.has('cellId')).toBe(false);
+    expect(requests[0]?.get('since')).not.toBeNull();
+    expect(summaryRequests(urls)).toHaveLength(0);
   }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('loads all cells through one grouped request without per-cell fan-out', async () => {
+    const urls = stubFetch(
+      [makeCell('c1', 'Alpha'), makeCell('c2', 'Beta'), makeCell('c3', 'Gamma')],
+      {
+        c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+        c2: [makeReport('s2', 'c2', 'Beta report', 1_500_000)],
+      },
+    );
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(screen.getByText('Beta report')).toBeInTheDocument();
+    const grouped = groupedRequests(urls);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.get('limit')).toBe('25');
+    expect(grouped[0]?.has('cellId')).toBe(false);
+    expect(urls.some((url) => url.startsWith('/api/summaries?'))).toBe(false);
+    expect(urls.some((url) => url.includes('cellId=c3'))).toBe(false);
+  });
+
+  it('drops a grouped cell that is no longer in the cell list', async () => {
+    stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+      gone: [makeReport('s9', 'gone', 'Orphan report', 3_000_000)],
+    });
+
+    render(<ScorecardsPage cellId={null} onError={() => {}} />);
+
+    expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(screen.queryByText('Orphan report')).not.toBeInTheDocument();
+    expect(screen.queryByText('gone')).not.toBeInTheDocument();
+  });
 
   it('defaults to the last 72 hours', async () => {
     const urls = stubFetch([makeCell('c1', 'Alpha')], {
@@ -128,7 +182,7 @@ describe('ScorecardsPage', () => {
     render(<ScorecardsPage cellId={null} onError={() => {}} />);
 
     expect(await screen.findByText('Alpha report')).toBeInTheDocument();
-    const [params] = summaryRequests(urls);
+    const [params] = groupedRequests(urls);
     const since = Number(params?.get('since'));
     const expected = Date.now() - 72 * 60 * 60_000;
     expect(Number.isFinite(since)).toBe(true);
@@ -164,14 +218,14 @@ describe('ScorecardsPage', () => {
     expect(await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
-    const sevenDaySince = Number(summaryRequests(urls)[1]?.get('since'));
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    const sevenDaySince = Number(groupedRequests(urls)[1]?.get('since'));
     const expected = Date.now() - 7 * 24 * 60 * 60_000;
     expect(Math.abs(sevenDaySince - expected)).toBeLessThan(60_000);
 
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
-    expect(summaryRequests(urls)[2]?.has('since')).toBe(false);
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+    expect(groupedRequests(urls)[2]?.has('since')).toBe(false);
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('loads older reports within the period and stops at the end', async () => {
@@ -195,7 +249,7 @@ describe('ScorecardsPage', () => {
       expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS },
     );
 
-    const older = summaryRequests(urls)[1];
+    const older = summaryRequests(urls)[0];
     expect(older?.get('before')).toBe('99976');
     expect(older?.get('beforeId')).toBe('s24');
     expect(older?.get('since')).not.toBeNull();
@@ -216,6 +270,14 @@ describe('ScorecardsPage', () => {
         if (url === '/api/cells')
           return jsonResponse([makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')]);
         if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url.startsWith('/api/summaries/grouped')) {
+          return jsonResponse({
+            groups: [
+              { cellId: 'c1', reports: alpha.slice(0, 25), hasMore: true },
+              { cellId: 'c2', reports: beta.slice(0, 25), hasMore: true },
+            ],
+          });
+        }
         if (url.startsWith('/api/summaries?')) {
           const params = new URL(url, 'http://localhost').searchParams;
           const cellId = params.get('cellId') ?? '';
@@ -264,6 +326,34 @@ describe('ScorecardsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
 
     expect(await screen.findByText('No scorecards yet')).toBeInTheDocument();
+  });
+
+  it('reports a grouped load failure and lets Refresh retry', async () => {
+    const onError = vi.fn();
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        urls.push(url);
+        if (url === '/api/cells') return jsonResponse([makeCell('c1', 'Alpha')]);
+        if (url.startsWith('/api/summaries/status')) return jsonResponse(STATUS);
+        if (url.startsWith('/api/summaries/grouped')) {
+          return jsonResponse({ error: 'boom' }, 500);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ScorecardsPage cellId={null} onError={onError} />);
+
+    expect(await screen.findByText("Couldn't load scorecards")).toBeInTheDocument();
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(groupedRequests(urls)).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(groupedRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(2));
   });
 
   it('reports a load failure and offers a retry state', async () => {

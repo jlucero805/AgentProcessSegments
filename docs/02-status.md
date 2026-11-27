@@ -271,8 +271,9 @@ built and vended by the brain; real-CLI verification is still pending.
   every 30 seconds, catches up a missing/overdue report once, serializes generations, and
   backs off a failed cell for `min(interval, 30 min)`. The all-cells
   `GET /api/summaries/status` derives its last/next run times from one grouped
-  latest-per-cell query instead of one lookup per cell; a cell-scoped status read and the
-  scan loop keep their per-cell lookups. Facts are gathered before the
+  latest-per-cell query instead of one lookup per cell; a cell-scoped status read keeps
+  its single-cell lookup, and the due-cell scan uses the same one grouped read. Facts are
+  gathered before the
   model call: request counts by state/status, created/updated/completed/dropped, stalled
   work, `master_events` activity, follow-up titles, skip reasons, and the prior window.
   Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
@@ -496,7 +497,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1519 vitest cases (one environmental root-skip): 1117 server across 59 files and 402 web across 29 files,
+- 1524 vitest cases (one environmental root-skip): 1122 server across 59 files and 402 web across 29 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

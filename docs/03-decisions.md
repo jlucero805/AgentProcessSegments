@@ -3320,3 +3320,29 @@ variant was rejected because the same wrapped field row fits the narrower card.
 retention, or dependency change. The page's tests run unchanged as the extraction guard. The
 drawer can still show at most five reports, by design, and the Custom range is not persisted
 across drawer opens (D107).
+
+## D131. The due-cell summary scan reads one grouped latest-per-cell query
+
+**Context.** D119 grouped the all-cells status read but deliberately left
+`SummaryScheduler.scan()` calling `summaries.latest(cellId)` inside its per-cell loop. Every
+30-second tick and every settings or cell-list refresh therefore issued one indexed point
+lookup per cell just to compare the newest report's timestamp with the interval, even
+though `latestPerCell()` already returns that newest row for every cell in one query.
+
+**Decision.** After the single `cells.list()` snapshot and live-cell failure pruning,
+`scan()` calls `summaries.latestPerCell()` once when the snapshot is non-empty and builds a
+`cellId -> createdAt` map. The loop reads that map instead of the per-cell `latest()` call;
+a missing entry keeps `dueAt` at `0`, so a cell without a report is still due immediately.
+The queued-job and spend-cap gates, `max(dueAt, failure.at + min(intervalMs, 30 min))`
+comparison, enqueue call, swallowed rejection, drain serialization, coalescing, and
+30-second cadence are unchanged. An empty board skips the summary query, and the loop still
+iterates the cell snapshot, so a grouped row for a deleted cell cannot enqueue work.
+`statusFor()` keeps its single-cell `latest()` lookup by design. This completes the scan
+half deferred by D119.
+
+**Cost.** A scan now performs at most one grouped read instead of N point lookups, though
+that read also runs when every cell is queued or paused because the grouped map is fetched
+before the per-cell gates. It hydrates full report rows and ranks a second row per cell for
+`hasOlder`, which the scan ignores; a timestamp-only projection remains separate follow-up
+work. The read is bounded by `retention.cellSummariesDays`. No schema, index, route, response,
+or web-client change.

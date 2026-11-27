@@ -445,7 +445,17 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                 Requests without a cell stay manual; assign one to let its master automate
                 this request.
               </p>
-              <Field label="Harness" hint={`effective: ${harnessLabel} (${harnessSource})`}>
+              <Field
+                label="Harness"
+                hint={
+                  <span
+                    data-testid="harness-effective"
+                    data-resolved={effectiveHarness ? 'true' : 'false'}
+                  >
+                    {`effective: ${harnessLabel} (${harnessSource})`}
+                  </span>
+                }
+              >
                 <Select
                   data-testid="harness-select"
                   value={form.harness}

@@ -288,6 +288,16 @@ try {
   // These mount only after the drawer's form and chat have loaded.
   await page.waitForSelector('[data-testid="finalize-digest"]', { visible: true, timeout: 15_000 });
   await page.waitForSelector('[data-testid="harness-select"]', { visible: true, timeout: 15_000 });
+  // The Harness field mounts before model discovery answers, and its hint stays
+  // "not resolved" when the /api/models call fails. Require the resolved state.
+  try {
+    await page.waitForSelector('[data-testid="harness-effective"][data-resolved="true"]', {
+      visible: true,
+      timeout: 15_000,
+    });
+  } catch (error) {
+    throw new Error(`Request drawer harness did not resolve: ${error.message}`, { cause: error });
+  }
   await page.waitForSelector('[data-testid="composer-send"]', { visible: true, timeout: 10_000 });
 
   if (mobile) {

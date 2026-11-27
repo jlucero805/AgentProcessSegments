@@ -58,6 +58,7 @@ function installFetch(
   }),
   activeCell = cell,
   requestGate?: Promise<void>,
+  options: { models?: 'ok' | 'fail' } = {},
 ) {
   const patched: Record<string, unknown>[] = [];
   const urls: string[] = [];
@@ -85,6 +86,9 @@ function installFetch(
       if (url === '/api/commands') return jsonResponse([]);
       if (url.startsWith('/api/skills')) return jsonResponse([]);
       if (url === '/api/cells') return jsonResponse([activeCell]);
+      if (url.startsWith('/api/models') && options.models === 'fail') {
+        return jsonResponse({ error: 'boom', message: 'model discovery failed' }, 500);
+      }
       if (url === `/api/models?cellId=${activeCell.id}`) {
         return jsonResponse(models(activeCell.harness ?? 'claude'));
       }
@@ -172,6 +176,7 @@ describe('RequestDetail harness override', () => {
         timeout: ASYNC_TIMEOUT_MS,
       }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('harness-effective')).toHaveAttribute('data-resolved', 'true');
     expect(
       await screen.findByText('Opus 5.5', undefined, { timeout: ASYNC_TIMEOUT_MS }),
     ).toBeInTheDocument();
@@ -183,5 +188,31 @@ describe('RequestDetail harness override', () => {
       { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(urls.filter((url) => url === '/api/models')).toHaveLength(1);
+  }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
+
+  it('leaves the harness hint unresolved when model discovery fails', async () => {
+    const onError = vi.fn();
+    const { urls } = installFetch(
+      makeRequest({
+        id: 'req-1',
+        cellId: null,
+        harness: null,
+        model: null,
+      }),
+      cell,
+      undefined,
+      { models: 'fail' },
+    );
+
+    render(<RequestDetail id="req-1" onClose={() => {}} onError={onError} />);
+
+    await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(urls).toContain('/api/models'), { timeout: ASYNC_TIMEOUT_MS });
+    await act(async () => {});
+
+    const hint = screen.getByTestId('harness-effective');
+    expect(hint).toHaveAttribute('data-resolved', 'false');
+    expect(hint).toHaveTextContent('effective: not resolved (brain default)');
+    expect(onError).not.toHaveBeenCalled();
   }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 });

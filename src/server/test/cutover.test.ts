@@ -988,6 +988,37 @@ describe('deploy/cutover-vps.sh', () => {
     TEST_TIMEOUT,
   );
 
+  it.skipIf(process.platform === 'win32')(
+    'does not warn when the cutover root is not a directory',
+    () => {
+      const fixture = createMigratedFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      writeFileSync(cutoverRoot, 'not a directory\n');
+
+      const result = spawnSync(
+        'bash',
+        [
+          script,
+          '--dry-run',
+          '--home',
+          fixture.home,
+          '--old-clone',
+          fixture.oldClone,
+          '--new-clone',
+          fixture.newClone,
+          '--no-prune',
+        ],
+        { encoding: 'utf8', env: fixture.env },
+      );
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(readFileSync(cutoverRoot, 'utf8')).toBe('not a directory\n');
+      expect(output).not.toContain(`WARNING: ${cutoverRoot}`);
+    },
+    TEST_TIMEOUT,
+  );
+
   it(
     'keeps latest and the rollback point after a failed cutover',
     () => {

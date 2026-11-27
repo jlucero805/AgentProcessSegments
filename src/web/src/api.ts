@@ -41,6 +41,7 @@ import type {
   LatestSummaryGroup,
   Summary,
   SummaryConfig,
+  SummaryFeedPage,
   SummaryStatus,
   TerminalSessionInfo,
   TerminalStatus,
@@ -530,6 +531,17 @@ export const api = {
     options: { since?: number; until?: number } = {},
   ): Promise<LatestSummaryGroup[]> {
     return request(withQuery('/api/summaries/latest-per-cell', options));
+  },
+  getSummaryFeed(
+    options: {
+      limit?: number;
+      since?: number;
+      until?: number;
+      before?: number;
+      beforeId?: string;
+    } = {},
+  ): Promise<SummaryFeedPage> {
+    return request(withQuery('/api/summaries/feed', options));
   },
   getLatestSummary(cellId: string): Promise<Summary | null> {
     return request(withQuery('/api/summaries/latest', { cellId }));

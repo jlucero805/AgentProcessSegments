@@ -136,7 +136,11 @@ beyond five.
   cell selected it shows only that cell's history. Each cell's latest in-range report is
   expanded and older reports are collapsed under **Earlier scorecards** as they load.
   When a cell has older in-range reports, **Load older** pages that cell back through the
-  selected period.
+  selected period. **All cells** can switch between **Grouped** (the default, the
+  latest-per-cell view) and **Flat**, one chronological cross-cell stream newest first.
+  **Flat** loads 25 reports per page and **Load more** appends the next page until the
+  period is exhausted; the period, including Custom, filters both layouts by report
+  generation time.
 - Old reports expire under the Config page's **Scorecard retention** window
   (`retention.cellSummariesDays`, default 90 days, `0` keeps history). **All** is bounded
   by that window. The newest report per cell is always kept, so the drawer can still

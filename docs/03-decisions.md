@@ -2605,3 +2605,29 @@ existing `created_at` indexes cover both bounds.
 **Cost.** Custom ranges are bounded by `retention.cellSummariesDays`, not by an artificial
 cap, and a future end date simply includes everything up to now. Time-of-day precision,
 timezone selection, URL persistence, and a custom range in the drawer are separate work.
+
+## D109. The flat scorecard feed returns a server-owned page envelope
+
+**Context.** The Scorecards page's **All cells** view shows one latest report per cell, so
+its height grows with the number of cells. A single chronological stream is an alternative
+when the latest-per-cell page gets long.
+
+**Decision.** Add `GET /api/summaries/feed?limit=&since=&until=&before=&beforeId=` for an
+opt-in **Flat** layout in the All cells view. It returns
+`{ reports, hasMore, nextCursor }`, ranked `created_at DESC, id DESC` across cells, with
+the same inclusive `since`/`until` bounds and paired `(created_at, id)` keyset cursor as
+`/api/summaries`. The server clamps the page to 1–50 (default 25), fetches one probe row,
+trims it, and returns the last row's cursor. **Grouped** (the latest-per-cell view) stays
+the default and `/api/summaries` keeps its bare-array contract used by the drawer and
+focused-cell history. The feed reuses the list WHERE/ORDER query through a non-clamping
+helper so a 50-row page still gets a probe row. A report whose cell no longer exists is
+kept and labelled with its raw id rather than dropped, so the rendered count matches
+`hasMore`. The page captures the first page's window (`since`/`until`) and reuses it for
+**Load more**, so a boundary report cannot age out between pages and a custom range keeps
+its upper bound while paging. No schema or index change is needed;
+`idx_cell_summaries_created` bounds the in-range scan.
+
+**Cost.** The response carries 25 full reports in one payload, so it can be several
+hundred KB; the flat layout asks for one request per page and keeps the previous rows in
+memory. The flat view is All cells only; a focused cell stays grouped. The latest-per-cell
+feed, per-cell **Load older**, and any paging beyond the flat page are unchanged.

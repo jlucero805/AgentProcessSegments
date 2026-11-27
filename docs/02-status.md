@@ -246,16 +246,16 @@ built and vended by the brain; real-CLI verification is still pending.
   Each cell has an internal read-only `__summary__:<cellId>` session, separate from the
   master chat. Reports are stored in `cell_summaries`; the Cell master drawer shows the
   latest scorecard, up to five reports in a selectable generation-time period (default
-  last 72 hours; no paging), and **Run scorecard now**, a dedicated **Scorecards** page
+  last 72 hours; no paging), and **Run scorecard now**. A dedicated **Scorecards** page
   groups every cell's persisted reports by generation time (default last 72 hours;
   `24h`/`72h`/`7d`/`30d`/`All`, or a custom local start/end date range, newest first,
   earlier history collapsible, **Load older** in 25-report pages). All cells loads each
-  cell's newest report in one
-  `GET /api/summaries/latest-per-cell` request with a `hasOlder` flag, without fetching
-  the cell list or one summaries request per cell, and the page follows the sidebar cell
-  filter. The Config page edits the schedule/prompt.
-  `retention.cellSummariesDays` prunes old reports while always keeping
-  the newest per cell and bounds the page's **All** period. See
+  cell's newest report in one `GET /api/summaries/latest-per-cell` request with a
+  `hasOlder` flag, or shows them as one chronological cross-cell **Flat** feed with
+  server-side **Load more** paging, without fetching one summaries request per cell, and
+  the page follows the sidebar cell filter. The Config page edits the schedule/prompt.
+  `retention.cellSummariesDays` prunes old reports while always keeping the newest per
+  cell and bounds the page's **All** period. See
   `docs/08-user-workflows.md`.
 - Master chat: the reserved `__master__` session gets a read-only board/KB tool set. The
   scheduler appends start, prod, advance, follow-up, cycle, and skip notes to its
@@ -454,7 +454,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1334 vitest cases (one environmental root-skip): 1020 server across 56 files and 314 web across 28 files,
+- 1352 vitest cases (one environmental root-skip): 1027 server across 56 files and 325 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/
@@ -651,6 +651,7 @@ POST   /api/master/run?cellId=…
 GET    /api/master/events?cellId=…&limit=…
 GET    /api/summaries[?cellId=…&limit=…&since=…&until=…&before=…&beforeId=…]
 GET    /api/summaries/latest-per-cell[?since=…&until=…]   one newest report per cell + hasOlder
+GET    /api/summaries/feed[?limit=…&since=…&until=…&before=…&beforeId=…]
 GET    /api/summaries/latest?cellId=…
 POST   /api/summaries/run?cellId=…
 GET    /api/summaries/status[?cellId=…]

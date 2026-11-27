@@ -2707,6 +2707,96 @@ describe('http api', () => {
     expect((await call('GET', '/api/summaries/latest-per-cell?until=abc')).status).toBe(400);
   });
 
+  it('serves the flat cross-cell feed with a keyset cursor', async () => {
+    const { h } = await makeApp();
+    const alpha = h.cells.create('Alpha');
+    const beta = h.cells.create('Beta');
+    const insert = (id: string, cellId: string, createdAt: number) =>
+      h.db
+        .prepare(
+          `INSERT INTO cell_summaries
+             (id, cell_id, window_start, window_end, window_minutes, content, stats_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, cellId, createdAt - 360_000, createdAt, 6, `report-${id}`, '{}', createdAt);
+
+    insert('a', alpha.id, 1_000);
+    insert('b', alpha.id, 2_000);
+    insert('c', alpha.id, 2_000);
+    insert('d', alpha.id, 3_000);
+    insert('e', beta.id, 3_000);
+
+    const empty = await call('GET', '/api/summaries/feed?since=10000');
+    expect(empty.status).toBe(200);
+    expect(empty.json()).toEqual({ reports: [], hasMore: false, nextCursor: null });
+
+    const inRange = await call('GET', '/api/summaries/feed?since=2000');
+    expect(inRange.status).toBe(200);
+    expect(inRange.json().reports.map((row: { id: string }) => row.id)).toEqual([
+      'e',
+      'd',
+      'c',
+      'b',
+    ]);
+
+    const untilRange = await call('GET', '/api/summaries/feed?until=2000');
+    expect(untilRange.status).toBe(200);
+    expect(untilRange.json().reports.map((row: { id: string }) => row.id)).toEqual([
+      'c',
+      'b',
+      'a',
+    ]);
+
+    const first = await call('GET', '/api/summaries/feed?limit=2&since=1000');
+    expect(first.status).toBe(200);
+    expect(first.json().reports.map((row: { id: string }) => row.id)).toEqual(['e', 'd']);
+    expect(first.json().reports.map((row: { cellId: string }) => row.cellId)).toEqual([
+      beta.id,
+      alpha.id,
+    ]);
+    expect(first.json().hasMore).toBe(true);
+    expect(first.json().nextCursor).toEqual({ before: 3_000, beforeId: 'd' });
+
+    const second = await call(
+      'GET',
+      '/api/summaries/feed?limit=2&since=1000&before=3000&beforeId=d',
+    );
+    expect(second.status).toBe(200);
+    expect(second.json().reports.map((row: { id: string }) => row.id)).toEqual(['c', 'b']);
+    expect(second.json().hasMore).toBe(true);
+    expect(second.json().nextCursor).toEqual({ before: 2_000, beforeId: 'b' });
+
+    const third = await call(
+      'GET',
+      '/api/summaries/feed?limit=2&since=1000&before=2000&beforeId=b',
+    );
+    expect(third.status).toBe(200);
+    expect(third.json().reports.map((row: { id: string }) => row.id)).toEqual(['a']);
+    expect(third.json().hasMore).toBe(false);
+    expect(third.json().nextCursor).toBeNull();
+
+    for (let index = 0; index < 26; index += 1) {
+      insert(`z${index}`, alpha.id, 10_000 + index);
+    }
+    const defaulted = await call('GET', '/api/summaries/feed');
+    expect(defaulted.status).toBe(200);
+    expect(defaulted.json().reports).toHaveLength(25);
+    expect(defaulted.json().hasMore).toBe(true);
+
+    expect((await call('GET', '/api/summaries/feed?limit=0')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?limit=51')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?since=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?since=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?until=-1')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?until=1.5')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?before=abc')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?before=2000')).status).toBe(400);
+    expect((await call('GET', '/api/summaries/feed?beforeId=c')).status).toBe(400);
+
+    const list = await call('GET', '/api/summaries');
+    expect(Array.isArray(list.json())).toBe(true);
+  });
+
   it('returns usage totals, filters, buckets, and validation errors', async () => {
     const { h } = await makeApp();
     const empty = await call('GET', '/api/usage');

@@ -113,6 +113,8 @@ export type {
   Summary,
   SummaryCellRef,
   SummaryConfig,
+  SummaryFeedCursor,
+  SummaryFeedPage,
   SummaryStats,
   SummaryStatus,
 } from '../../server/src/summary/types';

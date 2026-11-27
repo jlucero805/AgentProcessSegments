@@ -114,8 +114,9 @@ totals tokens and cost by model, cell, and request, and the **Scorecards** page 
 each cell’s persisted reports with its earlier history. The page defaults to reports
 generated in the last 72 hours, can widen to 24 hours, 7 days, 30 days, or all retained
 history, or use a custom local start/end date range; **All cells** loads each cell's
-latest report in one latest-per-cell request, and **Load older** pages through each
-cell's history within the selected period.
+latest report in one latest-per-cell request, or switches to **Flat**, one chronological
+cross-cell feed with **Load more**. **Load older** pages through each cell's history
+within the selected period.
 
 These screenshots use a staged demo board in an isolated temp database, not live data.
 Regenerate them against the built SPA with the optional Puppeteer tool:
@@ -653,7 +654,7 @@ src/web
   src/docs.ts         help slugs, relative link/image rewriting, heading anchors
   src/Board.tsx       six columns, drag-to-advance, agent badges
   src/UsagePage.tsx   overall/cell usage dashboard, reported/estimated cost chart
-  src/ScorecardsPage.tsx per-cell persisted scorecard reports with history and latest-per-cell all-cells feed
+  src/ScorecardsPage.tsx persisted scorecard history: grouped per cell, flat cross-cell, or latest per cell
   src/Scorecard.tsx   shared markdown renderer for one report
   src/usageFormat.ts  token/cost formatters with exact/≈/≥ cost distinction
   src/RequestDetail.tsx  edit fields, guarded transitions, kickoff streams, usage, digest
@@ -683,7 +684,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1334 vitest cases: 1020 server cases across 56 files (state machine,
+`npm test` runs 1352 vitest cases: 1027 server cases across 56 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -699,7 +700,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 314 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 325 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat queue claim, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links and
 Help anchors, the source link, board,

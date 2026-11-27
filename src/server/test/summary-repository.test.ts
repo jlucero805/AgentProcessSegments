@@ -253,3 +253,102 @@ describe('summary repository latest-per-cell feed', () => {
     expect(repo.latestPerCell().map((group) => group.summary.cellId)).toEqual(expected);
   });
 });
+
+describe('summary repository flat feed', () => {
+  it('returns one cross-cell page newest first', () => {
+    const repo = setup();
+    const alphaOld = recordAt(repo, 'c1', 'alpha-old', 1_000);
+    const betaMid = recordAt(repo, 'c2', 'beta-mid', 2_000);
+    const alphaNew = recordAt(repo, 'c1', 'alpha-new', 3_000);
+
+    const page = repo.feed({ limit: 10 });
+
+    expect(page.reports.map((row) => row.id)).toEqual([
+      alphaNew.id,
+      betaMid.id,
+      alphaOld.id,
+    ]);
+    expect(page.reports.map((row) => row.cellId)).toEqual(['c1', 'c2', 'c1']);
+    expect(page.hasMore).toBe(false);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('pages across a created_at tie without duplicates or skips', () => {
+    const repo = setup();
+    const rows = [
+      recordAt(repo, 'c1', 'r1', 1_000),
+      recordAt(repo, 'c2', 'r2', 2_000),
+      recordAt(repo, 'c1', 'r3', 3_000),
+      recordAt(repo, 'c2', 'r4', 3_000),
+      recordAt(repo, 'c1', 'r5', 4_000),
+    ];
+    const ordered = [...rows].sort(
+      (a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1),
+    );
+
+    const first = repo.feed({ limit: 2 });
+    expect(first.reports.map((row) => row.id)).toEqual(
+      ordered.slice(0, 2).map((row) => row.id),
+    );
+    expect(first.hasMore).toBe(true);
+    expect(first.nextCursor).toEqual({
+      before: ordered[1]!.createdAt,
+      beforeId: ordered[1]!.id,
+    });
+
+    const second = repo.feed({ limit: 2, ...first.nextCursor! });
+    expect(second.reports.map((row) => row.id)).toEqual(
+      ordered.slice(2, 4).map((row) => row.id),
+    );
+    expect(second.hasMore).toBe(true);
+
+    const third = repo.feed({ limit: 2, ...second.nextCursor! });
+    expect(third.reports.map((row) => row.id)).toEqual([ordered[4]!.id]);
+    expect(third.hasMore).toBe(false);
+    expect(third.nextCursor).toBeNull();
+  });
+
+  it('applies the inclusive since bound before ranking', () => {
+    const repo = setup();
+    const old = recordAt(repo, 'c1', 'old', 1_000);
+    const boundary = recordAt(repo, 'c2', 'boundary', 2_000);
+    const newest = recordAt(repo, 'c1', 'newest', 3_000);
+
+    expect(repo.feed({ limit: 10, since: 2_000 }).reports.map((row) => row.id)).toEqual([
+      newest.id,
+      boundary.id,
+    ]);
+    expect(repo.feed({ limit: 10, until: 2_000 }).reports.map((row) => row.id)).toEqual([
+      boundary.id,
+      old.id,
+    ]);
+  });
+
+  it('defaults to 25, clamps to 50, and probes past the cap', () => {
+    const repo = setup();
+    for (let index = 0; index < 51; index += 1) {
+      recordAt(repo, index % 2 === 0 ? 'c1' : 'c2', `report-${index}`, 1_000 + index);
+    }
+
+    expect(repo.feed().reports).toHaveLength(25);
+    expect(repo.feed({ limit: 1 }).reports).toHaveLength(1);
+    const capped = repo.feed({ limit: 999 });
+    expect(capped.reports).toHaveLength(50);
+    expect(capped.hasMore).toBe(true);
+    expect(capped.nextCursor).not.toBeNull();
+  });
+
+  it('returns an empty page when nothing is in range', () => {
+    const repo = setup();
+    expect(repo.feed()).toEqual({
+      reports: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+    expect(repo.feed({ since: 5_000 })).toEqual({
+      reports: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+});

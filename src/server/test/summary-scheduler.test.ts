@@ -101,6 +101,18 @@ function setup(
   return { db, cells, summaries, settings, scheduler, generate };
 }
 
+function recordAt(fixture: Fixture, cellId: string, at: number): Summary {
+  vi.setSystemTime(new Date(at));
+  return fixture.summaries.record({
+    cellId,
+    windowStart: at - INTERVAL,
+    windowEnd: at,
+    windowMinutes: 360,
+    content: 'report',
+    stats: stats(cellId, at),
+  });
+}
+
 async function flush(): Promise<void> {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
@@ -217,6 +229,128 @@ describe('SummaryScheduler', () => {
     fixture.db.close();
   });
 
+  it('aggregates every cell from one grouped latest-per-cell query', () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(start));
+    const fixture = setup();
+    const first = fixture.cells.create('Alpha');
+    const second = fixture.cells.create('Beta');
+    recordAt(fixture, first.id, start);
+    const newest = recordAt(fixture, second.id, start + HOUR);
+    vi.setSystemTime(new Date(start + 3 * HOUR));
+
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+    const require = vi.spyOn(fixture.cells, 'require');
+    const list = vi.spyOn(fixture.cells, 'list');
+    const get = vi.spyOn(fixture.settings, 'get');
+
+    const status = fixture.scheduler.status();
+
+    expect(grouped).toHaveBeenCalledTimes(1);
+    expect(latest).not.toHaveBeenCalled();
+    expect(require).not.toHaveBeenCalled();
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(status).toMatchObject({
+      enabled: true,
+      intervalMinutes: 360,
+      windowMinutes: 360,
+      running: false,
+      nextRunAt: start + INTERVAL,
+      lastRunAt: newest.createdAt,
+      lastError: null,
+    });
+
+    fixture.db.close();
+  });
+
+  it('skips the grouped summary query when no cells exist', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 0, 1)));
+    const fixture = setup();
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      enabled: true,
+      nextRunAt: null,
+      lastRunAt: null,
+      running: false,
+      lastError: null,
+    });
+    expect(grouped).not.toHaveBeenCalled();
+    expect(latest).not.toHaveBeenCalled();
+
+    fixture.db.close();
+  });
+
+  it('treats a cell without a report as due now in grouped status', () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(now));
+    const fixture = setup();
+    fixture.cells.create('Alpha');
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      nextRunAt: now,
+      lastRunAt: null,
+    });
+    expect(grouped).toHaveBeenCalledTimes(1);
+
+    fixture.db.close();
+  });
+
+  it('keeps the last run while disabled in grouped status', () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(start));
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    const report = recordAt(fixture, cell.id, start);
+    fixture.settings.patch({ summary: { enabled: false } });
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+
+    expect(fixture.scheduler.status()).toMatchObject({
+      enabled: false,
+      nextRunAt: null,
+      lastRunAt: report.createdAt,
+    });
+    expect(grouped).toHaveBeenCalledTimes(1);
+
+    fixture.db.close();
+  });
+
+  it('keeps statusFor on its single-cell latest lookup', () => {
+    vi.useFakeTimers();
+    const start = Date.UTC(2026, 0, 1);
+    vi.setSystemTime(new Date(start));
+    const fixture = setup();
+    const cell = fixture.cells.create('Alpha');
+    const report = recordAt(fixture, cell.id, start);
+    vi.setSystemTime(new Date(start + HOUR));
+
+    const grouped = vi.spyOn(fixture.summaries, 'latestPerCell');
+    const latest = vi.spyOn(fixture.summaries, 'latest');
+    const require = vi.spyOn(fixture.cells, 'require');
+
+    expect(fixture.scheduler.statusFor(cell.id)).toMatchObject({
+      nextRunAt: start + INTERVAL,
+      lastRunAt: report.createdAt,
+      running: false,
+      lastError: null,
+    });
+    expect(grouped).not.toHaveBeenCalled();
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(latest).toHaveBeenCalledWith(cell.id);
+    expect(require).toHaveBeenCalledTimes(1);
+    expect(require).toHaveBeenCalledWith(cell.id);
+
+    fixture.db.close();
+  });
+
   it('runs cells one at a time and coalesces manual runs per cell', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -280,7 +414,9 @@ describe('SummaryScheduler', () => {
     await flush();
     expect(fixture.generate).toHaveBeenCalledTimes(1);
     expect(fixture.scheduler.statusFor(cell.id).lastError).toBe('model down');
-    expect(fixture.scheduler.statusFor(cell.id).nextRunAt).toBe(Date.now() + 30 * 60_000);
+    const backedOffUntil = Date.now() + 30 * 60_000;
+    expect(fixture.scheduler.statusFor(cell.id).nextRunAt).toBe(backedOffUntil);
+    expect(fixture.scheduler.status().nextRunAt).toBe(backedOffUntil);
 
     await vi.advanceTimersByTimeAsync(30 * 60_000 - 1_000);
     expect(fixture.generate).toHaveBeenCalledTimes(1);

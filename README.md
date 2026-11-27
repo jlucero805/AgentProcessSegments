@@ -705,7 +705,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1427 vitest cases: 1063 server cases across 58 files (state machine,
+`npm test` runs 1432 vitest cases: 1068 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

@@ -159,6 +159,7 @@ async function startBrain(
 async function waitForHolder(child: ChildProcess): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     // Fail fast if the placeholder process never signals readiness.
+    // eslint-disable-next-line no-restricted-syntax -- bounded fail-fast guard, not a synchronization wait
     const timer = setTimeout(() => {
       reject(new Error('holder process did not become ready'));
     }, HOLDER_READY_TIMEOUT_MS);

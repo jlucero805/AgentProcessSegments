@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1367 vitest cases: 1042 server across 57 files (one environmental root-skip) and 325 web across 28 files, all green.
+- 1369 vitest cases: 1044 server across 57 files (one environmental root-skip) and 325 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,7 +117,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1042 server + 325 web, plus the e2e env guard
+npm test                       # 1044 server + 325 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -773,6 +773,11 @@ by mutating the global file.
 - Repositories own SQL. Handlers own validation. The engine owns process and disk.
 - Tests assert behavior a client can observe, not internal calls, except MCP where the
   HTTP request is the behavior.
+- Server tests must not use wall-clock `setTimeout`/`setInterval` to wait; await an
+  observable condition or use fake timers. A bounded fail-fast guard needs an adjacent
+  `eslint-disable-next-line no-restricted-syntax -- <reason>` exemption; the
+  `no-restricted-syntax` override in `eslint.config.mjs` enforces this for
+  `src/server/test`.
 - Commit each green unit. Message shape: `type(scope): subject`.
 - `src/web/src` is linted with the `react-hooks` `recommended-latest` preset, and
   `--max-warnings=0` makes it fatal. Keep synchronous `setState` out of effect bodies:

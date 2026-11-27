@@ -343,6 +343,7 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
         {showArticle ? (
           <aside
             id="help-nav"
+            data-testid="help-nav"
             aria-label="Documentation pages"
             className={cn(
               'absolute inset-y-0 left-0 z-20 w-72 shrink-0 overflow-y-auto border-r border-zinc-900 bg-zinc-950 p-3 transition-transform duration-200 md:static md:w-60 md:translate-x-0',
@@ -360,6 +361,8 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
                       <li key={item.slug}>
                         <button
                           type="button"
+                          data-testid="help-page-link"
+                          data-slug={item.slug}
                           aria-current={item.slug === slug ? 'page' : undefined}
                           onClick={() => select(item.slug)}
                           className={cn(
@@ -439,7 +442,12 @@ export function HelpPanel({ slug, anchor, onNavigate, onClose }: HelpPanelProps)
           ) : null}
           {showArticle && page === 'ready' && doc ? (
             <div className="mx-auto flex max-w-5xl gap-8 px-4 py-6">
-              <article ref={articleRef} className="min-w-0 flex-1">
+              <article
+                ref={articleRef}
+                data-testid="help-article"
+                data-slug={doc.slug}
+                className="min-w-0 flex-1"
+              >
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-900 pb-4">
                   <div className="min-w-0">
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">

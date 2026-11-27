@@ -40,6 +40,7 @@ export function CellBar({
         </span>
         <IconButton
           label="New cell"
+          data-testid="new-cell"
           className="h-5 w-5 text-zinc-500"
           onClick={onCreate}
         >
@@ -62,6 +63,7 @@ export function CellBar({
         <div key={cell.id} className="group flex items-center gap-1">
           <button
             type="button"
+            data-testid="cell-option"
             onClick={() => onChange(cell.id)}
             className={cn(
               'min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-sm transition-colors',

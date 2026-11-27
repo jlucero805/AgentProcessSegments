@@ -402,6 +402,7 @@ function CellModalEditor({ open, cell, commands, onClose, onSaved, onError }: Ce
         <Field label="Cell name">
           <Input
             autoFocus
+            data-testid="cell-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="e.g. Work repo"
@@ -612,6 +613,7 @@ function CellModalEditor({ open, cell, commands, onClose, onSaved, onError }: Ce
         </Button>
         <Button
           variant="primary"
+          data-testid="cell-submit"
           disabled={saving || loading || !process}
           onClick={() => void save()}
         >

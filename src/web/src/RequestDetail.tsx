@@ -353,6 +353,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
 
   return (
     <aside
+      data-testid="request-detail"
       className={cn(
         'fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl',
         maximized ? 'max-w-none' : 'max-w-[46rem]',
@@ -362,7 +363,10 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
         {request ? (
           <>
             <Badge tone={STATE_TONES[request.state]}>{STATE_LABELS[request.state]}</Badge>
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">
+            <span
+              data-testid="request-title"
+              className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+            >
               {request.title}
             </span>
             <span className="hidden text-[11px] text-zinc-500 sm:inline">
@@ -443,6 +447,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
               </p>
               <Field label="Harness" hint={`effective: ${harnessLabel} (${harnessSource})`}>
                 <Select
+                  data-testid="harness-select"
                   value={form.harness}
                   onChange={(event) => set('harness', event.target.value)}
                 >
@@ -628,7 +633,7 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
         </div>
       )}
 
-            <Card className="space-y-2 p-3">
+            <Card testId="finalize-digest" className="space-y-2 p-3">
               <SectionTitle>Finalize digest</SectionTitle>
               <p className="text-[11px] text-zinc-500">
                 Review the digest the agent proposed. Indexing stores it in the knowledge base and

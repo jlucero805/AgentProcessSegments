@@ -160,9 +160,15 @@ check_pruner() {
   printf '%s' "$pruner"
 }
 
+# Create a missing upgrades/ root owner-only; an existing root is left alone.
+ensure_upgrade_root() {
+  [[ -d "$UPGRADE_ROOT" ]] && return 0
+  (umask 077; mkdir -p "$UPGRADE_ROOT")
+}
+
 point_upgrade_latest() {
   [[ -n "${RUN_DIR:-}" && -d "$RUN_DIR" ]] || return 0
-  (umask 077; mkdir -p "$UPGRADE_ROOT") || {
+  ensure_upgrade_root || {
     log "WARNING: could not create $UPGRADE_ROOT; skipping prune"
     return 1
   }
@@ -1056,6 +1062,9 @@ run_upgrade() {
   if [[ "$OLD_SHA" == "$TARGET" ]]; then
     log "already up to date: $CLONE is at $(short_sha "$TARGET") ($BRANCH)"
     write_state success
+    # Create the root before publishing latest; an external --run-dir can
+    # otherwise leave the link's parent missing and trip the rollback trap.
+    ensure_upgrade_root
     ln -sfn "$RUN_DIR" "$UPGRADE_ROOT/latest"
     retention_after success
     return 0

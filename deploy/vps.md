@@ -406,7 +406,9 @@ journalctl --user -f | grep aps-upgrade
 
 `--detach` prints the transient unit name; `journalctl --user -u <name>` shows that unit
 while it still exists. `state` is one of `launched`, `running`, `success`, `failed`, or
-`rolled_back`. Each run directory is created (or tightened) `0700` and keeps `before.json`,
+`rolled_back`. A run that finds the clone already at the target records `success`, creates
+the shared root if needed, points `upgrades/latest` at its run directory, and changes
+nothing else. Each run directory is created (or tightened) `0700` and keeps `before.json`,
 `after.json`, `config-before.json`, `config-after.json`, `db-backup.sqlite`, and the
 previous `dist` and `node_modules` trees; the snapshot itself is written `0600`. After
 every terminal state the script keeps the current/`latest` run, the newest successful run,

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { extractHeadings } from './docs';
+import { extractHeadings, helpSlugFromHref, resolveDocHref, slugForDocPath } from './docs';
 
 export interface DocLink {
   /** 1-based line in the file that contains the link. */
@@ -182,11 +182,24 @@ interface LinkContext {
   headingIds: (absoluteFile: string) => string[];
 }
 
-function checkLink({ root, file, absoluteFile, link, headingIds }: LinkContext): DocLinkProblem | null {
-  const raw = link.target.trim();
-  const problem = (reason: string): DocLinkProblem => ({ file, line: link.line, target: raw, reason });
+interface ResolvedLinkTarget {
+  /** Repo-relative path with forward slashes. */
+  relative: string;
+  absolute: string;
+  fragment: string | null;
+}
 
-  if (raw === '') return problem('empty link target');
+type LinkResolution = { target: ResolvedLinkTarget } | { error: string } | null;
+
+/**
+ * Resolve a raw Markdown destination to a repo path and fragment.
+ *
+ * `null` means the destination is not a repo link (external, protocol-relative,
+ * or the app's bare `?query` form). Errors are the reasons `checkDocLinks`
+ * reports, so a caller can skip targets another check already owns.
+ */
+function resolveLinkTarget(root: string, absoluteFile: string, raw: string): LinkResolution {
+  if (raw === '') return { error: 'empty link target' };
   // External schemes and protocol-relative URLs are never fetched; a bare
   // `?query` is the app's own deep-link form and names no file.
   if (EXTERNAL.test(raw) || raw.startsWith('//') || raw.startsWith('?')) return null;
@@ -203,12 +216,12 @@ function checkLink({ root, file, absoluteFile, link, headingIds }: LinkContext):
     decodedPath = decodeURIComponent(pathPart);
     if (fragment !== null) decodedFragment = decodeURIComponent(fragment);
   } catch {
-    return problem('unreadable link');
+    return { error: 'unreadable link' };
   }
 
-  if (decodedPath === '' && decodedFragment === null) return problem('empty link target');
+  if (decodedPath === '' && decodedFragment === null) return { error: 'empty link target' };
 
-  const target =
+  const resolved =
     decodedPath === ''
       ? absoluteFile
       : path.resolve(
@@ -216,12 +229,30 @@ function checkLink({ root, file, absoluteFile, link, headingIds }: LinkContext):
           decodedPath.startsWith('/') ? `.${decodedPath}` : decodedPath,
         );
 
-  const relative = path.relative(root, target);
+  const relative = path.relative(root, resolved);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    return problem('path escapes the repository');
+    return { error: 'path escapes the repository' };
   }
+  return {
+    target: {
+      relative: relative.split(path.sep).join('/'),
+      absolute: resolved,
+      fragment: decodedFragment,
+    },
+  };
+}
+
+function checkLink({ root, file, absoluteFile, link, headingIds }: LinkContext): DocLinkProblem | null {
+  const raw = link.target.trim();
+  const problem = (reason: string): DocLinkProblem => ({ file, line: link.line, target: raw, reason });
+
+  const resolution = resolveLinkTarget(root, absoluteFile, raw);
+  if (resolution === null) return null;
+  if ('error' in resolution) return problem(resolution.error);
+
+  const target = resolution.target.absolute;
   if (!existsSync(target)) return problem('missing file');
-  if (decodedFragment === null) return null;
+  if (resolution.target.fragment === null) return null;
 
   let isFile = false;
   try {
@@ -239,8 +270,8 @@ function checkLink({ root, file, absoluteFile, link, headingIds }: LinkContext):
   } catch {
     return problem('unreadable file');
   }
-  if (!ids.includes(decodedFragment)) {
-    return problem(`no heading with id "${decodedFragment}"`);
+  if (!ids.includes(resolution.target.fragment)) {
+    return problem(`no heading with id "${resolution.target.fragment}"`);
   }
   return null;
 }
@@ -280,6 +311,193 @@ export function checkDocLinks(root: string): DocLinkProblem[] {
       });
     }
   }
+  return problems.sort(
+    (left, right) => left.file.localeCompare(right.file) || left.line - right.line,
+  );
+}
+
+/** The only manifest authority; manifest problems have no line in that file. */
+const MANIFEST_FILE = 'src/server/src/docs/manifest.ts';
+const HELP_SLUG = /^[a-z0-9-]+$/;
+
+/** The manifest fields the Help link gate needs. */
+export interface HelpManifestEntry {
+  slug: string;
+  source: string;
+}
+
+function normalizeManifestSource(source: string): string | null {
+  const normalized = source.replace(/\\/g, '/');
+  if (normalized === '' || normalized.startsWith('/') || normalized.split('/').includes('..')) {
+    return null;
+  }
+  return normalized;
+}
+
+/** Validate the manifest itself: slugs, sources, and the SPA's link routing. */
+export function manifestProblems(
+  root: string,
+  manifest: readonly HelpManifestEntry[],
+): DocLinkProblem[] {
+  const absoluteRoot = path.resolve(root);
+  const problems: DocLinkProblem[] = [];
+  const report = (target: string, reason: string): void => {
+    problems.push({ file: MANIFEST_FILE, line: 0, target, reason });
+  };
+  const slugs = new Set<string>();
+  const sources = new Set<string>();
+
+  for (const entry of manifest) {
+    if (!HELP_SLUG.test(entry.slug)) {
+      report(entry.slug, 'slug is not lowercase letters, digits, or hyphens');
+    }
+    if (slugs.has(entry.slug)) report(entry.slug, 'duplicate Help slug');
+    else slugs.add(entry.slug);
+
+    const source = normalizeManifestSource(entry.source);
+    if (source === null) {
+      report(entry.source, 'source is not a repo-relative path');
+      continue;
+    }
+    if (sources.has(source)) report(entry.source, 'duplicate manifest source');
+    else sources.add(source);
+
+    if (!/\.(md|markdown)$/i.test(source)) report(entry.source, 'source is not a Markdown file');
+    let exists = false;
+    let isFile = false;
+    try {
+      const stat = statSync(path.join(absoluteRoot, source));
+      exists = true;
+      isFile = stat.isFile();
+    } catch {
+      // Reported below; the runtime filters missing sources out of the list.
+    }
+    if (!exists) report(entry.source, 'missing source file');
+    else if (!isFile) report(entry.source, 'source is not a file');
+
+    const mapped = slugForDocPath(source);
+    if (mapped !== entry.slug) {
+      report(
+        entry.slug,
+        `source "${source}" maps to slug "${mapped ?? '(none)'}", not "${entry.slug}"`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** Parse a `?help=<slug>#<fragment>` target, keeping the raw fragment on a bad escape. */
+function helpTarget(raw: string): { slug: string; fragment: string | null } | null {
+  const slug = helpSlugFromHref(raw);
+  if (slug === null) return null;
+  const hash = raw.indexOf('#');
+  if (hash < 0) return { slug, fragment: null };
+  const fragment = raw.slice(hash + 1);
+  try {
+    return { slug, fragment: decodeURIComponent(fragment) };
+  } catch {
+    return { slug, fragment };
+  }
+}
+
+/**
+ * Validate links on Help-served pages against the manifest.
+ *
+ * Only manifest sources are constrained: internal-only docs never render in
+ * Help, so they may link anywhere in the repo. A served page may only point at
+ * a manifest page (or a `?help=` slug that resolves to one), because Help
+ * rewrites every local `*.md` link to `?help=<basename>` and the server 404s
+ * anything the manifest does not list.
+ */
+export function checkHelpLinks(
+  root: string,
+  manifest: readonly HelpManifestEntry[],
+): DocLinkProblem[] {
+  const absoluteRoot = path.resolve(root);
+  const problems = manifestProblems(absoluteRoot, manifest);
+
+  const entries = new Map<string, HelpManifestEntry>();
+  const served = new Set<string>();
+  for (const entry of manifest) {
+    const source = normalizeManifestSource(entry.source);
+    if (source === null) continue;
+    served.add(source);
+    if (!entries.has(entry.slug)) entries.set(entry.slug, { slug: entry.slug, source });
+  }
+
+  const headingCache = new Map<string, string[] | null>();
+  const headingIds = (source: string): string[] | null => {
+    const cached = headingCache.get(source);
+    if (cached !== undefined) return cached;
+    let ids: string[] | null = null;
+    try {
+      ids = extractHeadings(readFileSync(path.join(absoluteRoot, source), 'utf8')).map(
+        (heading) => heading.id,
+      );
+    } catch {
+      // A missing source is a manifest problem; do not add anchor noise.
+    }
+    headingCache.set(source, ids);
+    return ids;
+  };
+
+  for (const file of markdownFiles(absoluteRoot)) {
+    if (!served.has(file)) continue;
+    const absoluteFile = path.join(absoluteRoot, file);
+    let markdown: string;
+    try {
+      markdown = readFileSync(absoluteFile, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const link of extractDocLinks(markdown)) {
+      if (link.kind === 'image') continue;
+      const raw = link.target.trim();
+      if (raw === '') continue; // checkDocLinks owns the empty target.
+      const problem = (reason: string): DocLinkProblem => ({
+        file,
+        line: link.line,
+        target: raw,
+        reason,
+      });
+
+      const help = helpTarget(raw);
+      if (help !== null) {
+        const entry = entries.get(help.slug);
+        if (!entry) {
+          problems.push(problem(`Help has no page for slug "${help.slug}"`));
+          continue;
+        }
+        if (help.fragment !== null) {
+          const ids = headingIds(entry.source);
+          if (ids !== null && !ids.includes(help.fragment)) {
+            problems.push(
+              problem(`no heading with id "${help.fragment}" in Help page "${help.slug}"`),
+            );
+          }
+        }
+        continue;
+      }
+
+      const resolution = resolveLinkTarget(absoluteRoot, absoluteFile, raw);
+      if (resolution === null || 'error' in resolution) continue;
+      const relative = resolution.target.relative;
+      // Missing and escaping targets are checkDocLinks' findings.
+      if (!existsSync(resolution.target.absolute)) continue;
+      const slug = helpSlugFromHref(resolveDocHref(raw));
+      if (slug === null) continue;
+
+      const entry = entries.get(slug);
+      if (!entry) {
+        problems.push(problem(`Help has no page for "${relative}" (slug "${slug}")`));
+      } else if (entry.source !== relative) {
+        problems.push(problem(`Help slug "${slug}" serves "${entry.source}", not "${relative}"`));
+      }
+      // Fragments on direct Markdown links are checkDocLinks' job: it already
+      // matches them against the same extractHeadings ids.
+    }
+  }
+
   return problems.sort(
     (left, right) => left.file.localeCompare(right.file) || left.line - right.line,
   );

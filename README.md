@@ -594,6 +594,9 @@ backlog items.
 
 ## Docs
 
+The in-app Help pages are the subset listed in `src/server/src/docs/manifest.ts`; the
+internal-only notes below stay out of Help.
+
 - `docs/01-system-spec.md` the governing contract
 - `docs/02-status.md` built versus not built, route list, deviations
 - `docs/03-decisions.md` why this rebuild chose what it chose
@@ -642,7 +645,8 @@ src/server/src
   maintenance/legacy-branches.ts  safe sbox -> aps decisions shared by dispose, sweep, CLI
   maintenance/legacy-branch-sweeper.ts  startup/hourly cleanup for leftover terminal refs
   settings.ts         XDG scheduler settings, zod validation, atomic write
-  docs/service.ts     explicit Help manifest, Markdown reads, screenshot assets
+  docs/manifest.ts    explicit Help page list (slug, title, group, repo source)
+  docs/service.ts     manifest reads, Markdown reads, screenshot assets
   process/            six segment definitions (incl. Merge), defaults, store, follow-up parser
   master/events.ts    master event log (start, prod, advance, followup, cycle, skip)
   master/service.ts   one master bucket: segments, follow-ups, advancement, cell chat
@@ -701,7 +705,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1388 vitest cases: 1046 server cases across 57 files (state machine,
+`npm test` runs 1392 vitest cases: 1046 server cases across 57 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -717,10 +721,10 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 342 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 346 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
-resolution, request-form mapping, docs helpers and Help overlay, documentation links and
-Help anchors, the source link, board,
+resolution, request-form mapping, docs helpers and Help overlay, documentation links,
+Help anchors, and manifest-aware served-page links, the source link, board,
 create modal, composer, cell bar, cell creation, config/process and pricing editor,
 budget and alert-delivery cards including chat bot routing, delivery history, and
 spend-cap overrides, budget banner, master detail and scorecard, the usage page and
@@ -780,7 +784,11 @@ error, workflow error, or unit diagnostic. It runs `markdownlint-cli2` over ever
 finding fails it too. Link and anchor correctness is a test rather than a lint step:
 `npm test` (or `npm run check:docs` alone) resolves every local `*.md` link, image, and
 `#fragment` against the Help heading ids and fails on a broken one, without fetching
-external URLs. The unit gate runs `systemd-analyze verify`, treats a diagnostic
+external URLs. It also imports the Help manifest: a served page may link only a manifest
+page or a `?help=<slug>` target whose slug and anchor exist in
+`src/server/src/docs/manifest.ts`, and a manifest entry must have a unique lowercase
+slug, an existing Markdown source, and the slug the SPA derives from that source. The
+unit gate runs `systemd-analyze verify`, treats a diagnostic
 naming the unit as fatal because `systemd-analyze` exits 0 for unknown keys and invalid
 values, asserts the reviewed sandboxing directives, and fails when the offline
 `systemd-analyze security` exposure exceeds 5.5. The security review needs systemd 250 or

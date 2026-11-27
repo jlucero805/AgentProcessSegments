@@ -4,7 +4,7 @@ Rationale for choices made while rebuilding from `docs/01-system-spec.md`. Each 
 records the context, the choice, and what it costs. The original design's D1 to D41 are
 not reproduced; this file covers only decisions this rebuild made.
 
-## D1. better-sqlite3 v11 instead of the v9 pin
+## D1. better-sqlite3 v11 instead of the v9 pin (superseded by v13)
 
 **Context.** The spec pins v9 because v11 required Node 22 and a newer glibc on the
 original build machine. This machine runs Node 22.7.
@@ -14,6 +14,15 @@ and running a query.
 
 **Cost.** If the brain is later deployed onto an older Node, the pin has to come back.
 The data model and SQL are unchanged either way.
+
+**Superseded (v13).** v11 has no Node 24 prebuild and `prebuild-install` is deprecated, so
+every install on a current host downloaded nothing and compiled through `node-gyp`; on a
+Python 3.14 host that only works with node-gyp 11.5 or newer. v13 is the N-API line: it
+publishes prebuilds for the supported platforms inside the npm tarball and needs no
+install script. The cost is a Node 22 floor (`engines.node: ">=22"`, matching this repo's
+22.13 requirement), SQLite 3.54, and one wrinkle: `npm ci` still runs npm's implicit
+`node-gyp rebuild` for it because the lock-derived manifest lacks `gypfile: false`, so the
+Linux build toolchain stays a prerequisite and `npm run check:native` checks it.
 
 ## D2. Fastify 5 with its current plugin majors
 

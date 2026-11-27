@@ -6,10 +6,11 @@ audience gate; do not widen the bind.
 
 This runbook assumes a single-user VPS with:
 
-- Node 20 or newer on `PATH` (verified on Node 24).
+- Node 22.13 or newer on `PATH` (verified on Node 24; `better-sqlite3` v13 needs Node 22).
 - `git`.
-- Build tools (`make`, `g++`, `python3`) when `better-sqlite3` v11 has no prebuild for the
-  Node version; on Node 24 it compiles from source.
+- Build tools (`make`, `g++`, `python3`): `node-pty` has no Linux prebuild and compiles
+  during `npm ci`, and npm still runs an implicit gyp pass for `better-sqlite3`. Python
+  3.14 needs npm 11.7 or newer; `npm run check:native` reports both.
 - an agent CLI on the service `PATH`: `claude` (default) or `opencode`.
 - `herdr-core` installed if you use interactive terminals. The brain drives the agent CLI
   directly and does not import herdr.
@@ -133,7 +134,9 @@ tab kills it. Sessions are visible via `GET /api/terminals`, up to four at once.
 creation with `APS_TERMINAL=0` in the unit. The UI hides the action on phones, but the
 session API is a direct shell: keep the brain on loopback or behind an authenticated
 tunnel. The node-pty native module is built during `npm ci --include=dev`; this host
-already has `make`, `g++`, and `python3`.
+already has `make`, `g++`, and `python3`. Run `npm run check:native` after installing and
+before trusting a terminal session: it loads both native modules and names the missing
+piece.
 
 ## Install as a systemd user unit
 
@@ -790,8 +793,16 @@ agent CLI children per request; it does not attach to herdr panes.
 
 ## Troubleshooting
 
-- `better-sqlite3` install fails with `not found: make`: install the toolchain
-  (`sudo apt-get install -y make g++ python3`), then run `npm ci --include=dev` again.
+- Native install fails with `not found: make` or a gyp error: install the toolchain
+  (`sudo apt-get install -y make g++ python3`), then run
+  `npm rebuild node-pty --foreground-scripts` (the only package with a source build) or
+  `rm -rf node_modules && npm ci --include=dev` for a clean re-extract to see the build
+  output. On Python 3.14, gyp itself crashes unless npm is 11.7 or newer (bundled node-gyp
+  12): run `npm install -g npm@latest`. `npm run check:native` names the failing module.
+- A gyp `write` error usually means the disk is full: check `df -h`, then retry.
+- npm prints `install-scripts ... not yet covered by allowScripts` for `node-pty`/`esbuild`:
+  review them with `npm install-scripts ls` and approve (or deny) them; a denied native
+  build leaves the module without its binary, which `npm run check:native` catches.
 - `GET /api/models` returns `source: "fallback"`: the selected agent binary is not on the
   service `PATH`. Install `claude`/`opencode`, add its directory to
   `Environment=PATH=...`, and restart.

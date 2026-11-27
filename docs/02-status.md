@@ -573,9 +573,10 @@ built and vended by the brain; real-CLI verification is still pending.
 
 ## Deviations from the spec
 
-- `better-sqlite3` is v11, not the spec's v9 pin. The rebuild targeted Node 22.7, where
-  v9 has no prebuilt binary; this host runs Node 24, where v11 compiles from source and
-  needs `make`, `g++`, and `python3`.
+- `better-sqlite3` is v13, not the spec's v9 pin. v13 is N-API with prebuilds published in
+  the npm tarball (Node 22 or newer), so no ABI-specific download is needed. `node-pty`
+  1.1.0 still compiles on Linux, so installs need `make`, `g++`, and `python3`; Python 3.14
+  needs npm 11.7 or newer. `npm run check:native` reports both modules and the toolchain.
 - `@fastify/static` v10, `@fastify/websocket` v11, Fastify v5, zod v4. The spec named the
   plugins, not versions. Static v10 clears the path-traversal route-guard advisories;
   zod 4 clears the oversized-collection memory advisory and needed only the `ZodType`

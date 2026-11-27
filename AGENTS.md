@@ -125,7 +125,9 @@ npm test                       # 1097 server + 372 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, Help anchors, manifest pages
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
-                               # interrupt cleanup, and the GitHub scope preflight/grant
+                               # interrupt cleanup, the native-module preflight, and the
+                               # GitHub scope preflight/grant
+npm run check:native           # native modules load; Linux toolchain + npm/python floor
 npm run check:github-scope     # token scopes for pushes under .github/workflows/ (0 = safe)
 npm run grant:github-scope     # interactive: add the workflow scope to the host gh credential
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
@@ -318,9 +320,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   workspace `test`/`typecheck`/`build`/`dev`/`preview`, and `npm run lint:js`/`lint:md`
   run `scripts/check-dev-deps.mjs` first and print this hint when a project-local binary
   is missing.
-- **better-sqlite3 v11 is deliberate** (D1). The spec's v9 pin assumed an older Node.
-  On Node 24 there is no v11 prebuild here, so `npm install` compiles it and needs
-  `make`, `g++`, and `python3`. Provision those on a fresh box or CI image.
+- **Native modules need a Linux toolchain.** `better-sqlite3` is v13 (N-API with bundled
+  prebuilds, Node >= 22) and `node-pty` is 1.1.0, which ships no Linux prebuild and compiles
+  on every install. `npm ci` also runs npm's implicit `node-gyp` pass for `better-sqlite3`
+  even though it ships a prebuild, so `make`, `g++`, and `python3` are required on Linux.
+  Python 3.14 needs npm >= 11.7 (bundled node-gyp >= 12); upgrade with
+  `npm install -g npm@latest`. A full disk (`ENOSPC`) surfaces as a gyp `write` error, not
+  as a disk error. `npm run check:native` reports both halves.
 - **systemd user units need a user manager.** In a non-login shell set
   `XDG_RUNTIME_DIR=/run/user/<uid>` before `systemctl --user`. Linger starts the user
   manager at boot; the brain's unit is in `deploy/`.

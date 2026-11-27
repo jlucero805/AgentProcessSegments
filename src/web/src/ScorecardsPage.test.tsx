@@ -721,6 +721,106 @@ describe('ScorecardsPage', () => {
     expect(older?.get('beforeId')).toBe('s0');
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
+  it('reuses the preset lower bound when loading older pages', async () => {
+    const reports = [
+      makeReport('s1', 'c1', 'Report 1', 2_000_000),
+      makeReport('s0', 'c1', 'Report 0', 1_000_000),
+    ];
+    const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    try {
+      render(<ScorecardsPage cellId={null} onError={() => {}} />);
+      expect(await screen.findByText('Report 1', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+      const firstSince = latestRequests(urls)[0]?.get('since');
+      expect(firstSince).toBe(String(2_000_000 - 72 * 60 * 60_000));
+
+      clock.mockReturnValue(2_060_000);
+      fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+
+      const older = summaryRequests(urls)[0];
+      expect(older?.get('since')).toBe(firstSince);
+      expect(older?.get('cellId')).toBe('c1');
+      expect(older?.get('limit')).toBe('26');
+      expect(older?.get('before')).toBe('2000000');
+      expect(older?.get('beforeId')).toBe('s1');
+      expect(older?.has('until')).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('recomputes and reuses the bound after a period change', async () => {
+    const reports = Array.from({ length: 27 }, (_, index) =>
+      makeReport(`s${index}`, 'c1', `Report ${index}`, 100_000 - index),
+    );
+    const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    try {
+      render(<ScorecardsPage cellId="c1" onError={() => {}} />);
+      expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+      const firstSince = summaryRequests(urls)[0]?.get('since');
+      expect(firstSince).toBe(String(2_000_000 - 72 * 60 * 60_000));
+
+      clock.mockReturnValue(2_060_000);
+      fireEvent.click(screen.getByRole('button', { name: '7d' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+      const nextSince = summaryRequests(urls)[1]?.get('since');
+      expect(nextSince).toBe(String(2_060_000 - 7 * 24 * 60 * 60_000));
+      expect(nextSince).not.toBe(firstSince);
+
+      clock.mockReturnValue(2_120_000);
+      fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(3), { timeout: ASYNC_TIMEOUT_MS });
+
+      const older = summaryRequests(urls)[2];
+      expect(older?.get('since')).toBe(nextSince);
+      expect(older?.get('cellId')).toBe('c1');
+      expect(older?.get('limit')).toBe('26');
+      expect(older?.get('beforeId')).toBe('s24');
+    } finally {
+      clock.mockRestore();
+    }
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('recomputes and reuses the bound after Refresh', async () => {
+    const reports = [
+      makeReport('s1', 'c1', 'Report 1', 2_000_000),
+      makeReport('s0', 'c1', 'Report 0', 1_000_000),
+    ];
+    const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    try {
+      render(<ScorecardsPage cellId={null} onError={() => {}} />);
+      expect(await screen.findByText('Report 1', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+      const firstSince = latestRequests(urls)[0]?.get('since');
+      expect(firstSince).toBe(String(2_000_000 - 72 * 60 * 60_000));
+
+      clock.mockReturnValue(2_060_000);
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+      await waitFor(() => expect(latestRequests(urls)).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+      await waitFor(
+        () => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled(),
+        { timeout: ASYNC_TIMEOUT_MS },
+      );
+      const refreshedSince = latestRequests(urls)[1]?.get('since');
+      expect(refreshedSince).toBe(String(2_060_000 - 72 * 60 * 60_000));
+      expect(refreshedSince).not.toBe(firstSince);
+
+      clock.mockReturnValue(2_120_000);
+      fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+      await waitFor(() => expect(summaryRequests(urls)).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+
+      const older = summaryRequests(urls)[0];
+      expect(older?.get('since')).toBe(refreshedSince);
+      expect(older?.get('cellId')).toBe('c1');
+      expect(older?.get('limit')).toBe('26');
+      expect(older?.get('beforeId')).toBe('s1');
+    } finally {
+      clock.mockRestore();
+    }
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
   it('keeps custom filtering scoped to the selected cell', async () => {
     const urls = stubFetch([makeCell('c1', 'Alpha'), makeCell('c2', 'Beta')], {
       c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],

@@ -131,6 +131,7 @@ npm run grant:github-scope     # interactive: add the workflow scope to the host
 npm run e2e                    # build + isolated API workflow (mock agent, dedicated E2E cell)
 npm run test:web-stress        # manual: web suite 3x under 4 CPU hogs; fails on a failed
                                # iteration, a dead hog, or a missing result report
+npm run test:server-stress     # same contract for the server suite (`--suite server`)
 npm run build                  # vite into src/web/dist, then tsc into src/server/dist
 npm run dev                    # brain plus the Vite dev server (proxies /api and /ws)
 APS_HARNESS=opencode APS_DB=/tmp/agent-process-segments.sqlite node src/server/dist/app.js
@@ -174,9 +175,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   production builds of React`. `src/web/vite.config.ts` sets `test.env.NODE_ENV`, and
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
   `NODE_ENV=production npm test --workspace src/web`, which the published CI workflow
-  (`.github/workflows/ci.yml`) runs as its own step. The manual stress runner
-  (`npm run test:web-stress`) pins `NODE_ENV=test` through `buildPinnedEnv` for the same
-  reason, independent of the config pin.
+  (`.github/workflows/ci.yml`) runs as its own step. The manual stress runners
+  (`npm run test:web-stress`, `npm run test:server-stress`) pin `NODE_ENV=test` through
+  `buildPinnedEnv` for the same reason, independent of the config pin.
 - **The web suite runs in `pool: 'vmThreads'`.** It creates one jsdom environment per
   worker instead of one per test file (28 files), which roughly halves wall time while
   keeping per-file isolation. A VM context has no `ReadableStream`/`TransformStream`, so
@@ -764,15 +765,17 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     report instead. The check lives in `scripts/check-github-scope.mjs` (tests in
     `scripts/check-github-scope.test.mjs`); the grant helper lives in
     `scripts/grant-github-scope.mjs` (tests in `scripts/grant-github-scope.test.mjs`).
-48. **The web stress run is fail-closed and leaves no hog behind.** `npm run
-    test:web-stress` (`scripts/web-stress.mjs`) runs the full web suite `--runs` times
-    (default 3) while `--hogs` busy-loop processes (default 4) compete. An iteration
-    fails on a non-zero suite exit, a missing, empty, unparsable, or zero-test Vitest
-    JSON report, or the per-iteration `--timeout` (default 600 s); the run also fails
-    when a hog exits early. Do not turn any of those into a warning or a pass. Hogs are
-    stopped on every exit path and each hog exits by itself when the runner dies, so a
-    killed run cannot leave a core burning; keep both layers. It is manual only: do not
-    add it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
+48. **The suite stress run is fail-closed and leaves no hog behind.** `npm run
+    test:web-stress` and `npm run test:server-stress` (`scripts/web-stress.mjs`,
+    `--suite web|server`) run the full web or server suite `--runs` times (default 3)
+    while `--hogs` busy-loop processes (default 4) compete. An iteration fails on a non-zero
+    suite exit, a missing, empty, unparsable, or zero-test Vitest JSON report, or the
+    per-iteration `--timeout` (default 600 s); the run also fails when a hog exits
+    early. Do not turn any of those into a warning or a pass. Hogs are stopped on every
+    exit path and each hog exits by itself when the runner dies, so a killed run cannot
+    leave a core burning; keep both layers. The `aps-web-stress-hog` and
+    `aps-server-stress-hog` markers keep a leak findable. It is manual only: do not add
+    it to `npm test` or CI, and keep its `node:test` guard in `test:e2e-env`.
 49. **The three maintenance permission repairs share one engine.** `PermissionRepair` in
     `src/server/src/maintenance/permission-repair.ts` owns `PRIVATE_DIR_MODE`/
     `PRIVATE_FILE_MODE`, `formatMode`, the `lstat`/`stat` and kind checks, the

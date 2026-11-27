@@ -9,9 +9,9 @@ import { spawn as nodeSpawn } from 'node:child_process';
 export const HOG_MARKER = 'aps-web-stress-hog';
 
 /** Busy-loop source for one hog. */
-export function hogSource() {
+export function hogSource(marker = HOG_MARKER) {
   return `
-// ${HOG_MARKER}
+// ${marker}
 const parent = process.ppid;
 let tick = 0;
 for (;;) {
@@ -31,11 +31,16 @@ function sleep(ms) {
  * Start `count` hogs. `spawn`/`execPath` are injectable so tests can use fake
  * children and never burn a real core.
  */
-export function startHogs({ count, spawn = nodeSpawn, execPath = process.execPath } = {}) {
+export function startHogs({
+  count,
+  marker = HOG_MARKER,
+  spawn = nodeSpawn,
+  execPath = process.execPath,
+} = {}) {
   const children = [];
   const errors = new Map();
   for (let index = 0; index < count; index += 1) {
-    const child = spawn(execPath, ['-e', hogSource()], {
+    const child = spawn(execPath, ['-e', hogSource(marker)], {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     child.on?.('error', (error) => errors.set(child, error));

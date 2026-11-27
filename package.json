@@ -23,6 +23,7 @@
     "pretest": "node scripts/check-dev-deps.mjs test",
     "test": "npm test --workspace src/server && npm test --workspace src/web && npm run test:e2e-env",
     "test:web-stress": "node scripts/web-stress.mjs",
+    "test:server-stress": "node scripts/web-stress.mjs --suite server",
     "check:docs": "npm test --workspace src/web -- doc-links",
     "check:github-scope": "node scripts/check-github-scope.mjs",
     "grant:github-scope": "node scripts/grant-github-scope.mjs",

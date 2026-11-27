@@ -760,19 +760,22 @@ environments they hand to their children, the missing-Puppeteer policy, the inte
 cleanup coordinator, and the GitHub credential-scope preflight; it is not counted in the
 vitest totals.
 
-`npm run test:web-stress` is the manual parallel-load proof for the web suite. It runs
-three full iterations sequentially while four busy-loop CPU processes compete
-(`--runs`, `--hogs`), and fails on a failed iteration, a hog that exits early, a
-per-iteration `--timeout`, or a missing Vitest JSON report (Vitest's `verbose` and `json`
-reporters both run; the report goes to an absolute path because npm runs the workspace
-script from `src/web`). `--hogs 0` gives a quiet baseline, `--only` narrows the suite
-while iterating, `--fail-fast` stops after the first failure, and `--keep-logs` keeps the
-per-run `results.json`/`output.log`. The default log directory is a fresh
-`aps-web-stress-*` under `TMPDIR`, so `TMPDIR=/var/tmp npm run test:web-stress` works
-when `/tmp` is small; an explicit `--log-dir` is never deleted (an all-pass run removes
-only its own `run-*` children). The runner exits 0 only when every iteration passed and
-every hog stayed alive (1 on a failed run, 2 on a usage error, 130/143 on interrupt),
-reaps its hogs on every path including `SIGKILL`, and is not part of `npm test` or CI.
+`npm run test:web-stress` and `npm run test:server-stress` are the manual parallel-load
+proofs for the web and server suites. They share one runner
+(`scripts/web-stress.mjs --suite web|server`): three full iterations sequentially while
+four busy-loop CPU processes compete (`--runs`, `--hogs`), failing on a failed
+iteration, a hog that exits early, a per-iteration `--timeout`, or a missing Vitest JSON
+report (Vitest's `verbose` and `json` reporters both run; the report goes to an absolute
+path because npm runs the workspace script from its own directory). `--hogs 0` gives a
+quiet baseline, `--only` narrows the suite while iterating, `--fail-fast` stops after
+the first failure, and `--keep-logs` keeps the per-run `results.json`/`output.log`. The
+default log directory is a fresh `aps-web-stress-*` or `aps-server-stress-*` under
+`TMPDIR`, so `TMPDIR=/var/tmp npm run test:web-stress` works when `/tmp` is small; an
+explicit `--log-dir` is never deleted (an all-pass run removes only its own `run-*`
+children). The runner exits 0 only when every iteration passed and every hog stayed
+alive (1 on a failed run, 2 on a usage error, 130/143 on interrupt), reaps its hogs on
+every path including `SIGKILL`, and is not part of `npm test` or CI. The server suite
+normally reports one root-only case as skipped; zero failures is the pass condition.
 
 Server test fixtures live under one `sbox-tests-*` root per test file in the OS temp
 directory and that root is removed when the file finishes, including after a failing

@@ -3039,3 +3039,28 @@ file. A future repair must use the shared scanner; the guard fails if it imports
 `chmodSync` directly. Changing either root rule is a separate decision (the symlinked
 `requests/` root is filed separately). The shell `chmod` in
 `deploy/upgrade-vps.sh`/`cutover-vps.sh` is unchanged and cannot share this code.
+
+## D122. The stress harness covers the server suite too
+
+**Context.** `npm run test:web-stress` (D112) proves the web suite under four CPU hogs,
+but the server suite carries the explicit 30 s budgets for the cutover/upgrade cases and
+the process-heavy `deploy/*.sh` fixtures. Re-verifying those under load meant editing the
+web-only workspace constant or reconstructing a shell recipe, and a copy of the runner
+would let the two stress paths drift on the fail-closed rules.
+
+**Decision.** `scripts/web-stress.mjs` gains `--suite web|server` (default web) and
+`npm run test:server-stress` passes `--suite server`. A pure
+`scripts/web-stress/suites.mjs` holds the workspace, label, log prefix, and hog marker
+for each suite; `suiteArgs` builds the common `npm test --workspace <suite> --
+--reporter=verbose --reporter=json --outputFile.json=<abs>` argv. Both suites use the
+same 3 runs x 4 hogs x 600 s defaults, the same
+`buildPinnedEnv(process.env, { NODE_ENV: 'test' })`, sequential iterations, and the same
+fail-closed report and exit-code rules. Server output is `server-stress:`, the default
+log dir is `aps-server-stress-*`, and the hog marker is `aps-server-stress-hog`; web
+values are unchanged. There is no `all` mode: `npm test` already composes the suites, and
+one stress command per suite keeps the logs and labels clear.
+
+**Cost.** One more registry module, one CLI flag, one npm script, and guard cases; no
+Vitest case or file changes, so the guarded totals stay unchanged. It is manual only:
+not in `npm test`, not in either CI workflow. The known `SIGKILL` suite-group gap stays
+owned by its own follow-up; this change does not alter the process-group spawn path.

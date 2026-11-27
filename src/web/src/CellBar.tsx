@@ -8,6 +8,8 @@ interface CellBarProps {
   onChange: (id: string | null) => void;
   onCreate: () => void;
   onEdit: (cell: Cell) => void;
+  /** Drop a deleted cell from the shared list before its refresh lands. */
+  onDeleted: (id: string) => void;
   reload: () => void;
   onError: (message: string) => void;
 }
@@ -19,6 +21,7 @@ export function CellBar({
   onChange,
   onCreate,
   onEdit,
+  onDeleted,
   reload,
   onError,
 }: CellBarProps) {
@@ -26,6 +29,7 @@ export function CellBar({
     try {
       await api.deleteCell(id);
       if (value === id) onChange(null);
+      onDeleted(id);
       reload();
     } catch (error) {
       onError(describeError(error));

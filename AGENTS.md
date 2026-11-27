@@ -42,7 +42,7 @@ digests.
 ## State at handoff
 
 - `main` is deployed to the remote; every unit below was committed as it passed.
-- 1352 vitest cases: 1027 server across 56 files (one environmental root-skip) and 325 web across 28 files, all green.
+- 1361 vitest cases: 1036 server across 57 files (one environmental root-skip) and 325 web across 28 files, all green.
 - Four proof scripts: `scripts/smoke.sh` (built brain over a socket),
   `scripts/mcp-smoke.mjs` (built brain plus built MCP server over real stdio),
   `scripts/claude-mock-smoke.mjs` (real Claude binary against a mock Anthropic API), and
@@ -117,7 +117,7 @@ npm ci --include=dev           # keeps devDependencies under an inherited NODE_E
 # hint instead of a raw "not found".
 npm run typecheck              # server src + tests + vitest config, then web app + config; must print nothing
 npm run lint                   # eslint + shell + actionlint + systemd unit (sandbox) + markdownlint, zero warnings
-npm test                       # 1027 server + 325 web, plus the e2e env guard
+npm test                       # 1036 server + 325 web, plus the e2e env guard
 npm run check:docs             # local Markdown links, images, and Help #anchors
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy, and
@@ -695,6 +695,14 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     and assigns ids only to those headings. External schemes and bare `?query` targets are
     never fetched. Run it alone with `npm run check:docs`; it is part of `npm test`, not
     `npm run lint`.
+47. **Server tests never synchronize on wall-clock sleeps.** A test under
+    `src/server/test` waits on an observable condition, `vi.waitFor`, fake timers
+    (`vi.advanceTimersByTime(Async)`), or a `setImmediate` drain (`settle`/
+    `settleMaster`), never a fixed `setTimeout` or `node:timers/promises` delay. The only
+    exception is a bounded fail-fast guard that rejects or throws when a child never
+    reaches the expected state, and every such call must be listed with a reason in
+    `test/no-fixed-sleeps.test.ts`. Do not weaken the guard without updating this
+    invariant.
 
 ## Extension recipes
 

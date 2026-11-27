@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type { ErrorSink } from '../logging/errors.js';
@@ -8,6 +9,11 @@ import { normalizeProcess, processPatchSchema, processSchema } from './defaults.
 
 /** Preserved copies kept per process file; older ones are pruned after a save. */
 const MAX_PRESERVED_COPIES = 5;
+
+/** Stable identity for an unusable file's bytes; used only for comparison. */
+function bytesIdentity(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
 
 /** Order preserved names by the embedded UTC stamp, then the numeric suffix. */
 function preservedCopyOrder(name: string, prefix: string): [string, number] {
@@ -27,6 +33,8 @@ export class ProcessStore {
   private preserveSource = false;
   /** Copy made by the last save of an unusable file, kept for the UI. */
   private preservedFilePath: string | null = null;
+  /** Signature of the last unusable-file report, so repeats stay quiet. */
+  private lastUnusable: string | null = null;
 
   constructor(
     readonly path: string,
@@ -76,11 +84,17 @@ export class ProcessStore {
     try {
       raw = readFileSync(this.path, 'utf8');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        this.preserveSource = true;
-        this.errors?.error('process.unreadable', error, { path: this.path });
-        console.warn(`ignoring unreadable process config at ${this.path}: ${String(error)}`);
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        this.lastUnusable = null;
+        return null;
       }
+      this.preserveSource = true;
+      const detail = String(error);
+      this.reportUnusable(`read\0${code ?? ''}\0${detail}`, () => {
+        this.errors?.error('process.unreadable', error, { path: this.path });
+        console.warn(`ignoring unreadable process config at ${this.path}: ${detail}`);
+      });
       return null;
     }
 
@@ -88,25 +102,41 @@ export class ProcessStore {
       const result = processSchema.safeParse(normalizeProcess(JSON.parse(raw)));
       if (!result.success) {
         this.preserveSource = true;
-        this.errors?.error('process.invalid', new Error(result.error.message), {
-          path: this.path,
+        const message = result.error.message;
+        this.reportUnusable(`schema\0${message}\0${bytesIdentity(raw)}`, () => {
+          this.errors?.error('process.invalid', new Error(message), {
+            path: this.path,
+          });
+          console.warn(`ignoring invalid process config at ${this.path}: ${message}`);
         });
-        console.warn(`ignoring invalid process config at ${this.path}: ${result.error.message}`);
         return null;
       }
+      this.lastUnusable = null;
       return result.data;
     } catch (error) {
       this.preserveSource = true;
       // V8 can quote the input in a parse error, and process.json holds
       // operator-authored prompts, so report the position only.
       const reason = jsonParseReason(error);
-      this.errors?.error('process.unreadable', new Error(reason), {
-        path: this.path,
-        reason: 'invalid-json',
+      this.reportUnusable(`invalid-json\0${reason}\0${bytesIdentity(raw)}`, () => {
+        this.errors?.error('process.unreadable', new Error(reason), {
+          path: this.path,
+          reason: 'invalid-json',
+        });
+        console.warn(`ignoring unreadable process config at ${this.path}: ${reason}`);
       });
-      console.warn(`ignoring unreadable process config at ${this.path}: ${reason}`);
       return null;
     }
+  }
+
+  /**
+   * Report an unusable file once per distinct state. Every load still reads and
+   * evaluates the file, so a correction is picked up; only the report repeats.
+   */
+  private reportUnusable(signature: string, report: () => void): void {
+    if (this.lastUnusable === signature) return;
+    this.lastUnusable = signature;
+    report();
   }
 
   /**

@@ -259,6 +259,36 @@ describe('ScorecardsPage', () => {
     }
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
+  it('reuses the first preset bound when loading older grouped pages', async () => {
+    const reports = Array.from({ length: 27 }, (_, index) =>
+      makeReport(`s${index}`, 'c1', `Report ${index}`, 100_000 - index),
+    );
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+    const urls = stubFetch([makeCell('c1', 'Alpha')], { c1: reports });
+
+    render(<ScorecardsPage onSelectCell={() => {}} cellId="c1" onError={() => {}} />);
+    expect(await screen.findByText('Report 0', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+
+    const first = summaryRequests(urls)[0];
+    const firstSince = first?.get('since');
+    expect(firstSince).not.toBeNull();
+    expect(first?.has('until')).toBe(false);
+
+    // Advancing the clock must not move the bound: "Load older" keeps paging
+    // inside the window the visible page was loaded with.
+    clock.mockReturnValue(2_000_000 + 24 * 60 * 60_000);
+    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
+
+    await waitFor(() => expect(summaryRequests(urls)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    const older = summaryRequests(urls)[1];
+    expect(older?.get('since')).toBe(firstSince);
+    expect(older?.has('until')).toBe(false);
+    expect(older?.get('before')).toBe('99976');
+    expect(older?.get('beforeId')).toBe('s24');
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
   it('keeps each card loading independently while older pages are in flight', async () => {
     const alpha = Array.from({ length: 26 }, (_, index) =>
       makeReport(`a${index}`, 'c1', `Alpha report ${index}`, 1_000 - index),

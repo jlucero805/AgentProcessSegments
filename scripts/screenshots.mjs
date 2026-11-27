@@ -40,8 +40,15 @@ const webIndex = path.join(root, 'src', 'web', 'dist', 'index.html');
 const shotsDir = path.join(root, 'docs', 'screenshots');
 const boardShot = path.join(shotsDir, 'board.png');
 const masterShot = path.join(shotsDir, 'master.png');
+const helpShot = path.join(shotsDir, 'help-getting-started.png');
 const DEADLINE_MS = 5 * 60_000;
 const MASTER_INTERVAL_MINUTES = 15;
+const HELP_VIEWPORT_WIDTH = 1440;
+const HELP_MAX_HEIGHT = 3200;
+const HELP_BOTTOM_MARGIN = 12;
+const HELP_DIALOG = '[role="dialog"][aria-label="Documentation"]';
+const HELP_MERMAID = `${HELP_DIALOG} article svg[id^="help-mermaid-"]`;
+const HELP_FENCE_MARKERS = ['flowchart TB', 'sequenceDiagram', 'flowchart LR'];
 
 // The guard runs before the build check so --allow-missing-puppeteer also works
 // on an unbuilt tree; a deliberate skip wins over "run npm run build first".
@@ -50,6 +57,7 @@ const guard = await resolvePuppeteer({
   outputs: [
     { label: 'docs/screenshots/board.png', file: boardShot },
     { label: 'docs/screenshots/master.png', file: masterShot },
+    { label: 'docs/screenshots/help-getting-started.png', file: helpShot },
   ],
 });
 if (!guard.ok) {
@@ -95,6 +103,7 @@ const masterConfig = {
 
 let server = null;
 let browser = null;
+let helpCaptureHeight = 0;
 const serverLogs = [];
 const CLEANUP_TIMEOUT_MS = 3000;
 let cleanupFailed = false;
@@ -519,6 +528,124 @@ async function clickText(page, text) {
   if (!found) throw new Error(`button not found: ${text}`);
 }
 
+async function helpDiagramState(page) {
+  return page.evaluate(
+    ({ dialogSelector, mermaidSelector, markers }) => {
+      const dialog = document.querySelector(dialogSelector);
+      const article = dialog?.querySelector('article');
+      if (!article) return { found: false, svgs: 0, spinner: false, fences: [], text: '' };
+
+      const text = article.innerText;
+      const svgs = [...document.querySelectorAll(mermaidSelector)];
+      return {
+        found: true,
+        svgs: svgs.length,
+        spinner: text.includes('Rendering diagram…'),
+        fences: markers.filter((marker) => text.includes(marker)),
+        text: text.slice(0, 300),
+        rects: svgs.map((svg) => {
+          // The wrapper carries the diagram's padding; measure it so the
+          // capture includes the full bordered card.
+          const rect = (svg.parentElement ?? svg).getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+        }),
+      };
+    },
+    { dialogSelector: HELP_DIALOG, mermaidSelector: HELP_MERMAID, markers: HELP_FENCE_MARKERS },
+  );
+}
+
+function describeHelpState(state) {
+  if (!state?.found) return 'the Help article is missing';
+  const details = [`${state.svgs} Mermaid SVG(s)`];
+  if (state.spinner) details.push('a diagram is still loading');
+  if (state.fences.length > 0) details.push(`source fallback markers: ${state.fences.join(', ')}`);
+  return `${details.join('; ')}; article text: ${state.text}`;
+}
+
+async function waitForHelpDiagrams(page) {
+  try {
+    await waitFor(
+      async () => {
+        const state = await helpDiagramState(page);
+        return state.found && state.svgs === 3 && !state.spinner;
+      },
+      'the three Getting started Mermaid diagrams',
+      30_000,
+    );
+  } catch (error) {
+    const state = await helpDiagramState(page).catch(() => null);
+    throw new Error(
+      `Help Getting started did not render three Mermaid diagrams ` +
+        `(${describeHelpState(state)}): ${error.message}`,
+      { cause: error },
+    );
+  }
+
+  const state = await helpDiagramState(page);
+  assert.equal(
+    state.svgs,
+    3,
+    `expected 3 Getting started Mermaid diagrams (${describeHelpState(state)})`,
+  );
+  assert(!state.spinner, `a Getting started diagram is still loading (${describeHelpState(state)})`);
+  return state;
+}
+
+function assertHelpDiagramsInView(state, height) {
+  for (const [index, rect] of state.rects.entries()) {
+    assert(
+      rect.left >= 0 && rect.right <= HELP_VIEWPORT_WIDTH,
+      `Help diagram ${index + 1} is outside the ${HELP_VIEWPORT_WIDTH}px capture width`,
+    );
+    assert(
+      rect.top >= 0 && rect.bottom <= height,
+      `Help diagram ${index + 1} bottom ${Math.ceil(rect.bottom)}px exceeds the ${height}px capture height`,
+    );
+  }
+}
+
+async function fitHelpViewport(page) {
+  let height = page.viewport()?.height ?? 950;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.evaluate((selector) => {
+      const scroll = document.querySelector(`${selector} main`);
+      if (scroll) scroll.scrollTop = 0;
+    }, HELP_DIALOG);
+
+    const state = await helpDiagramState(page);
+    assert.equal(
+      state.svgs,
+      3,
+      `expected 3 Getting started Mermaid diagrams (${describeHelpState(state)})`,
+    );
+
+    const needed = Math.ceil(
+      Math.max(...state.rects.map((rect) => rect.bottom)) + HELP_BOTTOM_MARGIN,
+    );
+    if (needed > HELP_MAX_HEIGHT) {
+      throw new Error(
+        `Help diagrams need ${needed}px of capture height; the limit is ${HELP_MAX_HEIGHT}px. ` +
+          'Reduce the Getting started content or raise HELP_MAX_HEIGHT deliberately.',
+      );
+    }
+    if (needed <= height) {
+      assertHelpDiagramsInView(state, height);
+      return height;
+    }
+
+    height = needed;
+    await page.setViewport({
+      width: HELP_VIEWPORT_WIDTH,
+      height,
+      deviceScaleFactor: 2,
+    });
+  }
+
+  throw new Error(`Help diagrams did not fit within ${HELP_MAX_HEIGHT}px after resizing`);
+}
+
 function pngSize(file) {
   const bytes = readFileSync(file);
   assert(bytes.length > 24, `${file} is not a PNG`);
@@ -643,6 +770,25 @@ async function capture() {
   await new Promise((resolve) => setTimeout(resolve, 750));
   await page.screenshot({ path: masterShot, captureBeyondViewport: false });
 
+  await clickText(page, 'Help');
+  await page.waitForSelector(HELP_DIALOG, { visible: true, timeout: 10_000 });
+  await waitFor(
+    () =>
+      page.evaluate(
+        (selector) =>
+          document.querySelector(`${selector} article`)?.innerText.includes('Agent Process Segments') ??
+          false,
+        HELP_DIALOG,
+      ),
+    'the Getting started Help article',
+  );
+  await waitForHelpDiagrams(page);
+  helpCaptureHeight = await fitHelpViewport(page);
+
+  // Let the resized Help layout paint before capturing.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await page.screenshot({ path: helpShot, captureBeyondViewport: false });
+
   if (pageErrors.length > 0) throw new Error(`browser errors:\n${pageErrors.join('\n')}`);
 }
 
@@ -658,8 +804,10 @@ try {
   await Promise.race([capture(), deadline]);
   assert.deepEqual(pngSize(boardShot), { width: 2880, height: 1900 });
   assert.deepEqual(pngSize(masterShot), { width: 2880, height: 1900 });
+  assert.deepEqual(pngSize(helpShot), { width: 2880, height: helpCaptureHeight * 2 });
   console.log(`wrote ${path.relative(root, boardShot)}`);
   console.log(`wrote ${path.relative(root, masterShot)}`);
+  console.log(`wrote ${path.relative(root, helpShot)}`);
 } catch (error) {
   console.error('screenshot capture failed:', error.message);
   if (serverLogs.length > 0) {

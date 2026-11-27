@@ -16,9 +16,14 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const outputs = [
   { label: 'docs/screenshots/board.png', file: '/repo/docs/screenshots/board.png' },
   { label: 'docs/screenshots/master.png', file: '/repo/docs/screenshots/master.png' },
+  {
+    label: 'docs/screenshots/help-getting-started.png',
+    file: '/repo/docs/screenshots/help-getting-started.png',
+  },
 ];
 const BOARD_MTIME = Date.parse('2026-11-23T00:11:00.000Z');
 const MASTER_MTIME = Date.parse('2026-11-24T09:30:00.000Z');
+const HELP_MTIME = Date.parse('2026-11-27T03:45:00.000Z');
 
 function statWith(times) {
   return (file) => {
@@ -31,6 +36,7 @@ function statWith(times) {
 const knownOutputs = {
   '/repo/docs/screenshots/board.png': BOARD_MTIME,
   '/repo/docs/screenshots/master.png': MASTER_MTIME,
+  '/repo/docs/screenshots/help-getting-started.png': HELP_MTIME,
 };
 
 function moduleNotFound(target, importer = '/repo/scripts/screenshots.mjs') {
@@ -95,6 +101,7 @@ test('a missing puppeteer fails with install commands and the unrefreshed files'
   assert.match(text, /NOT refreshed/);
   assert.match(text, /docs\/screenshots\/board\.png/);
   assert.match(text, /docs\/screenshots\/master\.png/);
+  assert.match(text, /docs\/screenshots\/help-getting-started\.png/);
   assert.match(text, /npm install --no-save puppeteer/);
   assert.match(text, /npx puppeteer browsers install chrome/);
   assert.match(text, new RegExp(ALLOW_MISSING_PUPPETEER));
@@ -116,6 +123,10 @@ test('--allow-missing-puppeteer exits 0 with the current image timestamps', asyn
   assert.match(text, /nothing was captured/);
   assert.match(text, /docs\/screenshots\/board\.png: unchanged since 2026-11-23T00:11:00\.000Z/);
   assert.match(text, /docs\/screenshots\/master\.png: unchanged since 2026-11-24T09:30:00\.000Z/);
+  assert.match(
+    text,
+    /docs\/screenshots\/help-getting-started\.png: unchanged since 2026-11-27T03:45:00\.000Z/,
+  );
 });
 
 test('a missing image renders as not present instead of a timestamp', () => {
@@ -129,6 +140,7 @@ test('a missing image renders as not present instead of a timestamp', () => {
   const text = result.lines.join('\n');
   assert.match(text, /board\.png: unchanged since/);
   assert.match(text, /master\.png: not present/);
+  assert.match(text, /help-getting-started\.png: not present/);
 });
 
 test('a broken puppeteer install is not reported as missing', async () => {

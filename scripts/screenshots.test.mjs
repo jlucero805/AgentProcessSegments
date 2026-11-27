@@ -16,6 +16,7 @@ const script = path.join(repoRoot, 'scripts', 'screenshots.mjs');
 const images = [
   'docs/screenshots/board.png',
   'docs/screenshots/master.png',
+  'docs/screenshots/help-getting-started.png',
 ].map((label) => ({ label, file: path.join(repoRoot, label) }));
 
 function snapshotImages() {

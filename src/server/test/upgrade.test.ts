@@ -1023,6 +1023,23 @@ describe('deploy/upgrade-vps.sh', () => {
   );
 
   it.skipIf(process.platform === 'win32')(
+    'does not warn when the cutover root is not a directory',
+    () => {
+      const fixture = createFixture();
+      const cutoverRoot = path.join(fixture.home, '.aps-cutover');
+      writeFileSync(cutoverRoot, 'not a directory\n');
+
+      const result = runScript(fixture, ['--dry-run', '--no-prune'], 30_000);
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(0);
+      expect(readFileSync(cutoverRoot, 'utf8')).toBe('not a directory\n');
+      expect(output).not.toContain(`WARNING: ${cutoverRoot}`);
+    },
+    30_000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
     'creates a missing cutover root owner-only when the run directory is outside it',
     () => {
       const fixture = createFixture();

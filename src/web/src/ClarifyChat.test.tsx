@@ -5,6 +5,14 @@ import { enqueueBack, inflightKey } from './queue';
 import { jsonResponse, ndjsonResponse } from './test/fixtures';
 import { installFakeLocks, uninstallFakeLocks } from './test/fakeLocks';
 
+// These cases drive an NDJSON stream, a 1 s elapsed ticker, a 4 s stop fallback,
+// and cross-tab queue locks. A scheduling stall can exceed Testing Library's 1 s
+// query default or Vitest's 5 s case default under a parallel full-suite run, so
+// give every query and case an explicit bounded budget. Widen waits only.
+const ASYNC_TIMEOUT_MS = 10_000;
+const CLARIFY_CHAT_TEST_TIMEOUT_MS = 30_000;
+const WORKING_BANNER = /Agent is working…/;
+
 const encoder = new TextEncoder();
 
 function seedClaim(requestId: string, text: string, claimedAt: number, id = 'claim-1'): void {
@@ -58,7 +66,7 @@ describe('ClarifyChat live turns', () => {
 
     render(<ClarifyChat requestId="req-1" started commands={[]} onError={() => {}} />);
 
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     const composer = screen.getByPlaceholderText('Queue a message…');
     expect(composer).not.toBeDisabled();
 
@@ -69,12 +77,13 @@ describe('ClarifyChat live turns', () => {
       live.controller.close();
     });
 
-    expect(await screen.findByText('streamed live')).toBeInTheDocument();
+    expect(await screen.findByText('streamed live', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
-    expect(screen.queryByText('Agent is working…')).not.toBeInTheDocument();
-  });
+    expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('queues a message while running and sends it when the turn ends', async () => {
     const live = controllableStream();
@@ -104,13 +113,13 @@ describe('ClarifyChat live turns', () => {
     );
 
     render(<ClarifyChat requestId="req-queue" started commands={[]} onError={() => {}} />);
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     const composer = screen.getByPlaceholderText('Queue a message…');
     fireEvent.change(composer, { target: { value: 'queued next' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
 
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sendBodies).toHaveLength(0);
 
     await act(async () => {
@@ -118,11 +127,11 @@ describe('ClarifyChat live turns', () => {
       live.controller.close();
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toMatchObject({ text: 'queued next' });
-    expect(await screen.findByText('second reply')).toBeInTheDocument();
+    expect(await screen.findByText('second reply', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('stops the live turn, clears queued messages, and allows an interjection', async () => {
     const live = controllableStream();
@@ -154,19 +163,20 @@ describe('ClarifyChat live turns', () => {
     );
 
     render(<ClarifyChat requestId="req-stop" started commands={[]} onError={() => {}} />);
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     seedClaim('req-stop', 'in flight', Date.now());
 
     const composer = screen.getByPlaceholderText('Queue a message…');
     fireEvent.change(composer, { target: { value: 'do not send' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-    await waitFor(() => expect(stopped).toHaveLength(1));
-    await waitFor(() => expect(screen.queryByText('do not send')).not.toBeInTheDocument());
+    await waitFor(() => expect(stopped).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(screen.queryByText('do not send')).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-stop'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
 
     await act(async () => {
@@ -174,10 +184,10 @@ describe('ClarifyChat live turns', () => {
       live.controller.close();
     });
 
-    expect(await screen.findByText('Stopped. You can interject.')).toBeInTheDocument();
+    expect(await screen.findByText('Stopped. You can interject.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled();
     expect(sendBodies).toHaveLength(0);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('clears queued messages when a hard cap stops the turn', async () => {
     const live = controllableStream();
@@ -204,13 +214,13 @@ describe('ClarifyChat live turns', () => {
     );
 
     render(<ClarifyChat requestId="req-paused" started commands={[]} onError={() => {}} />);
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     seedClaim('req-paused', 'in flight', Date.now());
 
     const composer = screen.getByPlaceholderText('Queue a message…');
     fireEvent.change(composer, { target: { value: 'queued behind the cap' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     const pause = {
       scope: 'overall',
@@ -231,15 +241,16 @@ describe('ClarifyChat live turns', () => {
       live.controller.close();
     });
 
-    expect(await screen.findByText('⏸ stopped by the cap')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText('1 queued')).not.toBeInTheDocument());
+    expect(await screen.findByText('⏸ stopped by the cap', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('1 queued')).not.toBeInTheDocument(), { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-paused'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(sendBodies).toHaveLength(0);
     expect(screen.getAllByText(/⏸/)).toHaveLength(1);
     expect(screen.getByPlaceholderText('Ask a question...')).not.toBeDisabled();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('aborts the live stream when the chat unmounts', async () => {
     let signal: AbortSignal | undefined;
@@ -265,12 +276,12 @@ describe('ClarifyChat live turns', () => {
     const { unmount } = render(
       <ClarifyChat requestId="req-abort" started commands={[]} onError={() => {}} />,
     );
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
-    await waitFor(() => expect(signal).toBeDefined());
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    await waitFor(() => expect(signal).toBeDefined(), { timeout: ASYNC_TIMEOUT_MS });
 
     unmount();
     expect(signal?.aborted).toBe(true);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('retries a failed send without duplicating the user message', async () => {
     const sends: string[] = [];
@@ -301,18 +312,18 @@ describe('ClarifyChat live turns', () => {
     render(
       <ClarifyChat requestId="req-retry" started commands={[]} onError={() => {}} inlineErrors />,
     );
-    const composer = await screen.findByPlaceholderText('Ask a question...');
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(composer, { target: { value: 'retry me' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
 
-    expect(await screen.findByText('send failed')).toBeInTheDocument();
+    expect(await screen.findByText('send failed', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sends).toEqual(['retry me']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByText('retried reply')).toBeInTheDocument();
+    expect(await screen.findByText('retried reply', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sends).toEqual(['retry me', 'retry me']);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('notifies the wizard after a successful draft update tool result', async () => {
     const changed = vi.fn();
@@ -343,13 +354,13 @@ describe('ClarifyChat live turns', () => {
         onDraftChanged={changed}
       />,
     );
-    const composer = await screen.findByPlaceholderText('Ask a question...');
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(composer, { target: { value: 'enable review' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
 
-    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('updated')).toBeInTheDocument();
-  });
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('updated', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('still notifies the wizard for a legacy harness draft-update tool result', async () => {
     const changed = vi.fn();
@@ -380,13 +391,13 @@ describe('ClarifyChat live turns', () => {
         onDraftChanged={changed}
       />,
     );
-    const composer = await screen.findByPlaceholderText('Ask a question...');
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(composer, { target: { value: 'enable review' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
 
-    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('updated')).toBeInTheDocument();
-  });
+    await waitFor(() => expect(changed).toHaveBeenCalledTimes(1), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('updated', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('does not open a stream when the turn is already finished', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -404,11 +415,11 @@ describe('ClarifyChat live turns', () => {
 
     render(<ClarifyChat requestId="req-2" started commands={[]} onError={() => {}} />);
 
-    expect(await screen.findByText('saved history')).toBeInTheDocument();
-    expect(screen.queryByText('Agent is working…')).not.toBeInTheDocument();
+    expect(await screen.findByText('saved history', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(screen.queryByText(WORKING_BANNER)).not.toBeInTheDocument();
     const urls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(urls.some((url) => url.endsWith('/clarify/stream'))).toBe(false);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 });
 
 describe('ClarifyChat queue persistence', () => {
@@ -437,13 +448,13 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-store" started={false} commands={[]} onError={() => {}} />,
     );
 
-    expect(await screen.findByText('2 queued')).toBeInTheDocument();
+    expect(await screen.findByText('2 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('first')).toBeInTheDocument();
     expect(window.localStorage.getItem('aps-queue:req-store')).toBe(
       JSON.stringify(['first', 'second']),
     );
     expect(window.localStorage.getItem('sbox-queue:req-store')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('migrates a queue from the legacy sbox key and removes it', async () => {
     stubIdleClarify();
@@ -453,13 +464,13 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-legacy" started={false} commands={[]} onError={() => {}} />,
     );
 
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('carry me')).toBeInTheDocument();
     expect(window.localStorage.getItem('aps-queue:req-legacy')).toBe(
       JSON.stringify(['carry me']),
     );
     expect(window.localStorage.getItem('sbox-queue:req-legacy')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('prefers the aps key and discards a stale legacy queue', async () => {
     stubIdleClarify();
@@ -470,14 +481,14 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-both" started={false} commands={[]} onError={() => {}} />,
     );
 
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('new message')).toBeInTheDocument();
     expect(screen.queryByText('old message')).not.toBeInTheDocument();
     expect(window.localStorage.getItem('sbox-queue:req-both')).toBeNull();
     expect(window.localStorage.getItem('aps-queue:req-both')).toBe(
       JSON.stringify(['new message']),
     );
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('does not fall back when the aps key is malformed', async () => {
     stubIdleClarify();
@@ -488,12 +499,12 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-bad" started={false} commands={[]} onError={() => {}} />,
     );
 
-    expect(await screen.findByPlaceholderText('Start clarify to chat.')).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText('Start clarify to chat.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
     expect(screen.queryByText('legacy message')).not.toBeInTheDocument();
-    await waitFor(() => expect(window.localStorage.getItem('aps-queue:req-bad')).toBeNull());
+    await waitFor(() => expect(window.localStorage.getItem('aps-queue:req-bad')).toBeNull(), { timeout: ASYNC_TIMEOUT_MS });
     expect(window.localStorage.getItem('sbox-queue:req-bad')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('drains a migrated queue once and does not resurrect it', async () => {
     const sendBodies: unknown[] = [];
@@ -504,7 +515,7 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-drain" started={false} commands={[]} onError={() => {}} />,
     );
 
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(window.localStorage.getItem('aps-queue:req-drain')).toBe(
       JSON.stringify(['adopted']),
     );
@@ -513,9 +524,9 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-drain" started commands={[]} onError={() => {}} />,
     );
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toMatchObject({ text: 'adopted' });
-    expect(await screen.findByText('sent')).toBeInTheDocument();
+    expect(await screen.findByText('sent', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     view.unmount();
 
     stubIdleClarify();
@@ -523,12 +534,12 @@ describe('ClarifyChat queue persistence', () => {
       <ClarifyChat requestId="req-drain" started={false} commands={[]} onError={() => {}} />,
     );
 
-    expect(await screen.findByPlaceholderText('Start clarify to chat.')).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText('Start clarify to chat.', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
     expect(window.localStorage.getItem('aps-queue:req-drain')).toBeNull();
     expect(window.localStorage.getItem('sbox-queue:req-drain')).toBeNull();
     expect(sendBodies).toHaveLength(1);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 });
 
 describe('ClarifyChat reload during a live turn', () => {
@@ -564,7 +575,7 @@ describe('ClarifyChat reload during a live turn', () => {
 
     render(<ClarifyChat requestId="req-reload" started commands={[]} onError={() => {}} />);
 
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('1 queued')).toBeInTheDocument();
     expect(sendBodies).toHaveLength(0);
 
@@ -573,12 +584,12 @@ describe('ClarifyChat reload during a live turn', () => {
       live.controller.close();
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toMatchObject({ text: 'after reload' });
-    expect(await screen.findByText('queued reply')).toBeInTheDocument();
+    expect(await screen.findByText('queued reply', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
     expect(window.localStorage.getItem('aps-queue:req-reload')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('does not drain before the initial snapshot resolves', async () => {
     const sendBodies: unknown[] = [];
@@ -602,7 +613,7 @@ describe('ClarifyChat reload during a live turn', () => {
 
     render(<ClarifyChat requestId="req-slow" started commands={[]} onError={() => {}} />);
 
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     await act(async () => {
       await Promise.resolve();
     });
@@ -612,9 +623,9 @@ describe('ClarifyChat reload during a live turn', () => {
       resolveClarify(jsonResponse({ started: true, active: false, transcript: [] }));
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toMatchObject({ text: 'slow start' });
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('drains a restored queue one message per turn, in order', async () => {
     const live = controllableStream();
@@ -645,7 +656,7 @@ describe('ClarifyChat reload during a live turn', () => {
 
     render(<ClarifyChat requestId="req-order" started commands={[]} onError={() => {}} />);
 
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('2 queued')).toBeInTheDocument();
 
     await act(async () => {
@@ -653,12 +664,12 @@ describe('ClarifyChat reload during a live turn', () => {
       live.controller.close();
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(2));
+    await waitFor(() => expect(sendBodies).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies.map((body) => (body as { text: string }).text)).toEqual([
       'first queued',
       'second queued',
     ]);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('keeps a restored queue when hydration fails and drains after retry', async () => {
     const sendBodies: unknown[] = [];
@@ -692,16 +703,16 @@ describe('ClarifyChat reload during a live turn', () => {
       />,
     );
 
-    expect(await screen.findByText('snapshot failed')).toBeInTheDocument();
+    expect(await screen.findByText('snapshot failed', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sendBodies).toHaveLength(0);
     expect(screen.getByText('1 queued')).toBeInTheDocument();
     expect(window.localStorage.getItem('aps-queue:req-fail')).toBe(JSON.stringify(['held']));
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toMatchObject({ text: 'held' });
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('requeues and reattaches when a send races a live turn', async () => {
     const live = controllableStream();
@@ -740,13 +751,14 @@ describe('ClarifyChat reload during a live turn', () => {
       <ClarifyChat requestId="req-race" started commands={[]} onError={() => {}} inlineErrors />,
     );
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-race')).toBe(
         JSON.stringify(['race text']),
       ),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-race'))).toBeNull();
 
@@ -755,12 +767,13 @@ describe('ClarifyChat reload during a live turn', () => {
       live.controller.close();
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(2));
+    await waitFor(() => expect(sendBodies).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[1]).toMatchObject({ text: 'race text' });
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-race')).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('treats a spend-cap 409 as an error instead of requeueing', async () => {
     const sendBodies: unknown[] = [];
@@ -784,14 +797,15 @@ describe('ClarifyChat reload during a live turn', () => {
       <ClarifyChat requestId="req-cap" started commands={[]} onError={() => {}} inlineErrors />,
     );
 
-    expect(await screen.findByText('Spend cap reached')).toBeInTheDocument();
+    expect(await screen.findByText('Spend cap reached', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sendBodies).toHaveLength(1);
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-cap')).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-cap'))).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 });
 
 describe('ClarifyChat queue across tabs', () => {
@@ -842,9 +856,9 @@ describe('ClarifyChat queue across tabs', () => {
     render(<ClarifyChat requestId="req-two" started commands={[]} onError={() => {}} />);
     render(<ClarifyChat requestId="req-two" started commands={[]} onError={() => {}} />);
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toBe('hello');
-    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0), { timeout: ASYNC_TIMEOUT_MS });
     expect(window.localStorage.getItem('aps-queue:req-two')).toBeNull();
 
     await act(async () => {
@@ -852,9 +866,9 @@ describe('ClarifyChat queue across tabs', () => {
       lives[0]!.controller.close();
     });
 
-    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies).toHaveLength(1);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('drains a message appended in another tab once', async () => {
     const lives = [controllableStream(), controllableStream()];
@@ -885,11 +899,11 @@ describe('ClarifyChat queue across tabs', () => {
 
     render(<ClarifyChat requestId="req-share" started commands={[]} onError={() => {}} />);
     render(<ClarifyChat requestId="req-share" started commands={[]} onError={() => {}} />);
-    expect(await screen.findAllByText('Agent is working…')).toHaveLength(2);
+    expect(await screen.findAllByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toHaveLength(2);
 
     await enqueueBack('aps-queue:req-share', 'from B');
     storageEvent('aps-queue:req-share', ['from B']);
-    expect(await screen.findAllByText('1 queued')).toHaveLength(2);
+    expect(await screen.findAllByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toHaveLength(2);
 
     await act(async () => {
       for (const live of lives) {
@@ -898,11 +912,11 @@ describe('ClarifyChat queue across tabs', () => {
       }
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[0]).toBe('from B');
-    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies).toHaveLength(1);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('delivers a 409-requeued message once across tabs', async () => {
     let clarifyCalls = 0;
@@ -944,23 +958,24 @@ describe('ClarifyChat queue across tabs', () => {
 
     // Tab A is attached to the live turn; tab B is idle and races a send.
     render(<ClarifyChat requestId="req-race-two" started commands={[]} onError={() => {}} />);
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     render(<ClarifyChat requestId="req-race-two" started commands={[]} onError={() => {}} />);
-    const composer = await screen.findByPlaceholderText('Ask a question...');
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, { timeout: ASYNC_TIMEOUT_MS });
     fireEvent.change(composer, { target: { value: 'retry me' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(1));
+    await waitFor(() => expect(sendBodies).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-race-two')).toBe(
         JSON.stringify(['retry me']),
       ),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     // Tab A sees the requeue through the storage event while its turn still runs.
     storageEvent('aps-queue:req-race-two', ['retry me']);
-    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(2));
-    await waitFor(() => expect(lives).toHaveLength(2));
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
+    await waitFor(() => expect(lives).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
 
     turnEnded = true;
     await act(async () => {
@@ -970,11 +985,11 @@ describe('ClarifyChat queue across tabs', () => {
       }
     });
 
-    await waitFor(() => expect(sendBodies).toHaveLength(2));
+    await waitFor(() => expect(sendBodies).toHaveLength(2), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies[1]).toBe('retry me');
-    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0));
+    await waitFor(() => expect(screen.queryAllByText('1 queued')).toHaveLength(0), { timeout: ASYNC_TIMEOUT_MS });
     expect(sendBodies).toHaveLength(2);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('mirrors another tab queue write into the banner', async () => {
     vi.stubGlobal(
@@ -983,14 +998,14 @@ describe('ClarifyChat queue across tabs', () => {
     );
 
     render(<ClarifyChat requestId="req-mirror" started={false} commands={[]} onError={() => {}} />);
-    await screen.findByPlaceholderText('Start clarify to chat.');
+    await screen.findByPlaceholderText('Start clarify to chat.', undefined, { timeout: ASYNC_TIMEOUT_MS });
 
     window.localStorage.setItem('aps-queue:req-mirror', JSON.stringify(['from another tab']));
     storageEvent('aps-queue:req-mirror', ['from another tab']);
 
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(screen.getByText('from another tab')).toBeInTheDocument();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 });
 
 describe('ClarifyChat crash-safe queue claims', () => {
@@ -1017,6 +1032,7 @@ describe('ClarifyChat crash-safe queue claims', () => {
 
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-crash'))).not.toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(window.localStorage.getItem('aps-queue:req-crash')).toBeNull();
     first.unmount();
@@ -1042,12 +1058,12 @@ describe('ClarifyChat crash-safe queue claims', () => {
 
     render(<ClarifyChat requestId="req-crash" started commands={[]} onError={() => {}} />);
 
-    await waitFor(() => expect(sendBodies).toEqual(['lost message']));
-    expect(await screen.findByText('recovered reply')).toBeInTheDocument();
+    await waitFor(() => expect(sendBodies).toEqual(['lost message']), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('recovered reply', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-crash'))).toBeNull();
     expect(window.localStorage.getItem('aps-queue:req-crash')).toBeNull();
     expect(screen.queryByText(/queued/)).not.toBeInTheDocument();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('does not resend a claim the transcript already proves delivered', async () => {
     const sendBodies: string[] = [];
@@ -1074,16 +1090,17 @@ describe('ClarifyChat crash-safe queue claims', () => {
 
     render(<ClarifyChat requestId="req-delivered" started commands={[]} onError={() => {}} />);
 
-    expect(await screen.findByText('already sent')).toBeInTheDocument();
+    expect(await screen.findByText('already sent', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-delivered'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     await act(async () => {
       await Promise.resolve();
     });
     expect(sendBodies).toHaveLength(0);
     expect(window.localStorage.getItem('aps-queue:req-delivered')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('defers a claim until a live turn ends and drops it when done proves delivery', async () => {
     const live = controllableStream();
@@ -1112,7 +1129,7 @@ describe('ClarifyChat crash-safe queue claims', () => {
     );
 
     render(<ClarifyChat requestId="req-live-claim" started commands={[]} onError={() => {}} />);
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-live-claim'))).not.toBeNull();
     expect(sendBodies).toHaveLength(0);
 
@@ -1123,9 +1140,10 @@ describe('ClarifyChat crash-safe queue claims', () => {
 
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-live-claim'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(sendBodies).toHaveLength(0);
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('requeues an unproven claim after a live turn ends and sends it once', async () => {
     const live = controllableStream();
@@ -1157,18 +1175,18 @@ describe('ClarifyChat crash-safe queue claims', () => {
     );
 
     render(<ClarifyChat requestId="req-live-miss" started commands={[]} onError={() => {}} />);
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     await act(async () => {
       live.controller.enqueue(encoder.encode(doneEvent('live finished')));
       live.controller.close();
     });
 
-    await waitFor(() => expect(sendBodies).toEqual(['retry after live']));
-    expect(await screen.findByText('recovered after live')).toBeInTheDocument();
+    await waitFor(() => expect(sendBodies).toEqual(['retry after live']), { timeout: ASYNC_TIMEOUT_MS });
+    expect(await screen.findByText('recovered after live', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-live-miss'))).toBeNull();
     expect(window.localStorage.getItem('aps-queue:req-live-miss')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('clears a claim when a send completes without any NDJSON events', async () => {
     vi.stubGlobal(
@@ -1188,9 +1206,10 @@ describe('ClarifyChat crash-safe queue claims', () => {
 
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-silent'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(window.localStorage.getItem('aps-queue:req-silent')).toBeNull();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('keeps a claim across a retryable send failure and clears it on retry', async () => {
     let attempts = 0;
@@ -1229,18 +1248,19 @@ describe('ClarifyChat crash-safe queue claims', () => {
       />,
     );
 
-    expect(await screen.findByText('send failed')).toBeInTheDocument();
+    expect(await screen.findByText('send failed', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sends).toEqual(['retry claimed']);
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-retry-claim'))).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByText('recovered')).toBeInTheDocument();
+    expect(await screen.findByText('recovered', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
     expect(sends).toEqual(['retry claimed', 'retry claimed']);
     await waitFor(() =>
       expect(window.localStorage.getItem(inflightKey('aps-queue:req-retry-claim'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 
   it('clears an in-flight marker when the user clears the queue', async () => {
     const live = controllableStream();
@@ -1265,20 +1285,21 @@ describe('ClarifyChat crash-safe queue claims', () => {
     render(
       <ClarifyChat requestId="req-clear-marker" started commands={[]} onError={() => {}} />,
     );
-    expect(await screen.findByText('Agent is working…')).toBeInTheDocument();
+    expect(await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     const composer = screen.getByPlaceholderText('Queue a message…');
     fireEvent.change(composer, { target: { value: 'queued behind the claim' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
-    expect(await screen.findByText('1 queued')).toBeInTheDocument();
+    expect(await screen.findByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
 
     await waitFor(() =>
       expect(window.localStorage.getItem('aps-queue:req-clear-marker')).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
     );
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-clear-marker'))).toBeNull();
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
-  });
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 });
 

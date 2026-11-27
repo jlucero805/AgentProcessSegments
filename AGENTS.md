@@ -168,6 +168,13 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   `src/web/src/viteConfig.test.ts` guards it; keep both. The regression check is
   `NODE_ENV=production npm test --workspace src/web`, which the published CI workflow
   (`.github/workflows/ci.yml`) runs as its own step.
+- **The web suite runs in `pool: 'vmThreads'`.** It creates one jsdom environment per
+  worker instead of one per test file (28 files), which roughly halves wall time while
+  keeping per-file isolation. A VM context has no `ReadableStream`/`TransformStream`, so
+  `src/web/src/test/setup.ts` seeds them from `node:stream/web`; `viteConfig.test.ts`
+  guards both the pool and the `NODE_ENV=test` pin. Do not switch to `isolate: false`:
+  it shares one environment across files and breaks the HelpPanel Mermaid and ClarifyChat
+  queue suites.
 - **Every JavaScript proof script's child env is hermetic.** `scripts/e2e/env.mjs` is the shared
   builder: `scrubEnv` drops every inherited `APS_*`, `SBOX_*`, `ANTHROPIC_*`, `CLAUDE_*`,
   and `OPENAI_*` variable, then `buildPinnedEnv` applies validated pins so a pin always

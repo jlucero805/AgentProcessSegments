@@ -899,11 +899,15 @@ describe('ClarifyChat queue across tabs', () => {
 
     render(<ClarifyChat requestId="req-share" started commands={[]} onError={() => {}} />);
     render(<ClarifyChat requestId="req-share" started commands={[]} onError={() => {}} />);
-    expect(await screen.findAllByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS })).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByText(WORKING_BANNER)).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
 
     await enqueueBack('aps-queue:req-share', 'from B');
     storageEvent('aps-queue:req-share', ['from B']);
-    expect(await screen.findAllByText('1 queued', undefined, { timeout: ASYNC_TIMEOUT_MS })).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByText('1 queued')).toHaveLength(2), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
 
     await act(async () => {
       for (const live of lives) {

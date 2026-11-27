@@ -135,7 +135,10 @@ and error-event shape.
   `repair:runs`, whose engines and CLIs are now thin tree/usage descriptions. The
   `repair:runs`/`repair:upgrades` CLIs share the runner; `repair:permissions` keeps its
   own data-directory resolution. `permission-repair.test.ts` pins the root and
-  missing-child policies.
+  missing-child policies. Scan roots are `lstat`ed and a symlinked root is refused by
+  default; `repair:permissions` pins `{ symlinks: 'refuse' }` (D135), while the cutover
+  repairs `skip` only their shared container so a symlinked `runs/` or `upgrades/` is
+  still refused.
 
 ## Deferred, with reasons
 

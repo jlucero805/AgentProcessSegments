@@ -149,6 +149,9 @@ renders as unknown or as an explicit lower bound, never as zero.
 ## Requirements
 
 - Node 22.13 or newer (Vite 8 and Vitest 5 already need 22.12; ESLint 10 needs 22.13).
+- On Linux, `make`, `g++`, and `python3` for `node-pty`, which ships no Linux prebuild and
+  compiles during `npm ci`; Python 3.14 needs npm 11.7 or newer. `npm run check:native`
+  checks both native modules and the toolchain.
 - `git` for per-request worktrees
 - `claude` and/or `opencode` on `PATH` to run real agent turns. `APS_HARNESS` picks the
   brain default (legacy `SBOX_HARNESS` still works), and each cell can override it, so one
@@ -159,6 +162,7 @@ renders as unknown or as an explicit lower bound, never as zero.
 
 ```bash
 npm ci --include=dev
+npm run check:native
 npm test
 npm run e2e
 npm run build

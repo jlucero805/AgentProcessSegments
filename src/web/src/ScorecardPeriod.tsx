@@ -224,6 +224,23 @@ export interface ScorecardPeriodSelection {
   custom?: CustomRangeSeed;
 }
 
+export type ScorecardsView = 'grouped' | 'flat';
+export const DEFAULT_SCORECARDS_VIEW: ScorecardsView = 'grouped';
+
+/** Read the Scorecards layout from route params; unknown values use Grouped. */
+export function parseScorecardView(params: URLSearchParams): ScorecardsView {
+  return params.get('view') === 'flat' ? 'flat' : DEFAULT_SCORECARDS_VIEW;
+}
+
+/** Write the Scorecards layout; the Grouped default is omitted. */
+export function writeScorecardView(
+  params: URLSearchParams,
+  view: ScorecardsView,
+): void {
+  params.delete('view');
+  if (view === 'flat') params.set('view', 'flat');
+}
+
 /** Local `HH:mm` value for an `<input type="time">`. */
 function timeInputValue(timestamp: number): string {
   const date = new Date(timestamp);

@@ -3358,3 +3358,28 @@ parameters, and a tampered or partial period URL silently loads the default 72h 
 Only the Scorecards page is persisted; the Cell master drawer keeps its own unpersisted
 period. This supersedes the "URL persistence is separate work" sentences in D108 and D118
 without rewriting them.
+
+## D132. The Scorecards layout and period history live in the URL too
+
+**Context.** D131 put the applied Scorecards period in the route, but deliberately kept
+the Grouped/Flat layout in component state and wrote route changes with `replaceState`,
+so a reload lost the layout and a period change created no back-button entry. The App
+writer also rebuilt the query string, which dropped unrelated parameters. The request
+requires the layout and reload/back-forward behavior together with the period.
+
+**Decision.** The Scorecards route now also carries `view=flat`; Grouped is the omitted
+default. `parseScorecardView`/`writeScorecardView` sit beside D131's period helpers, and
+`App` holds the layout as route state alongside the period. `readRoute()` restores both
+when the page is Scorecards. A user-driven period or layout change writes `pushState`, so
+Back/Forward moves through those states without a reload; a history move or other route
+change uses `replaceState`. The App writer merges its keys into the current query instead
+of rebuilding it, so unrelated parameters survive, and it drops the Scorecards keys when
+leaving the page. A history move remounts the page from the route, while a period or
+layout change the page just reported only updates the route, so it does not clobber the
+local draft or double-fetch.
+
+**Cost.** The URL gains one optional short parameter. Two writers still touch one query
+string, so both must merge rather than replace the whole search. The page has to
+distinguish its own reported period from an external history restore; existing local state
+remains authoritative for an unapplied Custom draft. No API, schema, scheduler,
+retention, dependency, or drawer-persistence change is involved.

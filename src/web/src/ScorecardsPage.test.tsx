@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ScorecardsPage } from './ScorecardsPage';
-import { customWindow, type ScorecardPeriodSelection } from './ScorecardPeriod';
+import {
+  customWindow,
+  type ScorecardPeriodSelection,
+  type ScorecardsView,
+} from './ScorecardPeriod';
 import { jsonResponse, makeCellsFeed } from './test/fixtures';
 
 // The page loads the latest-per-cell feed and report pages before rendering. Give the slow
@@ -56,6 +60,8 @@ interface PageProps {
   onError?: (message: string) => void;
   initialPeriod?: ScorecardPeriodSelection;
   onPeriodChange?: (selection: ScorecardPeriodSelection) => void;
+  initialView?: ScorecardsView;
+  onViewChange?: (view: ScorecardsView) => void;
 }
 
 function page({
@@ -64,6 +70,8 @@ function page({
   onError = () => {},
   initialPeriod,
   onPeriodChange,
+  initialView,
+  onViewChange,
 }: PageProps = {}) {
   return (
     <ScorecardsPage
@@ -73,6 +81,8 @@ function page({
       cellsFeed={makeCellsFeed({ cells: ALL_CELLS })}
       initialPeriod={initialPeriod}
       onPeriodChange={onPeriodChange}
+      initialView={initialView}
+      onViewChange={onViewChange}
     />
   );
 }
@@ -619,6 +629,25 @@ describe('ScorecardsPage', () => {
     const [request] = latestRequests(urls);
     expect(request?.get('since')).toBe(String(since));
     expect(request?.get('until')).toBe(String(until));
+  }, SCORECARDS_TEST_TIMEOUT_MS);
+
+  it('starts in the flat layout passed by the route', async () => {
+    const urls = stubFetch([makeCell('c1', 'Alpha')], {
+      c1: [makeReport('s1', 'c1', 'Alpha report', 2_000_000)],
+    });
+
+    renderPage({ initialView: 'flat' });
+
+    expect(
+      await screen.findByText('Alpha report', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(feedRequests(urls)).toHaveLength(1), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(screen.getByRole('button', { name: 'Flat' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   }, SCORECARDS_TEST_TIMEOUT_MS);
 
   it('reports only committed period changes', async () => {

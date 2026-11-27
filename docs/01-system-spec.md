@@ -451,10 +451,13 @@ feed with a `hasOlder` flag, or the flat cross-cell feed with server-owned pagin
 focused-cell view uses a tie-safe `(created_at, id)` keyset cursor (`before`/`beforeId`),
 ordered `created_at DESC, id DESC`. It defaults to the last 72 hours, offers presets plus
 a custom local date-and-time range whose end includes the selected minute, and requests
-25 reports per cell plus one probe row. The applied period is SPA route state, written
-with `replaceState` as `period` (omitted for the default 72h) plus local
-`startDate`/`startTime`/`endDate`/`endTime` for Custom; reloading restores it, and
-missing, malformed, or inverted period params fall back to 72h. The
+25 reports per cell plus one probe row. The applied period and layout are SPA route
+state: `period` (omitted for the default 72h) plus local
+`startDate`/`startTime`/`endDate`/`endTime` for Custom, and `view=flat` (omitted for the
+default Grouped). The shell merges its route keys into the current query so unrelated
+parameters survive; reloading restores the period and layout, and missing, malformed, or
+inverted period params fall back to 72h. Period and layout changes push a history entry,
+so Back/Forward moves between them without a reload. The
 flat feed returns 25 reports per page plus `hasMore` and the next cursor. No schema change
 is needed for either read path.
 
@@ -1109,6 +1112,10 @@ carried in the `done` event:
 - `main.tsx` adds `.dark` to `<html>`. `App.tsx` is the shell: a left nav (Floor, board
   columns, Knowledge base, Skills), a `CellBar` to switch cells, a stacked-table board,
   a right-side request detail drawer that can maximize, and a create modal.
+- **URL state:** `readRoute()` restores `page`, `cell`, `request`, `master`, and `help`
+  from the query string. The shell merges those keys into the current query with
+  `replaceState`, preserving page-owned and unknown parameters; Scorecards period/layout
+  changes use `pushState` so Back/Forward can move between them.
 - **Board:** columns labelled Requests (intake), Plan (clarify), Implement (dispatch),
   Review, and Finalize. `done` leaves the board. `columnOf` and `STATE_LABELS` map state
   to label; `types.ts` mirrors the server state machine. The Finalize header has a small

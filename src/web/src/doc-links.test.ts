@@ -100,6 +100,84 @@ function makeHelpFixture(): string {
   );
   return root;
 }
+
+const ASSET_FIXTURE_MANIFEST = [
+  { slug: 'served', source: 'docs/served.md' },
+  { slug: 'target', source: 'docs/target.md' },
+] as const;
+
+function makeAssetFixture(): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'aps-help-assets-'));
+  tempRoots.push(root);
+  for (const directory of [
+    'docs/screenshots',
+    'docs/images',
+    'src/server/src',
+    'src/screenshots',
+    'scripts',
+    'deploy',
+  ]) {
+    mkdirSync(path.join(root, directory), { recursive: true });
+  }
+  for (const file of [
+    'docs/screenshots/shot.png',
+    'docs/images/bad.png',
+    'src/screenshots/shot.png',
+    'src/server/src/app.ts',
+    'scripts/e2e.mjs',
+    'deploy/ci-workflow.yml',
+  ]) {
+    writeFileSync(path.join(root, file), '');
+  }
+  writeFileSync(path.join(root, 'package.json'), '{}\n');
+  writeFileSync(path.join(root, 'docs', 'target.md'), '# Target\n');
+  writeFileSync(
+    path.join(root, 'docs', 'internal.md'),
+    ['![bad](images/bad.png)', '[file](../src/server/src/app.ts)'].join('\n'),
+  );
+  writeFileSync(
+    path.join(root, 'docs', 'served.md'),
+    [
+      '![bad image](images/bad.png)',
+      '<img src="images/bad.png">',
+      '![bad ref][badimg]',
+      '![ok image](screenshots/shot.png)',
+      '![ok ref][shotref]',
+      '[badimg]: images/bad.png',
+      '[shotref]: screenshots/shot.png',
+      '![external](https://example.com/x.png)',
+      '![data](data:image/png;base64,AAAA)',
+      '![proto](//example.com/x.png)',
+      '![asset](/api/docs/assets/shot.png)',
+      '![outside](../src/screenshots/shot.png)',
+      '![missing](images/missing.png)',
+      '![frag](images/bad.png#top)',
+      '[code file](../src/server/src/app.ts)',
+      '[ci](../deploy/ci-workflow.yml)',
+      '[script](../scripts/e2e.mjs)',
+      '[package](../package.json)',
+      '[shot link](screenshots/shot.png)',
+      '[asset link](/api/docs/assets/shot.png)',
+      '[github](https://github.com/example/repo)',
+      '[mail](mailto:ops@example.com)',
+      '[anchor](#real-heading)',
+      '[app route](/api/requests)',
+      '[ok help](?help=target)',
+      '[bad help](?help=missing)',
+      '[missing file](nope.txt)',
+      '[code fragment](../src/server/src/app.ts#L1)',
+      '`[code](images/bad.png)`',
+      '<a href="../src/server/src/app.ts">html link</a>',
+      '<img src="screenshots/shot.png">',
+      '~~~md',
+      '![fenced](images/bad.png)',
+      '[fenced link](../src/server/src/app.ts)',
+      '~~~',
+    ].join('\n'),
+  );
+  return root;
+}
+
 describe('documents links and anchors', () => {
   it('extracts inline links, images, references, HTML, and skips code', () => {
     const markdown = [
@@ -121,9 +199,25 @@ describe('documents links and anchors', () => {
       { line: 3, target: 'docs/with space.md', kind: 'link' },
       { line: 5, target: 'docs/ref.md', kind: 'reference' },
       { line: 6, target: 'docs/html.md', kind: 'html' },
-      { line: 6, target: 'docs/html.png', kind: 'html' },
+      { line: 6, target: 'docs/html.png', kind: 'image' },
     ]);
     expect(undefinedReferenceLabels(markdown)).toEqual([]);
+  });
+
+  it('tags image reference definitions and raw img tags as images', () => {
+    const markdown = [
+      '<img src="docs/a.png">',
+      '![board][shot]',
+      '[link][doc]',
+      '[shot]: docs/screenshots/board.png',
+      '[doc]: docs/guide.md',
+    ].join('\n');
+
+    expect(extractDocLinks(markdown)).toEqual([
+      { line: 1, target: 'docs/a.png', kind: 'image' },
+      { line: 4, target: 'docs/screenshots/board.png', kind: 'image' },
+      { line: 5, target: 'docs/guide.md', kind: 'reference' },
+    ]);
   });
 
   it('reports a reference usage without a definition', () => {
@@ -264,6 +358,73 @@ describe('Help-served links and the manifest', () => {
         line: 4,
         target: 'target.md#missing',
         reason: 'no heading with id "missing"',
+      },
+    ]);
+  });
+
+  it('reports images and non-Markdown targets Help cannot serve', () => {
+    const root = makeAssetFixture();
+
+    expect(checkHelpLinks(root, ASSET_FIXTURE_MANIFEST)).toEqual([
+      {
+        file: 'docs/served.md',
+        line: 1,
+        target: 'images/bad.png',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 2,
+        target: 'images/bad.png',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 6,
+        target: 'images/bad.png',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 12,
+        target: '../src/screenshots/shot.png',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 15,
+        target: '../src/server/src/app.ts',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 16,
+        target: '../deploy/ci-workflow.yml',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 17,
+        target: '../scripts/e2e.mjs',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 18,
+        target: '../package.json',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 26,
+        target: '?help=missing',
+        reason: 'Help has no page for slug "missing"',
+      },
+      {
+        file: 'docs/served.md',
+        line: 30,
+        target: '../src/server/src/app.ts',
+        reason: 'local non-Markdown target is not served by Help',
       },
     ]);
   });

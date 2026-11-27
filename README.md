@@ -718,7 +718,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1476 vitest cases: 1097 server cases across 59 files (state machine,
+`npm test` runs 1478 vitest cases: 1097 server cases across 59 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -734,7 +734,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 379 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 381 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, manifest-aware served-page links, and SPA Help targets, the source link, board,
@@ -805,8 +805,10 @@ finding fails it too. Link and anchor correctness is a test rather than a lint s
 external URLs. It also imports the Help manifest: a served page may link only a manifest
 page or a `?help=<slug>` target whose slug and anchor exist in
 `src/server/src/docs/manifest.ts`, and a manifest entry must have a unique lowercase
-slug, an existing Markdown source, and the slug the SPA derives from that source. The
-SPA's own Help targets are declared in `src/web/src/links.ts`; the same test checks each
+slug, an existing Markdown source, and the slug the SPA derives from that source. Served
+images must be existing `docs/screenshots/` files that resolve onto
+`/api/docs/assets/...`, and a local non-Markdown link must reach that same asset route.
+The SPA's own Help targets are declared in `src/web/src/links.ts`; the same test checks each
 slug and anchor against the manifest source and rejects a literal `?help=<slug>` or a
 quoted manifest slug anywhere else in the SPA. External destinations are a separate
 opt-in check: `npm run check:docs:external` probes every unique external HTTP(S)

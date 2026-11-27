@@ -92,6 +92,14 @@ export function extractDocLinks(markdown) {
   const masked = maskCode(markdown);
   const links = [];
 
+  // A definition can feed either a link or an image. Tag it as an image when at
+  // least one usage renders it as one, so the Help gate can apply the asset rule.
+  const imageLabels = new Set();
+  for (const match of masked.matchAll(REFERENCE_USAGE)) {
+    if (match[1] !== '!') continue;
+    imageLabels.add(normalizeLabel(match[3] === '' ? match[2] : match[3]));
+  }
+
   for (const match of masked.matchAll(INLINE_LINK)) {
     links.push({
       line: lineAt(markdown, match.index ?? 0),
@@ -104,7 +112,7 @@ export function extractDocLinks(markdown) {
     links.push({
       line: lineAt(markdown, match.index ?? 0),
       target: stripAngles(match[2]),
-      kind: 'reference',
+      kind: imageLabels.has(normalizeLabel(match[1])) ? 'image' : 'reference',
     });
   }
 
@@ -115,7 +123,7 @@ export function extractDocLinks(markdown) {
     links.push({
       line: lineAt(markdown, match.index ?? 0),
       target: match[3] ?? match[4] ?? '',
-      kind: 'html',
+      kind: tag === 'img' ? 'image' : 'html',
     });
   }
 

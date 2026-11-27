@@ -2772,15 +2772,18 @@ any slug the manifest does not list, so a served page could link `docs/05-plan.m
 validates every link on a manifest-served page with the SPA's own `resolveDocHref` and
 `slugForDocPath` rewrite, requires a direct `.md` link to resolve to the same source its
 slug serves (so a same-named file elsewhere cannot masquerade), and validates literal
-`?help=<slug>#fragment` targets. `manifestProblems` enforces unique lowercase slugs,
-existing Markdown sources, and `slugForDocPath(source) === slug`. Internal-only notes
-never render in Help, so they stay unconstrained; served pages refer to them as inline
-code or absolute GitHub URLs. Runtime behavior is unchanged: the service still filters
-missing sources and returns an empty list when `docs/` is absent.
+`?help=<slug>#fragment` targets. Served images must resolve to an existing file under
+`docs/screenshots/` that `resolveDocImage` rewrites onto `/api/docs/assets/...`, and served
+pages may not link a local non-Markdown file unless `resolveDocHref` sends it to that
+asset route. `manifestProblems` enforces unique lowercase slugs, existing Markdown
+sources, and `slugForDocPath(source) === slug`. Internal-only notes never render in Help,
+so they stay unconstrained; served pages refer to them as inline code or absolute GitHub
+URLs. Runtime behavior is unchanged: the service still filters missing sources and returns
+an empty list when `docs/` is absent.
 
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
-file. Images, non-Markdown local targets, and external URLs stay separate checks;
-SPA-authored Help links landed in D123.
+file. External URLs and SPA-authored Help links stay separate checks (D124 and D123);
+missing and fragment targets remain the base link gate's findings.
 
 ## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
 

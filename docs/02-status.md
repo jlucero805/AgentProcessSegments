@@ -221,10 +221,11 @@ built and vended by the brain; real-CLI verification is still pending.
   `/api` still returns JSON, and hashed assets are served. Unknown routes return
   `{ "error": "not_found" }` whether or not a build is present. Headless Chromium runs
   (`scripts/ui-smoke.mjs`, `UI_MOBILE=1` for a 390 px viewport; Puppeteer required, or
-  pass `--allow-missing-puppeteer` to skip deliberately) create a request, open the
-  drawer and chat, open Help and confirm its Getting started Mermaid diagram renders as
-  an SVG, and open the Config page with no page or console errors. The smoke asserts
-  `data-testid` hooks, not visible copy; `scripts/ui-smoke.test.mjs` guards those hooks.
+  pass `--allow-missing-puppeteer` to skip deliberately) create a request and a cell,
+  remove both on success, failure, and interrupt, open the drawer and chat, open Help
+  and confirm its Getting started Mermaid diagram renders as an SVG, and open the
+  Config page with no page or console errors. The smoke asserts `data-testid` hooks,
+  not visible copy; `scripts/ui-smoke.test.mjs` guards those hooks.
 - Mobile shell: the sidebar is off-canvas with a hamburger below `md`, board columns
   scroll horizontally with snap, and the drawer fills the screen. A 390 px Chromium run
   verified the menu, board scroll, and full-width drawer.

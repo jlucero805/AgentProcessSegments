@@ -131,7 +131,8 @@ export class ProcessStore {
 
   /**
    * Report an unusable file once per distinct state. Every load still reads and
-   * evaluates the file, so a correction is picked up; only the report repeats.
+   * evaluates the file, so a correction is picked up, but the report is not
+   * repeated while the state is unchanged.
    */
   private reportUnusable(signature: string, report: () => void): void {
     if (this.lastUnusable === signature) return;

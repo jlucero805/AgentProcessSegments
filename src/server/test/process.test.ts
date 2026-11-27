@@ -359,6 +359,50 @@ describe('ProcessStore', () => {
     warn.mockRestore();
   });
 
+  it('reports an unusable file created after a missing file once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile('created-later.json');
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(errors.error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+
+    writeFileSync(file, '{bad\n');
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    store.get();
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    expect(errors.error.mock.calls[0]![0]).toBe('process.unreadable');
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('does not report the same state again across a preserving save', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = tempFile();
+    const original = '{bad\n';
+    writeFileSync(file, original);
+
+    const errors = { error: vi.fn() };
+    const store = new ProcessStore(file, () => defaultProcess(DEFAULT_SETTINGS.master), errors);
+    expect(store.get()).toEqual(defaultProcess(DEFAULT_SETTINGS.master));
+    expect(errors.error).toHaveBeenCalledTimes(1);
+
+    store.patch({ segments: defaultProcess(DEFAULT_SETTINGS.master).segments });
+    expect(errors.error).toHaveBeenCalledTimes(1);
+    const ignoring = warn.mock.calls.filter(([line]) =>
+      String(line).startsWith('ignoring unreadable process config'),
+    );
+    expect(ignoring).toHaveLength(1);
+
+    const names = backupNames(file);
+    expect(names).toHaveLength(1);
+    expect(readFileSync(backupFile(file, names[0]!), 'utf8')).toBe(original);
+    warn.mockRestore();
+  });
+
   it('reports the copy path created by the preserving save', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const file = tempFile();

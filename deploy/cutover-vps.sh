@@ -31,6 +31,8 @@ KEEP_RUNS=10
 KEEP_DAYS=30
 NO_PRUNE=0
 
+ROLLED_BACK=0
+
 OLD_UNIT="sandbox-harness"
 NEW_UNIT="agent-process-segments"
 DEFAULT_BRANCH="main"
@@ -905,6 +907,10 @@ pick_existing() {
 }
 
 rollback() {
+  if [[ "$ROLLED_BACK" -eq 1 ]]; then
+    return 0
+  fi
+  ROLLED_BACK=1
   set +e
   log "rolling back"
   if [[ "$NEW_STARTED" -eq 1 ]]; then
@@ -968,6 +974,11 @@ rollback() {
 on_error() {
   local rc=$?
   local line="$1"
+  # set -E inherits this trap into subshells. Only the top-level shell rolls back;
+  # a subshell exits with the failing status so the parent's trap runs once.
+  if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then
+    exit "$rc"
+  fi
   set +e
   log "failed at line $line (exit $rc)"
   rollback
@@ -999,6 +1010,7 @@ run_cutover() {
   OLD_ACTIVE=0
   MASTER_ENABLED=false
   DIST_BACKED_UP=0
+  ROLLED_BACK=0
 
   trap 'on_error $LINENO' ERR
   trap 'on_signal INT' INT

@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpDir, tmpRoot } from './tmp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -73,6 +73,14 @@ function fixtureWarnings(calls: ReadonlyArray<readonly unknown[]>): string[] {
 function opencodeConfigDir(home: string): string {
   return path.join(home, '.config', 'opencode');
 }
+
+/** Mirrors the harness module's private candidate list; directories must not count. */
+const projectConfigNames = [
+  'opencode.json',
+  'opencode.jsonc',
+  path.join('.opencode', 'opencode.json'),
+  path.join('.opencode', 'opencode.jsonc'),
+] as const;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -961,6 +969,79 @@ describe('OpencodeHarness', () => {
 
     expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBe(projectFile);
     expect(findIgnoredProjectOpencodeConfig(nested, globalDir, base)).toBe(projectFile);
+  });
+
+  for (const name of projectConfigNames) {
+    it(`does not report a directory named ${name} as a project config`, () => {
+      const { base, home, cwd } = workspace();
+      const globalDir = opencodeGlobalConfigDir(home, {});
+      mkdirSync(path.join(cwd, name), { recursive: true });
+
+      expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBeNull();
+    });
+  }
+
+  it('finds a project config above a directory named like one', () => {
+    const { base, home, cwd } = workspace();
+    const globalDir = opencodeGlobalConfigDir(home, {});
+    const projectFile = path.join(base, 'opencode.json');
+    writeFileSync(projectFile, '{}');
+    mkdirSync(path.join(cwd, 'opencode.json'));
+
+    expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBe(projectFile);
+  });
+
+  it('continues past a candidate path that cannot be statted', () => {
+    const { base, home, cwd } = workspace();
+    const globalDir = opencodeGlobalConfigDir(home, {});
+    const projectFile = path.join(base, 'opencode.json');
+    writeFileSync(projectFile, '{}');
+    // `.opencode` as a file makes `.opencode/opencode.json` fail with ENOTDIR.
+    writeFileSync(path.join(cwd, '.opencode'), 'not a directory\n');
+
+    expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBe(projectFile);
+  });
+
+  it('follows a symlink to a project config file', () => {
+    const { base, home, cwd } = workspace();
+    const globalDir = opencodeGlobalConfigDir(home, {});
+    const target = path.join(base, 'shared-config.json');
+    writeFileSync(target, '{}');
+    const link = path.join(cwd, 'opencode.json');
+    try {
+      symlinkSync(target, link);
+    } catch {
+      // Some filesystems do not allow symlinks for the test user.
+      return;
+    }
+
+    expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBe(link);
+  });
+
+  it('skips a symlink to a directory and a dangling symlink', () => {
+    const { base, home, cwd } = workspace();
+    const globalDir = opencodeGlobalConfigDir(home, {});
+    mkdirSync(path.join(base, 'config-dir'));
+    try {
+      symlinkSync(path.join(base, 'config-dir'), path.join(cwd, 'opencode.json'));
+      symlinkSync(path.join(base, 'missing.json'), path.join(cwd, 'opencode.jsonc'));
+    } catch {
+      // Some filesystems do not allow symlinks for the test user.
+      return;
+    }
+
+    expect(findIgnoredProjectOpencodeConfig(cwd, globalDir, base)).toBeNull();
+  });
+
+  it('does not warn when a project config path is a directory', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { home, cwd, dir } = workspace();
+    mkdirSync(path.join(cwd, 'opencode.json'));
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    await harness.prepare(requestSession(dir, cwd));
+
+    expect(fixtureWarnings(warn.mock.calls)).toEqual([]);
   });
 
   it('merges user MCP servers and points OpenCode at the generated config dir', async () => {

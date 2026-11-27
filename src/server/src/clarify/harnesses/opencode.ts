@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -122,9 +122,11 @@ export function opencodeGlobalConfigDir(
  *
  * OpenCode resolves project and ancestor config from the child cwd, but every
  * harness child sets `OPENCODE_CONFIG_PROJECT_DISABLE=1`. Stop at the first
- * candidate, nearest directory first, so one repo does not report every config
- * above it. The global config directory is skipped because the harness merges
- * that file instead of ignoring it.
+ * regular file, nearest directory first, so one repo does not report every
+ * config above it. Directories and other non-file entries with a candidate name
+ * are skipped, and the walk continues upward; symlinks are followed. The global
+ * config directory is skipped because the harness merges that file instead of
+ * ignoring it.
  *
  * `root` exists for hermetic tests. Production callers omit it and walk to the
  * filesystem root.
@@ -142,13 +144,26 @@ export function findIgnoredProjectOpencodeConfig(
     if (dir !== global) {
       for (const name of PROJECT_CONFIG_NAMES) {
         const file = path.join(dir, name);
-        if (existsSync(file)) return file;
+        if (isRegularFile(file)) return file;
       }
     }
     if (dir === stop) return null;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
+  }
+}
+
+/**
+ * True only for a regular file. Symlinks are followed because OpenCode reads
+ * through them; missing, unreadable, or non-file paths count as absent so one
+ * odd entry cannot stop the ancestor walk.
+ */
+function isRegularFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
   }
 }
 

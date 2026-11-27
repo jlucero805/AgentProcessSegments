@@ -17,8 +17,10 @@ import { checkHogs, HOG_MARKER, startHogs, stopHogs } from './web-stress/hogs.mj
 import {
   formatFailures,
   formatRunLine,
+  formatSlowest,
   readResults,
   ResultsError,
+  SLOWEST_LIMIT,
   summarize,
 } from './web-stress/results.mjs';
 
@@ -247,6 +249,37 @@ test('formatFailures prints the failed case and its messages', () => {
     '    expected 1 to be 2',
     '    at Example.test.tsx:9:1',
   ]);
+});
+
+test('formatSlowest lists durations in order and caps the list', () => {
+  const summary = summarize(failingReport());
+  assert.deepEqual(formatSlowest(summary), [
+    '  0.9s Example > slow case',
+    '  0.0s Example > broken case',
+    '  0.0s Example > quick case',
+  ]);
+
+  const report = {
+    numTotalTests: 12,
+    numPassedTests: 12,
+    numFailedTests: 0,
+    success: true,
+    testResults: [
+      {
+        name: '/repo/src/web/src/Many.test.tsx',
+        assertionResults: Array.from({ length: 12 }, (_, index) => ({
+          fullName: `case ${index}`,
+          status: 'passed',
+          duration: 1000 - index,
+          failureMessages: [],
+        })),
+      },
+    ],
+  };
+  const lines = formatSlowest(summarize(report));
+  assert.equal(lines.length, SLOWEST_LIMIT);
+  assert.equal(lines[0], '  1.0s case 0');
+  assert.equal(lines[SLOWEST_LIMIT - 1], '  1.0s case 9');
 });
 
 function fakeChild(pid) {

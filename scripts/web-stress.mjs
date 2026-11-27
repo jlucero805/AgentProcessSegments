@@ -29,7 +29,7 @@ import { buildPinnedEnv } from './e2e/env.mjs';
 import { createSignalCleanup } from './e2e/signal-cleanup.mjs';
 import { parseArgs, USAGE, UsageError } from './web-stress/args.mjs';
 import { checkHogs, startHogs, stopHogs } from './web-stress/hogs.mjs';
-import { ResultsError, formatFailures, formatRunLine, readResults } from './web-stress/results.mjs';
+import { ResultsError, formatFailures, formatRunLine, formatSlowest, readResults } from './web-stress/results.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const WORKSPACE = 'src/web';
@@ -282,6 +282,7 @@ try {
       console.log(
         formatRunLine({ index, runs: options.runs, summary: outcome.summary, elapsedMs }),
       );
+      for (const line of formatSlowest(outcome.summary)) console.log(line);
       continue;
     }
 
@@ -296,6 +297,7 @@ try {
       `run ${index}/${options.runs} FAIL ${(elapsedMs / 1000).toFixed(1)}s  ${reason}`,
     );
     if (outcome.summary !== null) {
+      for (const line of formatSlowest(outcome.summary)) console.log(line);
       for (const line of formatFailures(outcome.summary)) console.log(line);
     } else {
       for (const line of tailLines(outputPath)) console.log(`    ${line}`);

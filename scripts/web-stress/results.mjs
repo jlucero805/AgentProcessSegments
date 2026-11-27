@@ -100,6 +100,13 @@ export function formatRunLine({ index, runs, summary, elapsedMs }) {
   );
 }
 
+/** The slowest cases, one line each, for the per-run detail block. */
+export function formatSlowest(summary, limit = SLOWEST_LIMIT) {
+  return summary.slowest
+    .slice(0, limit)
+    .map((item) => `  ${(item.duration / 1000).toFixed(1)}s ${item.fullName}`);
+}
+
 /** Failure detail lines, capped so one runaway message cannot flood the run. */
 export function formatFailures(summary) {
   const lines = [];

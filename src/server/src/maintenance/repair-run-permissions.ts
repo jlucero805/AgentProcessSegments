@@ -18,8 +18,10 @@ export interface RunRepairResult {
   private: number;
   skipped: number;
   failed: number;
-  /** True when the cutover root has no `runs/` directory at all. */
+  /** True when the cutover root itself does not exist. */
   rootMissing: boolean;
+  /** True when the cutover root has no `runs/` directory at all. */
+  runsMissing: boolean;
 }
 
 export interface RunRepairDeps {
@@ -151,7 +153,11 @@ function inspect(ctx: Context, target: string): void {
   consider(ctx, target, stat.mode);
 }
 
-function result(ctx: Context, rootMissing: boolean): RunRepairResult {
+function result(
+  ctx: Context,
+  rootMissing: boolean,
+  runsMissing: boolean,
+): RunRepairResult {
   return {
     entries: ctx.entries,
     tightened: ctx.tightened,
@@ -159,14 +165,16 @@ function result(ctx: Context, rootMissing: boolean): RunRepairResult {
     skipped: ctx.skipped,
     failed: ctx.failed,
     rootMissing,
+    runsMissing,
   };
 }
 
 /**
- * Tighten the cutover run directories left by an older
- * `deploy/cutover-vps.sh` (D94). Only `<cutoverRoot>/runs` and its direct
- * run directories are considered. This never follows symlinks, deletes
- * anything, reads run contents, or descends into `dist/` or `backup/`.
+ * Tighten the shared cutover root and the run directories left by an older
+ * `deploy/cutover-vps.sh` (D94/D120). Only `<cutoverRoot>`,
+ * `<cutoverRoot>/runs`, and its direct run directories are considered. This
+ * never follows symlinks, deletes anything, reads run contents, or descends
+ * into `dist/` or `backup/`.
  */
 export function repairRunPermissions(
   cutoverRoot: string,
@@ -182,41 +190,71 @@ export function repairRunPermissions(
     chmod: options.chmod ?? chmodSync,
     seen: new Set<string>(),
   };
-  const runs = path.join(path.resolve(cutoverRoot), 'runs');
+  const root = path.resolve(cutoverRoot);
+
+  // The root itself is now a chmod target, so never treat the filesystem
+  // root as a cutover root.
+  if (path.dirname(root) === root) {
+    addError(ctx, root, new Error('refusing to repair the filesystem root'));
+    return result(ctx, false, true);
+  }
 
   let rootStat: Stats;
   try {
-    rootStat = lstatSync(runs);
+    rootStat = lstatSync(root);
   } catch (error) {
-    if (isMissing(error)) return result(ctx, true);
-    addError(ctx, runs, error);
-    return result(ctx, false);
+    if (isMissing(error)) return result(ctx, true, true);
+    addError(ctx, root, error);
+    return result(ctx, false, true);
   }
 
   if (rootStat.isSymbolicLink()) {
-    addError(ctx, runs, new Error('is a symbolic link'));
-    return result(ctx, false);
+    // A relocated root is left for the operator; `runs/` is still scanned
+    // through the link exactly as before.
+    addSkip(ctx, root, 'symlink');
+  } else if (!rootStat.isDirectory()) {
+    addError(ctx, root, new Error('not a directory'));
+    return result(ctx, false, true);
+  } else {
+    // Tighten the root first so an unreadable root can be listed in apply mode.
+    consider(ctx, root, rootStat.mode);
   }
-  if (!rootStat.isDirectory()) {
+
+  const runs = path.join(root, 'runs');
+
+  let runsStat: Stats;
+  try {
+    runsStat = lstatSync(runs);
+  } catch (error) {
+    if (isMissing(error)) return result(ctx, false, true);
+    addError(ctx, runs, error);
+    return result(ctx, false, false);
+  }
+
+  if (runsStat.isSymbolicLink()) {
+    addError(ctx, runs, new Error('is a symbolic link'));
+    return result(ctx, false, false);
+  }
+  if (!runsStat.isDirectory()) {
     addError(ctx, runs, new Error('not a directory'));
-    return result(ctx, false);
+    return result(ctx, false, false);
   }
 
   // Tighten the container first so an unreadable directory can be listed in
-  // apply mode. An existing ancestor above `runs` is never touched.
-  consider(ctx, runs, rootStat.mode);
+  // apply mode. Nothing above the root is touched.
+  consider(ctx, runs, runsStat.mode);
 
   let names: string[];
   try {
     names = readdirSync(runs).sort();
   } catch (error) {
     addError(ctx, runs, error);
-    return result(ctx, false);
+    return result(ctx, false, false);
   }
 
   for (const name of names) {
     inspect(ctx, path.join(runs, name));
   }
 
-  return result(ctx, false);
+  return result(ctx, false, false);
 }

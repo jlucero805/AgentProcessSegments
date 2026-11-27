@@ -393,8 +393,8 @@ npm run repair:permissions              # preview
 npm run repair:permissions -- --apply   # tighten old request workdirs
 npm run repair:upgrades                 # preview old upgrade evidence
 npm run repair:upgrades -- --apply      # tighten old upgrade run dirs/snapshots
-npm run repair:runs                     # preview old cutover evidence
-npm run repair:runs -- --apply          # tighten old cutover run dirs
+npm run repair:runs                     # preview old cutover evidence and root
+npm run repair:runs -- --apply          # tighten old cutover run dirs and root
 ```
 
 The command only tightens the known `requests/` artifacts (`requests/`, each session
@@ -409,10 +409,11 @@ Upgrade run directories and snapshots from an older version are repaired the sam
 cutover runs.
 
 Cutover evidence is repaired separately: `npm run repair:runs` previews and
-`npm run repair:runs -- --apply` sets `~/.aps-cutover/runs` and each direct run directory
-to `0700`. It never follows symlinks, deletes anything, descends into `dist/` or
-`backup/`, reads or changes run contents, or touches `~/.aps-cutover/upgrades`. The
-shared `~/.aps-cutover` root and the `latest` symlink are left alone.
+`npm run repair:runs -- --apply` sets the shared `~/.aps-cutover` root,
+`~/.aps-cutover/runs`, and each direct run directory to `0700`. It never follows
+symlinks, deletes anything, descends into `dist/` or `backup/`, reads or changes run
+contents, or touches `~/.aps-cutover/upgrades` or the `latest` symlink. New installs
+already create the root `0700`; the repair is for an older root.
 
 Do not install the new unit before migrating: it sets explicit `APS_*` paths, so the
 brain would open empty new locations. Existing worktrees move with the data directory; if
@@ -433,9 +434,9 @@ Each cutover leaves evidence and a rollback backup under `~/.aps-cutover/runs/`.
 cutover prunes older runs before it starts and after it finishes; it keeps the newest 10
 runs and anything modified in the last 30 days by default, plus the current run, the
 `latest` target, and the newest successful rollback point. Pass `--no-prune` to opt out.
-Run directories left by an older version are tightened with `npm run repair:runs` (dry
-run first). You can still prune by hand with `npm run prune:cutover -- --dry-run` and then
-`npm run prune:cutover`; see
+Run directories and the shared root left by an older version are tightened with
+`npm run repair:runs` (dry run first). You can still prune by hand with
+`npm run prune:cutover -- --dry-run` and then `npm run prune:cutover`; see
 [`deploy/vps.md`](deploy/vps.md#prune-cutover-run-directories-and-backups).
 
 Once the host is on the Agent Process Segments names, upgrade it with
@@ -708,7 +709,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1449 vitest cases: 1077 server cases across 58 files (state machine,
+`npm test` runs 1456 vitest cases: 1084 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

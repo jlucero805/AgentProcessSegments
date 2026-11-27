@@ -2406,3 +2406,26 @@ cron example, and a test pins both package-script entries.
 **Cost.** Two command names now address one script, and the manual defaults keep more
 evidence than the automatic pass. There is no new scheduling, retention setting,
 classification rule, or dependency, and cutover pruning is unchanged.
+
+## D102. Process parse failures log a position-only reason
+
+**Context.** `ProcessStore.load()` fell back to the derived default policy when
+`process.json` was not valid JSON, but it reported the caught `SyntaxError` to the error
+log and stderr. Recent V8 versions can format that message with a quoted slice of the
+input (`Unexpected token 'a', "…" is not valid JSON`), and `process.json` holds
+operator-authored prompts, markers, and notes. D70 already redacts the same leak for
+`config.json`, whose contents are more sensitive still.
+
+**Decision.** A `JSON.parse` failure in `ProcessStore.load()` is reported through
+`jsonParseReason` from `util/json.ts`: `invalid JSON`, optionally followed by the
+parser's position and line/column, built only from fixed words and the captured digits.
+The sink receives a fresh `Error` with that message and context
+`{ path, reason: 'invalid-json' }`, and `console.warn` prints the same reason instead of
+`String(error)`. The read-failure branch, which reports an fs error such as `EISDIR` with
+a path and errno but no file bytes, keeps its current form. Recovery, the
+backup-before-save copy, and the five-copy prune are unchanged.
+
+**Cost.** The log no longer shows the parser's own wording, so an operator debugging a
+malformed file gets only a position; Node 20-style messages without a position suffix
+collapse to `invalid JSON`. There is no file-content leak, and the preserved
+`process.json.invalid-*` copy still holds the original bytes for inspection.

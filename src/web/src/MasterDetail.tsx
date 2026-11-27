@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { ClarifyChat } from './ClarifyChat';
 import { ACTION_TONES, eventDetail, resultSummary } from './masterView';
 import { Scorecard } from './Scorecard';
+import {
+  DEFAULT_RANGE,
+  ScorecardPeriod,
+  rangeOption,
+  sinceFor,
+  type RangeKey,
+} from './ScorecardPeriod';
 import {
   masterSessionId,
   timeAgo,
@@ -50,19 +57,30 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [latestSummary, setLatestSummary] = useState<Summary | null>(null);
+  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
   const [summaryHistory, setSummaryHistory] = useState<Summary[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus | null>(null);
   const [summaryRunning, setSummaryRunning] = useState(false);
 
+  const currentRequest = useRef({ cellId, range });
+  useEffect(() => {
+    currentRequest.current = { cellId, range };
+  }, [cellId, range]);
+  const loadGeneration = useRef(0);
+
   const load = useCallback(async () => {
+    // A queued poll from a previous cell or period must not start a new request.
+    if (cellId !== currentRequest.current.cellId || range !== currentRequest.current.range) {
+      return;
+    }
+    const generation = ++loadGeneration.current;
     try {
       const [
         globalProcess,
         masterStatus,
         cellList,
         eventList,
-        latest,
         history,
         scorecardStatus,
       ] = await Promise.all([
@@ -70,10 +88,10 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
         api.getMasterStatus(cellId),
         api.getCells(),
         api.getMasterEvents({ cellId, limit: 30 }),
-        api.getLatestSummary(cellId),
-        api.getSummaries({ cellId, limit: 5 }),
+        api.getSummaries({ cellId, limit: 5, since: sinceFor(range) }),
         api.getSummaryStatus(cellId),
       ]);
+      if (generation !== loadGeneration.current) return;
       const selected = cellList.find((item) => item.id === cellId) ?? null;
       const effective = selected?.process ?? {
         version: globalProcess.version,
@@ -85,13 +103,16 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       setCells(cellList);
       setEvents(eventList);
       setLastResult(masterStatus.lastResult);
-      setLatestSummary(latest);
       setSummaryHistory(history);
+      setSummaryLoading(false);
       setSummaryStatus(scorecardStatus);
     } catch (error) {
-      onError(describeError(error));
+      if (generation === loadGeneration.current) {
+        setSummaryLoading(false);
+        onError(describeError(error));
+      }
     }
-  }, [cellId, onError]);
+  }, [cellId, onError, range]);
 
   useEffect(() => {
     void (async () => {
@@ -118,11 +139,18 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
     }
   }
 
+  function changeRange(next: RangeKey) {
+    if (next === range) return;
+    setRange(next);
+    setSummaryHistory([]);
+    setSummaryLoading(true);
+  }
+
   async function runSummary() {
     if (!cellId) return;
     setSummaryRunning(true);
     try {
-      setLatestSummary(await api.runSummary(cellId));
+      await api.runSummary(cellId);
       await load();
     } catch (error) {
       onError(describeError(error));
@@ -132,6 +160,8 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   }
 
   const enabled = process?.segments.filter((segment) => segment.enabled) ?? [];
+  const latestSummary = summaryHistory[0] ?? null;
+  const rangeDetails = rangeOption(range);
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl">
@@ -272,7 +302,19 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                   </p>
                 ) : null}
 
-                {latestSummary ? (
+                <div className="space-y-1">
+                  <ScorecardPeriod value={range} onChange={changeRange} />
+                  <p className="text-[10px] text-zinc-600">
+                    Period filters by generation time; each report still covers its own
+                    configured window.
+                  </p>
+                </div>
+
+                {summaryLoading ? (
+                  <div className="flex h-20 items-center justify-center gap-2 text-sm text-zinc-500">
+                    <Spinner /> Loading scorecards...
+                  </div>
+                ) : latestSummary ? (
                   <>
                     <p className="text-[11px] text-zinc-600">
                       Generated {timeAgo(latestSummary.createdAt)} ago · window{' '}
@@ -302,8 +344,9 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                   </>
                 ) : (
                   <p className="text-sm text-zinc-500">
-                    No scorecard yet. The scheduler writes one for this cell on its cadence,
-                    or you can run one now.
+                    {range === 'all'
+                      ? 'No scorecard yet. The scheduler writes one for this cell on its cadence, or you can run one now.'
+                      : `No scorecards in ${rangeDetails.spellout}. Choose a longer period, or run one now.`}
                   </p>
                 )}
               </Card>

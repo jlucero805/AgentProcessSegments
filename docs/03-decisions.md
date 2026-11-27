@@ -2535,3 +2535,35 @@ with many cells and 25 reports each still returns a multi-megabyte payload. Ther
 migration or new index: `since` uses `idx_cell_summaries_created` and retention bounds
 the scanned rows. Grouped paging beyond the first page, caching the cell list, and
 reducing the focused view's requests remain separate work.
+
+## D107. The Cell master drawer scopes its latest five reports by period
+
+**Context.** D92 added a generation-time period filter to the Scorecards page and
+deliberately left the Cell master drawer at the unfiltered latest five. Operators asked
+for the same control in the drawer so they can widen from the recent window and see older
+reports without leaving the drawer, while keeping the drawer a quick glance rather than a
+second history browser.
+
+**Decision.** The drawer reuses the page's range options through one shared
+`ScorecardPeriod` module: `24h`, `72h` (default), `7d`, `30d`, and `All`. The selected
+period scopes the whole Scorecard card, not just **Earlier scorecards**. The drawer asks
+for `GET /api/summaries` with `limit=5` and an inclusive `since` (omitted for **All**), so
+it shows at most the newest five reports generated inside the period. The expanded report
+comes from the first row of that filtered list; the drawer stops calling
+`/api/summaries/latest` so an out-of-period report cannot bypass the control. There is no
+paging, probe row, or larger limit in the drawer; the Scorecards page remains the history
+browser. A range change clears the previous list and shows a small loading state, and a
+request token discards a late response for an older cell or period. The choice is not
+persisted across drawer opens. **All** is bounded by `retention.cellSummariesDays`, which
+always keeps the newest report per cell. This supersedes D92's "the drawer is unchanged"
+sentence.
+
+**Why not keep the unfiltered latest card above a filtered history.** A latest report
+generated outside the selected period would contradict the control and make the empty
+state ambiguous. The filtered list already contains the newest row, so the separate
+`/latest` call is redundant here.
+
+**Cost.** The drawer makes one summaries request per load with the existing index-backed
+`since` predicate; there is no schema, API, scheduler, retention, or report-content
+change. The drawer cannot show more than five reports, by design. The shared control
+touches the Scorecards page only to move its existing markup and range data.

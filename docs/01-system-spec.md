@@ -425,8 +425,9 @@ never runs `VACUUM`; SQLite reuses freed pages.
 `content` (markdown), `stats_json`, `created_at`. Indexes:
 `idx_cell_summaries_cell_created` for per-cell history lookups and
 `idx_cell_summaries_created` for retention cutoffs. One row is written per generated
-scorecard; the scheduler and the drawer read only the newest row per cell, and the
-drawer requests the latest five. The Scorecards page reads history with an inclusive
+scorecard; the scheduler reads only the newest row per cell. The drawer requests the
+newest five, optionally scoped by an inclusive generation-time `since` (default 72 hours
+in the UI), and shows at most five. The Scorecards page reads history with an inclusive
 generation-time lower bound (`since`) and a tie-safe `(created_at, id)` keyset cursor
 (`before`/`beforeId`), ordered `created_at DESC, id DESC`. It defaults to the last 72
 hours and requests 25 reports per cell plus one probe row. No schema change is needed for

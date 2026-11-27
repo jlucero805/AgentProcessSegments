@@ -111,11 +111,19 @@ KB but cannot mutate requests.
 With a cell selected in the **Cell master** drawer, the **Scorecard** card shows the most
 recent report for that cell: a short markdown summary, throughput, pipeline health,
 automation activity, risks, and a comparison with the prior window. It also shows when
-the report was generated and the window it covers. Expand **Earlier scorecards** for the
-last five.
+the report was generated and the window it covers. The card has the same generation-time
+period control as the **Scorecards** page: it defaults to **72h** and can be widened to
+**24h**, **7d**, **30d**, or **All**. The card shows at most the newest five reports in
+the selected period; the newest is expanded and up to four older in-range reports are
+under **Earlier scorecards**. The drawer does not page: use the **Scorecards** page to go
+beyond five.
 
 - **Run scorecard now** generates one immediately. It is allowed even when automatic
   scorecards are disabled.
+- The drawer's period filters by when a report was generated, not by the window the
+  report covers; each report still shows its own configured trailing window. Widening the
+  period is how you reach reports older than 72 hours. A report generated outside the
+  selected period is not shown, even when it is the cell's newest overall.
 - The sidebar's **Scorecards** page browses the same persisted reports. A period control
   defaults to **72h** and can be widened to **24h**, **7d**, **30d**, or **All**. The
   period filters by when a report was generated, not by the window the report covers;
@@ -128,9 +136,9 @@ last five.
   period.
 - Old reports expire under the Config page's **Scorecard retention** window
   (`retention.cellSummariesDays`, default 90 days, `0` keeps history). **All** is bounded
-  by that window. The newest report per cell is always kept, so **Earlier scorecards** and
-  the next scheduled run stay intact even when a cell has no report in the selected
-  period.
+  by that window. The newest report per cell is always kept, so the drawer can still
+  show it under **All**, and the next scheduled run stays intact even when a cell has no
+  report in the selected period.
 - The schedule lives on the Config page: enable/disable, **Every (minutes)** (default
   360), **Window (minutes)** (default 360), and the report instructions. Save it with
   **Save schedule**.

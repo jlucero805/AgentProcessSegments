@@ -222,6 +222,7 @@ function installFetch(
   transcript: unknown[] = [],
   cells: CellDetail[] = [],
   budgetAlerts: BudgetAlert[] = [],
+  feedReports: unknown[] = [],
 ) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -325,6 +326,9 @@ function installFetch(
     }
     if (url.startsWith('/api/summaries/latest-per-cell')) return jsonResponse([]);
     if (url.startsWith('/api/summaries/latest')) return jsonResponse(null);
+    if (url === '/api/summaries/feed' || url.startsWith('/api/summaries/feed?')) {
+      return jsonResponse({ reports: feedReports, hasMore: false, nextCursor: null });
+    }
     if (url.startsWith('/api/summaries')) return jsonResponse([]);
     if (url.startsWith('/api/usage')) return jsonResponse(makeUsageResponse());
     if (url === `/api/requests/${request.id}`) return jsonResponse(request);
@@ -528,6 +532,61 @@ describe('App', () => {
       await screen.findByText('No scorecards in the last 72 hours'),
     ).toBeInTheDocument();
     expect(window.location.search).toContain('page=scorecards');
+  });
+
+  it('focuses a cell from the flat feed and records it like the sidebar', async () => {
+    window.history.replaceState(null, '', '/?page=scorecards');
+    const report = {
+      id: 's1',
+      cellId: 'c1',
+      windowStart: 1_000,
+      windowEnd: 2_000,
+      windowMinutes: 360,
+      content: 'Alpha flat report',
+      stats: {},
+      createdAt: 2_000,
+    };
+    const fetchMock = installFetch(
+      makeRequest({ id: 'a', title: 'Url card' }),
+      [],
+      [makeCell('c1', 'Alpha')],
+      [],
+      [report],
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Scorecards' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Flat' }));
+    fireEvent.click(
+      await screen.findByRole(
+        'button',
+        { name: 'Focus Alpha' },
+        { timeout: ASYNC_TIMEOUT_MS },
+      ),
+    );
+
+    await waitFor(() => {
+      expect(window.location.search).toContain('page=scorecards');
+      expect(window.location.search).toContain('cell=c1');
+    });
+    expect(window.location.search).not.toContain('master=1');
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Flat' })).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => {
+          const parsed = new URL(String(url), 'http://localhost');
+          return (
+            parsed.pathname === '/api/summaries' &&
+            parsed.searchParams.get('cellId') === 'c1'
+          );
+        }),
+      ).toBe(true),
+    );
   });
 
   it('shares budget alert acknowledgement between the banner and the usage page', async () => {

@@ -127,6 +127,12 @@ export function App() {
     setCells((current) => current.map((item) => (item.id === cell.id ? cell : item)));
   }, []);
 
+  const selectCell = useCallback((id: string | null) => {
+    setCellId(id);
+    if (!id) setMasterOpen(false);
+    setNavOpen(false);
+  }, []);
+
   useEffect(() => {
     void (async () => {
       await loadCells();
@@ -329,11 +335,7 @@ export function App() {
           <CellBar
             cells={cells}
             value={cellId}
-            onChange={(id) => {
-              setCellId(id);
-              if (!id) setMasterOpen(false);
-              setNavOpen(false);
-            }}
+            onChange={selectCell}
             onCreate={() => {
               setEditingCell(null);
               setCellModalOpen(true);
@@ -509,7 +511,12 @@ export function App() {
             <UsagePage onError={setError} budgetFeed={budgetFeed} />
           ) : null}
           {page === 'scorecards' ? (
-            <ScorecardsPage key={cellId ?? 'all'} cellId={cellId} onError={setError} />
+            <ScorecardsPage
+              key={cellId ?? 'all'}
+              cellId={cellId}
+              onSelectCell={selectCell}
+              onError={setError}
+            />
           ) : null}
           {page === 'config' ? (
             <ConfigPage

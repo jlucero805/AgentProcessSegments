@@ -141,7 +141,9 @@ beyond five.
   selected period. **All cells** can switch between **Grouped** (the default, the
   latest-per-cell view) and **Flat**, one chronological cross-cell stream newest first.
   **Flat** loads 25 reports per page and **Load more** appends the next page until the
-  period is exhausted; the period, including Custom, filters both layouts by report
+  period is exhausted; each report's cell name is a button that selects that cell, the
+  same as the sidebar, and switches to that cell's history. The period, including Custom,
+  filters both layouts by report
   generation time.
 - Old reports expire under the Config page's **Scorecard retention** window
   (`retention.cellSummariesDays`, default 90 days, `0` keeps history). **All** is bounded

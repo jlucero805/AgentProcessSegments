@@ -266,7 +266,9 @@ built and vended by the brain; real-CLI verification is still pending.
   cell's newest report in one `GET /api/summaries/latest-per-cell` request with a
   `hasOlder` flag, or shows them as one chronological cross-cell **Flat** feed with
   server-side **Load more** paging, without fetching one summaries request per cell, and
-  the page follows the sidebar cell filter. The Config page edits the schedule/prompt.
+  the page follows the sidebar cell filter. A **Flat** report's cell name selects that
+  cell through the same filter and URL as the sidebar. The Config page edits the
+  schedule/prompt.
   `retention.cellSummariesDays` prunes old reports while always keeping the newest per
   cell and bounds the page's **All** period. See
   `docs/08-user-workflows.md`.
@@ -471,7 +473,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1430 vitest cases (one environmental root-skip): 1063 server across 58 files and 367 web across 28 files,
+- 1432 vitest cases (one environmental root-skip): 1063 server across 58 files and 369 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

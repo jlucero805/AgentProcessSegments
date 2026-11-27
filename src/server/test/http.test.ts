@@ -2427,6 +2427,7 @@ describe('http api', () => {
       const before = await call('GET', '/api/process');
       expect(before.status).toBe(200);
       expect(before.json().preservedPath).toBeNull();
+      expect(before.json().preservedCopies).toEqual([]);
       expect(JSON.stringify(before.json())).not.toContain('PROCESS-SENTINEL');
 
       const segments = before.json().segments;
@@ -2436,19 +2437,37 @@ describe('http api', () => {
       expect(typeof preservedPath).toBe('string');
       expect(preservedPath).not.toBe(h.config.processPath);
       expect(preservedPath.startsWith(`${h.config.processPath}.invalid-`)).toBe(true);
+      expect(patched.json().preservedCopies).toEqual([preservedPath]);
       expect(readFileSync(preservedPath, 'utf8')).toBe(original);
       expect(JSON.stringify(patched.json())).not.toContain('PROCESS-SENTINEL');
 
       const after = await call('GET', '/api/process');
       expect(after.json().preservedPath).toBe(preservedPath);
+      expect(after.json().preservedCopies).toEqual([preservedPath]);
       expect(JSON.stringify(after.json())).not.toContain('PROCESS-SENTINEL');
 
       // Later saves in the same process reuse the same copy and keep naming it.
       const again = await call('PATCH', '/api/process', { segments });
       expect(again.json().preservedPath).toBe(preservedPath);
+      expect(again.json().preservedCopies).toEqual([preservedPath]);
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('lists existing preserved process copies before any save in this process', async () => {
+    const { h } = await makeApp();
+    const base = `${h.config.processPath}.invalid-2026-01-01T00-00-00-000Z`;
+    writeFileSync(`${base}-2`, 'older-preserved-prompt');
+    writeFileSync(base, 'base-preserved-prompt');
+    writeFileSync(`${base}-10`, 'newer-preserved-prompt');
+
+    const response = await call('GET', '/api/process');
+    expect(response.status).toBe(200);
+    expect(response.json().preservedPath).toBeNull();
+    expect(response.json().preservedCopies).toEqual([`${base}-10`, `${base}-2`, base]);
+    expect(response.json().preservedCopies).not.toContain(h.config.processPath);
+    expect(JSON.stringify(response.json())).not.toContain('preserved-prompt');
   });
 
   it('reports master status, runs a cell cycle, and lists events', async () => {

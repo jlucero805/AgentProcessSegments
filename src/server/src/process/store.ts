@@ -71,6 +71,15 @@ export class ProcessStore {
     return this.preservedFilePath;
   }
 
+  /**
+   * Existing preserved copies next to this process file, newest first. Paths
+   * only; a missing or unreadable directory has no copies. The copy this process
+   * made is not moved to the front here; the Config page merges it.
+   */
+  preservedCopies(): string[] {
+    return listPreservedCopies(this.path);
+  }
+
   private load(): ProcessConfig | null {
     this.preserveSource = false;
 

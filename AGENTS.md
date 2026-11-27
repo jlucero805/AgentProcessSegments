@@ -263,8 +263,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
   keeps at most the five newest `process.json.invalid-*` copies (pruning older ones after
   a successful save; a prune failure reports `process.pruneFailed` without refusing the
   save), and reports `process.backupFailed` for a failed copy. `GET/PATCH /api/process`
-  return this process's copy as `preservedPath`, and the global process editor shows it
-  after the preserving save. Env still owns paths, ports, and the harness.
+  return this process's copy as `preservedPath` and every existing copy as
+  `preservedCopies` (newest first), and the global process editor lists them after the
+  preserving save and after a restart. Env still owns paths, ports, and the harness.
 - **APS is canonical, SBOX is legacy.** Read every runtime variable through
   `readEnv()` in `src/server/src/env.ts`: `APS_*` wins when defined (including an empty
   string), then the old `SBOX_*` alias. Resolve default paths through `loadConfig`; it

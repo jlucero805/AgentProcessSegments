@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import {
   DEFAULT_BUDGET_SETTINGS,
@@ -65,7 +65,7 @@ import {
 } from './usage/settings.js';
 import { writePrivateFile } from './util/files.js';
 import { jsonParseReason } from './util/json.js';
-import { listPreservedCopies } from './util/preserved-copies.js';
+import { createPreservedCopy, listPreservedCopies } from './util/preserved-copies.js';
 
 export const DEFAULT_MASTER_PROMPT = [
   'You are the cell master reviewing an implementation request.',
@@ -952,14 +952,9 @@ export class SettingsStore {
       throw error;
     }
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    let backup = `${this.path}.invalid-${stamp}`;
-    for (let suffix = 1; existsSync(backup); suffix += 1) {
-      backup = `${this.path}.invalid-${stamp}-${suffix}`;
-    }
-
+    let backup: string;
     try {
-      writePrivateFile(backup, raw);
+      backup = createPreservedCopy(this.path, raw);
     } catch (error) {
       this.errors?.error('settings.backupFailed', error, { path: this.path });
       throw error;

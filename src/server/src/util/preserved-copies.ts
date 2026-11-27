@@ -1,5 +1,18 @@
-import { readdirSync, type Dirent } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+  type Dirent,
+} from 'node:fs';
 import path from 'node:path';
+
+/** Options for {@link createPreservedCopy}. */
+export interface PreservedCopyCreateOptions {
+  /** Clock used for the name; injectable so tests need no fake timers. */
+  now?: Date;
+}
 
 /** Options for {@link listPreservedCopies}. */
 export interface PreservedCopyListOptions {
@@ -21,6 +34,49 @@ export function preservedCopyPrefix(file: string): string {
 function preservedCopyOrder(name: string, prefix: string): [string, number] {
   const match = /^(.*?)(?:-(\d+))?$/.exec(name.slice(prefix.length));
   return [match?.[1] ?? name.slice(prefix.length), match?.[2] ? Number(match[2]) : 0];
+}
+
+/** Best-effort removal of a partially written copy; a missing path is ignored. */
+function removeQuietly(file: string): void {
+  try {
+    unlinkSync(file);
+  } catch {
+    // The candidate may not exist, or may already be gone.
+  }
+}
+
+/**
+ * Write `contents` beside `file` as the next `<file>.invalid-<UTC>[-N]` copy.
+ * Creation is exclusive, so an existing copy is never overwritten even when
+ * another writer picks the same stamp. A failed create removes its partial file.
+ */
+export function createPreservedCopy(
+  file: string,
+  contents: string,
+  options: PreservedCopyCreateOptions = {},
+): string {
+  mkdirSync(path.dirname(file), { recursive: true });
+  const stamp = (options.now ?? new Date()).toISOString().replace(/[:.]/g, '-');
+  const base = `${file}.invalid-${stamp}`;
+
+  for (let suffix = 0; ; suffix += 1) {
+    const candidate = suffix === 0 ? base : `${base}-${suffix}`;
+    try {
+      writeFileSync(candidate, contents, { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      removeQuietly(candidate);
+      throw error;
+    }
+
+    try {
+      chmodSync(candidate, 0o600);
+    } catch (error) {
+      removeQuietly(candidate);
+      throw error;
+    }
+    return candidate;
+  }
 }
 
 /**

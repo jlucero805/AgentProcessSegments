@@ -1,12 +1,15 @@
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createPreservedCopy,
   listPreservedCopies,
   preservedCopyPrefix,
 } from '../src/util/preserved-copies.js';
@@ -84,5 +87,56 @@ describe('listPreservedCopies', () => {
     expect(listPreservedCopies(path.join(parent, 'config.json'), { onError })).toEqual([]);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(existsSync(parent)).toBe(true);
+  });
+});
+
+describe('createPreservedCopy', () => {
+  const NOW = new Date('2026-02-03T04:05:06.789Z');
+  const STAMP = '2026-02-03T04-05-06-789Z';
+
+  it('writes the exact bytes owner-only under the frozen stamp', () => {
+    const { file } = fixture();
+    const copy = createPreservedCopy(file, '{original\n', { now: NOW });
+
+    expect(copy).toBe(`${file}.invalid-${STAMP}`);
+    expect(readFileSync(copy, 'utf8')).toBe('{original\n');
+    if (process.platform !== 'win32') {
+      expect(statSync(copy).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it('skips every occupied suffix instead of overwriting', () => {
+    const { file } = fixture();
+    const base = `${file}.invalid-${STAMP}`;
+    writeFileSync(base, 'base\n');
+    writeFileSync(`${base}-1`, 'one\n');
+
+    const copy = createPreservedCopy(file, 'new\n', { now: NOW });
+
+    expect(copy).toBe(`${base}-2`);
+    expect(readFileSync(base, 'utf8')).toBe('base\n');
+    expect(readFileSync(`${base}-1`, 'utf8')).toBe('one\n');
+    expect(readFileSync(copy, 'utf8')).toBe('new\n');
+  });
+
+  it('lists the new copy first when pinned as newest', () => {
+    const { file } = fixture();
+    const older = `${file}.invalid-2025-12-31T23-59-59-999Z`;
+    writeFileSync(older, 'older\n');
+
+    const copy = createPreservedCopy(file, 'newer\n', { now: NOW });
+
+    expect(listPreservedCopies(file, { newest: copy })).toEqual([copy, older]);
+  });
+
+  it('propagates a create failure without leaving a copy', () => {
+    const { dir } = fixture();
+    const parent = path.join(dir, 'not-a-directory');
+    writeFileSync(parent, 'x');
+    const file = path.join(parent, 'config.json');
+
+    expect(() => createPreservedCopy(file, 'x', { now: NOW })).toThrow();
+    expect(existsSync(parent)).toBe(true);
+    expect(existsSync(`${file}.invalid-${STAMP}`)).toBe(false);
   });
 });

@@ -2293,7 +2293,9 @@ syscall filtering) would break the product.
 and `UMask=0077`. D114 later added `PrivateDevices=yes` and `ProtectProc=invisible`; the
 unit now scores 3.8 OK on systemd 259.
 `scripts/verify-systemd-unit.mjs` (already the `lint:unit` step) asserts the exact
-`[Service]` values, rejects the known-breaking values, and runs
+reviewed `[Service]` values, rejects the known-breaking values in any accepted boolean
+spelling after normalizing systemd's `0/1`, `no/yes`, `n/y`, `false/true`, `f/t`, and
+`off/on` forms, and runs
 `systemd-analyze security --offline=yes --user --threshold=48`, so an exposure above 4.8
 fails `npm run lint`. The directive map is the primary guard; the ceiling also
 catches new checks in later systemd versions. D114 rejected `ProtectHome=read-only`,
@@ -2815,7 +2817,8 @@ candidates resolved as:
 
 Adopt `PrivateDevices=yes` and `ProtectProc=invisible` in the unit and in
 `HARDENING_REQUIRED`; reject `ProcSubset=pid`, `ProtectSystem=strict`, and
-`ProtectHome=read-only` in `HARDENING_FORBIDDEN` with every accepted spelling; leave
+`ProtectHome` booleans with `read-only`/`tmpfs` in `HARDENING_FORBIDDEN` by normalizing
+every accepted boolean spelling; leave
 `RestrictNamespaces` and `SystemCallFilter` out of both maps until the Claude follow-up.
 The measured exposure is **3.8**, so `SECURITY_THRESHOLD` drops from 55 to **48** (the
 smallest tenth at least 1.0 above the score), and the unit gate now rejects more than one

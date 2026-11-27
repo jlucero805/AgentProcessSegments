@@ -656,7 +656,8 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     exposure ceiling), and
     `markdownlint-cli2 "**/*.md"`, so an ESLint or ShellCheck warning, a shell syntax
     error, a workflow error, a non-zero verify exit, any verify diagnostic naming the
-    unit, a missing, changed, or forbidden hardening directive, a duplicate
+    unit, a missing, changed, or forbidden hardening directive (forbidden boolean
+    directives in any accepted spelling), a duplicate
     list-directive assignment, an exposure level above 4.8, or a Markdown finding fails
     the gate just like an error. The unit gate
     treats diagnostics as fatal because `systemd-analyze` exits 0 for unknown keys and

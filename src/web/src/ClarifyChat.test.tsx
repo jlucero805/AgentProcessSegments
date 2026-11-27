@@ -22,6 +22,18 @@ function seedClaim(requestId: string, text: string, claimedAt: number, id = 'cla
   );
 }
 
+function seedDirectClaim(
+  requestId: string,
+  text: string,
+  claimedAt: number,
+  id = 'direct-1',
+): void {
+  window.localStorage.setItem(
+    inflightKey(`aps-queue:${requestId}`),
+    JSON.stringify([{ id, text, claimedAt, kind: 'direct' }]),
+  );
+}
+
 function doneWithUser(text: string, ts: number): string {
   return `{"t":"done","request":null,"transcript":[{"role":"you","kind":"text","text":${JSON.stringify(
     text,
@@ -1304,6 +1316,493 @@ describe('ClarifyChat crash-safe queue claims', () => {
     );
     expect(window.localStorage.getItem(inflightKey('aps-queue:req-clear-marker'))).toBeNull();
     expect(screen.queryByText('1 queued')).not.toBeInTheDocument();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+});
+
+describe('ClarifyChat crash-safe direct sends', () => {
+  it('recovers a direct send when the tab closes before the send is accepted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          // Hold the POST open so the claim is written but never accepted.
+          return new Promise<Response>(() => {});
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    const first = render(
+      <ClarifyChat requestId="req-direct-crash" started commands={[]} onError={() => {}} />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    fireEvent.change(composer, { target: { value: 'lost direct message' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    await waitFor(() => {
+      const raw = window.localStorage.getItem(inflightKey('aps-queue:req-direct-crash'));
+      expect(raw).not.toBeNull();
+      expect(JSON.parse(raw!)).toEqual([
+        expect.objectContaining({ text: 'lost direct message', kind: 'direct' }),
+      ]);
+    });
+    expect(window.localStorage.getItem('aps-queue:req-direct-crash')).toBeNull();
+    first.unmount();
+
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([
+            '{"t":"text","text":"recovered direct reply"}\n',
+            doneEvent('recovered direct reply'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-direct-crash" started commands={[]} onError={() => {}} />);
+
+    await waitFor(() => expect(sendBodies).toEqual(['lost direct message']), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(
+      await screen.findByText('recovered direct reply', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-crash'))).toBeNull();
+    expect(window.localStorage.getItem('aps-queue:req-direct-crash')).toBeNull();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('does not resend a direct send the transcript already proves delivered', async () => {
+    const now = Date.now();
+    seedDirectClaim('req-direct-delivered', 'already sent directly', now);
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({
+            started: true,
+            active: false,
+            transcript: [{ role: 'you', kind: 'text', text: 'already sent directly', ts: now + 5 }],
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat requestId="req-direct-delivered" started commands={[]} onError={() => {}} />,
+    );
+
+    await waitFor(
+      () =>
+        expect(
+          window.localStorage.getItem(inflightKey('aps-queue:req-direct-delivered')),
+        ).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(sendBodies).toEqual([]);
+    expect(window.localStorage.getItem('aps-queue:req-direct-delivered')).toBeNull();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('defers a direct send until a live turn ends and drops it when done proves delivery', async () => {
+    const live = controllableStream();
+    const now = Date.now();
+    const sendBodies: string[] = [];
+    seedDirectClaim('req-direct-live', 'sent before the crash', now);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-direct-live" started commands={[]} onError={() => {}} />);
+    expect(
+      await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(
+      window.localStorage.getItem(inflightKey('aps-queue:req-direct-live')),
+    ).not.toBeNull();
+    expect(sendBodies).toEqual([]);
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneWithUser('sent before the crash', now + 5)));
+      live.controller.close();
+    });
+
+    await waitFor(
+      () => expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-live'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(sendBodies).toEqual([]);
+    expect(window.localStorage.getItem('aps-queue:req-direct-live')).toBeNull();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('requeues a direct send the live turn did not deliver and sends it once', async () => {
+    const live = controllableStream();
+    const now = Date.now();
+    const sendBodies: string[] = [];
+    seedDirectClaim('req-direct-live-miss', 'retry after live', now);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([
+            '{"t":"text","text":"recovered after live"}\n',
+            doneEvent('recovered after live'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat requestId="req-direct-live-miss" started commands={[]} onError={() => {}} />,
+    );
+    expect(
+      await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('live finished')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sendBodies).toEqual(['retry after live']), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(
+      await screen.findByText('recovered after live', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(
+      window.localStorage.getItem(inflightKey('aps-queue:req-direct-live-miss')),
+    ).toBeNull();
+    expect(window.localStorage.getItem('aps-queue:req-direct-live-miss')).toBeNull();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('keeps a direct-send marker across a retryable failure and reuses it on retry', async () => {
+    let attempts = 0;
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const sends: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          const body = JSON.parse(String(init?.body)) as { text: string };
+          sends.push(body.text);
+          attempts += 1;
+          if (attempts === 1) {
+            return jsonResponse({ error: 'internal', message: 'send failed' }, 500);
+          }
+          return held;
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat
+        requestId="req-direct-retry"
+        started
+        commands={[]}
+        onError={() => {}}
+        inlineErrors
+      />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    fireEvent.change(composer, { target: { value: 'direct retry' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    expect(
+      await screen.findByText('send failed', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(sends).toEqual(['direct retry']);
+    const before = window.localStorage.getItem(inflightKey('aps-queue:req-direct-retry'));
+    expect(JSON.parse(before!)).toEqual([
+      expect.objectContaining({ text: 'direct retry', kind: 'direct' }),
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(sends).toEqual(['direct retry', 'direct retry']), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    // A retry with an owned claim reuses its marker instead of adding a second one.
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-retry'))).toBe(before);
+
+    await act(async () => {
+      release(
+        ndjsonResponse(['{"t":"text","text":"retried direct"}\n', doneEvent('retried direct')]),
+      );
+    });
+    expect(
+      await screen.findByText('retried direct', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-retry'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('clears a rejected direct send and journals a fresh marker when retried', async () => {
+    let attempts = 0;
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          attempts += 1;
+          if (attempts === 1) {
+            return jsonResponse({ error: 'spend_cap', message: 'Spend cap reached' }, 409);
+          }
+          return held;
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat
+        requestId="req-direct-rejected"
+        started
+        commands={[]}
+        onError={() => {}}
+        inlineErrors
+      />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    fireEvent.change(composer, { target: { value: 'too expensive' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    expect(
+      await screen.findByText('Spend cap reached', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-rejected'))).toBeNull();
+    expect(window.localStorage.getItem('aps-queue:req-direct-rejected')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      const raw = window.localStorage.getItem(inflightKey('aps-queue:req-direct-rejected'));
+      expect(raw).not.toBeNull();
+      expect(JSON.parse(raw!)).toEqual([
+        expect.objectContaining({ text: 'too expensive', kind: 'direct' }),
+      ]);
+    });
+
+    await act(async () => {
+      release(ndjsonResponse(['{"t":"text","text":"paid"}\n', doneEvent('paid')]));
+    });
+    expect(await screen.findByText('paid', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(
+          window.localStorage.getItem(inflightKey('aps-queue:req-direct-rejected')),
+        ).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('requeues a direct send that races a live turn and drains it once', async () => {
+    const live = controllableStream();
+    const sends: string[] = [];
+    let clarifyCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify/stream')) {
+          return new Response(live.stream, {
+            status: 200,
+            headers: { 'content-type': 'application/x-ndjson' },
+          });
+        }
+        if (url.endsWith('/clarify')) {
+          clarifyCalls += 1;
+          return clarifyCalls === 1
+            ? jsonResponse({ started: true, active: false, transcript: [] })
+            : jsonResponse({ started: true, active: true, transcript: [] });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sends.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          if (sends.length === 1) {
+            return jsonResponse(
+              { error: 'turn_active', message: 'A turn is already running.' },
+              409,
+            );
+          }
+          return ndjsonResponse([
+            '{"t":"text","text":"direct delivered"}\n',
+            doneEvent('direct delivered'),
+          ]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(
+      <ClarifyChat requestId="req-direct-race" started commands={[]} onError={() => {}} inlineErrors />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    fireEvent.change(composer, { target: { value: 'race direct' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    expect(
+      await screen.findByText(WORKING_BANNER, undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(window.localStorage.getItem('aps-queue:req-direct-race')).toBe(
+          JSON.stringify(['race direct']),
+        ),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-race'))).toBeNull();
+
+    await act(async () => {
+      live.controller.enqueue(encoder.encode(doneEvent('live finished')));
+      live.controller.close();
+    });
+
+    await waitFor(() => expect(sends).toEqual(['race direct', 'race direct']), {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    expect(
+      await screen.findByText('direct delivered', undefined, { timeout: ASYNC_TIMEOUT_MS }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem('aps-queue:req-direct-race')).toBeNull();
+    expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-race'))).toBeNull();
+  }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
+
+  it('clears a direct-send marker when the user stops the turn', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({ started: true, active: false, transcript: [] });
+        }
+        if (url.endsWith('/clarify/stop')) {
+          return jsonResponse({ stopped: true });
+        }
+        if (url.endsWith('/clarify/send')) {
+          return new Promise<Response>(() => {});
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    const first = render(
+      <ClarifyChat requestId="req-direct-stop" started commands={[]} onError={() => {}} />,
+    );
+    const composer = await screen.findByPlaceholderText('Ask a question...', undefined, {
+      timeout: ASYNC_TIMEOUT_MS,
+    });
+    fireEvent.change(composer, { target: { value: 'discard me' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    await waitFor(
+      () => expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-stop'))).not.toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+
+    await waitFor(
+      () =>
+        expect(window.localStorage.getItem(inflightKey('aps-queue:req-direct-stop'))).toBeNull(),
+      { timeout: ASYNC_TIMEOUT_MS },
+    );
+    expect(window.localStorage.getItem('aps-queue:req-direct-stop')).toBeNull();
+    first.unmount();
+
+    const sendBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/clarify')) {
+          return jsonResponse({
+            started: true,
+            active: false,
+            transcript: [{ role: 'agent', kind: 'text', text: 'hydrated', ts: 1 }],
+          });
+        }
+        if (url.endsWith('/clarify/send')) {
+          sendBodies.push((JSON.parse(String(init?.body)) as { text: string }).text);
+          return ndjsonResponse([doneEvent('unexpected')]);
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    render(<ClarifyChat requestId="req-direct-stop" started commands={[]} onError={() => {}} />);
+    expect(await screen.findByText('hydrated', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
+    expect(sendBodies).toEqual([]);
   }, CLARIFY_CHAT_TEST_TIMEOUT_MS);
 });
 

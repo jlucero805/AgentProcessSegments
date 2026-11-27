@@ -230,10 +230,12 @@ built and vended by the brain; real-CLI verification is still pending.
   mid-turn does not push it into the running turn; `POST /clarify/send` refuses with
   `409 turn_active` while a turn runs and the client requeues the text. Queued items
   are claimed under a per-request Web Lock before sending, and tabs mirror the queue
-  through `storage` events, so two tabs deliver each message once. A claimed item is
-  journaled under `aps-queue-inflight:<id>` before it leaves the queue; if the tab dies
-  before the send is accepted, the next mount proves delivery from the transcript or
-  puts the item back at the front. A queue left under the pre-rename
+  through `storage` events, so two tabs deliver each message once. Every outbound send is
+  journaled under `aps-queue-inflight:<id>` before its POST: a queued item carries
+  `kind: "queue"` and a direct composer send journals `kind: "direct"` without touching
+  the queue. If the tab dies before the send is accepted, the next mount proves delivery
+  from the transcript or puts the text back at the front. Queue and direct claims
+  reconcile separately. A queue left under the pre-rename
   `sbox-queue:<id>` key is migrated on first load and the legacy key is removed. Stop
   calls `POST /clarify/stop`, kills the child, saves the partial transcript, keeps the
   saved session for the next message, and clears the queue so the human can interject.
@@ -462,7 +464,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1372 vitest cases (one environmental root-skip): 1046 server across 57 files and 326 web across 28 files,
+- 1388 vitest cases (one environmental root-skip): 1046 server across 57 files and 342 web across 28 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

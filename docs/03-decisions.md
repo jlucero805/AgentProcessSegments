@@ -356,24 +356,30 @@ or HTTPS); without it the queue still drains inside one tab but two tabs can del
 same item twice. Storage failures are not fatal: the tab keeps its in-memory queue and
 keeps draining it.
 
-A claim is journaled so a tab crash does not lose the message. Before removing the head
-from `aps-queue:<id>`, the claiming tab appends `{id, text, claimedAt}` to
-`aps-queue-inflight:<id>` inside the same lock. The marker is cleared when the send is
-proven accepted (the first NDJSON event or a completed stream), when `409 turn_active`
-puts the text back at the front, when another definitive 4xx rejects it, and when Stop,
-Clear, or a spend-cap pause empties the queue; a transport error or 5xx before
-acceptance keeps it for retry. On mount the client reconciles leftovers against
-`GET /clarify`: a persisted `you` text entry with the same text and `ts >= claimedAt`
-proves delivery, otherwise the text is prepended in claim order and drained normally.
-When the snapshot reports a live turn, proven claims are dropped at once and the rest
-wait for `done`; draining stays paused until reconciliation finishes. A marker whose
-text is still at the queue head never completed its removal, so it is dropped instead
-of queued twice. Reconciliation is best-effort: a tab that mounts in the brief window
-between another tab's marker write and its POST can requeue the same text, and the
-`ts` comparison assumes the browser and server clocks are close. When delivery cannot
-be proven the client prefers a duplicate over losing the message. Markers use the same
-in-memory fallback as the queue, so a browser that cannot write localStorage has no
-crash recovery.
+A claim is journaled so a tab crash does not lose the message. Every outbound message is
+journaled under `aps-queue-inflight:<id>` before its POST starts. A queue drain writes
+`{id, text, claimedAt, kind: "queue"}` before removing the head from `aps-queue:<id>`,
+inside the same lock. A direct composer send writes
+`{id, text, claimedAt, kind: "direct"}` without touching the queue and without waiting
+for a snapshot. Records written before the discriminator existed are read as queue
+claims. The marker is cleared when the send is proven accepted (the first NDJSON event
+or a completed stream), when `409 turn_active` puts the text back at the front, when
+another definitive 4xx rejects it, and when Stop, Clear, or a spend-cap pause empties the
+queue; a transport error or 5xx before acceptance keeps it for retry. On mount the client
+reconciles leftovers against `GET /clarify`: a persisted `you` text entry with the same
+text and `ts >= claimedAt` proves delivery, otherwise the text is prepended in claim
+order and drained normally. Queue claims settle first, then direct claims are prepended
+ahead of them. When the snapshot reports a live turn, proven claims are dropped at once
+and the rest wait for `done`; draining stays paused until reconciliation finishes. A
+marker whose text is still at the queue head never completed its removal, so it is
+dropped instead of queued twice. Claims for a send this tab is still POSTing are skipped,
+so a stray `done` or a hydrate racing an early send cannot requeue a live message.
+Reconciliation is best-effort: a tab that mounts in the brief window between another
+tab's marker write and its POST can requeue the same text, and the `ts` comparison
+assumes the browser and server clocks are close. When delivery cannot be proven the
+client prefers a duplicate over losing the message. Markers use the same in-memory
+fallback as the queue, so a browser that cannot write localStorage has no crash
+recovery.
 
 **Cost.** The queue is per browser — shared by its tabs, but not visible to other clients
 or the server. A stop

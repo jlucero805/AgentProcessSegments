@@ -823,6 +823,17 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     codes, and traversal must not change. A new repair uses the same scanner; the guard
     in `src/server/test/repair-permissions.test.ts` fails if another maintenance module
     mentions `chmodSync`.
+50. **The top-level shell owns the single deploy rollback.** `deploy/upgrade-vps.sh` and
+    `deploy/cutover-vps.sh` keep `set -E` so a failure inside a shell function reaches the
+    `ERR` trap, but the trap is inherited by the redirected `npm`/build/migration
+    subshells. Both `on_error()` bodies therefore exit immediately with the failing status
+    when `BASH_SUBSHELL > 0`, without logging or rolling back, so the parent reports the
+    line once and rolls back once; both `rollback()` bodies are one-shot (`ROLLED_BACK`),
+    and upgrade's `retention_after` keeps its `PRUNED`/`BASH_SUBSHELL` single-prune guard.
+    Do not drop `-E` to simplify this: it would skip rollback inside functions. The
+    build-failure cases in `src/server/test/upgrade.test.ts` and
+    `src/server/test/cutover.test.ts` pin exactly one failure line, rollback, restore, and
+    prune.
 
 ## Extension recipes
 

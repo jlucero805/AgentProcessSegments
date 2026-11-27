@@ -1001,6 +1001,11 @@ rollback() {
 on_error() {
   local rc=$?
   local line="$1"
+  # set -E inherits this trap into subshells. Only the top-level shell rolls back;
+  # a subshell exits with the failing status so the parent's trap runs once.
+  if [[ "${BASH_SUBSHELL:-0}" -gt 0 ]]; then
+    exit "$rc"
+  fi
   set +e
   log "failed at line $line (exit $rc)"
   rollback

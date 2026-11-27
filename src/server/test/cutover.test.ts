@@ -493,6 +493,10 @@ function readLines(file: string): string[] {
     .filter(Boolean);
 }
 
+function occurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
 function latestRunDir(home: string): string {
   return readlinkSync(path.join(home, '.aps-cutover', 'latest'));
 }
@@ -899,7 +903,12 @@ describe('deploy/cutover-vps.sh', () => {
       expect(existsSync(runDir)).toBe(true);
       expect(existsSync(oldSuccess)).toBe(true);
       expect(existsSync(oldFailed)).toBe(false);
-      expect(readRunLog(runDir)).toContain('prune failed (--keep-runs 0 --keep-days 0)');
+      const log = readRunLog(runDir);
+      // The build runs in a redirected subshell that inherits the ERR trap; the
+      // top-level shell must be the only one that rolls back and prunes.
+      expect(log.match(/failed at line/g) ?? []).toHaveLength(1);
+      expect(occurrences(log, 'rolling back')).toBe(1);
+      expect(occurrences(log, 'prune failed (--keep-runs 0 --keep-days 0)')).toBe(1);
     },
     TEST_TIMEOUT,
   );
@@ -976,8 +985,12 @@ describe('deploy/cutover-vps.sh', () => {
 
       expect(result.status).not.toBe(0);
       expect(readState(runDir)).toBe('failed');
-      expect(readRunLog(runDir)).toContain('rolling back');
-      expect(readRunLog(runDir)).toContain('restored the pre-build dist directories');
+      const log = readRunLog(runDir);
+      // One failure, one rollback: the inherited ERR trap must not run it twice.
+      expect(log.match(/failed at line/g) ?? []).toHaveLength(1);
+      expect(occurrences(log, 'rolling back')).toBe(1);
+      expect(occurrences(log, 'restored the pre-build dist directories')).toBe(1);
+      expect(occurrences(log, 'rollback finished')).toBe(1);
       expect(readFileSync(serverMarker, 'utf8')).toBe(serverBefore);
       expect(readFileSync(webMarker, 'utf8')).toBe(webBefore);
       expect(systemctlCalls(fixture)).not.toContain(' stop ');

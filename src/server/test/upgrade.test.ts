@@ -348,6 +348,10 @@ function calls(fixture: Fixture, file: string): string {
   return existsSync(full) ? readFileSync(full, 'utf8') : '';
 }
 
+function occurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
 function patchBody(fixture: Fixture): unknown {
   return JSON.parse(readFileSync(path.join(latestRun(fixture), 'after.json'), 'utf8'));
 }
@@ -836,8 +840,16 @@ describe('deploy/upgrade-vps.sh', () => {
 
     const result = runScript(fixture, ['--detach', '--health-timeout', '10']);
     const output = `${result.stdout}${result.stderr}`;
+    const log = readFileSync(path.join(latestRun(fixture), 'upgrade.log'), 'utf8');
 
+    expect(result.status).not.toBe(0);
     expect(stateOf(fixture)).toBe('failed');
+    // The ERR trap is inherited by the redirected build subshell; only the
+    // top-level shell may report and roll back.
+    expect(log.match(/failed at line/g) ?? []).toHaveLength(1);
+    expect(occurrences(log, 'rolling back')).toBe(1);
+    expect(occurrences(log, 'before restarting anything')).toBe(1);
+    expect(occurrences(log, 'backups kept in')).toBe(1);
     expect(output).toContain('before restarting anything');
     expect(head(fixture.clone)).toBe(fixture.v1);
     expect(readFileSync(path.join(fixture.clone, 'node_modules/marker.txt'), 'utf8').trim()).toBe(
@@ -847,8 +859,10 @@ describe('deploy/upgrade-vps.sh', () => {
       'old server',
     );
     expect(calls(fixture, 'restarts')).toBe('');
-    const patches = calls(fixture, 'config.patches').trim().split('\n');
-    expect(patches[patches.length - 1]).toBe('{"master":{"enabled":true}}');
+    expect(calls(fixture, 'config.patches').trim().split('\n')).toEqual([
+      '{"master":{"enabled":false}}',
+      '{"master":{"enabled":true}}',
+    ]);
   }, 30_000);
 
   it('restarts the old build and marks rolled_back when the new build is unhealthy', () => {

@@ -3185,3 +3185,34 @@ non-Markdown target fails. Missing/escaping/empty targets and non-Markdown fragm
 **Cost.** One pure module, one metadata tag in the shared extractor, the stricter checker,
 and fixture cases in the existing docs-gate test file. No new dependency, network access,
 or Help UI change.
+
+## D126. The top-level shell owns the single deploy rollback
+
+**Context.** `deploy/upgrade-vps.sh` and `deploy/cutover-vps.sh` run with
+`set -Eeuo pipefail` so a failing step inside a shell function still reaches the `ERR`
+trap and rolls back. `-E` also inherits the trap into subshells, and both scripts run
+`npm ci`, `npm run build`, and the `migrate-paths` helpers in a redirected
+`( … ) >>"$RUN_DIR/…log" 2>&1` subshell. A failing build therefore entered
+`on_error` → `rollback()` once inside the subshell (`BASH_SUBSHELL=1`, with fork-local
+copies of `MERGED`, `PAUSED`, `STOPPED`, `MOVED`, and `ROLLED_BACK`) and again at top
+level: upgrade repeated the `git reset --hard`, the `node_modules`/`dist` restore, and
+the master PATCH, and cutover repeated stop/disable, the unit backup restore,
+`daemon-reload`, start, the health wait, and the prune. `retention_after`'s existing
+`PRUNED`/`BASH_SUBSHELL` guard kept only the upgrade prune single-shot, and a subshell
+`log` line was written twice because `log()` appends to the run log and prints to the
+same redirected file.
+
+**Decision.** The top-level shell owns the rollback. In both scripts `on_error()` exits
+immediately with the failing status when `BASH_SUBSHELL > 0`, before `set +e` and before
+logging, so the parent trap logs the same `failed at line N (exit R)` once and calls
+`rollback()` once. `cutover-vps.sh` also gains the same `ROLLED_BACK` one-shot guard as
+`upgrade-vps.sh` (initialized with the other defaults and reset in `run_cutover`), so a
+second `on_signal` cannot re-enter a rollback. `-E` stays: dropping it would stop the trap
+firing inside functions such as `upgrade_clone`/`verify_live` and lose rollback entirely.
+The `log()` duplication is left alone because no current caller logs from a redirected
+subshell; a generic sink check would be speculative.
+
+**Cost.** Three small guards across the two scripts, two comments, and tighter assertions
+in the existing build-failure tests of `src/server/test/upgrade.test.ts` and
+`src/server/test/cutover.test.ts`. No change to the success path, to failures outside a
+subshell, to retention, or to the rollback sequence.

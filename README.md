@@ -208,8 +208,10 @@ config directory instead.
 
 Project `opencode.json`/`opencode.jsonc` and `.opencode` config in the repo are ignored
 for harness sessions: the child sets `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checked-in
-file cannot replace the bundled `aps` server or re-enable a read-only deny. Use the
-global OpenCode config directory for settings you want the harness to apply.
+file cannot replace the bundled `aps` server or re-enable a read-only deny. The harness
+names an ignored file found at the session cwd or an ancestor once on stderr (path only)
+and never reads or logs its settings. Use the global OpenCode config directory for
+settings you want the harness to apply.
 
 App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config page. Each
 block and notification channel validates on its own; an invalid one falls back to that
@@ -706,7 +708,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1437 vitest cases: 1068 server cases across 58 files (state machine,
+`npm test` runs 1446 vitest cases: 1076 server cases across 58 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete
@@ -722,7 +724,7 @@ time-boxed overrides and their read-only history, webhook/email/Slack/Discord de
 dedupe/retry/signing with an
 injected sender, delivery history and resend, docs manifest/traversal/HTTP, error-log
 format/rotation, skill discovery, terminal session lifecycle, and the HTTP API over a
-real socket) and 369 web cases across 28 files (shared contract re-exports, NDJSON
+real socket) and 370 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
 Help anchors, and manifest-aware served-page links, the source link, board,

@@ -34,8 +34,9 @@ leaving sessions visible in the user's list.
 stops project/ancestor config from layering above it. Archived sessions do not clutter
 the user's list. The child environment also strips
 `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT`, which OpenCode layers above the generated
-file; a set variable warns once and is ignored. Cost: about a second of server start per
-turn, and effort is inert for this harness.
+file; a set variable warns once and is ignored. The harness also names an ignored project
+config at the session cwd or an ancestor once on stderr, by path only. Cost: about a
+second of server start per turn, and effort is inert for this harness.
 
 **Review note.** If turn latency matters more than simplicity, a per-request server is
 the upgrade path.
@@ -48,7 +49,9 @@ the upgrade path.
 allow rules. The reserved-key `aps` warning names the winning file and scope. OpenCode
 merges `mcp` entries from the global `opencode.json` or `opencode.jsonc`, both read as
 JSONC (comments and trailing commas are accepted; JSON5 is not). Project and ancestor
-files are disabled (`OPENCODE_CONFIG_PROJECT_DISABLE=1`), so they are not a merge source.
+files are disabled (`OPENCODE_CONFIG_PROJECT_DISABLE=1`), so they are not a merge source;
+an ignored file found at the session cwd or an ancestor is named once on stderr by path
+only and is never read.
 KB sessions exclude user servers entirely. A missing file is silent; a file that exists but cannot be read or
 interpreted is skipped with a one-time stderr warning and a `harness.mcpConfig`
 error-log record naming the path and a short reason. Configuration-level env overrides

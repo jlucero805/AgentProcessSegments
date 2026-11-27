@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, describeError } from './api';
 import { Scorecard } from './Scorecard';
 import {
@@ -18,6 +18,7 @@ import {
 import type { Summary, SummaryCellRef, SummaryFeedCursor, SummaryStatus } from './types';
 import { timeAgo } from './types';
 import { Button, Card, EmptyState, Field, Input, SectionTitle, Spinner } from './ui';
+import type { CellsFeed } from './useCells';
 
 interface ScorecardGroup {
   cell: SummaryCellRef;
@@ -88,14 +89,15 @@ export function ScorecardsPage({
   cellId,
   onSelectCell,
   onError,
+  cellsFeed,
 }: {
   cellId: string | null;
-  onSelectCell: (cellId: string) => void;
+  onSelectCell: (cellId: string | null) => void;
   onError: (message: string) => void;
+  cellsFeed: CellsFeed;
 }) {
   const [groups, setGroups] = useState<ScorecardGroup[] | null>(null);
   const [feed, setFeed] = useState<ScorecardFeed | null>(null);
-  const [cellNames, setCellNames] = useState<Map<string, string>>(() => new Map());
   const [status, setStatus] = useState<SummaryStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
@@ -112,23 +114,30 @@ export function ScorecardsPage({
   /** Bounds used by the load that produced the visible page; paging reuses them. */
   const pageWindow = useRef<DateWindow>({});
 
+  const cellNames = useMemo(
+    () => new Map(cellsFeed.cells.map((cell) => [cell.id, cell.name])),
+    [cellsFeed.cells],
+  );
+  const selectedCell = cellId ? cellsFeed.cells.find((cell) => cell.id === cellId) ?? null : null;
+  const missingCell = cellId !== null && cellsFeed.loaded && selectedCell === null;
+  const cellReady = cellId === null || (cellsFeed.loaded && selectedCell !== null);
+
   const draftWindow = customWindow(customStart, customEnd, customStartTime, customEndTime);
   const draftError = typeof draftWindow === 'string' ? draftWindow : null;
 
   const load = useCallback(async () => {
+    if (cellId !== null && !cellReady) return;
     const generation = ++loadGeneration.current;
     const bounds = range === 'custom' ? appliedCustom : presetWindow(range);
     try {
       const statusPromise = api.getSummaryStatus(cellId ?? undefined);
       if (cellId === null && view === 'flat') {
-        const [cells, summaryStatus, page] = await Promise.all([
-          api.getCells(),
+        const [summaryStatus, page] = await Promise.all([
           statusPromise,
           api.getSummaryFeed({ limit: FEED_PAGE_SIZE, ...bounds }),
         ]);
         if (generation !== loadGeneration.current) return;
         pageWindow.current = bounds;
-        setCellNames(new Map(cells.map((cell) => [cell.id, cell.name])));
         setStatus(summaryStatus);
         setFeed({
           reports: page.reports,
@@ -142,18 +151,13 @@ export function ScorecardsPage({
       let next: ScorecardGroup[];
       let summaryStatus: SummaryStatus;
       if (cellId) {
-        const [cells, status, rows] = await Promise.all([
-          api.getCells(),
+        const [status, rows] = await Promise.all([
           statusPromise,
           api.getSummaries({ cellId, limit: PAGE_SIZE + 1, ...bounds }),
         ]);
         const page = pageReports(rows);
-        const cell = cells.find((item) => item.id === cellId);
         summaryStatus = status;
-        next =
-          cell && page.reports.length > 0
-            ? [{ cell, ...page, loadingMore: false }]
-            : [];
+        next = selectedCell ? [{ cell: selectedCell, ...page, loadingMore: false }] : [];
       } else {
         const [latest, status] = await Promise.all([
           api.getLatestSummariesPerCell(bounds),
@@ -186,7 +190,7 @@ export function ScorecardsPage({
         setLoadingMoreFeed(false);
       }
     }
-  }, [appliedCustom, cellId, onError, range, view]);
+  }, [appliedCustom, cellId, cellReady, onError, range, selectedCell, view]);
 
   useEffect(() => {
     void (async () => {
@@ -464,7 +468,7 @@ export function ScorecardsPage({
         </div>
       ) : null}
 
-      {status ? (
+      {!missingCell && status ? (
         <p className="text-[11px] text-zinc-600">
           {status.enabled
             ? `Automatic reports every ${duration(status.intervalMinutes)} over the last ${duration(
@@ -477,13 +481,23 @@ export function ScorecardsPage({
         </p>
       ) : null}
 
-      {status?.lastError ? (
+      {!missingCell && status?.lastError ? (
         <p className="rounded-lg border border-amber-900/70 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-300">
           Last attempt failed: {status.lastError}
         </p>
       ) : null}
 
-      {groups === null && feed === null ? (
+      {missingCell ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-800 p-8 text-center">
+          <p className="text-sm text-zinc-400">This cell no longer exists</p>
+          <p className="text-xs text-zinc-600">
+            It was deleted. Show all cells to browse the remaining reports.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => onSelectCell(null)}>
+            Show all cells
+          </Button>
+        </div>
+      ) : groups === null && feed === null ? (
         loading ? (
           <div className="flex h-40 items-center justify-center gap-2 text-sm text-zinc-500">
             <Spinner /> Loading scorecards...

@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { UsagePage } from './UsagePage';
-import { jsonResponse, makeUsageResponse } from './test/fixtures';
-import type { BudgetAlert, BudgetsResponse } from './types';
+import { jsonResponse, makeCellsFeed, makeUsageResponse } from './test/fixtures';
+import type { BudgetAlert, BudgetsResponse, CellDetail } from './types';
 import type { BudgetFeed } from './useBudgets';
 
 // The page loads usage and budgets before rendering. Give its slow async cases room
@@ -10,18 +10,21 @@ import type { BudgetFeed } from './useBudgets';
 const ASYNC_TIMEOUT_MS = 10_000;
 const USAGE_TEST_TIMEOUT_MS = 30_000;
 
-const CELLS = [
+const CELLS: CellDetail[] = [
   {
     id: 'cell-1',
     name: 'Alpha',
     masterEnabled: true,
     masterIntervalMinutes: null,
     maxConcurrent: 3,
+    harness: null,
     model: null,
     effort: null,
     monthlyBudgetUsd: null,
     pauseOnExceeded: false,
     pauseOnUnknownCost: false,
+    autocompactPercent: 80,
+    process: null,
     createdAt: 1,
   },
 ];
@@ -91,16 +94,21 @@ function makeFeed(overrides: Partial<BudgetFeed> = {}): BudgetFeed {
   };
 }
 
-function renderUsage(overrides: Partial<BudgetFeed> = {}, onError = vi.fn()) {
+function renderUsage(
+  overrides: Partial<BudgetFeed> = {},
+  onError = vi.fn(),
+  cellsFeed = makeCellsFeed({ cells: CELLS }),
+) {
   const budgetFeed = makeFeed(overrides);
-  const view = render(<UsagePage onError={onError} budgetFeed={budgetFeed} />);
-  return { ...view, budgetFeed, onError };
+  const view = render(
+    <UsagePage onError={onError} budgetFeed={budgetFeed} cellsFeed={cellsFeed} />,
+  );
+  return { ...view, budgetFeed, cellsFeed, onError };
 }
 
 function installFetch(response = makeUsageResponse()) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === '/api/cells') return jsonResponse(CELLS);
     if (url.startsWith('/api/usage')) return jsonResponse(response);
     return jsonResponse([]);
   });
@@ -544,13 +552,56 @@ describe('UsagePage', () => {
     });
   });
 
-  it('does not fetch budgets itself', async () => {
+  it('does not fetch budgets or cells itself', async () => {
     const fetchMock = installFetch();
     renderUsage();
     await screen.findByText('Monthly budgets');
 
     const urls = fetchMock.mock.calls.map(([input]) => String(input));
     expect(urls.some((url) => url === '/api/budgets')).toBe(false);
+    expect(urls.some((url) => url === '/api/cells')).toBe(false);
+  });
+
+  it('falls back to all cells when the shared list is empty', async () => {
+    installFetch();
+    renderUsage({}, vi.fn(), makeCellsFeed({ cells: [] }));
+    await screen.findByText('Effective cost');
+
+    expect(screen.getByLabelText('Filter usage by cell')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'All cells' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Alpha' })).not.toBeInTheDocument();
+  });
+
+  it('drops a selected cell from the filter when the shared list removes it', async () => {
+    const fetchMock = installFetch();
+    const { budgetFeed, cellsFeed, onError, rerender } = renderUsage();
+    await screen.findByText('Effective cost');
+
+    fireEvent.change(screen.getByLabelText('Filter usage by cell'), {
+      target: { value: 'cell-1' },
+    });
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(urls.some((url) => url.includes('cellId=cell-1'))).toBe(true);
+    });
+
+    rerender(
+      <UsagePage
+        onError={onError}
+        budgetFeed={budgetFeed}
+        cellsFeed={{ ...cellsFeed, cells: [] }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter usage by cell')).toHaveValue('');
+    });
+    await waitFor(() => {
+      const usageUrls = fetchMock.mock.calls
+        .map(([input]) => String(input))
+        .filter((url) => url.startsWith('/api/usage'));
+      expect(usageUrls.at(-1)).not.toContain('cellId=');
+    });
   });
 
   it('shows a retryable failure instead of pretending there are no budgets', async () => {

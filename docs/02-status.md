@@ -253,9 +253,11 @@ built and vended by the brain; real-CLI verification is still pending.
 - One thread across segments: the drawer renders the same chat for clarify, dispatch,
   review, and finalize (terminal states stay read-only), so the human can interject at
   any point in the workflow.
-- One cell list: `App` owns the SPA's cells and passes them to the sidebar `CellBar` and
-  the Config page, so a sidebar delete, create, or save and a Config master toggle appear
-  in both without a remount or a second cell load.
+- One cell list: `App` owns the SPA's cells and shares one `useCells` snapshot with the
+  sidebar `CellBar`, Config, Usage, Scorecards, the Cell master drawer, and the request
+  drawer, so a sidebar delete, create, or save and a Config master toggle appear in every
+  open view without a remount or a second per-page cell load; page mounts and the master
+  poll do not fetch cells.
 - Cell master detail: a `Cell master` button above `+ New request` opens a dedicated
   drawer with status, last/next run, the enabled cron loop and prompts, activity, and the
   master chat. `?master=1` restores it. **Configure** in that drawer opens the cell editor
@@ -487,7 +489,7 @@ built and vended by the brain; real-CLI verification is still pending.
   from the request worktree or target repo. Selecting a skill sends a plain instruction
   (`Use the <name> skill now…`), which works for both harnesses; plugin commands still
   send as slash commands. See `docs/11-skills.md`.
-- 1479 vitest cases (one environmental root-skip): 1097 server across 59 files and 382 web across 28 files,
+- 1493 vitest cases (one environmental root-skip): 1097 server across 59 files and 396 web across 29 files,
   plus `scripts/smoke.sh` (built brain), `scripts/mcp-smoke.mjs` (built brain plus built
   MCP server over real stdio), `scripts/claude-mock-smoke.mjs` (real Claude Code binary
   against a local mock Anthropic API, chosen from `--claude-bin`/`CLAUDE_MOCK_SMOKE_BIN`/

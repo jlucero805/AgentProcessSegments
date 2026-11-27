@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MasterDetail } from './MasterDetail';
-import { jsonResponse, makeProcessResponse } from './test/fixtures';
+import { jsonResponse, makeCellsFeed, makeProcessResponse } from './test/fixtures';
 import type { CellDetail, MasterEvent } from './types';
 
 // The drawer polls and loads several resources. Give its queries and whole-case
@@ -52,7 +52,6 @@ function stubMasterDetail(
   summaries: (params: URLSearchParams) => unknown,
   extra: { scorecardRun?: unknown; urls?: string[] } = {},
 ) {
-  const cell = makeCell();
   const urls = extra.urls ?? [];
   vi.stubGlobal(
     'fetch',
@@ -70,7 +69,6 @@ function stubMasterDetail(
           lastResult: null,
         });
       }
-      if (url === '/api/cells') return jsonResponse([cell]);
       if (url.startsWith('/api/master/events')) return jsonResponse([]);
       if (url.startsWith('/api/summaries?')) {
         const params = new URL(url, 'http://localhost').searchParams;
@@ -103,7 +101,6 @@ describe('MasterDetail', () => {
   it('shows the cell policy, activity, chat, and run control', async () => {
     const captured: { ran?: boolean; result?: Record<string, unknown> } = {};
     const process = makeProcessResponse();
-    const cell = makeCell();
     const urls: string[] = [];
     vi.stubGlobal(
       'fetch',
@@ -121,8 +118,7 @@ describe('MasterDetail', () => {
             lastResult: captured.result ?? null,
           });
         }
-        if (url === '/api/cells') return jsonResponse([cell]);
-        if (url.startsWith('/api/master/events')) {
+          if (url.startsWith('/api/master/events')) {
           return jsonResponse([
             {
               id: 'e1',
@@ -176,6 +172,7 @@ describe('MasterDetail', () => {
       <MasterDetail
         cellId="c1"
         commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
         onClose={() => {}}
         onConfigure={() => {}}
         onError={() => {}}
@@ -190,6 +187,7 @@ describe('MasterDetail', () => {
     expect(screen.getByText('Build it')).toBeInTheDocument();
     expect(urls).toContain('/api/master/status?cellId=c1');
     expect(urls).toContain('/api/requests/__master__%3Ac1/clarify');
+    expect(urls).not.toContain('/api/cells');
     expect(urls.some((url) => url === '/api/config')).toBe(false);
 
     const [initialSummary] = summaryRequests(urls);
@@ -234,7 +232,6 @@ describe('MasterDetail', () => {
             lastResult: null,
           });
         }
-        if (url === '/api/cells') return jsonResponse([makeCell()]);
         if (url.startsWith('/api/master/events')) return jsonResponse(events);
         if (url.startsWith('/api/summaries?')) return jsonResponse([]);
         if (url === '/api/summaries/status?cellId=c1') {
@@ -259,6 +256,7 @@ describe('MasterDetail', () => {
       <MasterDetail
         cellId="c1"
         commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
         onClose={() => {}}
         onConfigure={() => {}}
         onError={() => {}}
@@ -272,7 +270,6 @@ describe('MasterDetail', () => {
 
   it('runs a scorecard and passes the selected cell to configure', async () => {
     const process = makeProcessResponse();
-    const cell = makeCell();
     const urls: string[] = [];
     const onConfigure = vi.fn();
     const scorecard = {
@@ -320,8 +317,7 @@ describe('MasterDetail', () => {
             lastResult: null,
           });
         }
-        if (url === '/api/cells') return jsonResponse([cell]);
-        if (url.startsWith('/api/master/events')) return jsonResponse([]);
+          if (url.startsWith('/api/master/events')) return jsonResponse([]);
         if (url.startsWith('/api/summaries?')) return jsonResponse([scorecard]);
         if (url === '/api/summaries/status?cellId=c1') {
           return jsonResponse({
@@ -353,6 +349,7 @@ describe('MasterDetail', () => {
       <MasterDetail
         cellId="c1"
         commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
         onClose={() => {}}
         onConfigure={onConfigure}
         onError={() => {}}
@@ -388,6 +385,7 @@ describe('MasterDetail', () => {
       <MasterDetail
         cellId="c1"
         commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
         onClose={() => {}}
         onConfigure={() => {}}
         onError={() => {}}
@@ -433,6 +431,7 @@ describe('MasterDetail', () => {
       <MasterDetail
         cellId="c1"
         commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
         onClose={() => {}}
         onConfigure={() => {}}
         onError={() => {}}
@@ -454,6 +453,7 @@ describe('MasterDetail', () => {
       <MasterDetail
         cellId="c1"
         commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
         onClose={() => {}}
         onConfigure={() => {}}
         onError={() => {}}
@@ -464,4 +464,32 @@ describe('MasterDetail', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     expect(await screen.findByText(/No scorecard yet/)).toBeInTheDocument();
   }, MASTER_DETAIL_TEST_TIMEOUT_MS);
+
+  it('replaces an open drawer with a deleted state and no actions', async () => {
+    const onClose = vi.fn();
+    const fetchMock = vi.fn(async () => jsonResponse([]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <MasterDetail
+        cellId="gone"
+        commands={[]}
+        cellsFeed={makeCellsFeed({ cells: [makeCell()] })}
+        onClose={onClose}
+        onConfigure={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('This cell was deleted.')).toBeInTheDocument();
+    expect(screen.getByTestId('master-title')).toHaveTextContent('Cell deleted');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Configure' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run scorecard now' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('master-chat')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close master detail' }));
+    expect(onClose).toHaveBeenCalled();
+  });
 });

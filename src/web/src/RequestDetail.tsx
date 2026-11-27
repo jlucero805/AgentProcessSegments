@@ -11,7 +11,6 @@ import {
   HARNESS_LABELS,
   isTerminal,
   STATE_LABELS,
-  type Cell,
   type CommandInfo,
   type HarnessId,
   type ModelOption,
@@ -34,12 +33,14 @@ import {
   Textarea,
   cn,
 } from './ui';
+import type { CellsFeed } from './useCells';
 
 interface RequestDetailProps {
   id: string;
   onClose: () => void;
   onError: (message: string) => void;
   onChanged?: () => void;
+  cellsFeed: CellsFeed;
 }
 
 const STATE_TONES: Record<State, 'purple' | 'blue' | 'amber' | 'green' | 'red' | 'neutral'> = {
@@ -53,10 +54,9 @@ const STATE_TONES: Record<State, 'purple' | 'blue' | 'amber' | 'green' | 'red' |
 };
 
 /** Right-side request drawer: editable fields, workflow actions, chat, and digest. */
-export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetailProps) {
+export function RequestDetail({ id, onClose, onError, onChanged, cellsFeed }: RequestDetailProps) {
   const [request, setRequest] = useState<Request | null>(null);
   const [form, setForm] = useState<RequestFormState | null>(null);
-  const [cells, setCells] = useState<Cell[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [efforts, setEfforts] = useState<readonly string[]>(EFFORT_LEVELS);
   const [harness, setHarness] = useState<HarnessId | null>(null);
@@ -78,15 +78,13 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
       setForm(formFromRequest(found));
       setDigest(found.digest ?? '');
 
-      const [clarify, commandList, skillList, cellList] = await Promise.all([
+      const [clarify, commandList, skillList] = await Promise.all([
         api.getClarify(id).catch(() => ({ started: found.clarifyStarted, transcript: [] })),
         api.getCommands().catch(() => [] as CommandInfo[]),
         api.getSkills(id).catch(() => []),
-        api.getCells().catch(() => [] as Cell[]),
       ]);
       setTranscript(clarify.transcript);
       setCommands(mergeSlashCommands(commandList, skillList));
-      setCells(cellList);
     } catch (error) {
       onError(describeError(error));
     }
@@ -126,7 +124,13 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     modelContextRef.current = undefined;
   }, [id]);
   const formReady = form !== null;
-  const cellId = form?.cellId ?? '';
+  const selectedCell = form?.cellId
+    ? cellsFeed.cells.find((candidate) => candidate.id === form.cellId)
+    : undefined;
+  // The server detaches requests when a cell is deleted. A drawer open across
+  // that delete must show Unassigned and must not save the missing id back.
+  const missingFormCell = cellsFeed.loaded && Boolean(form?.cellId) && !selectedCell;
+  const cellId = missingFormCell ? '' : (form?.cellId ?? '');
   const requestHarness = form?.harness ?? '';
   useEffect(() => {
     if (!formReady) return;
@@ -183,7 +187,8 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
     if (!form) return;
     setBusy('save');
     try {
-      const updated = await api.patchRequest(id, patchFromForm(form, digest));
+      const saveForm = missingFormCell ? { ...form, cellId: '' } : form;
+      const updated = await api.patchRequest(id, patchFromForm(saveForm, digest));
       setRequest(updated);
       setForm(formFromRequest(updated));
       setSaved(true);
@@ -292,9 +297,6 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
   }
 
   const terminal = request ? isTerminal(request.state) : false;
-  const selectedCell = form?.cellId
-    ? cells.find((candidate) => candidate.id === form.cellId)
-    : undefined;
   const effectiveHarness = form?.harness || selectedCell?.harness || harness;
   const harnessLabel = effectiveHarness
     ? (HARNESS_LABELS[effectiveHarness as HarnessId] ?? effectiveHarness)
@@ -431,9 +433,12 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                   />
                 </Field>
                 <Field label="Cell">
-                  <Select value={form.cellId} onChange={(event) => set('cellId', event.target.value)}>
+                  <Select
+                    value={missingFormCell ? '' : form.cellId}
+                    onChange={(event) => set('cellId', event.target.value)}
+                  >
                     <option value="">Unassigned</option>
-                    {cells.map((cell) => (
+                    {cellsFeed.cells.map((cell) => (
                       <option key={cell.id} value={cell.id}>
                         {cell.name}
                       </option>
@@ -442,8 +447,9 @@ export function RequestDetail({ id, onClose, onError, onChanged }: RequestDetail
                 </Field>
               </div>
               <p className="text-[11px] text-zinc-600">
-                Requests without a cell stay manual; assign one to let its master automate
-                this request.
+                {missingFormCell
+                  ? "This request's cell was deleted; saving will leave it unassigned."
+                  : 'Requests without a cell stay manual; assign one to let its master automate this request.'}
               </p>
               <Field
                 label="Harness"

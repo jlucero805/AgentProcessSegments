@@ -13,7 +13,6 @@ import {
 import {
   masterSessionId,
   timeAgo,
-  type Cell,
   type CellDetail,
   type CommandInfo,
   type MasterEvent,
@@ -31,6 +30,7 @@ import {
   SectionTitle,
   Spinner,
 } from './ui';
+import type { CellsFeed } from './useCells';
 
 interface MasterDetailProps {
   cellId: string;
@@ -38,6 +38,7 @@ interface MasterDetailProps {
   onConfigure: (cell: CellDetail | null) => void;
   onError: (message: string) => void;
   commands: CommandInfo[];
+  cellsFeed: CellsFeed;
 }
 
 function clock(ts: number | null | undefined): string {
@@ -49,11 +50,16 @@ function duration(minutes: number): string {
 }
 
 /** The cell master as a first-class thread: cron policy, activity, and chat. */
-export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }: MasterDetailProps) {
+export function MasterDetail({
+  cellId,
+  onClose,
+  onConfigure,
+  onError,
+  commands,
+  cellsFeed,
+}: MasterDetailProps) {
   const [process, setProcess] = useState<ProcessConfig | null>(null);
-  const [cell, setCell] = useState<CellDetail | null>(null);
   const [status, setStatus] = useState<MasterStatus | null>(null);
-  const [cells, setCells] = useState<Cell[]>([]);
   const [events, setEvents] = useState<MasterEvent[]>([]);
   const [lastResult, setLastResult] = useState<MasterResult | null>(null);
   const [running, setRunning] = useState(false);
@@ -63,6 +69,10 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus | null>(null);
   const [summaryRunning, setSummaryRunning] = useState(false);
 
+  const selectedCell = cellsFeed.cells.find((item) => item.id === cellId) ?? null;
+  const cellMissing = cellsFeed.loaded && selectedCell === null;
+  const cellReady = cellsFeed.loaded && selectedCell !== null;
+
   const currentRequest = useRef({ cellId, range });
   useEffect(() => {
     currentRequest.current = { cellId, range };
@@ -70,6 +80,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    if (!cellReady) return;
     // A queued poll from a previous cell or period must not start a new request.
     if (cellId !== currentRequest.current.cellId || range !== currentRequest.current.range) {
       return;
@@ -79,28 +90,23 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       const [
         globalProcess,
         masterStatus,
-        cellList,
         eventList,
         history,
         scorecardStatus,
       ] = await Promise.all([
         api.getProcess(),
         api.getMasterStatus(cellId),
-        api.getCells(),
         api.getMasterEvents({ cellId, limit: 30 }),
         api.getSummaries({ cellId, limit: 5, since: sinceFor(range) }),
         api.getSummaryStatus(cellId),
       ]);
       if (generation !== loadGeneration.current) return;
-      const selected = cellList.find((item) => item.id === cellId) ?? null;
-      const effective = selected?.process ?? {
+      const effective = selectedCell.process ?? {
         version: globalProcess.version,
         segments: globalProcess.segments,
       };
-      setCell(selected);
       setProcess(effective);
       setStatus(masterStatus);
-      setCells(cellList);
       setEvents(eventList);
       setLastResult(masterStatus.lastResult);
       setSummaryHistory(history);
@@ -112,7 +118,7 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
         onError(describeError(error));
       }
     }
-  }, [cellId, onError, range]);
+  }, [cellId, cellReady, onError, range, selectedCell]);
 
   useEffect(() => {
     void (async () => {
@@ -122,9 +128,10 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
 
   // Keep the live view current while the drawer is open.
   useEffect(() => {
+    if (!cellReady) return;
     const timer = window.setInterval(() => void load(), 10_000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [cellReady, load]);
 
   async function runNow() {
     setRunning(true);
@@ -159,6 +166,72 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
     }
   }
 
+  if (!cellsFeed.loaded) {
+    return (
+      <aside
+        data-testid="master-detail"
+        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
+      >
+        <header className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+          <Badge tone="purple">cell master</Badge>
+          <span
+            data-testid="master-title"
+            className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+          >
+            Cell master
+          </span>
+          <IconButton label="Close master detail" onClick={onClose}>
+            ×
+          </IconButton>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-6 text-center text-sm text-zinc-500">
+          {cellsFeed.error ? (
+            <>
+              <p>Couldn't load the cell list.</p>
+              <p className="text-xs text-zinc-600">{cellsFeed.error}</p>
+              <Button variant="secondary" size="sm" onClick={() => void cellsFeed.reload()}>
+                Retry
+              </Button>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Spinner /> Loading cell...
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+  }
+
+  if (cellMissing) {
+    return (
+      <aside
+        data-testid="master-detail"
+        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
+      >
+        <header className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+          <Badge tone="purple">cell master</Badge>
+          <span
+            data-testid="master-title"
+            className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+          >
+            Cell deleted
+          </span>
+          <IconButton label="Close master detail" onClick={onClose}>
+            ×
+          </IconButton>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+          <p className="text-sm text-zinc-400">This cell was deleted.</p>
+          <p className="text-xs text-zinc-600">
+            No policy or actions remain for <span className="font-mono">{cellId}</span>.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
+  const cell = selectedCell;
   const enabled = process?.segments.filter((segment) => segment.enabled) ?? [];
   const latestSummary = summaryHistory[0] ?? null;
   const rangeDetails = rangeOption(range);
@@ -375,7 +448,8 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
                       <Badge tone={ACTION_TONES[event.action]}>{event.action}</Badge>
                       <span className="w-20 shrink-0 truncate text-zinc-500">
                         {event.cellId
-                          ? cells.find((cell) => cell.id === event.cellId)?.name ?? 'Deleted cell'
+                          ? cellsFeed.cells.find((item) => item.id === event.cellId)?.name ??
+                            'Deleted cell'
                           : 'Unassigned'}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-zinc-400">

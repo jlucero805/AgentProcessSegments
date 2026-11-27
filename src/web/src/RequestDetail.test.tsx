@@ -1,15 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { RequestDetail } from './RequestDetail';
-import { jsonResponse, makeRequest } from './test/fixtures';
-import type { Cell } from './types';
+import { jsonResponse, makeCellsFeed, makeRequest } from './test/fixtures';
+import type { CellDetail } from './types';
 
 // The harness override reloads models and the request. Give its queries and
 // whole-case budget room under full-suite load while keeping them bounded.
 const ASYNC_TIMEOUT_MS = 10_000;
 const REQUEST_DETAIL_TEST_TIMEOUT_MS = 30_000;
 
-const cell: Cell = {
+const cell: CellDetail = {
   id: 'c1',
   name: 'Alpha',
   masterEnabled: true,
@@ -22,10 +22,11 @@ const cell: Cell = {
   pauseOnExceeded: false,
   pauseOnUnknownCost: false,
   autocompactPercent: 80,
+  process: null,
   createdAt: 1,
 };
 
-const opencodeCell: Cell = {
+const opencodeCell: CellDetail = {
   ...cell,
   id: 'c2',
   name: 'OpenCode cell',
@@ -85,7 +86,6 @@ function installFetch(
       }
       if (url === '/api/commands') return jsonResponse([]);
       if (url.startsWith('/api/skills')) return jsonResponse([]);
-      if (url === '/api/cells') return jsonResponse([activeCell]);
       if (url.startsWith('/api/models') && options.models === 'fail') {
         return jsonResponse({ error: 'boom', message: 'model discovery failed' }, 500);
       }
@@ -103,9 +103,16 @@ function installFetch(
 
 describe('RequestDetail harness override', () => {
   it('saves an override and resets the model when the effective harness changes', async () => {
-    const { patched } = installFetch();
+    const { patched, urls } = installFetch();
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+    render(
+      <RequestDetail
+        id="req-1"
+        onClose={() => {}}
+        onError={() => {}}
+        cellsFeed={makeCellsFeed({ cells: [cell] })}
+      />,
+    );
 
     const harness = await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
     expect(await screen.findByText('Opus 5.5', undefined, { timeout: ASYNC_TIMEOUT_MS })).toBeInTheDocument();
@@ -125,6 +132,7 @@ describe('RequestDetail harness override', () => {
 
     await waitFor(() => expect(patched).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
     expect(patched[0]).toMatchObject({ harness: 'opencode', model: null });
+    expect(urls).not.toContain('/api/cells');
   }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 
   it('shows an inherited OpenCode cell harness and disables effort', async () => {
@@ -137,7 +145,14 @@ describe('RequestDetail harness override', () => {
       opencodeCell,
     );
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+    render(
+      <RequestDetail
+        id="req-1"
+        onClose={() => {}}
+        onError={() => {}}
+        cellsFeed={makeCellsFeed({ cells: [opencodeCell] })}
+      />,
+    );
 
     expect(await screen.findByText('harness: OpenCode (cell OpenCode cell)')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /harness/i })).toHaveValue('');
@@ -160,7 +175,14 @@ describe('RequestDetail harness override', () => {
       requestGate,
     );
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={() => {}} />);
+    render(
+      <RequestDetail
+        id="req-1"
+        onClose={() => {}}
+        onError={() => {}}
+        cellsFeed={makeCellsFeed({ cells: [cell] })}
+      />,
+    );
 
     expect(
       await screen.findByText('Loading request...', undefined, { timeout: ASYNC_TIMEOUT_MS }),
@@ -204,7 +226,14 @@ describe('RequestDetail harness override', () => {
       { models: 'fail' },
     );
 
-    render(<RequestDetail id="req-1" onClose={() => {}} onError={onError} />);
+    render(
+      <RequestDetail
+        id="req-1"
+        onClose={() => {}}
+        onError={onError}
+        cellsFeed={makeCellsFeed({ cells: [cell] })}
+      />,
+    );
 
     await screen.findByRole('combobox', { name: /harness/i }, { timeout: ASYNC_TIMEOUT_MS });
     await waitFor(() => expect(urls).toContain('/api/models'), { timeout: ASYNC_TIMEOUT_MS });
@@ -214,5 +243,37 @@ describe('RequestDetail harness override', () => {
     expect(hint).toHaveAttribute('data-resolved', 'false');
     expect(hint).toHaveTextContent('effective: not resolved (brain default)');
     expect(onError).not.toHaveBeenCalled();
+  }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
+
+  it('treats a deleted cell as unassigned and never saves its id', async () => {
+    const { patched, urls } = installFetch(
+      makeRequest({ id: 'req-1', cellId: 'gone', model: null }),
+    );
+
+    render(
+      <RequestDetail
+        id="req-1"
+        onClose={() => {}}
+        onError={() => {}}
+        cellsFeed={makeCellsFeed({ cells: [cell] })}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "This request's cell was deleted; saving will leave it unassigned.",
+        undefined,
+        { timeout: ASYNC_TIMEOUT_MS },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /cell/i })).toHaveValue('');
+    expect(
+      await screen.findByText('harness: Claude Code (brain default)'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patched).toHaveLength(1), { timeout: ASYNC_TIMEOUT_MS });
+    expect(patched[0]).toMatchObject({ cellId: null });
+    expect(urls).not.toContain('/api/cells');
   }, REQUEST_DETAIL_TEST_TIMEOUT_MS);
 });

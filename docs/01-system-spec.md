@@ -57,9 +57,11 @@ bind. The audience gate is the tunnel, not the process. Before sharing a tunnel,
 that anonymous requests to `/` and `/api` hit the SSO redirect. The agent child is
 non-interactive and auto-approves exactly the tools in its `--allowedTools` allowlist,
 plus the user's MCP servers. That allowlist is the agent's permission boundary. The
-OpenCode child env also strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT`, so those
-process-level overrides cannot supply MCP servers or permissions; a set variable warns
-once and is ignored.
+OpenCode child env also strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` and sets
+`OPENCODE_CONFIG_PROJECT_DISABLE=1`, so process-level overrides and project/ancestor
+config cannot supply MCP servers, plugins, skills, agents, or permissions. A set override
+variable warns once and is ignored; only the generated config (which already contains
+merged global user settings) applies.
 
 ---
 
@@ -868,9 +870,11 @@ defaults.
   and session id before the next turn.
 - **Allowed tools:** request sessions get `Write, Read, Edit, Bash, Skill, Glob, Grep`,
   the bundled `aps` MCP tools, and the user's own MCP servers (Claude reads
-  `~/.claude.json`/`.mcp.json` in local > project > user precedence; OpenCode reads
-  `opencode.json`/`opencode.jsonc` as JSONC, comments and trailing commas included, and
-  strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from its child env).
+  `~/.claude.json`/`.mcp.json` in local > project > user precedence; OpenCode reads the
+  global `opencode.json`/`opencode.jsonc` as JSONC, comments and trailing commas included,
+  strips `OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` from its child env, and sets
+  `OPENCODE_CONFIG_PROJECT_DISABLE=1` so project/ancestor config cannot add servers,
+  plugins, skills, agents, or permissions).
   The KB session (`__kb__`) is read-only: `Read` plus the KB MCP tools, no plugins, no
   user servers, no request scope.
 - **Live turns and reattach:** a turn is decoupled from the originating HTTP request.

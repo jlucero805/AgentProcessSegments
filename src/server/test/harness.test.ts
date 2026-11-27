@@ -8,6 +8,7 @@ import { ClaudeHarness, claudeUserMcpServers } from '../src/clarify/harnesses/cl
 import {
   OpencodeHarness,
   OpencodeProcess,
+  opencodeHarnessEnv,
   probeOpencodeModels,
   scrubOpencodeConfigEnv,
 } from '../src/clarify/harnesses/opencode.js';
@@ -752,6 +753,29 @@ describe('OpencodeHarness', () => {
     expect(input.OPENCODE_CONFIG_CONTENT).toBe('{"model":"x"}');
   });
 
+  it('disables project config without mutating the input', () => {
+    const input = {
+      PATH: '/bin',
+      PWD: '/work',
+      OPENCODE_CONFIG_DIR: '/cfg',
+      OPENCODE_CONFIG: '/tmp/custom.json',
+      OPENCODE_CONFIG_CONTENT: '{"model":"x"}',
+      OPENCODE_CONFIG_PROJECT_DISABLE: '0',
+      OPENCODE_DISABLE_PROJECT_CONFIG: '0',
+    };
+
+    expect(opencodeHarnessEnv(input)).toEqual({
+      PATH: '/bin',
+      PWD: '/work',
+      OPENCODE_CONFIG_DIR: '/cfg',
+      OPENCODE_CONFIG_PROJECT_DISABLE: '1',
+      OPENCODE_DISABLE_PROJECT_CONFIG: '0',
+    });
+    expect(input.OPENCODE_CONFIG).toBe('/tmp/custom.json');
+    expect(input.OPENCODE_CONFIG_CONTENT).toBe('{"model":"x"}');
+    expect(input.OPENCODE_CONFIG_PROJECT_DISABLE).toBe('0');
+  });
+
   it('warns once for config env overrides without naming their values', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { home, cwd, dir } = workspace();
@@ -808,7 +832,10 @@ describe('OpencodeHarness', () => {
       pluginDirs: [],
     });
 
-    expect(command.env).toEqual({ OPENCODE_CONFIG_DIR: path.join(dir, 'opencode') });
+    expect(command.env).toEqual({
+      OPENCODE_CONFIG_DIR: path.join(dir, 'opencode'),
+      OPENCODE_CONFIG_PROJECT_DISABLE: '1',
+    });
     expect(command.args).toEqual([
       'run',
       '--format',
@@ -829,6 +856,68 @@ describe('OpencodeHarness', () => {
     expect(config.mcp.disabled.enabled).toBe(false);
     // Request sessions keep the user's permission posture, minus interactive questions.
     expect(config.permission).toEqual({ bash: 'ask', question: 'deny' });
+  });
+
+  it('disables project config for every harness scope', async () => {
+    const { home, cwd, dir } = workspace();
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+
+    for (const scope of ['request', 'setup', 'master', 'kb'] as const) {
+      const command = await harness.prepare({
+        ...requestSession(dir, cwd),
+        scope,
+        requestId: scope === 'request' ? 'req-1' : '',
+        ...(scope === 'setup' ? { draftId: 'draft-1' } : {}),
+      });
+      expect(command.env).toEqual({
+        OPENCODE_CONFIG_DIR: path.join(dir, 'opencode'),
+        OPENCODE_CONFIG_PROJECT_DISABLE: '1',
+      });
+    }
+  });
+
+  it('keeps the generated aps and read-only denies when the repo has a project config', async () => {
+    const { home, cwd, dir } = workspace();
+    writeFileSync(
+      path.join(cwd, 'opencode.json'),
+      JSON.stringify({
+        mcp: {
+          servers: {
+            aps: { type: 'remote', url: 'https://project.example.test/sse' },
+            project: { type: 'local', command: ['node', 'project.js'] },
+          },
+        },
+        permission: { edit: 'allow', bash: 'allow' },
+        plugin: ['./project-plugin.js'],
+        agent: { build: { prompt: 'write everything' } },
+        skills: ['/tmp/project-skills'],
+      }),
+    );
+
+    const harness = new OpencodeHarness('opencode', 'http://brain:7391', home, {});
+    for (const scope of ['request', 'setup', 'master', 'kb'] as const) {
+      const command = await harness.prepare({
+        ...requestSession(dir, cwd),
+        scope,
+        requestId: scope === 'request' ? 'req-1' : '',
+        ...(scope === 'setup' ? { draftId: 'draft-1' } : {}),
+      });
+      expect(command.env.OPENCODE_CONFIG_PROJECT_DISABLE).toBe('1');
+
+      const config = JSON.parse(
+        readFileSync(path.join(dir, 'opencode', 'opencode.json'), 'utf8'),
+      );
+      expect(config.mcp.aps.type).toBe('local');
+      expect(config.mcp.project).toBeUndefined();
+      expect(config.plugin).toBeUndefined();
+      expect(config.agent).toBeUndefined();
+      expect(config.skills).toBeUndefined();
+      if (scope === 'request') {
+        expect(config.permission).toEqual({ question: 'deny' });
+      } else {
+        expect(config.permission).toMatchObject({ edit: 'deny', bash: 'deny' });
+      }
+    }
   });
 
   it('keeps the bundled aps server when the user also defines one', async () => {
@@ -1353,18 +1442,21 @@ describe('OpencodeHarness', () => {
     expect(JSON.parse(part?.text ?? '{}')).toEqual({ cwd, pwd: cwd });
   });
 
-  it('strips config env overrides from the spawned child environment', async () => {
+  it('strips config overrides and disables project config in the spawned child environment', async () => {
     const { base, cwd } = workspace();
     const script = path.join(base, 'probe-env.mjs');
     writeFileSync(
       script,
       "console.log(JSON.stringify({ type: 'text', part: { text: JSON.stringify({ " +
         "config: process.env.OPENCODE_CONFIG ?? null, content: process.env.OPENCODE_CONFIG_CONTENT ?? null, " +
+        "project: process.env.OPENCODE_CONFIG_PROJECT_DISABLE ?? null, " +
         "pwd: process.env.PWD ?? null, keep: process.env.APS_KEEP_ME ?? null }) } }));\n",
     );
 
     vi.stubEnv('OPENCODE_CONFIG', '/tmp/host-config.json');
     vi.stubEnv('OPENCODE_CONFIG_CONTENT', '{"mcp":{"servers":{"aps":{"type":"remote"}}}}');
+    vi.stubEnv('OPENCODE_CONFIG_PROJECT_DISABLE', '0');
+    vi.stubEnv('OPENCODE_DISABLE_PROJECT_CONFIG', '0');
     vi.stubEnv('APS_KEEP_ME', 'keep');
 
     const proc = new OpencodeProcess({
@@ -1384,6 +1476,7 @@ describe('OpencodeHarness', () => {
     expect(JSON.parse(part?.text ?? '{}')).toEqual({
       config: null,
       content: null,
+      project: '1',
       pwd: cwd,
       keep: 'keep',
     });
@@ -1439,13 +1532,14 @@ describe('OpencodeHarness', () => {
     expect(await probeOpencodeModels(path.join(base, 'missing'))).toBeNull();
   });
 
-  it('probes models without config env overrides', async () => {
+  it('probes models with config overrides scrubbed and project config disabled', async () => {
     const { base } = workspace();
     const bin = path.join(base, 'fake-opencode-env');
     writeFileSync(
       bin,
       '#!/bin/sh\n' +
         'if [ -n "$OPENCODE_CONFIG" ] || [ -n "$OPENCODE_CONFIG_CONTENT" ]; then exit 1; fi\n' +
+        'if [ "$OPENCODE_CONFIG_PROJECT_DISABLE" != "1" ]; then exit 1; fi\n' +
         'echo opencode-go/model-a\n',
     );
     chmodSync(bin, 0o755);
@@ -1455,6 +1549,8 @@ describe('OpencodeHarness', () => {
         PATH: process.env.PATH ?? '/usr/bin:/bin',
         OPENCODE_CONFIG: '/tmp/host-config.json',
         OPENCODE_CONFIG_CONTENT: '{"model":"x"}',
+        OPENCODE_CONFIG_PROJECT_DISABLE: '0',
+        OPENCODE_DISABLE_PROJECT_CONFIG: '1',
       }),
     ).toEqual([{ id: 'opencode-go/model-a', label: 'opencode-go/model-a' }]);
   });

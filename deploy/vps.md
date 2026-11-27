@@ -27,11 +27,12 @@ case.
 With `opencode`, the brain probes `opencode models`, writes a per-request
 `OPENCODE_CONFIG_DIR` containing the harness MCP server plus the user's MCP servers, and
 runs `opencode run --format json --auto --standalone` once per turn, resuming with
-`--session`. User MCP servers are read from the user's OpenCode config. The knowledge
-base session is forced read-only. Do not set `OPENCODE_CONFIG` or
-`OPENCODE_CONFIG_CONTENT` in the unit environment: the harness strips both for session
-children, so put user settings in `~/.config/opencode/opencode.json(c)` (or
-`$XDG_CONFIG_HOME/opencode`) instead.
+`--session`. User MCP servers are read from the user's global OpenCode config; a project
+`opencode.json(c)` or `.opencode` config in the repo is ignored because every child sets
+`OPENCODE_CONFIG_PROJECT_DISABLE=1`. The knowledge base session is forced read-only. Do
+not set `OPENCODE_CONFIG` or `OPENCODE_CONFIG_CONTENT` in the unit environment: the
+harness strips both for session children, so put user settings in
+`~/.config/opencode/opencode.json(c)` (or `$XDG_CONFIG_HOME/opencode`) instead.
 
 ```bash
 # either select it in the unit …

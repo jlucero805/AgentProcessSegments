@@ -201,6 +201,11 @@ once if either is set, because OpenCode layers them above the generated config a
 inline value could replace the bundled `aps` server. Put user settings in the OpenCode
 config directory instead.
 
+Project `opencode.json`/`opencode.jsonc` and `.opencode` config in the repo are ignored
+for harness sessions: the child sets `OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checked-in
+file cannot replace the bundled `aps` server or re-enable a read-only deny. Use the
+global OpenCode config directory for settings you want the harness to apply.
+
 App settings live in `config.json` (`APS_CONFIG`) and are edited on the Config page. Each
 block and notification channel validates on its own; an invalid one falls back to that
 block's defaults, is reported as `settings.invalid`, and the Config page names it in a
@@ -681,7 +686,7 @@ what is not built yet.
 
 ## Tests
 
-`npm test` runs 1329 vitest cases: 1019 server cases across 56 files (state machine,
+`npm test` runs 1332 vitest cases: 1022 server cases across 56 files (state machine,
 migrations including the index ordering fix on a legacy database, repositories, both
 stream parsers, usage event capture and aggregation, effective-dated pricing and
 estimation, usage rollups and activity retention, scorecard retention, cell-delete

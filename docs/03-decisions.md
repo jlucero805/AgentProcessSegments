@@ -147,10 +147,13 @@ session. Claude reads user and local scopes from `~/.claude.json` plus project
 `mcp__<server>__*` (the CLI's wildcard rule). Scope precedence is local > project >
 user, as the CLI documents it: the highest-precedence entry replaces the others whole,
 and the reserved-key warning names the winning file and scope (`user`, `project`, or
-`local`). OpenCode reads both `opencode.json` and `opencode.jsonc` as JSONC (comments,
-trailing commas, and a leading BOM are accepted) and merges their `mcp` entries into the
-generated `OPENCODE_CONFIG_DIR/opencode.json`; `--auto` makes them callable. JSON5
-syntax is not accepted, and the generated file stays strict JSON.
+`local`). OpenCode reads both `opencode.json` and `opencode.jsonc` from the global config
+directory as JSONC (comments, trailing commas, and a leading BOM are accepted) and merges
+their `mcp` entries into the generated `OPENCODE_CONFIG_DIR/opencode.json`; `--auto`
+makes them callable. Project and ancestor config files are disabled with
+`OPENCODE_CONFIG_PROJECT_DISABLE=1`, so a checked-in `opencode.json(c)` or `.opencode`
+file cannot replace the reserved `aps` server or add servers, plugins, skills, agents, or
+permissions. JSON5 syntax is not accepted, and the generated file stays strict JSON.
 
 **Cost.** Claude's definition files are private storage, not a documented API, so a CLI
 change can break the read. The wildcard rules are verified from the CLI's own strings
@@ -216,15 +219,17 @@ loopback only, so remote access still needs the tunnel.
 
 **Decision.** Spawn `opencode run --format json --auto --standalone --archived` per turn.
 Parse `text`, `tool_use`, `step_finish`, and `error`; capture the `ses_…` id and pass
-`--session` next turn. `--standalone` gives each turn a private server so
-`OPENCODE_CONFIG_DIR` (the generated per-request config) applies. The child environment
-strips `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` before spawn: OpenCode layers both
-above that generated config, where an inline value could replace the bundled `aps` server
-or a read-only deny rule. A non-empty variable is named once on stderr and ignored,
-without its value. `PWD` is pinned to the session cwd because OpenCode resolves the
-project root from it. `--archived` keeps brain sessions out of the user's session list,
-and resume still works. KB sessions get explicit deny permissions instead of a tool
-allowlist.
+`--session` next turn. `--standalone` gives each turn a private server.
+`OPENCODE_CONFIG_DIR` points at the generated per-request config, and the child sets
+`OPENCODE_CONFIG_PROJECT_DISABLE=1`, so OpenCode does not load project or ancestor
+`opencode.json(c)`/`.opencode` config above it; user settings come from the global config
+directory the harness merges. The child environment strips `OPENCODE_CONFIG` and
+`OPENCODE_CONFIG_CONTENT` before spawn: OpenCode layers both above that generated config,
+where an inline value could replace the bundled `aps` server or a read-only deny rule. A
+non-empty variable is named once on stderr and ignored, without its value. `PWD` is
+pinned to the session cwd because OpenCode resolves the project root from it. `--archived`
+keeps brain sessions out of the user's session list, and resume still works. KB sessions
+get explicit deny permissions instead of a tool allowlist.
 
 **Cost.** A server start per turn (roughly a second) and no long-lived child. Session
 continuity still survives a brain restart because the session id lives in `session.json`

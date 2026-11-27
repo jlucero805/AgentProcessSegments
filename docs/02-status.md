@@ -469,6 +469,9 @@ built and vended by the brain; real-CLI verification is still pending.
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
   The web suite also resolves every local documentation link, image, and Help `#anchor`
   (external URLs are never fetched); run it alone with `npm run check:docs`.
+  Server tests are guarded against wall-clock sleeps by the `no-restricted-syntax`
+  override in `eslint.config.mjs`; the three bounded fail-fast guards carry reviewed
+  exemptions, checked by `test/lint-gate.test.ts`.
 - Dev-command preflight: the root `typecheck`/`test`/`lint`/`build`/`dev`/`e2e` commands,
   direct workspace `test`/`typecheck`/`build`/`dev`/`preview`, and `lint:js`/`lint:md` check
   for project-local `tsc`/`vitest`/`eslint`/`markdownlint-cli2`/`vite`/`concurrently`/`tsx`

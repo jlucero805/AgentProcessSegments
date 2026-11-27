@@ -1,5 +1,19 @@
 import type { MasterConfig, ModelPrice, ProcessResponse, Request, UsageResponse, UsageTotals } from '../types';
+import type { CellsFeed } from '../useCells';
 import { defaultProcess } from '../../../server/src/process/defaults';
+
+/** A loaded shared cell feed for page tests; pass overrides for the case under test. */
+export function makeCellsFeed(overrides: Partial<CellsFeed> = {}): CellsFeed {
+  return {
+    cells: [],
+    loaded: true,
+    error: null,
+    reload: async () => {},
+    upsert: () => {},
+    remove: () => {},
+    ...overrides,
+  };
+}
 
 const fixtureMaster: MasterConfig = {
   enabled: true,

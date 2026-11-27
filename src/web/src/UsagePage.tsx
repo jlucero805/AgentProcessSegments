@@ -18,7 +18,6 @@ import {
 } from './ui';
 import type {
   BudgetStatus,
-  CellDetail,
   UsageBucket,
   UsageCellSegmentGroup,
   UsageCoverage,
@@ -28,6 +27,7 @@ import type {
 } from './types';
 import { SpendOverrideControl, overrideExpiryLabel } from './SpendOverrideControl';
 import type { BudgetFeed } from './useBudgets';
+import type { CellsFeed } from './useCells';
 import { USAGE_BUCKET_MS } from './types';
 
 type RangeKey = '24h' | '7d' | '30d' | 'all';
@@ -585,28 +585,34 @@ function Summary({ totals }: { totals: UsageTotals }) {
 }
 
 export function UsagePage({
-  cells,
   onError,
   budgetFeed,
+  cellsFeed,
 }: {
-  cells: CellDetail[];
   onError: (message: string) => void;
   budgetFeed: BudgetFeed;
+  cellsFeed: CellsFeed;
 }) {
   const [range, setRange] = useState<RangeKey>('30d');
-  const [cellFilter, setCellFilter] = useState('');
+  const [cellId, setCellId] = useState('');
   const [data, setData] = useState<UsageResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // The sidebar owns the cell list; a deleted filter target falls back to all.
-  const cellId = cells.some((cell) => cell.id === cellFilter) ? cellFilter : '';
+  // A deleted cell must not stay selected in the local filter. Once the shared
+  // list has loaded, membership is authoritative; a failed refresh keeps the
+  // last good list rather than reverting to a deleted id.
+  const selectedCellGone =
+    cellsFeed.loaded &&
+    cellId !== '' &&
+    !cellsFeed.cells.some((cell) => cell.id === cellId);
+  const effectiveCellId = selectedCellGone ? '' : cellId;
 
   const load = useCallback(async () => {
     try {
       const query = rangeQuery(range);
       const result = await api.getUsage({
         ...query,
-        ...(cellId ? { cellId } : {}),
+        ...(effectiveCellId ? { cellId: effectiveCellId } : {}),
       });
       setData(result);
     } catch (error) {
@@ -614,7 +620,7 @@ export function UsagePage({
     } finally {
       setLoading(false);
     }
-  }, [cellId, onError, range]);
+  }, [effectiveCellId, onError, range]);
 
   useEffect(() => {
     void (async () => {
@@ -657,15 +663,15 @@ export function UsagePage({
           </div>
           <Select
             aria-label="Filter usage by cell"
-            value={cellId}
+            value={effectiveCellId}
             onChange={(event) => {
               if (event.target.value === cellId) return;
               setLoading(true);
-              setCellFilter(event.target.value);
+              setCellId(event.target.value);
             }}
           >
             <option value="">All cells</option>
-            {cells.map((cell) => (
+            {cellsFeed.cells.map((cell) => (
               <option key={cell.id} value={cell.id}>
                 {cell.name}
               </option>

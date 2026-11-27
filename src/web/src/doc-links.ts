@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { SCREENSHOT_TYPES } from '../../server/src/docs/assets';
 import {
   extractHeadings,
   helpSlugFromHref,
@@ -260,7 +261,7 @@ function helpTarget(raw: string): { slug: string; fragment: string | null } | nu
 }
 
 const ASSET_PREFIX = '/api/docs/assets/';
-const SCREENSHOTS_PREFIX = 'docs/screenshots/';
+const SCREENSHOT_ROOT = 'docs/screenshots/';
 const IMAGE_NOT_SERVED = 'local image is not served by Help';
 const TARGET_NOT_SERVED = 'local non-Markdown target is not served by Help';
 
@@ -268,24 +269,62 @@ function isExternalTarget(raw: string): boolean {
   return isExternalHref(raw) || raw.startsWith('//');
 }
 
+/** The asset URL Help builds for a repo-relative screenshot path. */
+function screenshotAssetUrl(relative: string): string {
+  return `${ASSET_PREFIX}${relative
+    .slice(SCREENSHOT_ROOT.length)
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/')}`;
+}
+
 /**
- * A served page may embed only images the asset route serves: an existing file
- * under `docs/screenshots` that `resolveDocImage` maps onto `/api/docs/assets/`.
- * External, protocol-relative, data, and already-asset sources need no check;
- * missing targets and fragments stay `checkDocLinks`' findings.
+ * A local target is served only when it is a regular file under
+ * `docs/screenshots/`, has a type the asset route serves, and `resolveDocImage`
+ * maps it to the exact asset URL for that repo-relative path. External sources
+ * are the caller's concern; missing and escaping targets stay `checkDocLinks`'
+ * findings.
+ */
+function servedAssetProblem(
+  root: string,
+  absoluteFile: string,
+  raw: string,
+  notServed: string,
+): string | null {
+  const resolution = resolveLinkTarget(root, absoluteFile, raw);
+  if (resolution === null) return notServed;
+  if ('error' in resolution) return null;
+  if (!existsSync(resolution.target.absolute)) return null;
+
+  const relative = resolution.target.relative;
+  if (!relative.startsWith(SCREENSHOT_ROOT)) return notServed;
+  if (resolveDocImage(raw) !== screenshotAssetUrl(relative)) return notServed;
+
+  let isFile = false;
+  try {
+    isFile = statSync(resolution.target.absolute).isFile();
+  } catch {
+    // Reported as not served below; checkDocLinks owns unreadable targets.
+  }
+  if (!isFile) return notServed;
+
+  const extension = path.extname(relative).toLowerCase();
+  if (!Object.hasOwn(SCREENSHOT_TYPES, extension)) return notServed;
+  return null;
+}
+
+/**
+ * A served page may embed only images the asset route serves: a regular,
+ * supported-type file under `docs/screenshots/` whose `resolveDocImage` URL
+ * names that same file. External, protocol-relative, data, and already-asset
+ * sources need no check; missing targets and fragments stay `checkDocLinks`'
+ * findings.
  */
 function servedImageProblem(root: string, absoluteFile: string, raw: string): string | null {
   if (raw === '' || isExternalTarget(raw) || raw.startsWith(ASSET_PREFIX)) return null;
   if (raw.includes('#')) return null;
   if (raw.startsWith('?')) return IMAGE_NOT_SERVED;
-
-  const resolution = resolveLinkTarget(root, absoluteFile, raw);
-  if (resolution === null) return IMAGE_NOT_SERVED;
-  if ('error' in resolution) return null;
-  if (!existsSync(resolution.target.absolute)) return null;
-  if (!resolution.target.relative.startsWith(SCREENSHOTS_PREFIX)) return IMAGE_NOT_SERVED;
-  if (!resolveDocImage(raw).startsWith(ASSET_PREFIX)) return IMAGE_NOT_SERVED;
-  return null;
+  return servedAssetProblem(root, absoluteFile, raw, IMAGE_NOT_SERVED);
 }
 
 /**
@@ -386,7 +425,17 @@ export function checkHelpLinks(
       if (slug === null) {
         // Fragments on non-Markdown targets are checkDocLinks' findings.
         if (resolution.target.fragment !== null) continue;
-        if (!href.startsWith(ASSET_PREFIX)) problems.push(problem(TARGET_NOT_SERVED));
+        if (!href.startsWith(ASSET_PREFIX)) {
+          problems.push(problem(TARGET_NOT_SERVED));
+        } else {
+          const reason = servedAssetProblem(
+            absoluteRoot,
+            absoluteFile,
+            raw,
+            TARGET_NOT_SERVED,
+          );
+          if (reason !== null) problems.push(problem(reason));
+        }
         continue;
       }
 

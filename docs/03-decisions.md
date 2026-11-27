@@ -2383,8 +2383,8 @@ runs that one file.
 rather than `npm run lint` because it reuses the app's TypeScript slugger: a standalone
 `.mjs` lint step would need either a duplicate slug implementation or native TypeScript
 imports, which the documented Node 22.13 floor does not guarantee. Manifest-aware checks
-landed later in D113; external-link checks are the opt-in `npm run check:docs:external`
-from D124.
+landed later in D113, image/non-Markdown asset checks were tightened in D125, and
+external-link checks are the opt-in `npm run check:docs:external` from D124.
 
 ## D100. An opt-in heartbeat file covers a brain whose port is unreachable
 
@@ -2772,18 +2772,19 @@ any slug the manifest does not list, so a served page could link `docs/05-plan.m
 validates every link on a manifest-served page with the SPA's own `resolveDocHref` and
 `slugForDocPath` rewrite, requires a direct `.md` link to resolve to the same source its
 slug serves (so a same-named file elsewhere cannot masquerade), and validates literal
-`?help=<slug>#fragment` targets. Served images must resolve to an existing file under
-`docs/screenshots/` that `resolveDocImage` rewrites onto `/api/docs/assets/...`, and served
-pages may not link a local non-Markdown file unless `resolveDocHref` sends it to that
-asset route. `manifestProblems` enforces unique lowercase slugs, existing Markdown
-sources, and `slugForDocPath(source) === slug`. Internal-only notes never render in Help,
-so they stay unconstrained; served pages refer to them as inline code or absolute GitHub
-URLs. Runtime behavior is unchanged: the service still filters missing sources and returns
-an empty list when `docs/` is absent.
+`?help=<slug>#fragment` targets. Served images and local non-Markdown links must resolve
+to a regular `docs/screenshots/**` file with a type in `src/server/src/docs/assets.ts`, and
+`resolveDocImage`/`resolveDocHref` must map it to the exact `/api/docs/assets/...` URL for
+that repo-relative path (D125). `manifestProblems` enforces unique lowercase slugs,
+existing Markdown sources, and `slugForDocPath(source) === slug`. Internal-only notes
+never render in Help, so they stay unconstrained; served pages refer to them as inline
+code or absolute GitHub URLs. Runtime behavior is unchanged: the service still filters
+missing sources and returns an empty list when `docs/` is absent.
 
 **Cost.** One pure module, two checker exports, and cases in the existing docs-gate test
-file. External URLs and SPA-authored Help links stay separate checks (D124 and D123);
-missing and fragment targets remain the base link gate's findings.
+file. External URLs are D124 and SPA-authored Help links D123; missing and fragment
+targets remain the base link gate's findings. The shared screenshot type table and stricter
+asset identity/type checks arrived in D125.
 
 ## D114. Deeper systemd sandboxing is decided by a live probe, not by the score
 
@@ -3127,12 +3128,12 @@ hard-coded target fails without editing the gate, and a missing manifest source 
 **Cost.** One registry, one checker, and fixture cases in the existing docs-gate test
 file; no runtime behavior, dependency, or manifest change. The SPA scan is a text guard,
 not a parser: it catches quoted slug literals (comments included) but not a slug assembled
-at runtime. External URLs and image/non-Markdown targets stay separate checks.
+at runtime. External URLs are D124; image/non-Markdown targets are checked by D113/D125.
 
 **Cost.** One registry, one gate, and four cases in the existing docs-gate test file; no
 runtime behavior, dependency, or manifest change. The SPA scan is a text guard, not a
 parser: it catches quoted slug literals, and dynamically built `?help=` strings remain out
-of scope. External URLs and image/non-Markdown targets stay separate checks.
+of scope. External URLs are D124; image/non-Markdown targets are checked by D113/D125.
 
 ## D124. External documentation links are checked on demand
 
@@ -3162,3 +3163,25 @@ Markdown destinations. At the time of writing the corpus has no extracted extern
 destinations, so the command is a no-op until a doc adds one. A GitHub token is
 intentionally unsupported because the checker must not send credentials to arbitrary
 hosts.
+
+## D125. Screenshot assets share one MIME table and one identity rule
+
+**Context.** D113 rejects local images and non-Markdown links that Help cannot serve, but
+the first pass only required the target to sit under `docs/screenshots/` and for
+`resolveDocImage` to return an asset URL. That accepted a directory, an unsupported
+extension, and a path whose `screenshots/` segment made Help serve a different same-named
+file. The server already had the authoritative MIME table privately.
+
+**Decision.** `src/server/src/docs/assets.ts` exports the frozen `SCREENSHOT_TYPES` table;
+`DocsService.asset` and the docs gate import it so the gate cannot accept a type the route
+rejects. A served image or local non-Markdown link passes only when it resolves to a
+regular file under `docs/screenshots/`, its extension is in `SCREENSHOT_TYPES`, and
+`resolveDocImage`/`resolveDocHref` produce exactly the `/api/docs/assets/...` URL for that
+repo-relative path. Raw `<img>` and image reference definitions are tagged as images by
+`src/web/src/doc-links-core.mjs`, so the image rule covers them; every other existing local
+non-Markdown target fails. Missing/escaping/empty targets and non-Markdown fragments remain
+`checkDocLinks`' findings, and runtime behavior is unchanged.
+
+**Cost.** One pure module, one metadata tag in the shared extractor, the stricter checker,
+and fixture cases in the existing docs-gate test file. No new dependency, network access,
+or Help UI change.

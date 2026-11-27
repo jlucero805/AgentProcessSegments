@@ -122,7 +122,8 @@ npm run probe:sandbox           # manual: boot the brain under one candidate sys
                                # directive and exercise PTY/turns/worktrees; needs a
                                # user manager and agent CLI, never part of lint or CI
 npm test                       # 1097 server + 381 web, plus the e2e env guard
-npm run check:docs             # local Markdown links, images, Help anchors, manifest pages, SPA Help targets
+npm run check:docs             # local Markdown links, images, Help anchors, manifest pages,
+                               # served screenshots, SPA Help targets
 npm run check:docs:external    # manual/periodic: fetch external Markdown links; never a gate
 npm run test:e2e-env           # node:test guards for the proof scripts' spawn env, the
                                # webhook receiver example, missing-Puppeteer policy,
@@ -484,8 +485,9 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     sent as raw slash commands.
 25. **Help docs are manifest-only.** Add pages to `src/server/src/docs/manifest.ts`; the
     server reads that list through `docs/service.ts`. Never join a user slug onto a
-    filesystem path. Assets are limited to `docs/screenshots/**`, and an empty docs
-    directory must render the unavailable state, not an error.
+    filesystem path. Assets are limited to `docs/screenshots/**` and the MIME types in
+    `src/server/src/docs/assets.ts`; a served page may reference only those assets. An
+    empty docs directory must render the unavailable state, not an error.
 26. **Brain agent runs are non-interactive.** Never allow a harness to wait for a UI
     question. OpenCode's `question` tool is denied in every scope; prompts must ask in
     plain text. The setup chat answers simple messages directly instead of touring tools.
@@ -766,10 +768,11 @@ journalctl --user -u agent-process-segments -n 50 --no-pager
     or a quoted `HELP_MANIFEST` slug anywhere else in `src/web/src` (comments included, so
     refer to the constant by name), because components must use the typed constants rather
     than duplicating a target; `docs.ts` derives the README alias from
-    `GETTING_STARTED_HELP`. Served images must be existing files under
-    `docs/screenshots/` that `resolveDocImage` rewrites onto `/api/docs/assets/...`, and a
-    served page may not link a local non-Markdown file unless `resolveDocHref` sends it to
-    that same asset route. Internal-only docs (`05-plan`, `06-refactor-audit`,
+    `GETTING_STARTED_HELP`. Served images and local non-Markdown links must resolve to a
+    regular `docs/screenshots/**` file of a type in `src/server/src/docs/assets.ts`, and
+    `resolveDocImage`/`resolveDocHref` must map it to the exact `/api/docs/assets/...` URL
+    for that file; any other local target fails, so use an absolute URL or inline code.
+    Internal-only docs (`05-plan`, `06-refactor-audit`,
     `09-backlog`, `AGENTS.md`, skills) never render in Help, so a served page refers to
     them as inline code or an absolute GitHub URL. Run it alone with `npm run check:docs`;
     it is part of `npm test`, not `npm run lint`. External HTTP(S) destinations are

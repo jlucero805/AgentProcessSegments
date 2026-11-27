@@ -184,10 +184,11 @@ The brain binds `127.0.0.1:7391` unless `APS_HOST` / `APS_PORT` say otherwise. D
 widen the bind. A tunnel is the audience gate, not the process.
 
 The sidebar **Help** row renders the operator docs in-app from the same origin, including
-the screenshots, with grouped navigation and `?help=<slug>` deep links. A GitHub icon
-beside it links to the public source repository in a new tab. The brain reads the docs
-from `APS_DOCS_DIR` (default `<cwd>/docs`), so ship the `docs/` directory beside the
-build.
+the screenshots, with grouped navigation and `?help=<slug>` deep links. Served pages may
+link only other manifest pages and reference only `docs/screenshots/**` images; other
+local files are not served. A GitHub icon beside it links to the public source repository
+in a new tab. The brain reads the docs from `APS_DOCS_DIR` (default `<cwd>/docs`), so ship
+the `docs/` directory beside the build.
 
 Agent turns are bounded by `APS_TURN_TIMEOUT_MS` (default ten minutes); a live but silent
 child is killed and produces a visible error, and its recent stderr goes to the error log.
@@ -658,6 +659,7 @@ src/server/src
   maintenance/legacy-branches.ts  safe sbox -> aps decisions shared by dispose, sweep, CLI
   maintenance/legacy-branch-sweeper.ts  startup/hourly cleanup for leftover terminal refs
   settings.ts         XDG scheduler settings, zod validation, atomic write
+  docs/assets.ts      screenshot MIME types shared with the docs link gate
   docs/manifest.ts    explicit Help page list (slug, title, group, repo source)
   docs/service.ts     manifest reads, Markdown reads, screenshot assets
   process/            six segment definitions (incl. Merge), defaults, store, follow-up parser
@@ -737,7 +739,8 @@ format/rotation, skill discovery, terminal session lifecycle, and the HTTP API o
 real socket) and 381 web cases across 28 files (shared contract re-exports, NDJSON
 client, chat folding, the cross-tab and crash-safe chat sends, slash/skill
 resolution, request-form mapping, docs helpers and Help overlay, documentation links,
-Help anchors, manifest-aware served-page links, and SPA Help targets, the source link, board,
+Help anchors, manifest-aware served-page links, served image/non-Markdown targets,
+and SPA Help targets, the source link, board,
 create modal, composer, cell bar, cell creation, config/process and pricing editor,
 budget and alert-delivery cards including chat bot routing, delivery history, and
 spend-cap overrides, budget banner, master detail and scorecard, the usage page and
@@ -806,8 +809,9 @@ external URLs. It also imports the Help manifest: a served page may link only a 
 page or a `?help=<slug>` target whose slug and anchor exist in
 `src/server/src/docs/manifest.ts`, and a manifest entry must have a unique lowercase
 slug, an existing Markdown source, and the slug the SPA derives from that source. Served
-images must be existing `docs/screenshots/` files that resolve onto
-`/api/docs/assets/...`, and a local non-Markdown link must reach that same asset route.
+images and local non-Markdown links must resolve to a regular `docs/screenshots/**` file
+of a supported type whose Help URL is exactly the asset URL for that file; any other
+local target must be an absolute URL or inline code.
 The SPA's own Help targets are declared in `src/web/src/links.ts`; the same test checks each
 slug and anchor against the manifest source and rejects a literal `?help=<slug>` or a
 quoted manifest slug anywhere else in the SPA. External destinations are a separate

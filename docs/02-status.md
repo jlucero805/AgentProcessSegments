@@ -500,7 +500,8 @@ built and vended by the brain; real-CLI verification is still pending.
   The web suite also resolves every local documentation link, image, and Help `#anchor`,
   checks links on Help-served pages against the manifest in
   `src/server/src/docs/manifest.ts`, requires served images and non-Markdown links to
-  resolve through the `/api/docs/assets/` route, and validates the SPA's own Help targets
+  resolve to a regular supported `docs/screenshots/**` file whose Help URL is exactly its
+  `/api/docs/assets/` asset URL, and validates the SPA's own Help targets
   from `src/web/src/links.ts` (slug and anchor) while rejecting any literal copy in other
   SPA sources (external URLs are never fetched); run it alone with
   `npm run check:docs`. External HTTP(S) destinations are checked only by the manual

@@ -111,6 +111,8 @@ function makeAssetFixture(): string {
   tempRoots.push(root);
   for (const directory of [
     'docs/screenshots',
+    'docs/screenshots/sub',
+    'docs/screenshots/other/screenshots',
     'docs/images',
     'src/server/src',
     'src/screenshots',
@@ -121,6 +123,8 @@ function makeAssetFixture(): string {
   }
   for (const file of [
     'docs/screenshots/shot.png',
+    'docs/screenshots/notes.txt',
+    'docs/screenshots/other/screenshots/shot.png',
     'docs/images/bad.png',
     'src/screenshots/shot.png',
     'src/server/src/app.ts',
@@ -173,6 +177,12 @@ function makeAssetFixture(): string {
       '![fenced](images/bad.png)',
       '[fenced link](../src/server/src/app.ts)',
       '~~~',
+      '![bad type](screenshots/notes.txt)',
+      '![directory](screenshots/sub)',
+      '![nested marker](screenshots/other/screenshots/shot.png)',
+      '[bad type link](screenshots/notes.txt)',
+      '[directory link](screenshots/sub)',
+      '[nested marker link](screenshots/other/screenshots/shot.png)',
     ].join('\n'),
   );
   return root;
@@ -424,6 +434,42 @@ describe('Help-served links and the manifest', () => {
         file: 'docs/served.md',
         line: 30,
         target: '../src/server/src/app.ts',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 36,
+        target: 'screenshots/notes.txt',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 37,
+        target: 'screenshots/sub',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 38,
+        target: 'screenshots/other/screenshots/shot.png',
+        reason: 'local image is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 39,
+        target: 'screenshots/notes.txt',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 40,
+        target: 'screenshots/sub',
+        reason: 'local non-Markdown target is not served by Help',
+      },
+      {
+        file: 'docs/served.md',
+        line: 41,
+        target: 'screenshots/other/screenshots/shot.png',
         reason: 'local non-Markdown target is not served by Help',
       },
     ]);

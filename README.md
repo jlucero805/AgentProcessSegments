@@ -456,9 +456,9 @@ continues from the same session. Nothing is replayed automatically. Spend is rec
 a turn completes, so one long turn can still overshoot the cap before the next crossing is
 observed. The Usage card and banner share one budget poll; the card keeps its last good
 status when a refresh fails and offers Retry when budget status cannot be loaded. A
-snooze, an end-override, a budget save on the Config page, or a cell budget/pause save in
-the cell editor refreshes that shared poll immediately, so the banner and the status rows
-agree without waiting for the next tick.
+snooze, an end-override, a budget save on the Config page, a cell budget/pause save in
+the cell editor, or deleting a cell refreshes that shared poll immediately, so the banner
+and the status rows agree without waiting for the next tick.
 
 A paused scope can also be **snoozed** for 15 minutes up to the rest of the UTC month. An
 overall snooze admits every new turn; a cell snooze admits only that cell. Snoozing never

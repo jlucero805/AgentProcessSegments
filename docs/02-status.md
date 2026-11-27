@@ -283,10 +283,10 @@ built and vended by the brain; real-CLI verification is still pending.
   the same monthly progress, and an app-wide banner surfaces alerts, pauses, and override
   controls. The Usage card and banner share one poll; the card keeps its last good status
   when a refresh fails and offers Retry when budget status cannot be loaded. Snoozing,
-  ending an override, saving the overall budget, or saving a cell budget/pause in the cell
-  editor refreshes that shared poll immediately. Unpriced turns are reported as unknown or
-  a lower bound, never guessed. Overall pauses block all new agent turns and stop every
-  live one; cell pauses are cell-scoped for both. A cap stop
+  ending an override, saving the overall budget, saving a cell budget/pause in the cell
+  editor, or deleting a cell refreshes that shared poll immediately. Unpriced turns are
+  reported as unknown or a lower bound, never guessed. Overall pauses block all new agent
+  turns and stop every live one; cell pauses are cell-scoped for both. A cap stop
   saves the partial transcript with a `⏸` line, emits `paused` before `done`, keeps the
   harness session for a later resume, and records harness-reported usage. A snooze
   suppresses admission and the in-flight stop for its scope without changing the budget,

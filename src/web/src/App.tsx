@@ -340,7 +340,12 @@ export function App() {
               setCellModalOpen(true);
               setNavOpen(false);
             }}
-            reload={() => void loadCells()}
+            reload={() => {
+              void loadCells();
+              // A deleted cell can take its budget or pause with it; refresh
+              // the one shared budget feed instead of waiting for the next poll.
+              void budgetFeed.reload();
+            }}
             onError={setError}
           />
         </div>

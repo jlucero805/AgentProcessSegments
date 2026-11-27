@@ -4,8 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/check-dev-deps.mjs dev-web",
     "dev": "vite",
+    "prebuild": "node ../../scripts/check-dev-deps.mjs build-web",
     "build": "vite build",
+    "prepreview": "node ../../scripts/check-dev-deps.mjs preview-web",
     "preview": "vite preview",
     "pretypecheck": "node ../../scripts/check-dev-deps.mjs typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",

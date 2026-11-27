@@ -27,8 +27,14 @@ const MODES: ReadonlyArray<{ mode: string; tools: readonly string[] }> = [
   { mode: 'test', tools: ['vitest'] },
   { mode: 'lint', tools: ['eslint', 'markdownlint-cli2'] },
   { mode: 'lint-js', tools: ['eslint'] },
+  { mode: 'lint-md', tools: ['markdownlint-cli2'] },
   { mode: 'build', tools: ['tsc', 'vite'] },
+  { mode: 'build-web', tools: ['vite'] },
+  { mode: 'build-server', tools: ['tsc'] },
   { mode: 'dev', tools: ['concurrently', 'tsx', 'vite'] },
+  { mode: 'dev-web', tools: ['vite'] },
+  { mode: 'dev-server', tools: ['tsx'] },
+  { mode: 'preview-web', tools: ['vite'] },
   { mode: 'e2e', tools: ['tsc', 'vite'] },
 ];
 
@@ -103,6 +109,48 @@ describe('root dev dependency preflight', () => {
         }
       }
     }
+
+    const workspaceRoot = emptyRoot('dev-preflight-workspace');
+    const webBin = path.join(workspaceRoot, 'src', 'web', 'node_modules', '.bin');
+    const serverBin = path.join(workspaceRoot, 'src', 'server', 'node_modules', '.bin');
+    mkdirSync(webBin, { recursive: true });
+    mkdirSync(serverBin, { recursive: true });
+
+    const expectMode = (mode: string, missing: readonly string[]): void => {
+      const result = run(mode, ['--root', workspaceRoot], {
+        ...process.env,
+        NODE_ENV: 'production',
+      });
+      expect(result.status, mode).toBe(missing.length === 0 ? 0 : 1);
+      expect(result.stdout, mode).toBe('');
+      if (missing.length === 0) {
+        expect(result.stderr, mode).toBe('');
+      } else {
+        expect(result.stderr, mode).toContain(
+          `${mode}: missing devDependencies (${missing.join(', ')})`,
+        );
+      }
+    };
+
+    executable(path.join(webBin, 'tsc'));
+    expectMode('build-server', ['tsc']);
+
+    executable(path.join(serverBin, 'tsc'));
+    expectMode('build-server', []);
+
+    executable(path.join(serverBin, 'vite'));
+    expectMode('build-web', ['vite']);
+
+    executable(path.join(webBin, 'vite'));
+    expectMode('build-web', []);
+    expectMode('dev-web', []);
+    expectMode('preview-web', []);
+
+    executable(path.join(webBin, 'tsx'));
+    expectMode('dev-server', ['tsx']);
+
+    executable(path.join(serverBin, 'tsx'));
+    expectMode('dev-server', []);
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -147,6 +195,7 @@ describe('root dev dependency preflight', () => {
       ['pretest', 'node scripts/check-dev-deps.mjs test'],
       ['prelint', 'node scripts/check-dev-deps.mjs lint'],
       ['prelint:js', 'node scripts/check-dev-deps.mjs lint-js'],
+      ['prelint:md', 'node scripts/check-dev-deps.mjs lint-md'],
       ['prebuild', 'node scripts/check-dev-deps.mjs build'],
       ['predev', 'node scripts/check-dev-deps.mjs dev'],
       ['pree2e', 'node scripts/check-dev-deps.mjs e2e'],
@@ -165,6 +214,21 @@ describe('root dev dependency preflight', () => {
       );
       expect(manifest.scripts?.['pretypecheck'], `${workspace} pretypecheck`).toBe(
         'node ../../scripts/check-dev-deps.mjs typecheck',
+      );
+    }
+
+    const workspaceHooks: ReadonlyArray<
+      readonly [string, Manifest, string, string]
+    > = [
+      ['src/server', serverPackageJson, 'prebuild', 'build-server'],
+      ['src/server', serverPackageJson, 'predev', 'dev-server'],
+      ['src/web', webPackageJson, 'prebuild', 'build-web'],
+      ['src/web', webPackageJson, 'predev', 'dev-web'],
+      ['src/web', webPackageJson, 'prepreview', 'preview-web'],
+    ];
+    for (const [workspace, manifest, hook, mode] of workspaceHooks) {
+      expect(manifest.scripts?.[hook], `${workspace} ${hook}`).toBe(
+        `node ../../scripts/check-dev-deps.mjs ${mode}`,
       );
     }
 
@@ -188,7 +252,7 @@ describe('root dev dependency preflight', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('unknown mode: bogus');
     expect(result.stderr).toContain(
-      'Usage: node scripts/check-dev-deps.mjs <typecheck|test|lint|lint-js|build|dev|e2e> [--root <dir>]',
+      'Usage: node scripts/check-dev-deps.mjs <typecheck|test|lint|lint-js|lint-md|build|build-web|build-server|dev|dev-web|dev-server|preview-web|e2e> [--root <dir>]',
     );
   });
 });

@@ -455,8 +455,10 @@ built and vended by the brain; real-CLI verification is still pending.
   mock Claude in an isolated temp DB, all work inside a dedicated `E2E` cell).
   The web suite also resolves every local documentation link, image, and Help `#anchor`
   (external URLs are never fetched); run it alone with `npm run check:docs`.
-- Dev-command preflight: the root `typecheck`/`test`/`lint` commands check for
-  project-local `tsc`/`vitest`/`eslint`/`markdownlint-cli2` and print an
+- Dev-command preflight: the root `typecheck`/`test`/`lint`/`build`/`dev`/`e2e` commands,
+  direct workspace `test`/`typecheck`/`build`/`dev`/`preview`, and
+  `npm run lint:js`/`lint:md` check for project-local
+  `tsc`/`vitest`/`eslint`/`markdownlint-cli2`/`vite`/`concurrently`/`tsx` and print an
   `npm ci --include=dev` hint instead of a raw `not found`. The shell half of `lint` also
   needs `bash` and `shellcheck` on `PATH`, and the workflow half needs `actionlint`.
 - Claude verified against the real 2.1.330 CLI via `scripts/claude-mock-smoke.mjs`: a

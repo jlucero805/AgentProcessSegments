@@ -163,9 +163,9 @@ a bare `npm install` or `npm ci` installs production dependencies only and
 (or `NODE_ENV=development npm ci`); a fresh `npm ci` under the inherited env prunes
 `typescript`, `vite`, `vitest`, and ESLint again, so pass the flag every time. The root
 `typecheck`, `test`, `lint`, `build`, `dev`, and `e2e` commands, direct workspace
-`test`/`typecheck` invocations, and `npm run lint:js` check for the project-local binaries
-first and print the `npm ci --include=dev` hint if they are missing. See the
-`AGENTS.md` environment-facts bullet for the sibling failures and the
+`test`/`typecheck`/`build`/`dev`/`preview` invocations, and `npm run lint:js`/`lint:md` check
+for the project-local binaries first and print the `npm ci --include=dev` hint if they are
+missing. See the `AGENTS.md` environment-facts bullet for the sibling failures and the
 `npm config get omit` check.
 
 The brain binds `127.0.0.1:7391` unless `APS_HOST` / `APS_PORT` say otherwise. Do not

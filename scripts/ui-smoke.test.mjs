@@ -5,7 +5,7 @@
 // no-brain behavior are proven without Puppeteer, Chrome, or a built app.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -105,4 +105,50 @@ test('scripts/ui-smoke.mjs routes the decision through the guard', () => {
   assert.match(source, /await resolveUiSmokePuppeteer\(/);
   assert.doesNotMatch(source, /skipping UI smoke/);
   assert.doesNotMatch(source, /process\.exit\(0\)/);
+});
+
+function productionWebSource() {
+  const webRoot = path.join(repoRoot, 'src', 'web', 'src');
+  const files = readdirSync(webRoot, { recursive: true }).filter(
+    (file) => file.endsWith('.tsx') && !file.endsWith('.test.tsx'),
+  );
+  return files.map((file) => readFileSync(path.join(webRoot, file), 'utf8')).join('\n');
+}
+
+test('ui smoke locates elements through data-testid hooks that exist in the SPA', () => {
+  const source = readFileSync(script, 'utf8');
+  const hooks = [
+    ...new Set(
+      [...source.matchAll(/data-testid(?:[\^$*]?=)"([^"]+)"/g)].map((match) => match[1]),
+    ),
+  ];
+
+  assert.ok(
+    hooks.length >= 20,
+    `expected at least 20 data-testid hooks in the smoke, found ${hooks.length}`,
+  );
+
+  const web = productionWebSource();
+  for (const hook of hooks) {
+    const present =
+      web.includes(`data-testid="${hook}"`) ||
+      web.includes(`testId="${hook}"`) ||
+      web.includes('data-testid={`' + hook);
+    assert.ok(
+      present,
+      `ui-smoke uses data-testid "${hook}" but no production web component defines it`,
+    );
+  }
+});
+
+test('ui smoke does not match visible UI copy', () => {
+  const source = readFileSync(script, 'utf8');
+
+  assert.doesNotMatch(source, /function\s+(?:hasText|clickText)\s*\(/);
+  for (const line of source.split('\n')) {
+    assert.ok(
+      !(line.includes('document.body.innerText') && line.includes('.includes(')),
+      `ui-smoke must not match body copy: ${line.trim()}`,
+    );
+  }
 });

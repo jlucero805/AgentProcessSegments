@@ -164,10 +164,16 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
   const rangeDetails = rangeOption(range);
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl">
+    <aside
+      data-testid="master-detail"
+      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[42rem] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
+    >
       <header className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
         <Badge tone="purple">cell master</Badge>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">
+        <span
+          data-testid="master-title"
+          className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100"
+        >
           {cell ? `${cell.name} · process automation` : 'Process automation'}
         </span>
         <Button variant="secondary" size="sm" onClick={() => onConfigure(cell)}>
@@ -214,14 +220,14 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
               ) : null}
             </Card>
 
-            <Card className="space-y-3 p-4">
+            <Card testId="master-cron-loop" className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-2">
                 <SectionTitle>Cron loop</SectionTitle>
                 <span className="text-[11px] text-zinc-600">
                   {enabled.length} of {process.segments.length} enabled
                 </span>
               </div>
-              <p className="text-[11px] text-zinc-600">
+              <p data-testid="master-policy" className="text-[11px] text-zinc-600">
                 {cell
                   ? `${cell.process ? 'Cell policy' : 'Global default (cell has no policy yet)'} · ${
                       cell.maxConcurrent
@@ -385,7 +391,10 @@ export function MasterDetail({ cellId, onClose, onConfigure, onError, commands }
       </div>
 
       <div className="h-80 shrink-0 border-t border-zinc-800">
-        <div className="border-b border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-500">
+        <div
+          data-testid="master-chat"
+          className="border-b border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-500"
+        >
           Master chat — scheduler notes and your questions
         </div>
         <div className="h-[calc(100%-1.75rem)]">

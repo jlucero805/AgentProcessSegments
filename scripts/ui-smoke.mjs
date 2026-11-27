@@ -12,6 +12,9 @@
 // schedule card, drops the request through the API, and fails on page or console errors.
 // A missing Puppeteer fails the run; --allow-missing-puppeteer skips it
 // deliberately and prints SKIPPED (a skip is not a pass).
+//
+// Locate elements through the data-testid hooks below, never through visible copy.
+// scripts/ui-smoke.test.mjs fails when a hook used here is missing from the SPA.
 import { resolveUiSmokePuppeteer } from './e2e/puppeteer.mjs';
 
 const guard = await resolveUiSmokePuppeteer({ argv: process.argv.slice(2) });
@@ -23,6 +26,7 @@ const puppeteer = guard.puppeteer;
 
 const base = process.env.UI_BASE ?? 'http://127.0.0.1:7391';
 const mobile = process.env.UI_MOBILE === '1';
+const BOARD_COLUMNS = ['intake', 'clarify', 'dispatch', 'review', 'merge', 'finalize'];
 let browser;
 let page;
 try {
@@ -46,15 +50,8 @@ page.on('console', (message) => {
   }
 });
 
-async function hasText(text) {
-  return page.evaluate(
-    (label) => document.body.innerText.toLowerCase().includes(label.toLowerCase()),
-    text,
-  );
-}
-
 const HELP_MERMAID_SELECTOR =
-  '[role="dialog"][aria-label="Documentation"] article svg[id^="help-mermaid-"]';
+  '[data-testid="help-article"] svg[id^="help-mermaid-"]';
 
 async function waitForMermaidDiagram() {
   try {
@@ -62,9 +59,7 @@ async function waitForMermaidDiagram() {
   } catch (error) {
     const article = await page
       .evaluate(() => {
-        const node = document.querySelector(
-          '[role="dialog"][aria-label="Documentation"] article',
-        );
+        const node = document.querySelector('[data-testid="help-article"]');
         return node ? node.innerText : '';
       })
       .catch(() => '');
@@ -77,17 +72,6 @@ async function waitForMermaidDiagram() {
       { cause: error },
     );
   }
-}
-
-async function clickText(text) {
-  const found = await page.evaluate((label) => {
-    const elements = [...document.querySelectorAll('button, a')];
-    const element = elements.find((candidate) => candidate.textContent?.trim() === label);
-    if (!element) return false;
-    element.click();
-    return true;
-  }, text);
-  if (!found) throw new Error(`button not found: ${text}`);
 }
 
 async function sidebarBox() {
@@ -128,9 +112,17 @@ async function openMenu(step) {
 try {
   await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('agent process segments'),
+    (count) => document.querySelectorAll('[data-testid^="column-"]').length === count,
     { timeout: 15_000 },
+    BOARD_COLUMNS.length,
   );
+  const columnIds = await page.$$eval('[data-testid^="column-"]', (columns) =>
+    columns.map((column) => column.getAttribute('data-testid')),
+  );
+  const expectedColumns = BOARD_COLUMNS.map((column) => `column-${column}`);
+  if (columnIds.join(',') !== expectedColumns.join(',')) {
+    throw new Error(`board columns differ: ${JSON.stringify(columnIds)}`);
+  }
 
   const background = await page.evaluate(() => {
     const root = document.getElementById('root')?.firstElementChild;
@@ -140,17 +132,13 @@ try {
     throw new Error(`Tailwind did not apply; root background is ${background}`);
   }
 
-  for (const label of ['Requests', 'Plan', 'Implement', 'Review', 'Merge', 'Finalize']) {
-    if (!(await hasText(label))) throw new Error(`board column missing: ${label}`);
-  }
-
   if (mobile) {
     const closed = await sidebarBox();
     if (!closed || closed.x >= 0 || closed.open !== 'false') {
       throw new Error(`menu should start off-canvas: ${JSON.stringify(closed)}`);
     }
     const scroll = await page.evaluate(() => {
-      const column = document.querySelector('[data-testid="column-intake"]');
+      const column = document.querySelector('[data-testid^="column-"]');
       const board = column?.parentElement;
       return board ? { scrollWidth: board.scrollWidth, clientWidth: board.clientWidth } : null;
     });
@@ -160,33 +148,28 @@ try {
   }
 
   await openMenu('create');
-  await clickText('+ New request');
-  await page.waitForSelector('input[placeholder="What should the agent do?"]', { timeout: 10_000 });
-  await page.type('input[placeholder="What should the agent do?"]', 'Browser smoke');
+  await page.click('[data-testid="new-request"]');
+  await page.waitForSelector('[data-testid="create-title"]', { visible: true, timeout: 10_000 });
+  await page.type('[data-testid="create-title"]', 'Browser smoke');
   await page.type(
-    'textarea[placeholder^="Context, links"]',
+    '[data-testid="create-body"]',
     'Created by a real Chromium against the running brain.',
   );
-  await clickText('Create request');
+  await page.click('[data-testid="create-submit"]');
 
+  await page.waitForSelector('[data-testid="request-detail"]', { timeout: 15_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('finalize digest'),
+    () => document.querySelector('[data-testid="request-title"]')?.textContent?.trim() === 'Browser smoke',
     { timeout: 15_000 },
   );
-  // The Harness field's label renders uppercase with no colon, so its "effective:" hint
-  // is the stable marker for that field.
-  await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('effective:'), {
-    timeout: 15_000,
-  });
-  await page.waitForFunction(() => document.body.innerText.toLowerCase().includes('send'), {
-    timeout: 10_000,
-  });
+  // These mount only after the drawer's form and chat have loaded.
+  await page.waitForSelector('[data-testid="finalize-digest"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="harness-select"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="composer-send"]', { visible: true, timeout: 10_000 });
 
   if (mobile) {
     const drawer = await page.evaluate(() => {
-      const aside = [...document.querySelectorAll('aside')].find((element) =>
-        element.textContent?.includes('Finalize digest'),
-      );
+      const aside = document.querySelector('[data-testid="request-detail"]');
       if (!aside) return null;
       const rect = aside.getBoundingClientRect();
       return { x: rect.x, width: rect.width, viewport: window.innerWidth };
@@ -202,56 +185,59 @@ try {
     );
     close?.click();
   });
+  await page.waitForSelector('[data-testid="request-detail"]', { hidden: true, timeout: 10_000 });
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('browser smoke'),
+    () =>
+      [...document.querySelectorAll('[data-testid="request-card"]')].some((card) =>
+        card.textContent?.includes('Browser smoke'),
+      ),
     { timeout: 10_000 },
   );
 
   await openMenu('cell');
-  await page.click('button[aria-label="New cell"]');
+  await page.click('[data-testid="new-cell"]');
+  await page.waitForSelector('[data-testid="cell-name"]', { visible: true, timeout: 15_000 });
+  await page.type('[data-testid="cell-name"]', 'Smoke cell');
+  // The submit button only enables after the cell draft's process has loaded.
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('cell process segments'),
+    () => {
+      const button = document.querySelector('[data-testid="cell-submit"]');
+      return button instanceof HTMLButtonElement && !button.disabled;
+    },
     { timeout: 15_000 },
   );
-  await page.type('input[placeholder="e.g. Work repo"]', 'Smoke cell');
-  await clickText('Create cell');
+  await page.click('[data-testid="cell-submit"]');
   await page.waitForFunction(
-    () => document.body.innerText.includes('Smoke cell'),
+    () =>
+      [...document.querySelectorAll('[data-testid="cell-option"]')].some(
+        (option) => option.textContent?.trim() === 'Smoke cell',
+      ),
     { timeout: 15_000 },
   );
   const cells = await (await fetch(`${base}/api/cells`)).json();
   const smokeCell = cells.find((cell) => cell.name === 'Smoke cell');
 
   await openMenu('master');
-  await clickText('Cell master');
-  await page.waitForFunction(
-    () =>
-      document.body.innerText.toLowerCase().includes('process automation') &&
-      document.body.innerText.toLowerCase().includes('cron loop'),
-    { timeout: 15_000 },
-  );
+  await page.click('[data-testid="nav-master"]');
+  await page.waitForSelector('[data-testid="master-detail"]', { timeout: 15_000 });
+  await page.waitForSelector('[data-testid="master-cron-loop"]', { visible: true, timeout: 15_000 });
+  await page.waitForSelector('[data-testid="master-title"]', { visible: true, timeout: 10_000 });
   if (smokeCell) {
     await page.waitForFunction(
       () =>
-        document.body.innerText.includes('Smoke cell') &&
-        document.body.innerText.toLowerCase().includes('cell policy'),
+        document.querySelector('[data-testid="master-title"]')?.textContent?.includes('Smoke cell'),
       { timeout: 10_000 },
     );
+    await page.waitForSelector('[data-testid="master-policy"]', { visible: true, timeout: 10_000 });
   }
-  await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('master chat'),
-    { timeout: 10_000 },
-  );
+  await page.waitForSelector('[data-testid="master-chat"]', { visible: true, timeout: 10_000 });
   await page.evaluate(() => {
     const close = [...document.querySelectorAll('button')].find(
       (button) => button.getAttribute('aria-label') === 'Close master detail',
     );
     close?.click();
   });
-  await page.waitForFunction(
-    () => !document.body.innerText.toLowerCase().includes('process automation'),
-    { timeout: 5_000 },
-  );
+  await page.waitForSelector('[data-testid="master-detail"]', { hidden: true, timeout: 5_000 });
 
   if (!mobile) {
     await page.click('button[aria-label="Terminal"]');
@@ -274,30 +260,20 @@ try {
   }
 
   await openMenu('config');
-  await clickText('Config');
+  await page.click('[data-testid="nav-config"]');
   // The settings cards mount only after every config fetch resolves, so the
-  // page heading and the schedule card prove the page is really loaded. The
-  // sidebar also has a "Cell master" button when a cell is selected, so match
-  // the main heading instead of the page text.
+  // page heading and the schedule card prove the page is really loaded.
   try {
-    await page.waitForFunction(
-      () =>
-        [...document.querySelectorAll('main h1')].some(
-          (heading) => heading.textContent?.trim() === 'Cell master',
-        ),
-      { timeout: 15_000 },
-    );
+    await page.waitForSelector('[data-testid="config-heading"]', {
+      visible: true,
+      timeout: 15_000,
+    });
     // The Schedule card only renders after every settings fetch resolves, so this
     // button proves the Config page finished loading.
-    await page.waitForFunction(
-      () =>
-        [...document.querySelectorAll('button')].some(
-          (button) =>
-            button.textContent?.trim() === 'Save schedule' &&
-            button.getClientRects().length > 0,
-        ),
-      { timeout: 15_000 },
-    );
+    await page.waitForSelector('[data-testid="save-schedule"]', {
+      visible: true,
+      timeout: 15_000,
+    });
   } catch (error) {
     throw new Error(`Config schedule card did not load: ${error.message}`, { cause: error });
   }
@@ -309,21 +285,29 @@ try {
   }
 
   await openMenu('help');
-  await clickText('Help');
+  await page.click('[data-testid="nav-help"]');
   await page.waitForSelector('[role="dialog"][aria-label="Documentation"]', { timeout: 10_000 });
-  await page.waitForFunction(
-    () =>
-      document.body.innerText.toLowerCase().includes('getting started') &&
-      document.body.innerText.toLowerCase().includes('agent process segments'),
-    { timeout: 10_000 },
-  );
+  await page.waitForSelector('[data-testid="help-article"][data-slug="getting-started"]', {
+    visible: true,
+    timeout: 15_000,
+  });
   await waitForMermaidDiagram();
   if (!mobile) {
-    await clickText('Process segments');
+    await page.waitForSelector(
+      '[data-testid="help-nav"] [data-testid="help-page-link"][data-slug="07-process-segments"]',
+      { visible: true, timeout: 10_000 },
+    );
+    await page.click(
+      '[data-testid="help-nav"] [data-testid="help-page-link"][data-slug="07-process-segments"]',
+    );
     await page.waitForFunction(
       () => window.location.search.includes('help=07-process-segments'),
       { timeout: 5_000 },
     );
+    await page.waitForSelector('[data-testid="help-article"][data-slug="07-process-segments"]', {
+      visible: true,
+      timeout: 10_000,
+    });
   }
   await page.click('button[aria-label="Close help"]');
   await page.waitForSelector('[role="dialog"][aria-label="Documentation"]', {
@@ -332,9 +316,9 @@ try {
   });
 
   await openMenu('floor');
-  await clickText('Floor');
+  await page.click('[data-testid="nav-floor"]');
   await page.waitForFunction(
-    () => document.body.innerText.toLowerCase().includes('requests'),
+    () => document.querySelectorAll('[data-testid^="column-"]').length === 6,
     { timeout: 10_000 },
   );
 
